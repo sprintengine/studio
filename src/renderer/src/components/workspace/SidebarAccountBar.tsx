@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { FOCUS_RING_CLASS, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
+import { IconButton, OutlineButton, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import { MENU_ITEM_CLASS } from '../ui/menuClasses'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
@@ -40,17 +40,17 @@ function GearIcon({ className }: { className?: string }) {
   )
 }
 
-// One footer icon button, shared by the gear below and every modal-surface
-// trigger, so the cluster cannot drift into rival idioms: `control-md` box,
-// hover wash, and the open state carried as a bordered press (the same
-// treatment the gear has always had). `aria-pressed` tracks the open modal.
-function footerIconButtonClass(open: boolean): string {
-  return `inline-flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-    open
-      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-      : 'border-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-  }`
-}
+// The footer cluster is `IconButton`, not a local lookalike. The helper that
+// used to live here painted a `control-md` (34px) box with `rounded-md` — the
+// OVERLAY radius, on a control — and carried its open state as a border plus
+// `bg-hover`, where the kit's pressed state is the neutral `bg-selected` fill.
+// Three divergences from the primitive it was imitating, on the most-used
+// glyphs in the app. Retired 2026-09-02; the cluster now sits on the kit's
+// icon ramp (30px) and speaks the kit's one pressed language.
+//
+// Deliberately NOT elevated. `control-raised` / `control-edge` are for filled
+// and bordered buttons; a toolbar of lifted glyphs would read as a row of
+// tiles and would spend depth on chrome rather than on the one primary action.
 
 // The modal-surface trigger glyphs (doors→modals, 2026-09-01): one icon button
 // per registered modal surface, enablement-filtered and order-sorted by the
@@ -83,18 +83,17 @@ function ModalSurfaceTriggers() {
         const open = activeModalSurface === surface.id
         return (
           <Tooltip key={surface.id} content={surface.label} placement="top">
-            <button
-              type="button"
+            <IconButton
+              size="md"
+              pressed={open}
               onClick={() => {
                 surface.onOpen?.()
                 openModalSurface(surface.id)
               }}
-              className={footerIconButtonClass(open)}
               aria-label={surface.label}
-              aria-pressed={open}
             >
               <surface.Icon className="size-icon-md" />
-            </button>
+            </IconButton>
           </Tooltip>
         )
       })}
@@ -297,15 +296,9 @@ export default function SidebarAccountBar({
 
   const settingsButton = (
     <Tooltip content="Settings" placement="top">
-      <button
-        type="button"
-        onClick={() => openSettings(false)}
-        className={footerIconButtonClass(settingsOpen)}
-        aria-label="Settings"
-        aria-pressed={settingsOpen}
-      >
+      <IconButton size="md" pressed={settingsOpen} onClick={() => openSettings(false)} aria-label="Settings">
         <GearIcon className="size-icon-md" />
-      </button>
+      </IconButton>
     </Tooltip>
   )
 
@@ -329,36 +322,36 @@ export default function SidebarAccountBar({
           content={`${accountName} · ${accountPlanLabel(authState)}`}
           placement={collapsed ? 'right' : 'top'}
         >
-          <button
+          <IconButton
             ref={ref}
-            type="button"
+            size="md"
+            pressed={accountOpen}
             onClick={togglePopover}
-            className={`flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-              accountOpen ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
-            }`}
             aria-label={`Account · ${tierStyle.label} plan`}
             {...triggerProps}
           >
             {avatar}
-          </button>
+          </IconButton>
         </Tooltip>
       )}
     >
       {accountMenu}
     </Popover>
   ) : (
-    <button
-      type="button"
+    // Was a hand-rolled copy of OutlineButton — border, surface-raised fill,
+    // both hover steps and the whole disabled:hover guard, restated inline.
+    // It has to BE the primitive now: the outline variant grew a resting
+    // elevation (`control-edge`) on 2026-09-02, and a lookalike is the one
+    // button in the footer that would have stayed flat beside it.
+    <OutlineButton
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}
-      className={`inline-flex h-control-md items-center rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-body font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS} ${
-        collapsed ? 'w-8 justify-center' : 'min-w-0 flex-1 justify-center px-3'
-      }`}
+      className={collapsed ? 'w-8' : 'min-w-0 flex-1'}
       aria-busy={authState.status === 'checking'}
       aria-label="Sign in"
     >
       {collapsed ? <AccountUserGlyph className="icon-sm" /> : 'Sign in'}
-    </button>
+    </OutlineButton>
   )
 
   return (

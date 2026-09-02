@@ -742,6 +742,66 @@
             }
           }
         }
+      },
+      "control-raised": {
+        "$type": "shadow",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)",
+        "$description": "Resting elevation for a filled control: a 1px lit top edge over a shallow drop.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface.",
+            "doNotUse": "Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.",
+            "components": [
+              "button",
+              "split-button"
+            ],
+            "modes": {
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45)"
+            }
+          }
+        }
+      },
+      "control-edge": {
+        "$type": "shadow",
+        "$value": "inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)",
+        "$description": "Resting elevation for a bordered neutral control: the quieter half-step below control-raised.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above.",
+            "doNotUse": "Filled controls — those take shadow.control-raised, which is a full step brighter.",
+            "components": [
+              "button",
+              "split-button"
+            ],
+            "modes": {
+              "light": "inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3)"
+            }
+          }
+        }
+      },
+      "control-pressed": {
+        "$type": "shadow",
+        "$value": "inset 0 1px 2px rgba(16, 20, 24, 0.12)",
+        "$description": "The pressed state of any elevated control: the bevel inverts and the drop is gone.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it.",
+            "doNotUse": "A resting state, and never on a control that carries no resting elevation.",
+            "components": [
+              "button",
+              "split-button"
+            ],
+            "modes": {
+              "light": "inset 0 1px 2px rgba(16, 20, 24, 0.12)",
+              "dark": "inset 0 1px 2px rgba(0, 0, 0, 0.4)"
+            }
+          }
+        }
       }
     },
     "font": {
@@ -1068,13 +1128,13 @@
       },
       "control": {
         "$type": "dimension",
-        "$value": "5px",
+        "$value": "7px",
         "$description": "Cards, rows, buttons, and inputs in panel chrome.",
         "$extensions": {
           "com.multicode": {
             "seeded": true,
             "role": "shape",
-            "use": "The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view."
+            "use": "The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner."
           }
         }
       },
@@ -1290,8 +1350,8 @@
           "$extensions": {
             "com.multicode": {
               "role": "sizing",
-              "use": "Height of icon buttons and controls that sit inside a list row.",
-              "doNotUse": "Any control carrying a text label — those start at sm.",
+              "use": "Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label.",
+              "doNotUse": "Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.",
               "platforms": {
                 "compact": {
                   "$value": "36px",
@@ -1331,7 +1391,8 @@
                   "$value": "44px",
                   "$description": "Touch. Pointer 34px + 10, landing exactly ON the hit-target floor — the largest control IS the floor."
                 }
-              }
+              },
+              "doNotUse": "Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs."
             }
           }
         }

@@ -226,7 +226,7 @@ export function ReasoningSelector({
           }}
           onKeyDown={(event) => event.stopPropagation()}
           className={[
-            'interactive inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[5px]',
+            'interactive inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm',
             quiet
               ? 'h-6 border border-transparent px-1.5 text-micro text-[color:var(--text-muted)]'
               : 'h-control-xs border border-transparent px-2 text-meta font-medium text-[color:var(--text-muted)]',

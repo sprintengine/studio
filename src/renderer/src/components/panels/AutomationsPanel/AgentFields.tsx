@@ -73,7 +73,7 @@ export function AgentModelFields({
               type="button"
               aria-label="Choose agent"
               onClick={togglePopover}
-              className={`grid w-full grid-cols-[24px_1fr_auto] items-center gap-2.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-left transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
+              className={`grid w-full grid-cols-[24px_1fr_auto] items-center gap-2.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-left transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
               {...triggerProps}
             >
               <span className="flex h-6 w-6 items-center justify-center text-[color:var(--text-muted)]">

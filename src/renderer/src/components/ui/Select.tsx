@@ -254,7 +254,7 @@ export function Select<V extends string = string>({
           className={[
             'interactive inline-flex h-control-sm w-full items-center justify-between gap-2',
             triggerMinWidthClassName,
-            'rounded-[5px] border px-2 text-left text-body',
+            'rounded-sm border px-2 text-left text-body',
             selectedTone
               ? 'border-transparent'
               : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',

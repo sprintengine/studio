@@ -3,8 +3,12 @@ import { FOCUS_RING_CLASS } from './tokens'
 
 type ButtonBase = React.ButtonHTMLAttributes<HTMLButtonElement>
 
+// `rounded-sm` rather than the `rounded-[5px]` literal this used to spell:
+// `assets/index.css` rebinds `--radius-sm` to `sem.radius.control`, so the
+// named step tracks the token and the literal did not — which is what left 64
+// call sites to sweep when the ramp moved to 7px (2026-09-02).
 const SHARED =
-  'interactive inline-flex items-center justify-center gap-1.5 rounded-[5px] font-medium ' +
+  'interactive inline-flex items-center justify-center gap-1.5 rounded-sm font-medium ' +
   'disabled:cursor-not-allowed disabled:opacity-45'
 
 // xs is the dense-chrome size for inline row actions and popover triggers;
@@ -65,6 +69,11 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
         className={[
           SHARED,
           SIZE[size],
+          // The raised step: a lit top edge over a shallow drop, inverting to a
+          // sunken one while held. Elevation is a class, not a `shadow-[...]`
+          // utility, because the resting, pressed, and disabled steps have to
+          // move together — see `.control-raised` in assets/index.css.
+          'control-raised',
           'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
           'hover:bg-[color:var(--accent-primary-hover)]',
           'disabled:hover:bg-[color:var(--accent-primary)]',
@@ -96,6 +105,10 @@ export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps
           // exists to stop. Carrying the same rest state the retired
           // `ModalButton` danger variant had is a faithful move, not a
           // regression — a token is the fix, not a literal.
+          // Raised for the same reason primary is: both are filled controls,
+          // and a destructive confirm that sat flat beside a raised primary
+          // would read as the weaker of the two.
+          'control-raised',
           'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
           FOCUS_RING_CLASS,
           className ?? '',
@@ -153,6 +166,10 @@ export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
         className={[
           SHARED,
           SIZE[size],
+          // Half a step below `control-raised`: enough that it reads as a
+          // control rather than a labelled box, quiet enough that it never
+          // competes with the view's one primary.
+          'control-edge',
           'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
           OUTLINE_TONE[tone],
           'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',
@@ -181,6 +198,16 @@ type IconButtonProps = ButtonBase & {
    * pressed fill vanished the moment a pointer touched it. Also supplies
    * `aria-pressed` when the caller has not, since a pressed control that does
    * not say so is only pressed for people who can see it.
+   *
+   * Tri-state ON PURPOSE, so leave it undefined on a button that is not a
+   * toggle. `undefined` emits no attribute (a Close or Delete glyph is an
+   * action, and announcing it as an unpressed toggle is a lie); `false` emits
+   * `aria-pressed="false"`, which is what a toggle that is currently OFF owes
+   * a screen reader. A `= false` default collapsed those two cases and made
+   * every toggle in the app announce as a plain button while off — the footer
+   * modal triggers regressed exactly that way on 2026-09-02. It matches the
+   * house idiom already used by TaskCard (`onSelect ? selected : undefined`)
+   * and SpawnDebugToggle.
    */
   pressed?: boolean
 }
@@ -207,18 +234,24 @@ const PRESSED_TONE: Record<ButtonTone, string> = {
 }
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  function IconButton({ className, size = 'sm', tone = 'neutral', pressed = false, children, type, ...rest }, ref) {
+  function IconButton({ className, size = 'sm', tone = 'neutral', pressed, children, type, ...rest }, ref) {
     return (
       <button
         ref={ref}
         type={type ?? 'button'}
         // Before the spread: an explicit `aria-pressed` from the caller still wins.
-        aria-pressed={pressed ? true : undefined}
+        // Passed through as-is so `false` reaches the DOM as "false" rather than
+        // being folded into "no attribute" — see the prop's docs.
+        aria-pressed={pressed}
         {...rest}
         className={[
-          'interactive inline-flex items-center justify-center rounded-[5px]',
+          // Deliberately flat — no `control-raised`/`control-edge`. A
+          // borderless square has no edge to light, and a toolbar of lifted
+          // icon buttons reads as a row of tiles rather than as chrome. It
+          // keeps the `.interactive` press scale instead.
+          'interactive inline-flex items-center justify-center rounded-sm',
           ICON_SIZE[size],
-          pressed ? PRESSED_TONE[tone] : GHOST_TONE[tone],
+          pressed === true ? PRESSED_TONE[tone] : GHOST_TONE[tone],
           'disabled:cursor-not-allowed disabled:opacity-45',
           FOCUS_RING_CLASS,
           className ?? '',

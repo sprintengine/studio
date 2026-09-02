@@ -27,7 +27,7 @@
 //
 //   (e) no-hand-rolled-task-card — `<li>` or `<article>` elements that wear
 //       the canonical TaskCard signature (the `data-task-card` data
-//       attribute, or the `border-l-2 + rounded-[5px]` class combo on a card
+//       attribute, or the `border-l-2 + rounded-sm` class combo on a card
 //       tag) outside `src/renderer/src/components/ui/TaskCard.tsx`. Use the
 //       `ui/TaskCard` primitive instead; the variants `row` and `card`
 //       already cover both layouts the four panels need.
@@ -143,7 +143,7 @@ const STATUSDOT_FROM_APP_ICONS =
 //   - data-task-card attribute outside TaskCard.tsx — the explicit marker.
 //   - <li or <article opening tag whose className (single or template
 //     string, possibly multi-line) contains both `border-l-2` and
-//     `rounded-[5px]` — the canonical visual signature. Tags whose body
+//     `rounded-sm` — the canonical visual signature. Tags whose body
 //     also contains `border-transparent` are excluded: a transparent left
 //     border is by definition not a tone-indicating identifier strip, so
 //     the shape is a layout-reservation skeleton, not a real task card.
@@ -302,7 +302,7 @@ for (const path of FILES) {
       const tagBody = tagEnd > 0 ? lookahead.slice(0, tagEnd) : lookahead
       if (
         tagBody.includes('border-l-2') &&
-        tagBody.includes('rounded-[5px]') &&
+        tagBody.includes('rounded-sm') &&
         !tagBody.includes('border-transparent')
       ) {
         const { line, column } = locationOf(source, start)
@@ -311,7 +311,7 @@ for (const path of FILES) {
           path,
           line,
           column,
-          match: `<${tagMatch[1]} ... border-l-2 rounded-[5px]>`,
+          match: `<${tagMatch[1]} ... border-l-2 rounded-sm>`,
           canonical: 'use ui/TaskCard (variant="row" | "card")',
         })
       }

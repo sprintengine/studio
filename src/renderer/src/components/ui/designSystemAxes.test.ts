@@ -75,13 +75,14 @@ const AXES = {
   /**
    * The named steps `xs / sm / md / lg` are ON the ramp: `assets/index.css`
    * rebinds `--radius-xs/sm/md/lg` to `sem.radius.chip/control/overlay/shell`
-   * (3/5/7/9px), so `rounded-sm` IS `radius.control` and is the spelling the
+   * (3/7/7/9px), so `rounded-sm` IS `radius.control` and is the spelling the
    * kit uses. What is still off the ramp is the bare `rounded` (Tailwind's 4px
    * default) and `xl`/`2xl`/`3xl` (12/16/24px). Re-ruled 2026-09-02; before
    * that this axis counted every named step, which made the on-ramp spelling
-   * look like growth. Matching the literal `rounded-[5px]` is deliberately NOT
-   * a violation (it is the token's value) but it will not move if the ramp
-   * moves, which is why the ramp names are the target. `rounded-full` and
+   * look like growth. The `rounded-[5px]` literal that used to be tolerated
+   * here (it was the token's value) is exactly what did not move when the ramp
+   * moved to 7px, so all 64 of them were swept onto `rounded-sm` on
+   * 2026-09-02; the ramp names are the target for that reason. `rounded-full` and
    * `rounded-[…]` are excluded: a pill and an explicit value are decisions,
    * not defaults — and the conformance guard's `radius-off-ramp` rule polices
    * explicit values off the ramp.

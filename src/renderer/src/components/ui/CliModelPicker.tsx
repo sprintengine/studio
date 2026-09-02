@@ -776,7 +776,7 @@ function RailButton({
         tabIndex={tabbable ? 0 : -1}
         onClick={onSelect}
         className={[
-          'interactive grid size-7 shrink-0 place-items-center rounded-[5px]',
+          'interactive grid size-7 shrink-0 place-items-center rounded-sm',
           selected
             ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
             : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]',
@@ -833,7 +833,7 @@ function NoneRowView({
       onClick={onSelect}
       onPointerEnter={onHighlight}
       className={[
-        'interactive flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        'interactive flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pl-2 pr-1.5 text-left',
         // The highlight is `--bg-hover`, the same treatment `Select` gives its
         // own active option — not a second idiom, and not the focus ring, which
         // belongs to the field that actually holds focus. A row that is both
@@ -894,7 +894,7 @@ function ExtraRowView({
       onClick={onSelect}
       onPointerEnter={onHighlight}
       className={[
-        'interactive flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        'interactive flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pl-2 pr-1.5 text-left',
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
@@ -973,7 +973,7 @@ function ModelRowView({
       onClick={onSelect}
       onPointerEnter={onHighlight}
       className={[
-        'interactive group/row flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        'interactive group/row flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pl-2 pr-1.5 text-left',
         selected
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : active
@@ -1198,7 +1198,7 @@ export function CliModelPickerButton({
               disabled={disabled}
               onClick={togglePopover}
               className={[
-                'interactive group/pill inline-flex items-center gap-2 rounded-[5px] text-left',
+                'interactive group/pill inline-flex items-center gap-2 rounded-sm text-left',
                 maxWidthClassName,
                 quiet
                   ? 'h-6 border border-transparent px-1.5 text-micro text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)]'

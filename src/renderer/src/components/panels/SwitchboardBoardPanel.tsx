@@ -787,7 +787,7 @@ function SwitchboardLane({
       {records.length === 0 ? (
         <>
           {dropIndex === 0 ? <BoardLaneDropIndicator /> : null}
-          <li className="m-1 rounded-[5px] px-2 py-3 text-micro leading-5 text-[color:var(--text-disabled)]">
+          <li className="m-1 rounded-sm px-2 py-3 text-micro leading-5 text-[color:var(--text-disabled)]">
             {emptyColumnLabel(status)}
           </li>
         </>
@@ -880,7 +880,7 @@ function BoardSkeleton() {
           </div>
           <ol className="min-h-0 flex-1 space-y-2 px-2 py-2">
             {Array.from({ length: 3 - (laneIdx % 2) }).map((_, cardIdx) => (
-              <li key={cardIdx} className="rounded-[5px] border-l-2 border-transparent px-2.5 py-1.5">
+              <li key={cardIdx} className="rounded-sm border-l-2 border-transparent px-2.5 py-1.5">
                 <Skeleton className="h-3 w-[85%] rounded bg-[color:var(--bg-hover)]" />
                 <Skeleton className="mt-1.5 h-2.5 w-[60%] rounded bg-[color:var(--bg-hover)]" />
               </li>
@@ -1815,7 +1815,7 @@ function RunnerDrawer({
 
         {runner.error ? (
           <Section title="Last error">
-            <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-meta text-[color:var(--text-strong)]">
+            <div className="rounded-sm border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-meta text-[color:var(--text-strong)]">
               {runner.error}
             </div>
           </Section>
@@ -1870,7 +1870,7 @@ function RunnerSettingsFields({
                     : [...draft.queues, queue]
                   onChange({ ...draft, queues: next })
                 }}
-                className={`interactive h-6 rounded-[5px] border px-2 text-micro font-medium focus-visible:focus-ring ${
+                className={`interactive h-6 rounded-sm border px-2 text-micro font-medium focus-visible:focus-ring ${
                   active
                     ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'

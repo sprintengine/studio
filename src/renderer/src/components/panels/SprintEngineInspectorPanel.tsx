@@ -2366,7 +2366,7 @@ function TaskItemPointer({
   )
 
   const layout =
-    'mt-3 flex w-full items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] '
+    'mt-3 flex w-full items-center gap-2 rounded-sm border border-[color:var(--border-default)] '
     + 'bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-left'
 
   if (!pointer.onOpen) {

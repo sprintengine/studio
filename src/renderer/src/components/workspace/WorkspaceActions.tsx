@@ -505,7 +505,8 @@ export function WorkspaceActions({
                     ref={ref}
                     size="md"
                     onClick={togglePopover}
-                    className={`relative ${sessionsOpen ? 'bg-[color:var(--bg-selected)]' : ''}`}
+                    pressed={sessionsOpen}
+                    className="relative"
                     aria-label="Sessions"
                     {...triggerProps}
                   >
@@ -638,7 +639,8 @@ export function WorkspaceActions({
                   ref={ref}
                   size="md"
                   onClick={togglePopover}
-                  className={`relative ${notificationsOpen ? 'bg-[color:var(--bg-selected)]' : ''}`}
+                  pressed={notificationsOpen}
+                  className="relative"
                   aria-label="Notifications"
                   {...triggerProps}
                 >

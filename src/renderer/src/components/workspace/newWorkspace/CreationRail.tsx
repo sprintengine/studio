@@ -59,7 +59,7 @@ export function CreationRail({
                 tabIndex={active ? 0 : -1}
                 onClick={() => onSelect(model.id)}
                 onKeyDown={(event) => onTabKeyDown(event, index)}
-                className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-body leading-5 focus-visible:focus-ring ${
+                className={`interactive flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-body leading-5 focus-visible:focus-ring ${
                   active
                     ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'

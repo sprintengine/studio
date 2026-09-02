@@ -139,7 +139,7 @@ export function AttachmentFields({
         <div className="flex flex-col gap-1.5">
           {selectedSkillId ? (
             <div className="flex items-center gap-1.5">
-              <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-micro text-[color:var(--text-muted)]">
+              <code className="min-w-0 flex-1 truncate rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-micro text-[color:var(--text-muted)]">
                 {pickedSkillLabel ?? selectedSkillId}
               </code>
               <GhostButton size="xs" onClick={onClearSkill} className="shrink-0">
@@ -159,7 +159,7 @@ export function AttachmentFields({
                   ref={ref}
                   type="button"
                   onClick={togglePopover}
-                  className={`flex h-7 w-full items-center justify-between rounded-[5px] border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
+                  className={`flex h-7 w-full items-center justify-between rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
                   {...triggerProps}
                 >
                   Add a skill

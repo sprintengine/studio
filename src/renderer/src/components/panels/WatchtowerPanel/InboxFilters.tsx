@@ -103,7 +103,7 @@ export function InboxFilterBar({
                 onClick={() => (pickerOpen ? closePicker() : openPicker('root'))}
                 aria-label="Filter inbox"
                 className={[
-                  'interactive inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] border border-dashed',
+                  'interactive inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-dashed',
                   'border-[color:var(--border-default)] bg-transparent',
                   'text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
                   FOCUS_RING_CLASS,
@@ -361,7 +361,7 @@ function FilterChip({
   children: ReactNode
 }) {
   return (
-    <span className="inline-flex h-7 items-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta">
+    <span className="inline-flex h-7 items-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta">
       <Popover
         open={open}
         onOpenChange={onOpenChange}
@@ -375,7 +375,7 @@ function FilterChip({
             {...triggerProps}
             onClick={() => onOpenChange(!open)}
             className={[
-              'inline-flex h-full items-center gap-1.5 rounded-l-[5px] px-2',
+              'inline-flex h-full items-center gap-1.5 rounded-l-sm px-2',
               'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
               FOCUS_RING_CLASS,
             ].join(' ')}
@@ -392,7 +392,7 @@ function FilterChip({
         onClick={onRemove}
         aria-label={removeAriaLabel}
         className={[
-          'inline-flex h-full items-center justify-center rounded-r-[5px] border-l border-[color:var(--border-default)] px-1.5',
+          'inline-flex h-full items-center justify-center rounded-r-sm border-l border-[color:var(--border-default)] px-1.5',
           'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
           FOCUS_RING_CLASS,
         ].join(' ')}

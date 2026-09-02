@@ -169,7 +169,7 @@ export const LIST_CURSOR_MARK_CLASS =
 
 /**
  * The floating chrome — the four values that make something read as an overlay
- * rather than as part of the page: `radius.overlay` (7px, on the 3/5/7/9 ramp),
+ * rather than as part of the page: `radius.overlay` (7px, on the 3/7/9 ramp),
  * the strong border, the raised ground, and the popover elevation, which is
  * defined per theme so a light-mode surface does not cast a shadow tuned for a
  * dark one.

@@ -56,7 +56,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
   const title = node.title?.trim() || node.name
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-muted)]"
+      className="pointer-events-none absolute z-10 max-w-[280px] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-muted)]"
       style={{ left: x + 16, top: y + 16 }}
     >
       <div className="flex items-center gap-2">
@@ -80,7 +80,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
           {node.tags.slice(0, 6).map((tag) => (
             <span
               key={tag}
-              className="rounded-[5px] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
+              className="rounded-sm bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
             >
               {tag}
             </span>

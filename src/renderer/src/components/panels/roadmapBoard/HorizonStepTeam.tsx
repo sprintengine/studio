@@ -135,7 +135,7 @@ export function HorizonStepTeam({
   )
 
   return (
-    <div className="mt-3 flex flex-col gap-1.5 rounded-[5px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2">
+    <div className="mt-3 flex flex-col gap-1.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2">
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-meta text-[color:var(--text-muted)]">Team</span>
         {/* The tier as a WORD, from `overridden` — the same source of truth the

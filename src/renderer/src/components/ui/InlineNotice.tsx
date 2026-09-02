@@ -91,7 +91,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
       <div
         role={tone === 'error' ? 'alert' : 'status'}
         className={[
-          'flex items-start gap-2.5 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2',
+          'flex items-start gap-2.5 rounded-sm border border-[color:var(--border-subtle)] px-3 py-2',
           className ?? '',
         ].join(' ')}
         style={{ backgroundColor: softVar }}
@@ -113,7 +113,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       className={[
-        'flex items-start gap-2.5 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-body leading-6 text-[color:var(--text-strong)]',
+        'flex items-start gap-2.5 rounded-sm border border-[color:var(--border-subtle)] px-3 py-2 text-body leading-6 text-[color:var(--text-strong)]',
         className ?? '',
       ].join(' ')}
       style={{ backgroundColor: softVar }}

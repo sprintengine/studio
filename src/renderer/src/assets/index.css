@@ -359,14 +359,34 @@
   --focus-ring: 2px solid var(--border-focus);
   --focus-ring-offset: 2px;
 
-  /* Canonical elevation, one alias per step of the bundle's three-step ramp.
-     Every step is an overlay: nothing in the document flow takes a shadow, so
-     a card, a row, or a hover state reaches for a hairline instead. Panel-local
-     drawers and dialogs use these instead of hand-rolling `shadow-[...]`
-     literals or a Tailwind `shadow-lg`. */
+  /* Canonical elevation. Two families, and the split is what each one MEANS.
+
+     The overlay ramp — drawer / popover / modal. A card, a row, or a hover
+     state still reaches for a hairline instead; structure in the document flow
+     comes from edges, not from depth. Panel-local drawers and dialogs use
+     these rather than hand-rolling `shadow-[...]` literals or a Tailwind
+     `shadow-lg`. */
   --shadow-drawer: var(--sem-shadow-drawer);
   --shadow-popover: var(--sem-shadow-popover);
   --shadow-modal: var(--sem-shadow-modal);
+
+  /* Control elevation — the ONE exception to "nothing in the flow takes a
+     shadow", added 2026-09-02. A
+     button is the only in-flow element that claims to be *pressable*, and
+     depth is how a surface says so: a 1px lit top edge (the light source is
+     above) over a shallow drop, inverting to a shadow cast inward when the
+     control is pressed. Filled variants take `raised`, bordered neutrals the
+     quieter `edge`, and both swap to `pressed` while held.
+
+     Reached through the `.control-raised` / `.control-edge` classes further
+     down this file, never spelled at a call site — the press and disabled
+     steps have to move with the resting one, and three rules in one place is
+     what stops the fourth from drifting. Ghost and icon buttons stay flat: a
+     borderless control has no edge to light, and a toolbar of them would read
+     as a row of tiles. */
+  --shadow-control-raised: var(--sem-shadow-control-raised);
+  --shadow-control-edge: var(--sem-shadow-control-edge);
+  --shadow-control-pressed: var(--sem-shadow-control-pressed);
 
   /* The overlay stacking ladder, aliased from the bundle so there is ONE ladder
      of record (MC-2119). The app used to carry a second one in a comment at the
@@ -1894,8 +1914,44 @@ samp,
   transition-timing-function: var(--motion-ease);
 }
 
-.interactive:active:not(:disabled):not([aria-disabled="true"]) {
+/* The press scale is for FLAT surfaces only. A control carrying elevation
+ * presses by inverting its own bevel instead (`.control-raised` /
+ * `.control-edge` below), and stacking the two would have a button shrink and
+ * sink at once — two metaphors for one click. Spelled as `:not()` here rather
+ * than as an `active:scale-100` utility at the call site because this rule is
+ * three classes deep and would outrank any utility trying to cancel it. */
+.interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
   transform: scale(0.97);
+}
+
+/* ── Control elevation ─────────────────────────────────────────────────────
+ * The two resting steps and the one pressed step, applied as whole states: a
+ * pressed control REPLACES its resting shadow rather than layering over it,
+ * and a disabled one drops elevation entirely — a control that cannot be
+ * pressed does not stand off the surface.
+ *
+ * `[data-pressed]` is here for the same reason `:active` is: a toggle left
+ * thrown is held down, not merely styled, so it keeps the sunken edge. */
+.control-raised {
+  box-shadow: var(--shadow-control-raised);
+}
+
+.control-edge {
+  box-shadow: var(--shadow-control-edge);
+}
+
+.control-raised:active:not(:disabled):not([aria-disabled="true"]),
+.control-raised[data-pressed]:not(:disabled),
+.control-edge:active:not(:disabled):not([aria-disabled="true"]),
+.control-edge[data-pressed]:not(:disabled) {
+  box-shadow: var(--shadow-control-pressed);
+}
+
+.control-raised:disabled,
+.control-raised[aria-disabled="true"],
+.control-edge:disabled,
+.control-edge[aria-disabled="true"] {
+  box-shadow: none;
 }
 
 /* ── Switch thumb ──────────────────────────────────────────────────────────
@@ -2422,7 +2478,7 @@ samp,
   .switch-thumb {
     transition: none;
   }
-  .interactive:active:not(:disabled):not([aria-disabled="true"]) {
+  .interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
     transform: none;
   }
 }

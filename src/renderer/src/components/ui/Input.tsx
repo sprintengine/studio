@@ -63,7 +63,7 @@ const GROUND: Record<InputVariant, string> = {
 // Focus is the ring and only the ring — a focus-scoped border recolour is the
 // second idiom `scripts/lint-design-system-conformance.mjs` rejects outright.
 const CHROME = [
-  'rounded-[5px] border border-[color:var(--border-default)]',
+  'rounded-sm border border-[color:var(--border-default)]',
   'text-body text-[color:var(--text-default)] transition-colors',
   'placeholder:text-[color:var(--text-disabled)]',
   'hover:border-[color:var(--border-strong)]',
@@ -95,7 +95,7 @@ const CHROME = [
  * Written out in full, per the literal rule in ./tokens.
  */
 export const INLINE_TITLE_EDIT_CLASS =
-  '-mx-1.5 w-full rounded-[5px] border border-transparent bg-transparent px-1.5 py-0.5 transition-colors ' +
+  '-mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 py-0.5 transition-colors ' +
   'hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-field)] focus-visible:focus-ring'
 
 type SharedProps = {

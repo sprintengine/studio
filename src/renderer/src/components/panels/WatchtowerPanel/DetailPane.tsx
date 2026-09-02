@@ -239,7 +239,7 @@ export function DetailPane({
         />
 
         {triageComment ? (
-          <div className="mt-4 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
+          <div className="mt-4 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-[color:var(--text-strong)]">
                 <SpecialistActionIcon icon="architecture" className="size-icon-sm text-[color:var(--text-muted)]" />

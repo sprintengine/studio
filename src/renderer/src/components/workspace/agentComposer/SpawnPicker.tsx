@@ -477,7 +477,7 @@ function FooterMenu({
             aria-label={ariaLabel}
             onClick={togglePopover}
             className={[
-              'interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-2 text-meta',
+              'interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2 text-meta',
               tone === 'warn'
                 ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
                 : tone === 'accent'

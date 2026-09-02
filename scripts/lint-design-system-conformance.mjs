@@ -39,6 +39,9 @@
 //                          ("Hairlines carry the structure": elevation is a
 //                          three-step overlay ramp taken from the shadow
 //                          tokens, so the utility is always the wrong reach).
+//                          The one in-flow elevation is a pressable control,
+//                          and it reaches for the `.control-raised` /
+//                          `.control-edge` classes, not for a utility.
 //   arbitrary-z-index      `z-[n]` outside the layering scale ("Tokens or
 //                          nothing": layering comes from `sem.z.*`).
 //   accent-marks-active    an accent fill conditioned on active/selected
@@ -76,7 +79,7 @@
 //                          28px `*-7`, 36px `*-9`, …). An indent that aligns
 //                          text to a reserved glyph slot is structure, not
 //                          rhythm: keep it with a `design-tokens-allow:` reason.
-//   radius-off-ramp        `rounded-[Npx]` with N off the 3 / 5 / 7 / 9 ramp,
+//   radius-off-ramp        `rounded-[Npx]` with N off the 3 / 7 / 9 ramp,
 //                          and `rounded-xl` (12px) — the axes ratchet excludes
 //                          explicit values, so this is the rule that sees them.
 //   disabled-ink-copy      `text-[color:var(--text-disabled)]` on a prose
@@ -1361,6 +1364,9 @@ const APP_TO_BUNDLE = new Map(
     '--shadow-drawer': '--sem-shadow-drawer',
     '--shadow-popover': '--sem-shadow-popover',
     '--shadow-modal': '--sem-shadow-modal',
+    '--shadow-control-raised': '--sem-shadow-control-raised',
+    '--shadow-control-edge': '--sem-shadow-control-edge',
+    '--shadow-control-pressed': '--sem-shadow-control-pressed',
     '--text-size-2xs': '--sem-font-size-micro',
     '--text-size-xs': '--sem-font-size-meta',
     '--text-size-sm': '--sem-font-size-body',
@@ -1499,7 +1505,9 @@ const FIX_HINT = {
   'emoji-as-icon': 'use a glyph from components/AppIcons.tsx, or delete the decoration',
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
   'backdrop-filter': 'separation comes from the scrim tone plus the shell shadow',
-  'shadow-in-flow': 'overlays take --shadow-popover / --shadow-modal; in-flow chrome takes a hairline',
+  'shadow-in-flow':
+    'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
+    '.control-edge; all other in-flow chrome takes a hairline',
   'arbitrary-z-index': 'use the layering scale: sticky 10, pane 20, float 30, drawer 40, modal 70, popover 80, menu 90, toast 100',
   'accent-marks-active': 'mark active with --bg-selected and an ink lift, not the accent',
   'uppercase-tracked': 'sentence case; hierarchy from weight and size',
@@ -1515,7 +1523,7 @@ const FIX_HINT = {
     'against sem.z.* in design-system/foundations/tokens.tokens.json',
   'spacing-off-scale':
     'move to the neighbouring sem.space step; an indent aligning to a glyph slot keeps its value with a design-tokens-allow: reason',
-  'radius-off-ramp': 'rounded-xs / -sm / -md / -lg (3 / 5 / 7 / 9px)',
+  'radius-off-ramp': 'rounded-xs / -sm / -md / -lg (3 / 7 / 7 / 9px — control and overlay share 7)',
   'disabled-ink-copy': 'copy is read: --text-muted (or EmptyState / Section); disabled ink is for disabled controls',
   'focus-ring-missing': 'use the kit control, or add FOCUS_RING_CLASS (inset variant on full-bleed rows)',
   'app-token-restates-bundle':

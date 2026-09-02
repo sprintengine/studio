@@ -495,7 +495,7 @@ function WebhookFields({
 
 function chipClass(active: boolean): string {
   return [
-    'h-7 min-w-9 rounded-[5px] border px-2 text-micro outline-none transition-colors focus-visible:focus-ring',
+    'h-7 min-w-9 rounded-sm border px-2 text-micro outline-none transition-colors focus-visible:focus-ring',
     active
       ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
       : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',

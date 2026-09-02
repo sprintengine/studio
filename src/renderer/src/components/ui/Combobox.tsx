@@ -186,7 +186,7 @@ export function Combobox<T>({
       }}
       onKeyDown={onKeyDown}
       className={[
-        'h-control-sm w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
+        'h-control-sm w-full rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
         'px-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)]',
         FOCUS_RING_CLASS,
         className ?? '',
@@ -288,7 +288,7 @@ export function Combobox<T>({
             {...triggerProps}
             onClick={togglePopover}
             className={[
-              'h-control-sm w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
+              'h-control-sm w-full rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
               'px-2 text-left text-meta text-[color:var(--text-muted)]',
               FOCUS_RING_CLASS,
               className ?? '',

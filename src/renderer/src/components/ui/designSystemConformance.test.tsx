@@ -1021,8 +1021,10 @@ async function main(): Promise<void> {
   // off-ramps the `designSystemAxes` ratchet is draining — this is not that
   // sweep.
   await run('MC-2110 a floating surface takes its radius from the shape ramp', () => {
-    // The ramp is 3 / 5 / 7 / 9 — chip, control, overlay, shell — reachable as
-    // `--radius-xs/sm/md/lg` or as the px value each carries. What this rejects
+    // The ramp is 3 / 7 / 7 / 9 — chip, control, overlay, shell — reachable as
+    // `--radius-xs/sm/md/lg`, as the NAMED Tailwind step (`rounded-sm` resolves
+    // through the rebound `--radius-sm`, which is the kit's spelling), or as
+    // the px value each carries. Control joined overlay on 7px on 2026-09-02. What this rejects
     // is the band BETWEEN the steps, which is where every overlay in the product
     // had landed: `rounded-[8px]` (Modal, the new-workspace hub), `rounded-lg`
     // (the New sprint dialog, the roster manager), `rounded-xl` (the palette,
@@ -1031,7 +1033,7 @@ async function main(): Promise<void> {
     const OVERLAY_ELEVATION = /shadow-\[var\(--shadow-(?:popover|modal|drawer)\)\]/
     const RADIUS = /(?:^|\s)(-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-\S+)?)(?=\s|$)/g
     const ON_RAMP =
-      /^-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-(?:full|\[var\(--radius-(?:xs|sm|md|lg)\)\]|\[(?:3|5|7|9)px\]))?$/
+      /^-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-(?:full|xs|sm|md|lg|\[var\(--radius-(?:xs|sm|md|lg)\)\]|\[(?:3|7|9)px\]))?$/
 
     const offenders: string[] = []
     for (const path of rendererSources()) {

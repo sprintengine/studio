@@ -95,11 +95,11 @@ function ConnectionRow({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {status.recovery !== 'none' ? (
-          <OutlineButton size="md" onClick={onRecover} disabled={busy}>
+          <OutlineButton size="xs" onClick={onRecover} disabled={busy}>
             {recoverLabel}
           </OutlineButton>
         ) : null}
-        <OutlineButton size="md" onClick={onRemove} disabled={busy}>
+        <OutlineButton size="xs" onClick={onRemove} disabled={busy}>
           Remove
         </OutlineButton>
       </div>
@@ -245,7 +245,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
             tone="error"
             {...presentTrackerError(listError)}
             action={
-              <GhostButton size="md" onClick={() => void refreshConnections()}>
+              <GhostButton size="xs" onClick={() => void refreshConnections()}>
                 Try again
               </GhostButton>
             }

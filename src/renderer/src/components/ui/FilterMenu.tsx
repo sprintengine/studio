@@ -98,7 +98,7 @@ export function FilterMenu({ ariaLabel, groups, className }: FilterMenuProps): J
           aria-label={active ? `${ariaLabel} — filters active` : ariaLabel}
           onClick={togglePopover}
           className={[
-            'interactive relative inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
+            'interactive relative inline-flex h-6 w-6 items-center justify-center rounded-sm',
             FOCUS_RING_CLASS,
             opened || active
               ? 'text-[color:var(--accent-primary)]'

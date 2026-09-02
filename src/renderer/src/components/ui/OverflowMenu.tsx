@@ -146,7 +146,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
             aria-label={ariaLabel}
             onClick={togglePopover}
             className={[
-              'interactive inline-flex h-6 w-6 items-center justify-center rounded-[5px]',
+              'interactive inline-flex h-6 w-6 items-center justify-center rounded-sm',
               'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
               opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
               FOCUS_RING_CLASS,

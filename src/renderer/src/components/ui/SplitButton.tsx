@@ -154,8 +154,18 @@ export function SplitButton({
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
         <span
           className={[
-            'inline-flex h-control-sm items-stretch overflow-hidden rounded-[5px]',
+            'inline-flex h-control-sm items-stretch overflow-hidden rounded-sm',
             'border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
+            // The GROUP carries the elevation, not the halves: it already owns
+            // the border and the radius, and two sunken halves inside one
+            // outline would read as two controls. `:active` matches an
+            // ancestor of the pressed element, so pressing either half sinks
+            // the whole group — which is what a split button is.
+            //
+            // Conditional because the group is a <span>: `.control-edge:disabled`
+            // cannot match it the way it matches the kit's <button>s, so a
+            // disabled split button would otherwise keep standing off the page.
+            disabled ? '' : 'control-edge',
           ].join(' ')}
         >
           <button

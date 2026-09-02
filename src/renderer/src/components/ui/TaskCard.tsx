@@ -106,7 +106,7 @@ export function TaskCard({
   // --bg-surface-raised and adds an inset hairline). Both fall back to the
   // default flat-on-canvas card, so callers that don't set them are unaffected.
   const className = [
-    'group relative flex items-start gap-2 rounded-[5px] px-2.5 py-1.5 text-left shadow-[var(--task-card-shadow,none)] transition-colors',
+    'group relative flex items-start gap-2 rounded-sm px-2.5 py-1.5 text-left shadow-[var(--task-card-shadow,none)] transition-colors',
     isCard ? 'w-full' : '',
     FOCUS_RING_CLASS,
     draggable ? (dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab') : 'cursor-pointer',

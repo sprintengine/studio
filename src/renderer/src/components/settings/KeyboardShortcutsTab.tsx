@@ -501,7 +501,7 @@ function KeybindingCell({
         onKeyDown={handleKeyDown}
         onBlur={() => recording && onCancelRecording()}
         className={[
-          'interactive inline-flex h-control-sm min-w-[72px] items-center justify-end gap-1.5 rounded-[5px] px-2',
+          'interactive inline-flex h-control-sm min-w-[72px] items-center justify-end gap-1.5 rounded-sm px-2',
           FOCUS_RING_CLASS,
           recording
             ? 'bg-[color:var(--accent-primary-soft)]'

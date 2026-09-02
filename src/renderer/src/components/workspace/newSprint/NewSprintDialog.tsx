@@ -1107,7 +1107,7 @@ export default function NewSprintDialog({
                         setRenaming(false)
                       }}
                       // The kit's in-place title edit. This spelled its own box
-                      // at Tailwind's default 4px radius, off the 3/5/7/9 ramp,
+                      // at Tailwind's default 4px radius, off the 3/7/9 ramp,
                       // and drew a resting border where the automation editor's
                       // identical idiom draws none (MC-2114).
                       className={`${INLINE_TITLE_EDIT_CLASS} min-w-0 flex-1 font-mono text-heading font-medium text-[color:var(--text-strong)]`}

@@ -47,7 +47,7 @@ export function ReviewPresetChooser({
                 return (
                   <li
                     key={specialistId}
-                    className="flex min-w-0 items-baseline gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-meta"
+                    className="flex min-w-0 items-baseline gap-2 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-meta"
                   >
                     <span className="shrink-0 font-medium text-[color:var(--text-strong)]">
                       {specialist.shortLabel}

@@ -128,7 +128,7 @@ export default function MemoryPreviewPane({
               sits in readable ink. The chip used to tint its border, ground
               AND ink from the same hex (a raw rgba written into style) while
               also drawing the dot — the same fact said twice. */}
-          <span className="inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro font-medium text-[color:var(--text-default)]">
+          <span className="inline-flex items-center gap-1.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro font-medium text-[color:var(--text-default)]">
             <span
               className="h-[6px] w-[6px] rounded-full"
               style={{ background: color }}
@@ -139,7 +139,7 @@ export default function MemoryPreviewPane({
           {node.tags?.slice(0, 4).map((tag) => (
             <span
               key={tag}
-              className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
+              className="rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
             >
               {tag}
             </span>
@@ -154,7 +154,7 @@ export default function MemoryPreviewPane({
             {renderMarkdown(preview.content)}
           </article>
         ) : preview.previewKind === 'text' ? (
-          <pre className="m-0 overflow-x-auto rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-meta leading-5 text-[color:var(--text-default)]">
+          <pre className="m-0 overflow-x-auto rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-meta leading-5 text-[color:var(--text-default)]">
             {preview.content}
           </pre>
         ) : preview.previewKind === 'image' ? (
@@ -186,7 +186,7 @@ export default function MemoryPreviewPane({
                   key={target.id}
                   type="button"
                   onClick={() => onNavigate(target)}
-                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                  className="group inline-flex items-center gap-1.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
                 >
                   <span
                     className="h-[6px] w-[6px] rounded-full"

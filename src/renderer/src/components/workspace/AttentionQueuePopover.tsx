@@ -115,7 +115,8 @@ export function AttentionQueuePopover({
             onClick={togglePopover}
             aria-pressed={open}
             aria-label={triggerAriaLabel(badge.count)}
-            className={`app-no-drag relative ${open ? 'bg-[color:var(--bg-selected)]' : ''}`}
+            pressed={open}
+            className="app-no-drag relative"
             {...triggerProps}
           >
             <AttentionQueueIcon className="icon-sm" />

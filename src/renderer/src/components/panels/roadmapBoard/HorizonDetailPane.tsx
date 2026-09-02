@@ -394,7 +394,7 @@ function HorizonRunStrip({
   const live = run.attention === 'none' && agentsWorking > 0
 
   return (
-    <div className="mt-3 flex flex-col gap-2 rounded-[5px] border border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)] px-2.5 py-2">
+    <div className="mt-3 flex flex-col gap-2 rounded-sm border border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)] px-2.5 py-2">
       <div className="flex items-center gap-2.5">
         <LifecycleGlyph
           state={run.attention === 'paused' ? 'paused' : run.attention === 'none' ? 'in_progress' : 'ready'}
@@ -423,7 +423,7 @@ function HorizonRunStrip({
               href={(pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl) as string}
               target="_blank"
               rel="noreferrer"
-              className={`interactive inline-flex h-6 shrink-0 items-center rounded-[5px] px-2 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+              className={`interactive inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
             >
               View PR
             </a>

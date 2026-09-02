@@ -270,7 +270,7 @@ export function Tooltip({
                 multiline
                   ? 'max-w-[420px] whitespace-pre-wrap break-words'
                   : 'whitespace-nowrap',
-                'rounded-[5px] border border-[color:var(--border-strong)]',
+                'rounded-sm border border-[color:var(--border-strong)]',
                 // 10/6px and `meta`, per design-system/components/tooltip
                 // (MC-2118). This shipped at `micro` (11px), which put the
                 // tooltip a type step BELOW the 12px row it exists to make

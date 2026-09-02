@@ -1847,7 +1847,7 @@ function GitPanelSkeleton(): JSX.Element {
         </div>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 pb-2">
           <Skeleton className="h-3 w-10 rounded bg-[color:var(--skeleton-shimmer-high)]" />
-          <Skeleton className="h-control-sm rounded-[5px] bg-[color:var(--skeleton-shimmer-high)]" />
+          <Skeleton className="h-control-sm rounded-sm bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
       </div>
       <div aria-hidden="true" className="flex-1 px-3 py-2">

@@ -84,6 +84,9 @@
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
+  --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
+  --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
   --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --sem-font-size-micro: 11px;
@@ -105,7 +108,7 @@
   --sem-icon-size-md: 18px;
   --sem-icon-size-lg: 22px;
   --sem-radius-chip: 3px;
-  --sem-radius-control: 5px;
+  --sem-radius-control: 7px;
   --sem-radius-overlay: 7px;
   --sem-radius-shell: 9px;
   --sem-motion-duration-fast: 120ms;
@@ -173,6 +176,9 @@
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 </style>
 <style>
@@ -211,6 +217,9 @@
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 #ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {
   --sem-color-bg-app: var(--ref-color-mist-100);
@@ -246,6 +255,9 @@
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
+  --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
+  --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
 }
 </style>
 <style>
@@ -997,10 +1009,15 @@ code {
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-button:active:not(:disabled) {
+/* Flat variants press by scale; the elevated ones press by inverting their
+ * bevel (see --primary / --outline below), so the two treatments never stack. */
+.ds-button--ghost:active:not(:disabled),
+.ds-button--icon:active:not(:disabled) {
   transform: scale(0.97);
 }
 
@@ -1014,14 +1031,55 @@ code {
   opacity: 0.45;
 }
 
-/* Primary — the accent fill; selection and primary action share this hue. */
+/* Primary — the accent fill; selection and primary action share this hue.
+ * The lit top edge over a shallow drop is what reads as a raised control: a
+ * physical button under a light source above it. `box-shadow` rather than a
+ * ::before ring so the bevel and the drop are one property with one token. */
 .ds-button--primary {
   background: var(--sem-color-accent-primary);
   color: var(--sem-color-text-on-accent);
+  box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
   background: var(--sem-color-accent-hover);
+}
+
+/* Pressed REPLACES the resting shadow rather than layering over it: the light
+ * that was on the top edge is now a shadow cast into it, and the drop is gone
+ * because the control is no longer standing off the surface. */
+.ds-button--primary:active:not(:disabled),
+.ds-button--primary[data-pressed]:not(:disabled) {
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-button--primary:disabled {
+  box-shadow: none;
+}
+
+/* Outline — bordered neutral secondary. Half a step of elevation below
+ * primary: enough that it reads as a control rather than a labelled box,
+ * quiet enough that it never competes with the view's one primary. */
+.ds-button--outline {
+  border: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-default);
+  box-shadow: var(--sem-shadow-control-edge);
+}
+
+.ds-button--outline:hover:not(:disabled) {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--outline:active:not(:disabled),
+.ds-button--outline[data-pressed]:not(:disabled) {
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-button--outline:disabled {
+  box-shadow: none;
 }
 
 /* Ghost — quiet secondary action; hover lifts ink and background together. */
@@ -1065,7 +1123,8 @@ code {
   .ds-button {
     transition: none;
   }
-  .ds-button:active:not(:disabled) {
+  .ds-button--ghost:active:not(:disabled),
+  .ds-button--icon:active:not(:disabled) {
     transform: none;
   }
 }
@@ -7311,21 +7370,24 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-raised</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a filled control: a 1px lit top edge over a shallow drop. Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface. <strong>Do not:</strong> Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-edge</code><code class="catalog-token-value">inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a bordered neutral control: the quieter half-step below control-raised. Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above. <strong>Do not:</strong> Filled controls — those take shadow.control-raised, which is a full step brighter.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-pressed</code><code class="catalog-token-value">inset 0 1px 2px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The pressed state of any elevated control: the bevel inverts and the drop is gone. Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it. <strong>Do not:</strong> A resting state, and never on a control that carries no resting elevation.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">13px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">18px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.lg</code><code class="catalog-token-value">22px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Prominent affordances and empty-state glyphs. Empty-state glyphs and large overlay close buttons.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-chip)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.chip</code><code class="catalog-token-value">3px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Inner chips (rarely needed). Small inner chips nested inside a rounded parent.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">5px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell</code><code class="catalog-token-value">9px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Large overlay and modal shells. Modal shells and the largest overlay surfaces. <strong>Do not:</strong> Operational chrome — larger radii are marketing-only.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.fast</code><code class="catalog-token-value">120ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Hover, focus, and small state flips. Hover and focus transitions, small state flips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons and controls that sit inside a list row. <strong>Do not:</strong> Any control carrying a text label — those start at sm.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label. <strong>Do not:</strong> Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">30px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes. <strong>Do not:</strong> Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
@@ -8730,6 +8792,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <p class="demo-label">Light</p>
   <div class="demo-row">
     <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--outline">Revoke others</button>
     <button type="button" class="ds-button ds-button--ghost">Cancel</button>
     <button type="button" class="ds-button ds-button--icon" aria-label="Close">
       <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -8738,6 +8801,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <div class="demo-row">
     <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
     <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--outline" disabled>Disabled outline</button>
     <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
   </div>
 </div>
@@ -8745,6 +8809,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <p class="demo-label">Dark</p>
   <div class="demo-row">
     <button type="button" class="ds-button ds-button--primary">Create workspace</button>
+    <button type="button" class="ds-button ds-button--outline">Revoke others</button>
     <button type="button" class="ds-button ds-button--ghost">Cancel</button>
     <button type="button" class="ds-button ds-button--icon" aria-label="Close">
       <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -8753,6 +8818,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <div class="demo-row">
     <button type="button" class="ds-button ds-button--primary ds-button--md">Medium primary</button>
     <button type="button" class="ds-button ds-button--primary" disabled>Disabled</button>
+    <button type="button" class="ds-button ds-button--outline" disabled>Disabled outline</button>
     <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
   </div>
 </div>
@@ -8762,14 +8828,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Anatomy</h4>
 <ul><li>A single <code>&lt;button&gt;</code> element with the base class <code>ds-button</code> plus one variant modifier.</li><li>Optional leading icon sized by <code>sem.icon.size.sm</code>, gap 6px.</li><li>Label set in <code>font.size.body</code> at <code>font.weight.medium</code>, sentence case.</li></ul>
 <h4>Variants</h4>
-<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label. The single primary action of a view.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li><code>ds-button--outline</code> — a bordered neutral secondary: <code>border.default</code> hairline, transparent fill, <code>text.default</code> label. Outlined rather than a third *filled* variant, so the one-accent rule still holds. Use it where a ghost reads too weak to be found but the action is not the view's primary.</li><li>Sizes: <code>ds-button--xs</code> at <code>size.control.xs</code> with a <code>font.size.meta</code> label (dense chrome — toolbars, row actions), default sm at <code>size.control.sm</code>, and <code>ds-button--md</code> at <code>size.control.md</code>.</li></ul>
+<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label. The single primary action of a view.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li><code>ds-button--outline</code> — a bordered neutral secondary: <code>border.default</code> hairline, <code>bg.surface</code> fill, <code>text.default</code> label, and <code>shadow.control-edge</code>. Outlined rather than a third *filled* variant, so the one-accent rule still holds. Use it where a ghost reads too weak to be found but the action is not the view's primary.</li><li>Sizes: <code>ds-button--xs</code> at <code>size.control.xs</code> with a <code>font.size.meta</code> label (dense chrome — toolbars, row actions), default sm at <code>size.control.sm</code>, and <code>ds-button--md</code> at <code>size.control.md</code>.</li></ul>
 <p>Label padding tracks the size rather than being constant: 8px at xs and sm, 12px at md. A single 12px inset makes a dense <code>xs</code> control read as mostly padding.</p>
+<h4>Elevation</h4>
+<p>Filled and outlined buttons are the one thing in the document flow that carries a shadow. Everywhere else in this system structure comes from a hairline; a button is the exception because it is the only in-flow element that claims to be *pressable*, and depth is how a surface says so.</p>
+<p>The treatment is two things in one token, never hand-rolled:</p>
+<ul><li><code>shadow.control-raised</code> — filled variants. A 1px <code>inset</code> highlight on the top edge (the light source is above) over a shallow drop (the control stands off the surface).</li><li><code>shadow.control-edge</code> — the outline variant, half a step quieter. Dark mode lights the inner top rim; light mode shades the inner bottom. Both read as lit from above.</li><li><code>shadow.control-pressed</code> — the pressed state of either. It <strong>replaces</strong> the resting shadow rather than layering over it: the highlight inverts into a shadow cast inward, and the drop disappears.</li></ul>
+<p>Ghost and icon buttons stay flat. A borderless control has no edge to light, and giving one a drop shadow would make every toolbar read as a row of tiles.</p>
 <h4>States</h4>
-<ul><li>Hover: primary deepens/brightens to <code>accent.hover</code>; ghost and icon gain <code>bg.hover</code> and stronger ink. No shadow, scale, or glow on hover.</li><li>Active: scale(0.97) press, removed under reduced motion.</li><li>Focus-visible: 2px ring of <code>border.focus</code>; never remove the ring without replacing it.</li><li>Disabled: 45% opacity, <code>not-allowed</code> cursor, hover suppressed.</li><li>Pressed (icon only): a toggle that stays thrown — a locked terminal, a revealed pane — fills <code>bg.selected</code> with <code>text.primary</code> ink and keeps it through hover. It is a <strong>prop on the component</strong>, not a class the caller adds: two equal-specificity <code>text-*</code> utilities are resolved by stylesheet order rather than by the order they appear in the attribute, so a call site that paints its own pressed fill loses it to the primitive's <code>hover:</code> step. The button supplies <code>aria-pressed</code> unless the caller sets it. Never the accent — a thrown toggle is a selection, and selection is neutral.</li></ul>
+<ul><li>Hover: primary deepens/brightens to <code>accent.hover</code>; ghost and icon gain <code>bg.hover</code> and stronger ink. Elevation does not change on hover — a button that rises under the pointer is a hover affordance, not a press one, and the press is the state worth spending depth on.</li><li>Active: elevated variants sink — <code>shadow.control-pressed</code> replaces the resting shadow, with no transform. Flat variants (ghost, icon) keep the scale(0.97) press, removed under reduced motion. The two never stack: a control either has an edge to invert or it shrinks, never both.</li><li>Focus-visible: 2px ring of <code>border.focus</code>; never remove the ring without replacing it.</li><li>Disabled: 45% opacity, <code>not-allowed</code> cursor, hover suppressed, and elevation dropped to <code>none</code> — a control that cannot be pressed does not stand off the surface.</li><li>Pressed (icon only): a toggle that stays thrown — a locked terminal, a revealed pane — fills <code>bg.selected</code> with <code>text.primary</code> ink and keeps it through hover. It is a <strong>prop on the component</strong>, not a class the caller adds: two equal-specificity <code>text-*</code> utilities are resolved by stylesheet order rather than by the order they appear in the attribute, so a call site that paints its own pressed fill loses it to the primitive's <code>hover:</code> step. The button supplies <code>aria-pressed</code> unless the caller sets it, and the prop is <strong>tri-state</strong>: leave it undefined on a button that is not a toggle (no attribute — a close or delete glyph is an action, not an unpressed toggle), pass <code>false</code> on a toggle that is currently off (<code>aria-pressed=&quot;false&quot;</code>, which is what a screen reader is owed), <code>true</code> when thrown. Defaulting the prop to <code>false</code> collapses the first two cases and silently downgrades every toggle to a plain button. Never the accent — a thrown toggle is a selection, and selection is neutral.</li></ul>
 <h4>Usage</h4>
 <ul><li>One primary button per view; everything else is ghost or icon.</li><li><strong>A confirm/cancel pair is one rung apart, never the same rung twice.</strong> Where the view's one primary is spent elsewhere, the affirmative takes <code>outline</code> and its counterpart drops to <code>ghost</code>. Two neutral outlines side by side — which is what an audit sweep produced for Approve/Deny in the agent chat — leave the two actions distinguishable only by reading the labels.</li><li>Destructive confirmation buttons swap the fill to <code>status.danger</code> — do not invent a third neutral-filled variant.</li><li>Keep labels to sentence case verbs (&quot;Create workspace&quot;, not &quot;CREATE&quot;).</li></ul>
 <h4>Accessibility</h4>
 <ul><li>Icon-only buttons require <code>aria-label</code>.</li><li>Focus is always visible via the <code>border.focus</code> ring.</li><li>The press animation is disabled under <code>prefers-reduced-motion: reduce</code>.</li><li>Contrast: label-on-fill clears AA in both modes (<code>text.on-accent</code> flips between white and near-black with the mode).</li></ul>
+<h4>Shape ruling (2026-09-02)</h4>
+<p><code>radius.control</code> moved from 5px to 7px, onto the same step as <code>radius.overlay</code>. It is a token move, not a per-component one: a button, the input beside it, and the popover it opens all soften together, and the ramp went from four steps to three rather than gaining a fifth.</p>
 <h4>Drift ruling (MC-2118, 2026-08-05)</h4>
 <p>Reconciled against <code>src/renderer/src/components/ui/Buttons.tsx</code>. <strong>The shipped vocabulary wins on all three counts, and is now folded into the spec above rather than listed as drift.</strong></p>
 <ul><li><strong>Label padding</strong> — 8px at xs/sm, 12px at md. The reference CSS's constant <code>0 var(--sem-space-lg)</code> predates the <code>xs</code> step; applied to a 26px control it is mostly padding.</li><li><strong><code>xs</code> size</strong> — real, in use across dense chrome, and it has a token (<code>size.control.xs</code>). A ramp step the tokens already carry is not drift.</li><li><strong><code>OutlineButton</code></strong> — canonical. It is outlined rather than filled, so the one-accent rule is untouched.</li></ul>
@@ -8798,10 +8871,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-button:active:not(:disabled) {
+/* Flat variants press by scale; the elevated ones press by inverting their
+ * bevel (see --primary / --outline below), so the two treatments never stack. */
+.ds-button--ghost:active:not(:disabled),
+.ds-button--icon:active:not(:disabled) {
   transform: scale(0.97);
 }
 
@@ -8815,14 +8893,55 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   opacity: 0.45;
 }
 
-/* Primary — the accent fill; selection and primary action share this hue. */
+/* Primary — the accent fill; selection and primary action share this hue.
+ * The lit top edge over a shallow drop is what reads as a raised control: a
+ * physical button under a light source above it. `box-shadow` rather than a
+ * ::before ring so the bevel and the drop are one property with one token. */
 .ds-button--primary {
   background: var(--sem-color-accent-primary);
   color: var(--sem-color-text-on-accent);
+  box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
   background: var(--sem-color-accent-hover);
+}
+
+/* Pressed REPLACES the resting shadow rather than layering over it: the light
+ * that was on the top edge is now a shadow cast into it, and the drop is gone
+ * because the control is no longer standing off the surface. */
+.ds-button--primary:active:not(:disabled),
+.ds-button--primary[data-pressed]:not(:disabled) {
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-button--primary:disabled {
+  box-shadow: none;
+}
+
+/* Outline — bordered neutral secondary. Half a step of elevation below
+ * primary: enough that it reads as a control rather than a labelled box,
+ * quiet enough that it never competes with the view's one primary. */
+.ds-button--outline {
+  border: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-default);
+  box-shadow: var(--sem-shadow-control-edge);
+}
+
+.ds-button--outline:hover:not(:disabled) {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-button--outline:active:not(:disabled),
+.ds-button--outline[data-pressed]:not(:disabled) {
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-button--outline:disabled {
+  box-shadow: none;
 }
 
 /* Ghost — quiet secondary action; hover lifts ink and background together. */
@@ -8866,7 +8985,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   .ds-button {
     transition: none;
   }
-  .ds-button:active:not(:disabled) {
+  .ds-button--ghost:active:not(:disabled),
+  .ds-button--icon:active:not(:disabled) {
     transform: none;
   }
 }
@@ -8911,6 +9031,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Create workspace&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot;&gt;Revoke others&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Close&quot;&gt;
       &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -8919,6 +9040,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Medium primary&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot; disabled&gt;Disabled&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot; disabled&gt;Disabled outline&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;
@@ -8926,6 +9048,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Create workspace&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot;&gt;Revoke others&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Close&quot;&gt;
       &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -8934,6 +9057,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Medium primary&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot; disabled&gt;Disabled&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot; disabled&gt;Disabled outline&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;

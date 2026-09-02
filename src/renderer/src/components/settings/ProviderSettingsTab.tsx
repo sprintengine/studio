@@ -181,7 +181,7 @@ export function ProviderSettingsTab() {
           title="Could not load the conversation providers."
           hint={tabState.message}
           action={
-            <OutlineButton size="md" onClick={() => void loadProviders()}>
+            <OutlineButton size="xs" onClick={() => void loadProviders()}>
               Retry
             </OutlineButton>
           }

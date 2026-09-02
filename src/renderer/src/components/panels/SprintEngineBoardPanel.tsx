@@ -500,7 +500,7 @@ export function SprintEngineSettingsPopover({
  role="radio"
  aria-checked={checked}
  onClick={() => onChangeAutomationMode(option.value)}
- className="interactive flex w-full items-start gap-2 rounded-[5px] px-2 py-1.5 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+ className="interactive flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  >
  <span className="min-w-0 flex-1">
  <span className={`block text-meta ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
@@ -549,7 +549,7 @@ export function SprintEngineSettingsPopover({
  onClose()
  }}
  aria-label={`Open task ${runtimeTask.id} ${runtimeTask.title}`}
- className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-[5px] px-1 py-1 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+ className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-sm px-1 py-1 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  >
  <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
  {runtimeTask.id}
@@ -2608,7 +2608,7 @@ export function SprintRunBoard({
  aria-expanded={triggerProps['aria-expanded']}
  aria-controls={triggerProps['aria-controls']}
  onClick={togglePopover}
- className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-micro focus-visible:focus-ring ${
+ className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-micro focus-visible:focus-ring ${
  settingsOpen
  ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'

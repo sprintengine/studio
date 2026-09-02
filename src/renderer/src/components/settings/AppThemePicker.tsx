@@ -147,7 +147,7 @@ function ThemePreview({ swatches }: { swatches: ThemeSwatches }) {
   return (
     <div
       aria-hidden="true"
-      className="relative h-16 w-full overflow-hidden rounded-[5px]"
+      className="relative h-16 w-full overflow-hidden rounded-sm"
       style={{ backgroundColor: swatches.bgApp }}
     >
       {/* Inner "panel" — bg-surface inside bg-app, mimicking real chrome. */}
@@ -184,7 +184,7 @@ function SystemPreview() {
   return (
     <div
       aria-hidden="true"
-      className="flex h-16 w-full items-center justify-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+      className="flex h-16 w-full items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
     >
       <svg
         viewBox="0 0 24 24"

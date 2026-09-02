@@ -462,7 +462,7 @@ function ServerRow({
 function QuietNotice({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="mx-3 mt-3 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-micro text-[color:var(--text-default)]"
+      className="mx-3 mt-3 rounded-sm border border-[color:var(--border-subtle)] px-3 py-2 text-micro text-[color:var(--text-default)]"
       role="status"
     >
       {children}

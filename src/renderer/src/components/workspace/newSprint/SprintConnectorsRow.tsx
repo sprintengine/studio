@@ -68,7 +68,7 @@ export function SprintConnectorsRowView({ row }: { row: SprintConnectorsRow }): 
             onClick={togglePopover}
             className={[
               'interactive inline-flex h-control-sm min-w-[168px] items-center justify-between gap-2',
-              'rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-body',
+              'rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-body',
               'text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
               FOCUS_RING_CLASS,
             ].join(' ')}

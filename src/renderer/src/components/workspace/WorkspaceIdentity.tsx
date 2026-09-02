@@ -419,7 +419,7 @@ export function WorkspaceIdentity({
             onClick={() => setWorkspaceHighlight(activeWorkspace.id, { starred: !starred })}
             aria-pressed={starred}
             aria-label={starred ? 'Unstar workspace' : 'Star workspace'}
-            className={`app-no-drag interactive group/star flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+            className={`app-no-drag interactive group/star flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-sm hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
           >
             <StarGlyph
               filled={starred}
@@ -442,7 +442,7 @@ export function WorkspaceIdentity({
               type="button"
               onClick={onToggleSidebar}
               aria-label={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
-              className={`app-no-drag interactive flex min-w-0 items-center rounded-[5px] px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center rounded-sm px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
             >
               <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
@@ -476,7 +476,7 @@ export function WorkspaceIdentity({
               type="button"
               onClick={toggleFilesPanel}
               aria-label={`Toggle file explorer, ${folderPath}`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               <span className="min-w-0 truncate">{projectName}</span>
@@ -502,7 +502,7 @@ export function WorkspaceIdentity({
               aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${
                 gitHasChanges ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}` : ''
               }`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
