@@ -9,7 +9,7 @@
 // actions (launch / automation / remove) only delegate to handlers the host
 // already owns — a primitive with no handler simply shows no action.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
 import type {
@@ -762,6 +762,37 @@ function UseSkillMenu({
     }
   }, [open])
 
+  // Focus enters the menu on open, on the first row that can take it — the
+  // menu-button contract `OverflowMenu` and `SplitButton` keep. The rows here
+  // arrive asynchronously (`sessions` is null while `terminalList()` is in
+  // flight and the surface holds only the loading row), so on open there may be
+  // nothing to focus yet. Park focus on the menu body itself in that case — it
+  // carries the `roveMenuFocus` keydown handler, so the arrow keys are live —
+  // and move onto row 1 the moment the rows exist.
+  const menuBodyRef = useRef<HTMLDivElement | null>(null)
+  const focusMenu = useCallback(() => {
+    const body = menuBodyRef.current
+    if (!body) return
+    const first = body.querySelector<HTMLButtonElement>('[data-menu-item="true"]:not([disabled])')
+    if (first) first.focus()
+    else body.focus()
+  }, [])
+  // Stable identity: `Popover` keys its auto-focus effect on this callback.
+  // Next frame, so the Popover has positioned (and un-hidden) its surface.
+  const handleOpenAutoFocus = useCallback(() => {
+    requestAnimationFrame(focusMenu)
+  }, [focusMenu])
+  useEffect(() => {
+    if (!open || sessions === null) return
+    const body = menuBodyRef.current
+    if (!body) return
+    // Do not steal focus back if it already sits on a row the person moved to.
+    const active = document.activeElement
+    if (active && active !== body && body.contains(active)) return
+    const frame = requestAnimationFrame(focusMenu)
+    return () => cancelAnimationFrame(frame)
+  }, [open, sessions, focusMenu])
+
   // The row is a projection of the inventory record; the invocation machinery
   // needs the record itself (source, harnesses), re-read at click time so a
   // skill installed since the list loaded still resolves.
@@ -832,7 +863,7 @@ function UseSkillMenu({
       // The kit's list layer on the Popover's own `role="menu"` surface; the
       // rows are `MenuItem`, so arrow keys rove and a divider is the menu's own.
       surfaceClassName={`w-[240px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={focusFirstMenuItem}
+      onOpenAutoFocus={handleOpenAutoFocus}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <OutlineButton ref={ref} size="sm" onClick={togglePopover} {...triggerProps}>
           Use in agent
@@ -840,7 +871,9 @@ function UseSkillMenu({
       )}
     >
       <div
-        className="flex flex-col"
+        ref={menuBodyRef}
+        tabIndex={-1}
+        className="flex flex-col outline-none"
         onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}
       >
         {error ? (
@@ -886,15 +919,6 @@ function UseSkillMenu({
       </div>
     </Popover>
   )
-}
-
-// Focus enters the menu on open, on the first row that can take it — the
-// menu-button contract `OverflowMenu` and `SplitButton` keep. Next frame, so
-// the Popover has positioned (and un-hidden) its surface.
-function focusFirstMenuItem(surface: HTMLElement): void {
-  requestAnimationFrame(() => {
-    surface.querySelector<HTMLButtonElement>('[data-menu-item="true"]:not([disabled])')?.focus()
-  })
 }
 
 function errorMessage(error: unknown, fallback: string): string {

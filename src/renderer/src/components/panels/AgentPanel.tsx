@@ -385,11 +385,15 @@ export default function AgentPanel({
                   onClick={toggleTerminalLock}
                   aria-label={isTerminalLocked ? 'Unlock terminal — allow automatic pausing' : 'Lock terminal — never pause automatically'}
                   aria-pressed={isTerminalLocked}
+                  // The fill and the ink of the pressed state belong to the
+                  // primitive (`pressed`), not to this className: spelled here
+                  // they met `GHOST_TONE`'s own utilities at equal specificity
+                  // and lost the hover step outright. What stays is the only
+                  // thing local — a locked terminal keeps its glyph standing
+                  // while its neighbours are hover-revealed.
+                  pressed={isTerminalLocked}
                   className={`transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${
-                    isTerminalLocked
-                      ? // Pressed is the neutral selection fill, never the accent.
-                        'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] opacity-100'
-                      : 'bg-[color:var(--bg-surface-raised)] opacity-0'
+                    isTerminalLocked ? 'opacity-100' : 'bg-[color:var(--bg-surface-raised)] opacity-0'
                   }`}
                 >
                   {isTerminalLocked ? (

@@ -68,6 +68,7 @@ import {
   InboxSearchInput,
   INLINE_TITLE_EDIT_CLASS,
   InlineNotice,
+  LIST_CURSOR_MARK_CLASS,
   MENU_LIST_CLASS,
   MenuItem,
   OverflowMenu,
@@ -1406,6 +1407,13 @@ function ProjectChip({
   // menu (menu/component.md → Accessibility); focus lands on the first row on
   // open, as ContextMenu does, so the keys work immediately.
   const surfaceRef = React.useRef<HTMLElement | null>(null)
+  // Stable identity: `Popover` keys its auto-focus effect on this callback, so an
+  // inline arrow function would re-run it on every render and pull the keyboard
+  // cursor back to the first row while the menu is open.
+  const focusFirstMenuItem = useCallback((surface: HTMLElement) => {
+    surfaceRef.current = surface
+    surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  }, [])
   return (
     <Popover
       open={open}
@@ -1415,10 +1423,7 @@ function ProjectChip({
       placement="bottom-start"
       className="min-w-0"
       surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={(surface) => {
-        surfaceRef.current = surface
-        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
-      }}
+      onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -1493,13 +1498,18 @@ function PickRow({
   // design-tokens-allow: implied-child accent rule from the approved mockup — not selection paint
   const impliedClass = implied && !picked ? 'border-l-[color:var(--accent-primary)]' : ''
   // Cursor ≠ focus. DOM focus stays on the listbox (`aria-activedescendant`),
-  // so the walked row is `--bg-hover` — what `Combobox` does — and the picked
-  // row keeps `--bg-selected` from the paint seam. It used to draw a 1px
-  // zero-offset outline in the focus hue, the exact collision the product's
-  // offset ring exists to avoid (audit, second-focus-idioms). A picked row that
-  // is also the cursor keeps the selection fill: two `bg-*` utilities on one
-  // element would be resolved by stylesheet order.
-  const cursorClass = cursored && !picked ? 'bg-[color:var(--bg-hover)]' : ''
+  // so the row cannot wear the product's ring — and it must not draw a second
+  // one: the 1px zero-offset outline this used to paint was the exact collision
+  // the offset ring exists to avoid (audit, second-focus-idioms).
+  //
+  // But a `--bg-hover` fill is not a cursor either. The picked row already wears
+  // `--bg-selected` from the paint seam, so a fill-only cursor is invisible on
+  // every previously-picked row — which is where ↑/↓ lands after a shift-range
+  // pick, the normal state of this list — and on an unpicked row it is
+  // indistinguishable from plain pointer hover. So the cursor takes a channel of
+  // its own that composes with both fills: the kit's leading rule
+  // (`LIST_CURSOR_MARK_CLASS`), which is neither a fill nor a ring. Same mark the
+  // roadmap plan column's j/k cursor draws.
   // A child that will NOT be imported reads as excluded: struck, and without the
   // implied rule its open siblings carry (MC-2129). The count on the source chip
   // and this styling answer the same question — what actually goes in — so they
@@ -1511,8 +1521,9 @@ function PickRow({
       role="option"
       aria-selected={picked}
       onClick={onClick}
-      className={`flex cursor-pointer items-start gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-2 pr-2 text-micro text-[color:var(--text-muted)] ${paint} ${impliedClass} ${cursorClass}`}
+      className={`relative flex cursor-pointer items-start gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-2 pr-2 text-micro text-[color:var(--text-muted)] ${paint} ${impliedClass}`}
     >
+      {cursored ? <span aria-hidden="true" className={LIST_CURSOR_MARK_CLASS} /> : null}
       <span
         className={`min-w-0 flex-1 ${closed && !picked ? 'line-through decoration-[color:var(--border-strong)]' : ''}`}
       >
@@ -1551,10 +1562,9 @@ function EpicGroupRows({
     litFill: false,
     selected: epicPicked,
   })
-  // Same cursor idiom as PickRow: the walked header is `--bg-hover`, never a
-  // second focus outline; a picked header keeps its selection fill.
-  const headerCursorClass =
-    epicKey && cursorKey === epicKey && !epicPicked ? 'bg-[color:var(--bg-hover)]' : ''
+  // Same cursor idiom as PickRow: the leading cursor rule, which composes with
+  // the header's selection fill instead of being swallowed by it.
+  const headerCursored = Boolean(epicKey && cursorKey === epicKey)
   return (
     <>
       {group.kind === 'epic' ? (
@@ -1563,8 +1573,9 @@ function EpicGroupRows({
           role="option"
           aria-selected={epicPicked}
           onClick={onTogglePickEpic}
-          className={`mt-1 flex cursor-pointer items-center gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-1.5 pr-2 ${headerPaint} ${headerCursorClass}`}
+          className={`relative mt-1 flex cursor-pointer items-center gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-1.5 pr-2 ${headerPaint}`}
         >
+          {headerCursored ? <span aria-hidden="true" className={LIST_CURSOR_MARK_CLASS} /> : null}
           <span className="min-w-0 flex-1">
             <BacklogEpicHeaderContent
               group={group}

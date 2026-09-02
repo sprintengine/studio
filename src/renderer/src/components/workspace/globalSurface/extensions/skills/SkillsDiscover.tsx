@@ -251,7 +251,9 @@ export function DiscoverRepoList({
         <Condition condition={degraded} onConfigureToken={onConfigureToken} onRetry={onRetry} />
       )}
       <Section
-        inset={false}
+        // `flush`: the hit rows draw from x=0, so the header takes no inset the
+        // rows do not have (see SkillSourceCanvas).
+        inset="flush"
         level={4}
         title="Most starred"
         count={results.length}
@@ -332,7 +334,7 @@ export function DiscoverSearchResults({
         // Labelled with the query the rows actually belong to, so results
         // still on screen while a newer query is being typed say so.
         <Section
-          inset={false}
+          inset="flush"
           level={4}
           title={`Results for “${load.query}”`}
           count={results.length}
@@ -444,13 +446,11 @@ function RepoHitRow({
           {hit.curated ? (
             // The kit's label badge. What "Manifest" means is stated once, in
             // the list head above ("Repositories carrying a plugin manifest
-            // first"), and in the badge's accessible name — never a native
-            // `title=` on a span the keyboard could not reach.
-            <Badge
-              tone="neutral"
-              className="shrink-0"
-              ariaLabel="Manifest — carries .claude-plugin/marketplace.json; someone curated its contents"
-            >
+            // first") — never a native `title=` on a span the keyboard could
+            // not reach, and no longer a twelve-word sentence pushed into the
+            // row's accessible name through `ariaLabel`, which made every
+            // manifest row read its own footnote. The visible word is the name.
+            <Badge tone="neutral" className="shrink-0">
               Manifest
             </Badge>
           ) : null}

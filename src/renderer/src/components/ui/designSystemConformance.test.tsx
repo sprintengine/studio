@@ -491,8 +491,9 @@ async function main(): Promise<void> {
         openComponent: null,
         onOpenComponent: () => {},
         onCloseComponent: () => {},
-        onReload: () => {},
-        reloading: false,
+        // No `onReload` / `reloading`: Reveal and Reload moved to the door bar
+        // when the canvas gave up its second chrome band (audit 2026-09-02),
+        // and the canvas no longer takes them.
       }),
     )
   })

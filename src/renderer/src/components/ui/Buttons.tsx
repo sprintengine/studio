@@ -171,6 +171,18 @@ type IconButtonProps = ButtonBase & {
   size?: 'sm' | 'md'
   /** Same contract as `GhostButton`'s: a destructive icon action is a prop. */
   tone?: ButtonTone
+  /**
+   * The button is a toggle and is currently ON — a locked terminal, a pinned
+   * row, a filter left engaged. It is a prop for the same reason `tone` is: a
+   * caller spelling the pressed fill in `className` writes a plain `bg-…` and a
+   * `text-…` that meet `GHOST_TONE`'s own utilities at equal specificity, so
+   * which of them paints is stylesheet order rather than what the caller wrote
+   * — and the tone's `hover:bg-…` outranks a plain `bg-…` outright, so the
+   * pressed fill vanished the moment a pointer touched it. Also supplies
+   * `aria-pressed` when the caller has not, since a pressed control that does
+   * not say so is only pressed for people who can see it.
+   */
+  pressed?: boolean
 }
 
 const ICON_SIZE: Record<'sm' | 'md', string> = {
@@ -178,17 +190,35 @@ const ICON_SIZE: Record<'sm' | 'md', string> = {
   md: 'size-control-sm text-heading',
 }
 
+// Pressed is the neutral selection fill, never the accent: an engaged toggle is
+// a standing state, and the accent budget is spent on the view's one primary
+// action ("The accent budget"). Hover is declared rather than inherited so the
+// fill holds under the pointer — a toggle that un-paints itself on hover reads
+// as having turned off.
+const PRESSED_TONE: Record<ButtonTone, string> = {
+  neutral:
+    'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
+    'hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] ' +
+    'disabled:hover:bg-[color:var(--bg-selected)] disabled:hover:text-[color:var(--text-strong)]',
+  danger:
+    'bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)] ' +
+    'hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] ' +
+    'disabled:hover:bg-[color:var(--tone-error-soft)] disabled:hover:text-[color:var(--tone-error)]',
+}
+
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  function IconButton({ className, size = 'sm', tone = 'neutral', children, type, ...rest }, ref) {
+  function IconButton({ className, size = 'sm', tone = 'neutral', pressed = false, children, type, ...rest }, ref) {
     return (
       <button
         ref={ref}
         type={type ?? 'button'}
+        // Before the spread: an explicit `aria-pressed` from the caller still wins.
+        aria-pressed={pressed ? true : undefined}
         {...rest}
         className={[
           'interactive inline-flex items-center justify-center rounded-[5px]',
           ICON_SIZE[size],
-          GHOST_TONE[tone],
+          pressed ? PRESSED_TONE[tone] : GHOST_TONE[tone],
           'disabled:cursor-not-allowed disabled:opacity-45',
           FOCUS_RING_CLASS,
           className ?? '',

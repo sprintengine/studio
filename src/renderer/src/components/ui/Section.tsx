@@ -11,8 +11,19 @@ type SectionProps = {
   headingId?: string
   /** Render the heading as a different level for nested sections. */
   level?: 2 | 3 | 4
-  /** Removes default padding when the content brings its own. */
-  inset?: boolean
+  /**
+   * Where the section's padding comes from.
+   *
+   *  - `true` (default) — the section pads its own body.
+   *  - `false` — the body brings its own padding. The header keeps the standard
+   *    12px inset, because a body that pads itself almost always pads itself to
+   *    the same 12px (a list of `InboxRow`s does), and the heading has to line
+   *    up with the rows under it.
+   *  - `'flush'` — neither. For a body whose rows run to the container's own
+   *    edge, where the header's inset is what puts the heading 12px out of line
+   *    with everything it names.
+   */
+  inset?: boolean | 'flush'
   className?: string
   children: React.ReactNode
 }
@@ -40,7 +51,11 @@ export function Section({
       className={`flex flex-col ${className ?? ''}`}
     >
       {title ? (
-        <div className="flex items-baseline justify-between gap-2 px-3 pt-3 pb-1.5">
+        <div
+          className={`flex items-baseline justify-between gap-2 pt-3 pb-1.5 ${
+            inset === 'flush' ? '' : 'px-3'
+          }`}
+        >
           <div className="flex items-baseline gap-1.5 min-w-0">
             <Heading
               id={resolvedHeadingId}
@@ -57,7 +72,7 @@ export function Section({
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       ) : null}
-      <div className={inset ? 'px-3 pb-3' : ''}>{children}</div>
+      <div className={inset === true ? 'px-3 pb-3' : ''}>{children}</div>
     </section>
   )
 }

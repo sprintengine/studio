@@ -43,6 +43,13 @@ and its content sit on the same vertical line.
 - `ds-section--flush` — no body inset, for content that brings its own edge
   contract: a list whose rows own full-width hover fills, a table, a divider
   stack. The header keeps its padding either way.
+- `ds-section--flush-header` — the body inset drops **and so does the header's**,
+  so the title, the count and a trailing control share the rows' left edge.
+  Added 2026-09-02: `--flush` alone leaves the heading 12px inboard of rows that
+  render flush to x=0, which reads as a misalignment rather than a hierarchy.
+  Reach for it only when the body's rows genuinely have no inset of their own —
+  a list of `inbox-row`s carries its own, and the header must stay inset to
+  line up with it.
 
 ## States
 

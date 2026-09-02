@@ -471,6 +471,13 @@ function ProjectScopeChip({
   // menu (menu/component.md → Accessibility); focus lands on the first row on
   // open, as ContextMenu does, so the keys work immediately.
   const surfaceRef = React.useRef<HTMLElement | null>(null)
+  // Stable identity: `Popover` keys its auto-focus effect on this callback, so an
+  // inline arrow function would re-run it on every render and pull the keyboard
+  // cursor back to the first row while the menu is open.
+  const focusFirstMenuItem = React.useCallback((surface: HTMLElement) => {
+    surfaceRef.current = surface
+    surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  }, [])
   return (
     <Popover
       open={open}
@@ -480,10 +487,7 @@ function ProjectScopeChip({
       placement="bottom-start"
       className="min-w-0"
       surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={(surface) => {
-        surfaceRef.current = surface
-        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
-      }}
+      onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}

@@ -139,7 +139,10 @@ export function Tabs<T extends string = string>({
               if (!item.disabled) onChange(item.id)
             }}
             className={[
-              'relative -mb-px inline-flex h-control-sm items-center gap-1.5 px-3 text-meta',
+              // `shrink-0 whitespace-nowrap`: a tab row in a narrow panel scrolls
+              // inside its own overflow container rather than compressing its
+              // labels — a flex child otherwise shrinks to fit its parent.
+              'relative -mb-px inline-flex h-control-sm shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-meta',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               selected
                 ? 'text-[color:var(--text-strong)]'

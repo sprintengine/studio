@@ -120,7 +120,9 @@ export function McpInfoPanel({
         <ul className="mt-1 space-y-1.5 text-body text-[color:var(--text-muted)]">
           <li className="flex items-center gap-1.5">
             <span>MCP server</span>
-            <Badge decorative>{server.transport}</Badge>
+            {/* Not decorative: "stdio" / "http" appears nowhere else in the
+                row, so hiding the chip hides the transport outright. */}
+            <Badge>{server.transport}</Badge>
           </li>
           {server.skill ? (
             <li>
@@ -128,7 +130,9 @@ export function McpInfoPanel({
                 <span className="font-medium text-[color:var(--text-default)]">
                   {drivingSkill?.name ?? server.skill}
                 </span>
-                <Badge decorative>Skill</Badge>
+                {/* Not decorative: the word "Skill" is the only thing
+                    separating this line from the server named above it. */}
+                <Badge>Skill</Badge>
               </div>
               {drivingSkill?.description ? (
                 <div className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]">

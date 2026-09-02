@@ -135,23 +135,36 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
 
   // Escape close. Two yields keep "Escape reaches only the topmost surface"
   // true (knowledge/brand/primitives.md): a transient child (popover, menu)
-  // that already handled Escape marks the event, and a Modal stacked above
+  // that already handled Escape marks the event, and a surface stacked ABOVE
   // this drawer must win even though the drawer's window listener registered
-  // first — the drawer yields by state when any OTHER aria-modal surface is
-  // open. The drawer is itself `aria-modal="true"` (it scrims, traps focus and
-  // locks scroll, so the claim is honest), which is why the query excludes its
-  // own panel and anything mounted inside it: a dialog hosted in the drawer
-  // still wins, the drawer never yields to itself.
+  // first — the drawer yields by state rather than by listener order.
+  //
+  // The drawer is itself `aria-modal="true"` (it scrims, traps focus and locks
+  // scroll, so the claim is honest), so "any other modal is open" is the wrong
+  // test twice over: it would make the drawer yield to itself, and two open
+  // drawers would each yield to the other and neither would close.
+  //
+  // "Above" is document order. `Modal` renders IN PLACE rather than through a
+  // portal, so a dialog hosted inside the drawer body is a DESCENDANT — which
+  // `DOCUMENT_POSITION_CONTAINED_BY` reports as FOLLOWING, and it must win. A
+  // second drawer or a modal opened later mounts after this panel, so it is
+  // FOLLOWING too. Anything that precedes this panel is below it and does not
+  // take the key.
   useEffect(() => {
     if (lifecycle === 'closed') return undefined
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (event.defaultPrevented) return
         const panel = panelRef.current
-        const otherModal = Array.from(
+        const surfaceAbove = Array.from(
           document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
-        ).some((node) => node !== panel && !(panel?.contains(node) ?? false))
-        if (otherModal) return
+        ).some(
+          (node) =>
+            node !== panel &&
+            panel !== null &&
+            (panel.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+        )
+        if (surfaceAbove) return
         event.preventDefault()
         event.stopPropagation()
         onClose()

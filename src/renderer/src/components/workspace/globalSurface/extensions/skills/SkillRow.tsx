@@ -59,8 +59,12 @@ export function SkillRow({
         ) : null}
         {/* The kit's label badge, said in words: "3 files" needs no tooltip to
             explain a glyph, and nothing here is a native `title=` on a span
-            the keyboard could never reach. */}
-        <Badge tone="neutral" className="shrink-0 tabular-nums">
+            the keyboard could never reach. Decorative: the row is named by the
+            skill and its description, and a file count is the one thing on it
+            that is density detail rather than meaning — so it is the one chip
+            here that can be dropped from the row's name, which on a listing
+            this long is worth dropping. */}
+        <Badge tone="neutral" decorative className="shrink-0 tabular-nums">
           {`${item.fileCount} file${item.fileCount === 1 ? '' : 's'}`}
         </Badge>
         {item.hasExecutables ? (

@@ -5,7 +5,7 @@ import {
   GhostButton,
   InlineNotice,
   PrimaryButton,
-  SegmentedControl,
+  Select,
   SidePaneHeader,
   Spinner,
   TruncatedText,
@@ -168,12 +168,23 @@ export function AutomationReportViewer({
   )
 }
 
-// A compact path switcher for runs that produced more than one report: the kit
-// `SegmentedControl` (one always-selected value, arrow keys move the choice, a
+// A path switcher for runs that produced more than one report: the kit `Select`
+// (one always-selected value, arrow keys + Home/End + type-ahead, Escape, a
 // single tab stop) rather than an `aria-pressed` chip pair with no keyboard
-// model. The segments show basenames; the active report's full path reads as a
-// quiet provenance line under the control, so it is on screen for everyone
-// rather than hidden in a native `title=` tooltip a keyboard cannot reach.
+// model.
+//
+// Deliberately NOT a `SegmentedControl`: that control is ruled for 2–4 short
+// labels (segmented-control/component.md) and its root is `inline-flex
+// overflow-hidden` with no wrap, but `paths` is unbounded — a run that wrote six
+// reports pushed the control straight out of the side pane, which only scrolls
+// vertically. And not `Tabs` either: picking a report chooses a VALUE the pane
+// then loads, it does not switch between panels that are all already there.
+//
+// The trigger shows the active report's basename and truncates rather than
+// overflowing; the full path reads as a quiet provenance line under the control,
+// on screen for everyone, with `TruncatedText` surfacing the rest in the kit
+// Tooltip when the pane is too narrow for it — never a native `title=` a
+// keyboard cannot reach.
 export function ReportPathPicker({
   paths,
   activePath,
@@ -186,13 +197,15 @@ export function ReportPathPicker({
   const value = activePath ?? paths[0] ?? ''
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <SegmentedControl
+      <Select
         ariaLabel="Reports"
-        size="sm"
         items={paths.map((path) => ({ value: path, label: basename(path) }))}
-        value={value}
+        value={value || null}
         onChange={onSelect}
-        className="self-start"
+        // The side pane is narrow and scrolls only vertically: the trigger
+        // truncates inside its track instead of forcing a horizontal overflow.
+        className="max-w-full self-start"
+        triggerMinWidthClassName="min-w-0"
       />
       {value ? (
         <TruncatedText as="p" text={value} className="font-mono text-micro text-[color:var(--text-muted)]" />

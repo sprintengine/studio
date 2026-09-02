@@ -108,20 +108,6 @@ function formatSprintEngineGoalPreview(goal: string): string {
  return firstSentence || firstLine
 }
 
-function TaskGraphLegendDot({ color, label }: { color: string; label: string }) {
- return (
- <span className="flex items-center gap-1.5">
- <span
- aria-hidden="true"
- // design-tokens-allow: legend swatch displays a caller-provided role color, not a status tone.
- className="inline-block h-2 w-2 rounded-full"
- style={{ backgroundColor: color }}
- />
- <span>{label}</span>
- </span>
- )
-}
-
 function taskGraphNodeStatusLabel(
  taskStatus: SprintEngineTaskStatus,
  boardColumn: SprintEngineTaskBoardColumn,
@@ -140,10 +126,21 @@ function taskGraphNodeStatusLabel(
 // hover is a background change, focus is the one ring. The role hue lives only
 // on the swatch beside the role label; it never reaches the node's chrome, and
 // there is no glow, no tone-coloured border and no scale.
-function taskGraphNodeClass(selected: boolean): string {
- return selected
+//
+// `focused` is the node the view auto-centred on (`focusTaskId`). It is marked
+// with the shared ring — the same `focus-ring` utility every focus treatment in
+// the kit draws, standing here rather than triggered — because the two resting
+// states above already spend both neutral grounds and the strong hairline, and
+// the rulings leave no glow, no scale and no status hue to spend. A ring layers
+// over either state, so "the graph scrolled you to this one" still reads on a
+// node that is also the selected one, and panning to a node that looks like
+// every other node (what dropping the old focus border left behind) cannot
+// happen again.
+function taskGraphNodeClass(selected: boolean, focused: boolean): string {
+ const resting = selected
  ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
  : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)]'
+ return focused ? resting + ' focus-ring' : resting
 }
 
 export function SprintEngineTaskGraphView({
@@ -516,7 +513,7 @@ export function SprintEngineTaskGraphView({
  data-task-graph-node={task.id}
  onClick={() => onSelectTask(task.id)}
  aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-sm border p-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus-visible:focus-ring ${taskGraphNodeClass(isSelected)} ${
+ className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-sm border p-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus-visible:focus-ring ${taskGraphNodeClass(isSelected, isFocused)} ${
  isSelected || isFocused ? 'z-10' : 'z-0'
  }`}
  style={{
@@ -916,15 +913,23 @@ export function SprintEngineTaskGraphView({
  <div className="text-meta font-semibold text-[color:var(--text-muted)]">
  Status
  </div>
+ {/* The legend is the node's own status idiom enumerated: the same
+ LifecycleGlyph over the same board lanes, in the order the board
+ shows them. The swatch rows it replaces described a colour channel
+ the graph stopped painting when `taskGraphStatusTone` was deleted,
+ and contradicted the glyph that took its place — ready and
+ in_progress are the accent, only done is --tone-good. */}
  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[color:var(--text-muted)]">
- <TaskGraphLegendDot color="var(--tone-good)" label="Ready" />
- <TaskGraphLegendDot color="var(--tone-warn)" label="In progress" />
- <TaskGraphLegendDot color="var(--tone-warn)" label="Needs input" />
- <TaskGraphLegendDot color="var(--tone-good)" label="Done" />
- <TaskGraphLegendDot color="var(--text-muted)" label="Todo" />
+ {sprintEngineTaskBoardColumns.map((column) => (
+ <span key={column.key} className="flex items-center gap-1.5">
+ <LifecycleGlyph state={taskBoardColumnToLifecycle(column.key)} live={false} />
+ <span>{column.label}</span>
+ </span>
+ ))}
  </div>
  <div className="mt-3 border-t border-[color:var(--border-default)] pt-2 text-micro leading-5 text-[color:var(--text-subtle)]">
  <div>Edge color &middot; dependency state (green when complete)</div>
+ <div>Ring &middot; the task the view centred on</div>
  </div>
  </div>
  ) : null}

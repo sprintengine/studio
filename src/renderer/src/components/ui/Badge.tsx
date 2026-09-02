@@ -38,7 +38,10 @@ export type BadgeProps = {
   ariaLabel?: string
   /**
    * Hide from assistive tech — correct when adjacent text already carries the
-   * meaning, so the badge is not read twice.
+   * meaning, so the badge is not read twice. It is NOT a mute button for a
+   * chatty badge: on a chip that is the only statement of its fact ("Coming
+   * soon", "stdio", an allowed tool) this deletes the fact for everyone not
+   * looking at the screen.
    */
   decorative?: boolean
   className?: string
@@ -54,15 +57,30 @@ export function Badge({
   decorative = false,
   className,
 }: BadgeProps): JSX.Element {
-  const a11y = decorative
-    ? ({ 'aria-hidden': true } as const)
-    : ({ role: 'status', 'aria-label': ariaLabel } as const)
+  // Two species, two contracts. A COUNTER is the one badge that changes in place
+  // while the person is looking elsewhere — the bell, the attention queue — so
+  // it keeps `role="status"` and its polite announcement. A LABEL is row
+  // content: it is read where it sits. Giving a hundred of them a live region
+  // (`role="status"` implies `aria-live="polite"`) turns a list that narrows as
+  // you type into a hundred polite announcements, which is what the audit's
+  // adoption sweep did to the skills listing and the diagnostics table. A named
+  // label takes `role="img"` — the kit's existing "leaf named by its label"
+  // idiom, also LifecycleGlyph's — because `aria-label` on a bare span carries
+  // no role to hang itself on and is ignored; an unnamed one is simply its own
+  // text, which is all a chip saying "stdio" ever needed to be.
+  const hidden = { 'aria-hidden': true } as const
+  const countA11y = decorative ? hidden : ({ role: 'status', 'aria-label': ariaLabel } as const)
+  const labelA11y = decorative
+    ? hidden
+    : ariaLabel
+      ? ({ role: 'img', 'aria-label': ariaLabel } as const)
+      : ({} as const)
 
   if (count !== undefined) {
     const shown = max !== undefined && count > max ? `${max}+` : String(count)
     return (
       <span
-        {...a11y}
+        {...countA11y}
         style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
         className={[
           // `min-w-4` with `px-1`: a single digit stays a circle, two or more
@@ -88,7 +106,7 @@ export function Badge({
 
   return (
     <span
-      {...a11y}
+      {...labelA11y}
       style={{ backgroundColor: TONE_SOFT_VAR[tone], borderColor: TONE_COLOR_VAR[tone] }}
       className={[
         'inline-flex min-w-0 items-center gap-1 rounded-full border px-1.5',

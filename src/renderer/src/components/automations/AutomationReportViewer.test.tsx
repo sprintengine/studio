@@ -165,7 +165,12 @@ run('the loading state shows a labelled spinner', () => {
 
 // ---- ReportPathPicker: multi-report switching -------------------------------
 
-run('the picker lists every report and marks the active one', () => {
+// The picker is the kit `Select`, not a `SegmentedControl`: `paths` is unbounded
+// (a run can write any number of reports) and the segmented control is a
+// no-wrap `inline-flex` ruled for 2–4 short labels, so a six-report run pushed
+// it out of a side pane that scrolls only vertically. The Select trigger names
+// the active report and truncates in place; the popup carries the list.
+run('the picker names the active report and offers every report as a choice', () => {
   const markup = renderToStaticMarkup(
     <ReportPathPicker
       paths={['reports/a.md', 'reports/b.html']}
@@ -173,20 +178,50 @@ run('the picker lists every report and marks the active one', () => {
       onSelect={() => {}}
     />,
   )
-  assert.match(markup, />a\.md</, 'first report listed by basename')
-  assert.match(markup, />b\.html</, 'second report listed by basename')
-  // Exactly one segment is checked — the picker is the kit's radiogroup, so the
-  // neutral selected fill lands on the active report and nowhere else.
-  const checked = markup.match(/aria-checked="true"/g) ?? []
-  assert.equal(checked.length, 1, 'exactly one active report segment')
-  assert.match(markup, /role="radiogroup"[^>]*aria-label="Reports"/, 'a single-choice group named for AT')
+  assert.match(markup, /role="combobox"[^>]*aria-label="Reports"/, 'a single-choice control named for AT')
+  assert.match(markup, />a\.md</, 'the trigger reads the active report’s basename')
   assert.match(markup, />reports\/a\.md</, 'the active report’s full path reads as a visible provenance line')
   assert.doesNotMatch(markup, /title="reports\//, 'never a native title tooltip')
+
+  const tree = ReportPathPicker({
+    paths: ['reports/a.md', 'reports/b.html'],
+    activePath: 'reports/a.md',
+    onSelect: () => {},
+  })
+  const control = (tree.props.children as Array<{ props: Record<string, unknown> }>)
+    .filter(Boolean)
+    .find((child) => typeof child.props.onChange === 'function')
+  assert.ok(control, 'the picker renders the select')
+  assert.deepEqual(
+    control!.props.items,
+    [
+      { value: 'reports/a.md', label: 'a.md' },
+      { value: 'reports/b.html', label: 'b.html' },
+    ],
+    'every report is a choice, listed by basename',
+  )
+  assert.equal(control!.props.value, 'reports/a.md', 'and the active report is the selected value')
 })
 
-run('clicking a picker tab selects that path', () => {
+run('a run with many reports still fits the side pane: no no-wrap segmented row', () => {
+  const markup = renderToStaticMarkup(
+    <ReportPathPicker
+      paths={['reports/a.md', 'reports/b.md', 'reports/c.md', 'reports/d.md', 'reports/e.md', 'reports/f.md']}
+      activePath="reports/a.md"
+      onSelect={() => {}}
+    />,
+  )
+  assert.doesNotMatch(markup, /role="radiogroup"/, 'six reports are not six segments in a row that cannot wrap')
+  // One trigger, whatever the count — the list lives in the popup.
+  assert.equal((markup.match(/role="combobox"/g) ?? []).length, 1, 'exactly one control')
+  assert.doesNotMatch(markup, />f\.md</, 'the sixth basename is not painted inline beside the first five')
+})
+
+run('picking a report reports its path upward', () => {
   let picked: string | null = null
-  // Drive the click handler directly off the element tree the picker builds.
+  // Drive the change handler directly off the element tree the picker builds:
+  // `onChange` is the one seam a pick travels through, whether it came from a
+  // click, an arrow key, Home/End, or type-ahead.
   const tree = ReportPathPicker({
     paths: ['reports/a.md', 'reports/b.html'],
     activePath: 'reports/a.md',
@@ -194,14 +229,12 @@ run('clicking a picker tab selects that path', () => {
       picked = path
     },
   })
-  // The segmented control is the first child; its `onChange` is the one seam
-  // through which a pick travels, whether it came from a click or an arrow key.
   const control = (tree.props.children as Array<{ props: { onChange?: (path: string) => void } }>)
     .filter(Boolean)
     .find((child) => typeof child.props.onChange === 'function')
-  assert.ok(control, 'the picker renders the segmented control')
+  assert.ok(control, 'the picker renders the select')
   control!.props.onChange!('reports/b.html')
-  assert.equal(picked, 'reports/b.html', 'selecting the second segment reports its path upward')
+  assert.equal(picked, 'reports/b.html', 'choosing the second report reports its path upward')
 })
 
 // ---- Component wiring the static render cannot reach ------------------------

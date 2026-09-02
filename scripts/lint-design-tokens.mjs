@@ -161,37 +161,197 @@ const NATIVE_DIALOG = /(?<![\w$.])(?:window\s*\.\s*)?(?:confirm|prompt|alert)\s*
 // no-native-tooltip-on-control: matches an opening JSX tag for an interactive
 // control (`<button>`, `<a>`, `<IconButton>`, `<PrimaryButton>`,
 // `<GhostButton>`) that carries a native `title=` attribute inside the
-// opening tag. `[^>]*?` crosses newlines because `.` does not match `\n` in
-// JS regex while the negated class does; this lets the regex span multi-line
-// JSX opening tags. The match captures the tag name plus the offending
-// `title=` so the reporter can show what was flagged. SVG `<title>` elements
-// and component props on non-interactive primitives (Section, Modal,
-// PanelHeader, etc.) are not matched because their tag name does not appear
-// in the alternation.
-// The tag walk below replaces a `[^>]*?` regex that stopped at the first `>`
-// inside a className (`[&>svg]`, a `>` in a template) and so missed every
-// multi-line control whose class list carried one (audit 2026-09-02).
+// opening tag. This regex finds only the tag's OPENING; the walk below finds
+// where it closes, because a class list carrying a `>` (`[&>svg]`, a `>` in a
+// template) ends a `[^>]*?` regex early and so missed every multi-line control
+// that had one (audit 2026-09-02). The reporter shows the tag name plus the
+// offending `title=`. SVG `<title>` elements and component props on
+// non-interactive primitives (Section, Modal, PanelHeader, etc.) are not
+// matched because their tag name does not appear in the alternation.
 const INTERACTIVE_TAG_OPEN =
   /<(button|a|IconButton|PrimaryButton|GhostButton|OutlineButton|DangerButton|CloseIconButton)\b/g
 
-// Walk from a `<` to the `>` that closes the opening tag, respecting quotes
-// and brace depth so a `>` inside an attribute value does not end the tag.
-function openingTagEndIndex(source, open) {
-  let depth = 0
-  let quote = null
-  for (let i = open + 1; i < source.length && i - open < 6000; i += 1) {
+// Offset kinds for the tag walk. The walker used to track only quotes and
+// brace depth, which made it comment-blind three ways (audit 2026-09-02): an
+// apostrophe in a `//` comment opened a quote that never closed and the tag was
+// silently skipped; a `>` in a `//` comment ended the tag early; and a `}` or
+// `{` inside a regex literal moved the brace depth, so
+// `<button onClick={() => s.replace(/}/g, '')} title="x" />` escaped. Lexing
+// once and letting the walker consider only CODE offsets closes all three.
+//
+// Template literals are treated as one opaque string span, `${…}` included.
+// That is deliberate: an interpolation's braces balance each other, so ignoring
+// both halves keeps the tag's brace depth correct, and no JSX opening tag is
+// ever authored inside one.
+const K_CODE = 0
+const K_STRING = 1
+const K_COMMENT = 2
+const K_REGEX = 3
+
+// Words after which a `/` opens a regex literal rather than dividing.
+const REGEX_AFTER_KEYWORD = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+  'throw',
+])
+
+const IDENT_CHAR = /[\w$]/
+
+// End offset (exclusive, flags included) of a regex literal opening at
+// `start`, or -1 when it does not close on the same line — a regex literal
+// cannot span a newline, so bailing there bounds the damage of a `/` this
+// heuristic reads wrong to a single line.
+function regexLiteralEnd(source, start) {
+  let i = start + 1
+  let inClass = false
+  while (i < source.length) {
     const ch = source[i]
-    if (quote) {
-      if (ch === '\\') i += 1
-      else if (ch === quote) quote = null
+    if (ch === '\n') return -1
+    if (ch === '\\') {
+      i += 2
       continue
     }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch
+    if (ch === '[') inClass = true
+    else if (ch === ']') inClass = false
+    else if (ch === '/' && !inClass) {
+      i += 1
+      while (i < source.length && /[dgimsuvy]/.test(source[i])) i += 1
+      return i
+    }
+    i += 1
+  }
+  return -1
+}
+
+// Classify every offset as code, comment, string, or regex body. Only CODE
+// offsets are structural: everything else is text the tag walk must step over
+// without reading a quote, a brace, or a `>` out of it.
+function lexKinds(source) {
+  const kinds = new Uint8Array(source.length)
+  let i = 0
+  // Last significant (non-whitespace) code character, the one before it, and
+  // the identifier that ended at it — enough to tell a regex literal from a
+  // division without a real parser.
+  let prev = ''
+  let prevPrev = ''
+  let prevWord = ''
+  const settle = (ch, word = '') => {
+    prevPrev = prev
+    prev = ch
+    prevWord = word
+  }
+  while (i < source.length) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (ch === '/' && next === '/') {
+      const nl = source.indexOf('\n', i)
+      const stop = nl === -1 ? source.length : nl
+      kinds.fill(K_COMMENT, i, stop)
+      i = stop
       continue
     }
+    if (ch === '/' && next === '*') {
+      const close = source.indexOf('*/', i + 2)
+      const stop = close === -1 ? source.length : close + 2
+      kinds.fill(K_COMMENT, i, stop)
+      i = stop
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      const start = i
+      i += 1
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          i += 2
+          continue
+        }
+        if (source[i] === ch || source[i] === '\n') break
+        i += 1
+      }
+      const stop = Math.min(source.length, i + 1)
+      kinds.fill(K_STRING, start, stop)
+      i = stop
+      settle(ch)
+      continue
+    }
+    if (ch === '`') {
+      const start = i
+      i += 1
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          i += 2
+          continue
+        }
+        if (source[i] === '`') break
+        i += 1
+      }
+      const stop = Math.min(source.length, i + 1)
+      kinds.fill(K_STRING, start, stop)
+      i = stop
+      settle('`')
+      continue
+    }
+    if (ch === '/') {
+      let opensRegex
+      if (prev === '') opensRegex = true
+      else if (IDENT_CHAR.test(prev)) opensRegex = REGEX_AFTER_KEYWORD.has(prevWord)
+      else if (prev === ')' || prev === ']' || prev === '}') opensRegex = false
+      else if (prev === '"' || prev === "'" || prev === '`' || prev === '/') opensRegex = false
+      // `=>` opens one; a bare `>` closes a JSX tag, after which a `/` is text.
+      else if (prev === '>') opensRegex = prevPrev === '='
+      // `</` is a JSX closing tag, never a regex.
+      else if (prev === '<') opensRegex = false
+      else opensRegex = true
+      const end = opensRegex ? regexLiteralEnd(source, i) : -1
+      if (end > 0) {
+        kinds.fill(K_REGEX, i, end)
+        i = end
+        settle('/')
+        continue
+      }
+      settle('/')
+      i += 1
+      continue
+    }
+    if (IDENT_CHAR.test(ch)) {
+      const start = i
+      while (i < source.length && IDENT_CHAR.test(source[i])) i += 1
+      const word = source.slice(start, i)
+      settle(word[word.length - 1], word)
+      continue
+    }
+    if (!/\s/.test(ch)) settle(ch)
+    i += 1
+  }
+  return kinds
+}
+
+// Walk from a `<` to the `>` that closes the opening tag, respecting brace
+// depth so a `>` inside an attribute value does not end the tag. Comment,
+// string, and regex offsets are stepped over: their contents are text, and a
+// quote, brace or `>` inside them is not structure.
+function openingTagEndIndex(source, open, kinds) {
+  let depth = 0
+  for (let i = open + 1; i < source.length && i - open < 6000; i += 1) {
+    if (kinds[i] !== K_CODE) continue
+    const ch = source[i]
     if (ch === '{') depth += 1
-    else if (ch === '}') depth -= 1
+    // Clamped, never negative. A stray `}` at depth 0 inside an opening tag is
+    // malformed markup, and letting the depth go negative meant `>` was never
+    // seen at depth 0 again: `<button }} title="x" />` walked off the end and
+    // the tag was skipped. Clamping keeps the walk at the tag's own level.
+    else if (ch === '}') depth = Math.max(0, depth - 1)
     else if (ch === '<' && depth === 0) return -1
     else if (ch === '>' && depth === 0) return i
   }
@@ -200,34 +360,32 @@ function openingTagEndIndex(source, open) {
 
 // Yields { tagName, titleIndex } for every interactive opening tag carrying a
 // native `title=` attribute (attribute position, so a `title:` object key or a
-// `title=` inside a nested string does not count).
+// `title=` inside a nested string does not count). A `<button` written inside a
+// comment, a string, or a regex literal is prose or a fixture, not a control,
+// and is not scanned at all.
 function* nativeTitleOnInteractive(source) {
+  const kinds = lexKinds(source)
   INTERACTIVE_TAG_OPEN.lastIndex = 0
   let open
   while ((open = INTERACTIVE_TAG_OPEN.exec(source))) {
-    const end = openingTagEndIndex(source, open.index)
+    if (kinds[open.index] !== K_CODE) continue
+    const end = openingTagEndIndex(source, open.index, kinds)
     if (end < 0) continue
     const tag = source.slice(open.index, end + 1)
-    // Attribute position: preceded by whitespace, at brace depth 0 in the tag.
+    // Attribute position: preceded by whitespace, at brace depth 0 in the tag,
+    // and itself code rather than comment / string / regex text.
     const attr = /(?<=\s)title\s*=/g
     let m
     while ((m = attr.exec(tag))) {
+      if (kinds[open.index + m.index] !== K_CODE) continue
       let depth = 0
-      let quote = null
-      let inside = false
       for (let i = 0; i < m.index; i += 1) {
+        if (kinds[open.index + i] !== K_CODE) continue
         const ch = tag[i]
-        if (quote) {
-          if (ch === '\\') i += 1
-          else if (ch === quote) quote = null
-          continue
-        }
-        if (ch === '"' || ch === "'" || ch === '`') quote = ch
-        else if (ch === '{') depth += 1
-        else if (ch === '}') depth -= 1
+        if (ch === '{') depth += 1
+        else if (ch === '}') depth = Math.max(0, depth - 1)
       }
-      inside = depth === 0 && quote === null
-      if (inside) yield { tagName: open[1], titleIndex: open.index + m.index }
+      if (depth === 0) yield { tagName: open[1], titleIndex: open.index + m.index }
     }
     INTERACTIVE_TAG_OPEN.lastIndex = end + 1
   }

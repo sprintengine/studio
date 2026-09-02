@@ -202,7 +202,9 @@ export function PluginDetailPanel({
             ? inlineServers.map((server) => (
                 <li key={server.id} className="flex min-w-0 items-center gap-1.5">
                   <TruncatedText as="span" text={server.name} className="min-w-0" />
-                  <Badge decorative className="shrink-0">
+                  {/* Not decorative: the transport is stated once, here. The
+                      server's name says what it is, never how it is spoken to. */}
+                  <Badge className="shrink-0">
                     {server.transport}
                   </Badge>
                 </li>

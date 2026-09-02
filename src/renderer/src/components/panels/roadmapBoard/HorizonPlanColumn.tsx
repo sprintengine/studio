@@ -52,7 +52,7 @@ import {
   Tooltip,
   TruncatedText,
 } from '../../ui'
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { FOCUS_RING_CLASS, LIST_CURSOR_MARK_CLASS } from '../../ui/tokens'
 import { swallowsRailNavigation } from '../../workspace/globalSurface/surfaceSubstrate'
 import {
   addLane,
@@ -663,17 +663,19 @@ function StepRow({
         // content-driven — two lines of text — because the 26px single-line row
         // truncated every title to a stub and made the plan unreadable without
         // clicking each step in turn.
-        // Cursor ≠ focus: the j/k cursor is the hover fill, the picked row is
-        // the selected fill, and the shared ring marks DOM focus alone. A
-        // second inset ring in the focus hue put two rings on one row.
-        className={`flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-          selected
-            ? 'bg-[color:var(--bg-selected)]'
-            : active
-              ? 'bg-[color:var(--bg-hover)]'
-              : 'hover:bg-[color:var(--bg-hover)]'
+        // Cursor ≠ focus: the shared ring marks DOM focus alone, and a second
+        // inset ring in the focus hue put two rings on one row. But the fill is
+        // not the cursor's channel either — with the pointer anywhere in the
+        // list the hover fill and a "cursor" fill are the same pixels, and a
+        // cursored row that is also selected wears `--bg-selected` and shows no
+        // cursor at all. So the j/k cursor draws the kit's leading rule, which
+        // composes with either fill. Same mark the New Sprint backlog listbox
+        // draws, so the two cursored lists read alike.
+        className={`relative flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
+          selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
         }`}
       >
+        {active ? <span aria-hidden="true" className={LIST_CURSOR_MARK_CLASS} /> : null}
         {/* One icon slot, the same swap the app sidebar's folder rows use: the
             state glyph at rest, the grip on hover. A dedicated 11px handle column
             is what pushed this title 9px past every other row in the column, and

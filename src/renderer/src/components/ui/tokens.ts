@@ -145,6 +145,29 @@ export const FOCUS_RING_WITHIN_TEXTAREA_CLASS = 'has-[textarea:focus]:focus-ring
 export const FOCUS_RING_TERMINAL_CLASS = 'terminal-focus-ring'
 
 /**
+ * The list CURSOR mark — a leading rule on the row a keyboard cursor rests on.
+ *
+ * A cursor is not focus. `foundations/principles.md` rules the offset ring the
+ * product's only FOCUS indicator, so a cursor may not draw a second ring; but a
+ * list whose cursor is a `bg-*` fill has no cursor at all on any row that is
+ * already filled — a selected row, or any row under the pointer — which is the
+ * state a cursor spends most of its life in. So the cursor gets a channel of its
+ * own that composes with every fill instead of competing with one: an absolutely
+ * positioned 2px rule in the row's leading gutter, `--text-strong` so it reads as
+ * neutral structural ink rather than the accent (`--accent-primary` and
+ * `--border-focus` resolve to the same value in 18 of the 19 themes, so an accent
+ * cursor would read as focus).
+ *
+ * The row it sits in must be `relative`. Mark the span `aria-hidden` — the cursor
+ * is already announced through `aria-activedescendant` or DOM focus.
+ *
+ * Shared so the two lists that carry a cursor — the New Sprint backlog listbox
+ * and the roadmap plan column's j/k cursor — cannot drift into two idioms.
+ */
+export const LIST_CURSOR_MARK_CLASS =
+  'pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-[color:var(--text-strong)]'
+
+/**
  * The floating chrome — the four values that make something read as an overlay
  * rather than as part of the page: `radius.overlay` (7px, on the 3/5/7/9 ramp),
  * the strong border, the raised ground, and the popover elevation, which is

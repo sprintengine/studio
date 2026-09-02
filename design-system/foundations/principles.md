@@ -53,8 +53,10 @@ exceeds one, model the domain again rather than adding chrome.
 
 ## Selection and focus
 
-Selection answers "what did I pick?". Focus answers "where am I typing?". They
-are different questions and never share a treatment.
+Selection answers "what did I pick?". Focus answers "where am I typing?". A
+**cursor** answers a third question — "which row would Enter act on?" — in a
+list that is one tab stop and walks with `aria-activedescendant` rather than
+moving DOM focus. Three questions, three treatments, never shared.
 
 - **Focused selection** — `bg.selected`, title at `text.primary`. The list the
   user is driving right now.
@@ -78,6 +80,16 @@ are different questions and never share a treatment.
   than a second treatment.
 - **Hover** is a background change to `bg.hover`. No shadow, no scale, no glow,
   no border appearing on hover and shifting the layout.
+- **The cursor** is a 2px mark in the row's leading gutter, `text.primary`,
+  inset from the row's top and bottom edges. It is deliberately neither a fill
+  nor an outline: it has to compose on top of a selected row, a hovered row and
+  a plain one, and both of those channels are already spoken for. It is not the
+  accent either — `border.focus` and `accent.primary` are the same value in all
+  but one theme, so an accent bar in the gutter reads as focus.
+  Added 2026-09-02, when a conformance sweep replaced two lists' cursors with
+  `bg.hover` and made them invisible on the rows a person had already picked.
+  A list that moves real DOM focus with its cursor does not need this: there
+  the focus ring is the mark, and one idiom is better than two.
 
 ## Progressive disclosure
 

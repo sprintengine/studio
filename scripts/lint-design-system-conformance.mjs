@@ -62,9 +62,15 @@
 //                          border resolves to `currentColor`; audit 2026-09-02).
 //   weight-off-ramp        `font-bold` / `font-extrabold` / `font-black` ("Type":
 //                          the weight ramp is regular / medium / emphasis).
-//   named-z-off-ladder     a Tailwind numeric `z-N` other than `z-0` / `z-10`
-//                          ("Tokens or nothing": layering comes from `sem.z.*`;
-//                          the in-flow steps are `--z-pane` / `--z-float`).
+//   named-z-off-ladder     a Tailwind numeric `z-N` other than `z-0` / `z-10`,
+//                          or a `z-[var(--…)]` naming a step the ladder does
+//                          not declare ("Tokens or nothing": layering comes
+//                          from `sem.z.*`; the in-flow steps are `--z-pane` /
+//                          `--z-float`). A misspelt ladder name resolves to
+//                          nothing and the element paints at `z-index: auto`,
+//                          which is invisible in review and in the diff — the
+//                          names are read from the bundle and from the app's
+//                          own `--z-*` aliases, never typed here.
 //   spacing-off-scale      a named Tailwind padding / margin / gap step whose
 //                          pixel value is not on `sem.space.*` (14px `*-3.5`,
 //                          28px `*-7`, 36px `*-9`, …). An indent that aligns
@@ -73,11 +79,21 @@
 //   radius-off-ramp        `rounded-[Npx]` with N off the 3 / 5 / 7 / 9 ramp,
 //                          and `rounded-xl` (12px) — the axes ratchet excludes
 //                          explicit values, so this is the rule that sees them.
-//   disabled-ink-copy      `text-[color:var(--text-disabled)]` on a text element
-//                          (`p`, `span`, `div`, `h*`, `dt`, `dd`, `label`, …) that
-//                          is not itself disabled ("Accessibility": disabled ink
-//                          never carries copy; the ramp certifies it to 3:1
-//                          non-text contrast only).
+//   disabled-ink-copy      `text-[color:var(--text-disabled)]` on a prose
+//                          element — `p`, `h1`-`h6`, `dt`, `label`, `legend`,
+//                          `figcaption`, `caption`, `summary`, and nothing else
+//                          — that is not itself disabled ("Accessibility":
+//                          disabled ink never carries copy; the ramp certifies
+//                          it to 3:1 non-text contrast only). `span`, `div` and
+//                          `dd` are deliberately OUT of the set: in this tree a
+//                          `span` or `div` in disabled ink is as often a
+//                          separator, a timestamp or a placeholder-shaped hint
+//                          as it is a sentence, and the audit ruled those ~117
+//                          sites one at a time rather than by tag name. The
+//                          elements listed above are prose by construction, so
+//                          the rule decides them mechanically. Widening to
+//                          `span`/`div` is a follow-up that needs its own
+//                          per-site pass, not a regex edit.
 //   focus-ring-missing     a `<button>`, `<summary>`, an `<a href>` or a
 //                          `tabIndex={0}` element with an interactive `role`
 //                          whose resolvable class list carries no focus-visible
@@ -200,6 +216,30 @@ function readBundleDimensions() {
     process.stderr.write(`${TOKENS_JSON_PATH} is not valid JSON.\n`)
     process.exit(2)
   }
+  // The layering ladder, by name. `sem.z.*` is the ladder the bundle declares;
+  // the app's `--z-*` aliases in index.css are the names markup actually
+  // writes, and both are read rather than listed here for the same reason every
+  // other number in this guard is: a second copy with nothing keeping it in
+  // sync is the drift the guard exists to catch.
+  const zLadderNames = new Set()
+  for (const step of Object.keys(tokens?.sem?.z ?? {})) {
+    if (step.startsWith('$')) continue
+    zLadderNames.add(`--sem-z-${step}`)
+  }
+  const appCssForZ = resolve(repoRoot, APP_CSS_PATH)
+  if (existsSync(appCssForZ)) {
+    // Declarations only (`--z-pane:`), never a `var(--z-pane)` usage.
+    for (const alias of readFileSync(appCssForZ, 'utf8').matchAll(/(--z-[\w-]+)\s*:/g)) {
+      zLadderNames.add(alias[1])
+    }
+  }
+  if (zLadderNames.size === 0) {
+    process.stderr.write(
+      `${TOKENS_JSON_PATH} declares no sem.z.* ladder and ${APP_CSS_PATH} declares no --z-* ` +
+        'aliases: named-z-off-ladder would have no ladder to check names against.\n',
+    )
+    process.exit(2)
+  }
   const microFontSizePx = readTokenDimensionPx(tokens, 'sem.font.size.micro')
   // `$`-prefixed keys are DTCG metadata on the group itself, not steps of it.
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
@@ -212,7 +252,12 @@ function readBundleDimensions() {
     )
     process.exit(2)
   }
-  return { microFontSizePx, largestRadiusPx: Math.max(...radiusSteps), radiusStepsPx: radiusSteps }
+  return {
+    microFontSizePx,
+    largestRadiusPx: Math.max(...radiusSteps),
+    radiusStepsPx: radiusSteps,
+    zLadderNames,
+  }
 }
 
 const bundleDimensions = readBundleDimensions()
@@ -224,17 +269,81 @@ const bundleDimensions = readBundleDimensions()
 const KIND_CODE = 0
 const KIND_COMMENT = 1
 const KIND_STRING = 2
+const KIND_REGEX = 3
 
-// Classify every offset as code, comment, or string body. Template
+// Words after which a `/` opens a regex literal rather than dividing.
+const REGEX_AFTER_KEYWORD = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+  'throw',
+])
+
+const IDENT_CHAR = /[\w$]/
+
+// End offset (exclusive, flags included) of a regex literal opening at
+// `start`, or -1 when it does not close on the same line. A regex literal
+// cannot span a newline, so bailing there bounds the damage of a `/` the
+// heuristic below reads wrong to a single line.
+function regexLiteralEnd(source, start) {
+  let i = start + 1
+  let inClass = false
+  while (i < source.length) {
+    const ch = source[i]
+    if (ch === '\n') return -1
+    if (ch === '\\') {
+      i += 2
+      continue
+    }
+    if (ch === '[') inClass = true
+    else if (ch === ']') inClass = false
+    else if (ch === '/' && !inClass) {
+      i += 1
+      while (i < source.length && /[dgimsuvy]/.test(source[i])) i += 1
+      return i
+    }
+    i += 1
+  }
+  return -1
+}
+
+// Classify every offset as code, comment, string body, or regex body. Template
 // interpolations (`${…}`) are code, so a class context built from a template
-// literal still sees the identifiers spliced into it. Regex literals are not
-// tracked; a `//` inside one would be misread as a comment, which has not
-// occurred in this tree and would only ever silence a finding, never invent one.
+// literal still sees the identifiers spliced into it.
+//
+// Regex literals are their own kind because their bodies read as markup: the
+// pattern `/<button[^>]*type="button"[^>]*>Logic<\/button>/` is a string
+// describing a button, not a button, and reading it as an opening tag invented
+// a `focus-ring-missing` finding on it (audit 2026-09-02). A production file
+// carrying such a pattern would ship a red lint for markup it does not render.
+// Regex bodies are tracked only at the top level of the file; a regex written
+// inside a `${…}` interpolation is rare enough to leave to the template walker.
 function classifySource(source) {
   const kinds = new Uint8Array(source.length)
   // Stack of template-literal depths so `${ `nested` }` unwinds correctly.
   const templateStack = []
   let i = 0
+  // Last significant (non-whitespace) code character, the one before it, and
+  // the identifier that ended at it — enough to tell a regex literal from a
+  // division without a real parser.
+  let prev = ''
+  let prevPrev = ''
+  let prevWord = ''
+  const settle = (ch, word = '') => {
+    prevPrev = prev
+    prev = ch
+    prevWord = word
+  }
   while (i < source.length) {
     const ch = source[i]
     const next = source[i + 1]
@@ -266,12 +375,44 @@ function classifySource(source) {
       const stop = Math.min(source.length, i + 1)
       kinds.fill(KIND_STRING, start + 1, Math.max(start + 1, stop - 1))
       i = stop
+      settle(ch)
       continue
     }
     if (ch === '`') {
       i = scanTemplate(source, i, kinds, templateStack)
+      settle('`')
       continue
     }
+    if (ch === '/') {
+      let opensRegex
+      if (prev === '') opensRegex = true
+      else if (IDENT_CHAR.test(prev)) opensRegex = REGEX_AFTER_KEYWORD.has(prevWord)
+      else if (prev === ')' || prev === ']' || prev === '}') opensRegex = false
+      else if (prev === '"' || prev === "'" || prev === '`' || prev === '/') opensRegex = false
+      // `=>` opens one; a bare `>` closes a JSX tag, after which a `/` is text.
+      else if (prev === '>') opensRegex = prevPrev === '='
+      // `</` is a JSX closing tag, never a regex.
+      else if (prev === '<') opensRegex = false
+      else opensRegex = true
+      const end = opensRegex ? regexLiteralEnd(source, i) : -1
+      if (end > 0) {
+        kinds.fill(KIND_REGEX, i, end)
+        i = end
+        settle('/')
+        continue
+      }
+      settle('/')
+      i += 1
+      continue
+    }
+    if (IDENT_CHAR.test(ch)) {
+      const start = i
+      while (i < source.length && IDENT_CHAR.test(source[i])) i += 1
+      const word = source.slice(start, i)
+      settle(word[word.length - 1], word)
+      continue
+    }
+    if (!/\s/.test(ch)) settle(ch)
     i += 1
   }
   return kinds
@@ -360,7 +501,7 @@ function lineOf(starts, index) {
 function openingTagEnd(source, open, kinds) {
   let depth = 0
   for (let i = open + 1; i < source.length && i - open < 6000; i += 1) {
-    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) continue
     const ch = source[i]
     if (ch === '{') depth += 1
     else if (ch === '}') depth -= 1
@@ -375,7 +516,7 @@ function enclosingOpeningTag(source, index, kinds) {
   const floor = Math.max(0, index - 4000)
   for (let i = Math.min(index, source.length - 1); i >= floor; i -= 1) {
     if (source[i] !== '<') continue
-    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) continue
     const nextChar = source[i + 1]
     if (!nextChar || !/[A-Za-z_]/.test(nextChar)) continue
     const end = openingTagEnd(source, i, kinds)
@@ -394,7 +535,7 @@ function enclosingGroup(source, index, kinds, maxSpan) {
   const floor = Math.max(0, index - maxSpan)
   const pending = []
   for (let i = index; i >= floor; i -= 1) {
-    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) continue
     const ch = source[i]
     if (CLOSERS[ch] && i !== index) {
       pending.push(CLOSERS[ch])
@@ -417,7 +558,7 @@ function matchingClose(source, open, kinds, maxSpan) {
   const want = OPENERS[source[open]]
   let depth = 0
   for (let i = open; i < source.length && i - open <= maxSpan; i += 1) {
-    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) continue
     const ch = source[i]
     if (OPENERS[ch]) depth += 1
     else if (CLOSERS[ch]) {
@@ -546,6 +687,14 @@ const WEIGHT_OFF_RAMP = /(?<![\w-])font-(?:bold|extrabold|black)(?![\w-])/g
 
 const NAMED_Z = /(?<![\w-])-?z-(\d+)(?![\w.[-])/g
 const NAMED_Z_ALLOWED = new Set([0, 10])
+// `z-[var(--z-pane)]` and `z-[var(--sem-z-modal)]` are the two spellings markup
+// uses. The NAME inside is the whole point of the token: `--z-bogus` resolves to
+// nothing, so the element paints at `z-index: auto` and the layering silently
+// becomes DOM order. Anything that is not a bare ladder var — a raw number, a
+// `calc()`, a fallback — stays with `arbitrary-z-index`, whose fix hint is the
+// scale itself.
+const LADDER_Z_VAR = /^var\((--(?:sem-)?z-[\w-]+)\)$/
+const Z_LADDER_NAMES = bundleDimensions.zLadderNames
 
 // Tailwind's named step × 4 = px. On-scale steps map to 2/4/6/8/10/12/16/20/24/32.
 const SPACING_NAMED =
@@ -560,9 +709,12 @@ const RADIUS_STEPS_PX = new Set(bundleDimensions.radiusStepsPx)
 // The bare utility only: `placeholder:`, `disabled:`, `hover:` and every other
 // variant prefix ends in `:` and is excluded by the look-behind.
 const DISABLED_INK = /(?<![\w:-])text-\[(?:color:)?var\(--text-disabled\)\]/g
-// Sentences and headings only. A `span`/`div` in disabled ink is as often a
-// separator, a timestamp or a placeholder-shaped hint as it is copy, and the
-// audit ruled those per site; the elements below are prose by construction.
+// Sentences and headings only — `p`, `h1`-`h6`, `dt`, `label`, `legend`,
+// `figcaption`, `caption`, `summary`, and nothing else. A `span`/`div`/`dd` in
+// disabled ink is as often a separator, a timestamp or a placeholder-shaped
+// hint as it is copy, and the audit ruled those ~117 sites per site; the
+// elements below are prose by construction, so the rule can decide them by tag.
+// Widening this to `span`/`div` is a follow-up that needs its own per-site pass.
 const TEXT_ELEMENT_TAG = /^<(?:p|h[1-6]|dt|label|legend|figcaption|caption|summary)\b/
 // Attribute position only: `--text-disabled` inside a class string must not read
 // as the element being disabled.
@@ -573,7 +725,7 @@ function enclosingOpeningTagStart(source, index, kinds) {
   const floor = Math.max(0, index - 4000)
   for (let i = Math.min(index, source.length - 1); i >= floor; i -= 1) {
     if (source[i] !== '<') continue
-    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) continue
     const nextChar = source[i + 1]
     if (!nextChar || !/[A-Za-z_]/.test(nextChar)) continue
     const end = openingTagEnd(source, i, kinds)
@@ -588,15 +740,25 @@ const NATIVE_FOCUSABLE_OPEN = /<(?:button|summary|a)\b/g
 const KEYWORDS = new Set(['true', 'false', 'null', 'undefined', 'typeof', 'void'])
 const CONDITION_FOLLOWS = /^\s*(?:\?|&&|\|\||===|!==|==|!=|>=|<=|>|<|\)|\]|,|:)/
 
-// Text of the value expression of `className=` inside an opening tag, with the
-// tag-relative offset of where it starts; null when the tag has none.
+// The value expression of `className=` inside an opening tag, as `{ text,
+// offset }` with the offset tag-relative.
+//
+// The two ways this returns nothing are different facts and the caller must
+// not conflate them: `{ absent: true }` means the tag declares no className at
+// all, which resolves the class list to the empty list — a real verdict.
+// `{ unparseable: true }` means a className is declared and this reader could
+// not extract it, which resolves nothing. Collapsing both to null made the
+// second fall through to 'none' and FLAG, so `<button className={'{'}>Go</button>`
+// was reported as ringless on a class list the guard never read — the opposite
+// of this rule's "skipped, never guessed" promise (audit 2026-09-02).
 function classNameExpression(tag) {
   const at = tag.search(/\bclassName=/)
-  if (at < 0) return null
+  if (at < 0) return { absent: true }
   let i = at + 'className='.length
   const ch = tag[i]
   if (ch === '"' || ch === "'") {
     const close = tag.indexOf(ch, i + 1)
+    if (close < 0) return { unparseable: true }
     return { text: tag.slice(i, close + 1), offset: i }
   }
   if (ch === '{') {
@@ -609,26 +771,130 @@ function classNameExpression(tag) {
       }
     }
   }
-  return null
+  return { unparseable: true }
 }
 
-// Resolve `const NAME = '…'` / `` `…` `` in the same file to its literal text
-// (one level of nested `${CONST}` followed), or null when NAME is not a
-// literal constant here.
+// End offset (exclusive) of the initialiser that starts at `start`, or -1.
+// The statement ends at a `;` outside brackets, or at a newline that does not
+// continue an expression — the multi-line `'a ' +\n  'b ' +\n  CONST` shape the
+// kit writes its shared class strings in.
+function initialiserEnd(file, start) {
+  const { source, kinds } = file
+  let depth = 0
+  let prev = ''
+  for (let i = start; i < source.length && i - start < 4000; i += 1) {
+    // A comment is not a token: a `//` note between `+` and the next operand
+    // must not read as the end of the expression.
+    if (kinds[i] === KIND_COMMENT) continue
+    if (kinds[i] !== KIND_CODE) {
+      prev = 'x'
+      continue
+    }
+    const ch = source[i]
+    if (ch === '\n') {
+      if (depth === 0 && !'+,([{=?:&|'.includes(prev)) return i
+      continue
+    }
+    if (OPENERS[ch]) depth += 1
+    else if (CLOSERS[ch]) {
+      if (depth === 0) return i
+      depth -= 1
+    } else if (ch === ';' && depth === 0) return i
+    if (!/\s/.test(ch)) prev = ch
+  }
+  return -1
+}
+
+// Every character an initialiser may carry once its string, comment and regex
+// spans are blanked out: quotes, `+`, and the `${…}` punctuation of a template,
+// plus identifier characters. A `(`, `.`, `?`, `:`, `,`, `[` — a call, a member
+// access, a ternary, an array, an object — means the value is not a plain
+// concatenation and this reader must not pretend to have read it.
+const CONCATENATION_ONLY = /^[\s'"`+${}\w]*$/
+
+// Resolve `const NAME = …` in the same file to the class text it contributes,
+// or null when NAME is not a resolvable class constant here.
+//
+// The initialiser may be a string or template literal, or a `+` chain of them
+// with other constants — the shape the kit uses to append a shared
+// `FOCUS_RING_*` token to a base class string (`ui/SplitButton.tsx`'s `HALF`).
+// Reading only the FIRST literal of such a chain reported a control that does
+// wear the ring as ringless, so the whole chain is read or nothing is.
 function resolveConstant(file, name, depth = 0) {
-  const decl = new RegExp(`\\bconst\\s+${name}\\s*=\\s*(["'\`])`)
+  if (depth > 2) return null
+  // The name is spliced into a pattern, so escape it. Unescaped, the bare `$`
+  // that a template className contributes as a candidate identifier became an
+  // end-of-string anchor — `\bconst\s+$\s*=` matches nothing, ever — and every
+  // template-literal class list in the tree resolved to `unresolved-ident` and
+  // was skipped (audit 2026-09-02).
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const decl = new RegExp(`\\bconst\\s+${escaped}\\s*=\\s*`)
   const m = decl.exec(file.source)
   if (!m) return null
-  const quoteIndex = m.index + m[0].length - 1
-  const literal = enclosingLiteral(file.source, quoteIndex + 1, file.kinds)
-  if (literal === null) return ''
-  if (depth >= 2) return literal
-  let out = literal
-  for (const inner of literal.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\s*\}/g)) {
-    const resolved = resolveConstant(file, inner[1], depth + 1)
-    if (resolved !== null) out += '\n' + resolved
+  const start = m.index + m[0].length
+  const end = initialiserEnd(file, start)
+  if (end < 0) return null
+
+  const { source, kinds } = file
+  let skeleton = ''
+  for (let i = start; i < end; i += 1) {
+    skeleton += kinds[i] === KIND_CODE ? source[i] : ' '
+  }
+  if (!CONCATENATION_ONLY.test(skeleton)) return null
+
+  let out = ''
+  let i = start
+  while (i < end) {
+    const kind = kinds[i]
+    if (kind !== KIND_CODE) {
+      if (kind === KIND_STRING) {
+        const literal = enclosingLiteral(source, i, kinds)
+        out += ' ' + literal
+        i += literal.length
+        continue
+      }
+      i += 1
+      continue
+    }
+    const ch = source[i]
+    if (/[A-Za-z_$]/.test(ch) && !(ch === '$' && source[i + 1] === '{')) {
+      let j = i
+      while (j < end && /[\w$]/.test(source[j])) j += 1
+      const identifier = source.slice(i, j)
+      // A shared ring token is evidence on its own; the caller's
+      // FOCUS_RING_PRESENT names these by identifier as well as by class.
+      if (/^FOCUS_RING_/.test(identifier)) out += ' ' + identifier
+      else {
+        const nested = resolveConstant(file, identifier, depth + 1)
+        // One unreadable link makes the whole chain unreadable: returning the
+        // rest would be reporting on a class list that was never assembled.
+        if (nested === null) return null
+        out += ' ' + nested
+      }
+      i = j
+      continue
+    }
+    i += 1
   }
   return out
+}
+
+// Tag-relative offsets of the `{` that opens each SPREAD attribute of the tag
+// — a `{` at the tag's own brace depth whose first content is `...`. An object
+// spread nested inside another attribute's expression (`onClick={() =>
+// f({ ...x })}`) is not one: it cannot contribute a className to the element.
+function spreadAttributeOffsets(source, open, end, kinds) {
+  const offsets = []
+  let depth = 0
+  for (let i = open + 1; i <= end; i += 1) {
+    if (kinds[i] !== KIND_CODE) continue
+    const ch = source[i]
+    if (ch === '{') {
+      if (depth === 0 && /^\{\s*\.\.\./.test(source.slice(i, i + 8))) offsets.push(i - open)
+      depth += 1
+    } else if (ch === '}') depth = Math.max(0, depth - 1)
+  }
+  return offsets
 }
 
 // Decide whether an opening tag at `open` carries a focus ring. Returns
@@ -639,11 +905,25 @@ function focusRingVerdict(file, open) {
   if (end < 0) return 'unknown'
   const tag = source.slice(open, end + 1)
   if (/\btabIndex=\{\s*-1\s*\}/.test(tag)) return 'ring'
-  if (/\{\s*\.\.\./.test(tag)) return 'unknown'
+  // A spread attribute can carry a className the guard cannot see — but only
+  // where JSX would let it win. Attributes apply left to right, so a `className`
+  // written AFTER the last spread is the one that lands, and the spread tells
+  // the class list nothing. Skipping on any spread at all silenced every
+  // primitive in `ui/Buttons.tsx` (the kit controls whose ring this rule most
+  // needs to police), because each spells `{...rest}` before its own className
+  // precisely so a caller cannot override the ring (audit 2026-09-02).
+  const spreads = spreadAttributeOffsets(source, open, end, kinds)
+  if (spreads.length > 0) {
+    const classNameAt = tag.search(/\bclassName=/)
+    if (classNameAt < 0 || spreads[spreads.length - 1] > classNameAt) return 'unknown'
+  }
   if (/^<a\b/.test(tag) && !/\bhref=/.test(tag)) return 'unknown'
   if (FOCUS_RING_PRESENT.test(tag)) return 'ring'
   const expr = classNameExpression(tag)
-  if (!expr) return 'none'
+  // No className at all is a resolved empty class list, and an empty class list
+  // has no ring. A className this reader could not parse is resolved nothing.
+  if (expr.absent) return 'none'
+  if (expr.unparseable) return 'unknown'
   const base = open + expr.offset
   // Split the expression into literal text and code text using the source kinds.
   let literalText = ''
@@ -662,6 +942,10 @@ function focusRingVerdict(file, open) {
   const identifiers = codeText.matchAll(/[A-Za-z_$][\w$]*/g)
   for (const found of identifiers) {
     const name = found[0]
+    // `${` in a template className leaves a bare `$` at code position. It is
+    // punctuation opening an interpolation, not an identifier; the name inside
+    // the interpolation is matched on its own pass.
+    if (/^\$+$/.test(name)) continue
     if (KEYWORDS.has(name)) continue
     if (/^FOCUS_RING_/.test(name)) return 'ring'
     const value = resolveConstant(file, name)
@@ -703,7 +987,11 @@ function scanFocusRingMissing(file, push) {
 
 function scanSourceFile(file, push) {
   const { source, kinds } = file
-  const inCode = (index) => kinds[index] !== KIND_COMMENT
+  // Comments are prose about the code, and a regex literal's body is a pattern
+  // that happens to be spelled in the same alphabet as a class list or a tag.
+  // Neither is markup the product renders, so neither is a place a rule can
+  // find a violation.
+  const inCode = (index) => kinds[index] !== KIND_COMMENT && kinds[index] !== KIND_REGEX
 
   forEachMatch(FOCUS_OUTLINE_NONE, source, (match) => {
     if (!inCode(match.index)) return
@@ -752,7 +1040,12 @@ function scanSourceFile(file, push) {
 
   forEachMatch(ARBITRARY_Z, source, (match) => {
     if (!inCode(match.index)) return
-    if (/^var\(--(?:sem-)?z-/.test(match[1].trim())) return
+    const named = match[1].trim().match(LADDER_Z_VAR)
+    if (named) {
+      if (Z_LADDER_NAMES.has(named[1])) return
+      push('named-z-off-ladder', file, match.index, match[0])
+      return
+    }
     push('arbitrary-z-index', file, match.index, match[0])
   })
 
@@ -1216,7 +1509,10 @@ const FIX_HINT = {
   'flexlayout-scoped-var':
     '--color-N exists only inside .flexlayout__layout; use --border-default / --border-strong',
   'weight-off-ramp': 'the weight ramp is 400 / 500 / 600: font-semibold is the top step',
-  'named-z-off-ladder': 'z-[var(--z-pane)] (20) / z-[var(--z-float)] (30) in flow; --z-drawer and above for overlays',
+  'named-z-off-ladder':
+    'z-[var(--z-pane)] (20) / z-[var(--z-float)] (30) in flow; --z-drawer and above for ' +
+    'overlays. A name the ladder does not declare resolves to nothing: check the spelling ' +
+    'against sem.z.* in design-system/foundations/tokens.tokens.json',
   'spacing-off-scale':
     'move to the neighbouring sem.space step; an indent aligning to a glyph slot keeps its value with a design-tokens-allow: reason',
   'radius-off-ramp': 'rounded-xs / -sm / -md / -lg (3 / 5 / 7 / 9px)',

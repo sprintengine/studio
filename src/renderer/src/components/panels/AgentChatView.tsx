@@ -36,7 +36,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -3004,6 +3004,16 @@ function DockShell({
   dotTone: 'warn' | 'error' | 'accent'
   eyebrow: string
   hints?: React.ReactNode
+  /**
+   * The dock's buttons, in reading order with the affirmative one last. A dock
+   * offers a two-button choice, and the two are never the same button twice:
+   * the composer's Send holds this view's one `PrimaryButton` (audit ruling 9),
+   * so the affirmative here is the `OutlineButton` — the spec's "ghost reads
+   * too weak to be found, but this is not the view's primary" — and its
+   * counterpart drops a step to `GhostButton`. One rung of the button ramp
+   * apart, no second accent fill: the emphasis comes from the difference, which
+   * is what two identical neutrals could never carry.
+   */
   actions: React.ReactNode
   onKeyDown?: (event: React.KeyboardEvent) => void
   containerRef?: React.Ref<HTMLDivElement>
@@ -3147,12 +3157,12 @@ function ConversationPermissionCard({
       }
       actions={
         <>
-          <OutlineButton
+          <GhostButton
             onClick={() => onApprove(entry.requestId, false)}
             disabled={busy}
           >
             Deny
-          </OutlineButton>
+          </GhostButton>
           <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve <Kbd>⏎</Kbd>
           </OutlineButton>
@@ -3217,12 +3227,12 @@ function ConversationPlanCard({
       }
       actions={
         <>
-          <OutlineButton
+          <GhostButton
             onClick={() => onApprove(entry.requestId, false)}
             disabled={busy}
           >
             Keep planning
-          </OutlineButton>
+          </GhostButton>
           <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve plan <Kbd>⏎</Kbd>
           </OutlineButton>
@@ -3356,12 +3366,12 @@ function ConversationQuestionCard({
       }
       actions={
         <>
-          <OutlineButton
+          <GhostButton
             onClick={() => onAnswer(requestId, false)}
             disabled={busy}
           >
             Dismiss
-          </OutlineButton>
+          </GhostButton>
           <OutlineButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
             {isLast ? 'Answer' : 'Next'} <Kbd>⏎</Kbd>
           </OutlineButton>

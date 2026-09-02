@@ -104,7 +104,10 @@ function ComingSoonModuleRow({ manifest }: { manifest: CapabilityManifest }) {
           </div>
         ) : null}
       </div>
-      <Badge decorative className="mt-0.5 shrink-0 whitespace-nowrap">
+      {/* Not decorative: this chip is the row's ONLY statement that the module
+          cannot be turned on. Nothing beside it says so — the row has no
+          toggle to be missing and no other word for its state. */}
+      <Badge className="mt-0.5 shrink-0 whitespace-nowrap">
         Coming soon
       </Badge>
     </div>

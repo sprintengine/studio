@@ -40,10 +40,23 @@ padding.
 - Focus-visible: 2px ring of `border.focus`; never remove the ring without
   replacing it.
 - Disabled: 45% opacity, `not-allowed` cursor, hover suppressed.
+- Pressed (icon only): a toggle that stays thrown — a locked terminal, a
+  revealed pane — fills `bg.selected` with `text.primary` ink and keeps it
+  through hover. It is a **prop on the component**, not a class the caller
+  adds: two equal-specificity `text-*` utilities are resolved by stylesheet
+  order rather than by the order they appear in the attribute, so a call site
+  that paints its own pressed fill loses it to the primitive's `hover:` step.
+  The button supplies `aria-pressed` unless the caller sets it. Never the
+  accent — a thrown toggle is a selection, and selection is neutral.
 
 ## Usage
 
 - One primary button per view; everything else is ghost or icon.
+- **A confirm/cancel pair is one rung apart, never the same rung twice.** Where
+  the view's one primary is spent elsewhere, the affirmative takes `outline`
+  and its counterpart drops to `ghost`. Two neutral outlines side by side —
+  which is what an audit sweep produced for Approve/Deny in the agent chat —
+  leave the two actions distinguishable only by reading the labels.
 - Destructive confirmation buttons swap the fill to `status.danger` — do not
   invent a third neutral-filled variant.
 - Keep labels to sentence case verbs ("Create workspace", not "CREATE").

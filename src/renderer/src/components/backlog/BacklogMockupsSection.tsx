@@ -317,11 +317,20 @@ function AttachMockupEditor({
   // the options; Home/End jump. The surface stays a `listbox` of `option`s —
   // these are values to pick, not actions — so the kit's `roveMenuFocus`, which
   // walks a `role="menu"`, is mirrored here over the option rows.
+  //
+  // The combobox ruling (design-system/components/combobox → Keyboard): keys the
+  // caret has a claim on reach the list only when the caret cannot use them. So
+  // from inside the text field ONLY ArrowDown leaves — Home/End/ArrowUp stay with
+  // the caret. Once focus is on an option row the caret has no claim and all four
+  // keys rove.
   const listRef = useRef<HTMLUListElement | null>(null)
   const optionsOf = (): HTMLElement[] =>
     Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]:not([disabled])') ?? [])
   const roveOptions = (event: React.KeyboardEvent): void => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    const target = event.target as HTMLElement | null
+    const fromField = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+    if (fromField && event.key !== 'ArrowDown') return
     const options = optionsOf()
     if (options.length === 0) return
     event.preventDefault()

@@ -3108,7 +3108,7 @@ export function SprintRunBoard({
  }}
  // Same listbox, same rule as the model picker above: the chosen CLI
  // takes `--bg-selected`, never the hover fill.
- className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive ${
+ className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive ${FOCUS_RING_INSET_CLASS} ${
  selected
  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'

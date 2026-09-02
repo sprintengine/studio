@@ -69,16 +69,23 @@ export function WizardProgress({
   })
 
   if (variant === 'labeled' && stepLabels?.length) {
-    // Same two-layer shape as the dashes below: the stations are painted by a
-    // progressbar-role element (the spec's contract for the strip, whatever it
-    // is drawn as), and the back-jump buttons live in a sibling group laid over
-    // it. A progressbar's children are presentational to assistive tech, so a
-    // button inside one would vanish from the accessibility tree — which is
-    // why the two layers cannot be one element. Both layers render every
-    // station with identical content and gap, so they measure the same and
-    // each button sits exactly under its label; the painted layer is
-    // pointer-transparent so the buttons beneath take the hover and the click,
-    // and it sits above them so a hover fill never covers the text.
+    // Same two-layer shape as the dashes below: one layer paints the stations,
+    // and the back-jump buttons live in a sibling group laid over it. A
+    // progressbar's children are presentational to assistive tech, so a button
+    // inside one would vanish from the accessibility tree — which is why the
+    // two layers cannot be one element. Both layers render every station with
+    // identical content and gap, so they measure the same and each button sits
+    // exactly under its label; the painted layer is pointer-transparent so the
+    // buttons beneath take the hover and the click, and it sits above them so a
+    // hover fill never covers the text.
+    //
+    // The progressbar role sits on a THIRD element, a sibling of both — never
+    // on the painted layer. That same "descendants are presentational" rule
+    // applies to text: with the role on the layer that draws the stations, the
+    // station names and the `aria-current="step"` marking one of them left the
+    // accessibility tree, and the button layer beneath carries only the
+    // completed steps (its content is `aria-hidden` and `invisible`), so a
+    // labeled wizard announced its position and not one of its stations.
     const stationClass = 'inline-flex items-center gap-1.5 px-1 py-0.5 text-micro font-medium'
     const stationBody = (isCurrent: boolean, isDone: boolean, label: string) => (
       <>
@@ -94,12 +101,20 @@ export function WizardProgress({
     const stationLabel = (idx: number) => stepLabels[idx] ?? `Step ${idx + 1}`
     return (
       <nav aria-label={fullLabel} className="relative isolate flex min-w-0 flex-1 items-center justify-center">
-        <div
+        {/* The strip's progressbar contract, on an element of its own. It draws
+            nothing — the stations beside it are the picture — and it needs no
+            children, because the position it reports is carried by its own name
+            ("Step 3 of 6 · Roster"), which is what the spec asks a progressbar
+            here to say. */}
+        <span
           role="progressbar"
           aria-valuemin={1}
           aria-valuemax={total}
           aria-valuenow={step}
           aria-label={fullLabel}
+          className="sr-only"
+        />
+        <div
           // `--z-sticky` is the in-card raise step: the painted text rides
           // above the hover fill of the jump buttons beneath it.
           className="pointer-events-none relative z-[var(--z-sticky)] flex items-center gap-4"
@@ -108,6 +123,12 @@ export function WizardProgress({
             <span
               key={idx}
               aria-current={isCurrent ? 'step' : undefined}
+              // A completed station is named twice over: once here, once by the
+              // jump button sitting under it ("Go back to step 2: Project").
+              // Where that button exists it is the one that carries the name,
+              // so the painted twin steps out of the tree; the current and the
+              // upcoming stations, which have no button, are read from here.
+              aria-hidden={isDone && onStepSelect ? true : undefined}
               className={`${stationClass} ${
                 isCurrent
                   ? 'text-[color:var(--text-strong)]'

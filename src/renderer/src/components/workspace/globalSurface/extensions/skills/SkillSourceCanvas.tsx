@@ -141,7 +141,11 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
         <div className="mt-5">{props.renderSkillPage(view.skill.skillId, { embedded: true })}</div>
       ) : view.kind === 'flat' ? (
         <Section
-          inset={false}
+          // `flush`, not `false`: `SkillRow` draws from x=0 (its checkbox column
+          // IS the left edge), so a header carrying the standard 12px inset puts
+          // every heading — and the "Select all" opposite it — out of line with
+          // the list it names. The head this Section replaced had no inset.
+          inset="flush"
           level={4}
           title="Skills"
           count={view.items.length}
@@ -156,7 +160,7 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
         </Section>
       ) : view.kind === 'grouped' ? (
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[196px_minmax(0,1fr)]">
-          <Section inset={false} level={4} title="Groups" count={view.groups.length} className="min-w-0">
+          <Section inset="flush" level={4} title="Groups" count={view.groups.length} className="min-w-0">
             <GroupTree
               groups={view.groups}
               activeGroup={view.activeGroup}
@@ -164,7 +168,7 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
             />
           </Section>
           <Section
-            inset={false}
+            inset="flush"
             level={4}
             className="min-w-0"
             title={groupLabelOf(view.groups, view.activeGroup)}
@@ -210,7 +214,7 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
             <EmptyState title={view.prompt} />
           ) : (
             <Section
-              inset={false}
+              inset="flush"
               level={4}
               title={view.query.trim() ? 'Results' : groupLabelOf(view.groups, view.activeGroup ?? '')}
               count={view.items.length}
@@ -413,7 +417,7 @@ function GroupChips({
 }
 
 // The list heads on this surface are the kit's `Section` (title, count, one
-// action) at `level={4}` with `inset={false}`, since each list brings its own
+// action) at `level={4}` with `inset="flush"`, since each list brings its own
 // row inset. A local `SectionHead` used to draw the same three things a size and
 // an ink apart from every other door's heading; Discover renders its result
 // lists under the same kit head.

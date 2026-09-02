@@ -340,6 +340,13 @@ export function SavedRostersMenu({
   // kit's `MenuItem` — the local `itemClass` they used to share was a third
   // spelling of the menu row with no ring and an inset fill.
   const surfaceRef = React.useRef<HTMLElement | null>(null)
+  // Stable identity: `Popover` keys its auto-focus effect on this callback, so an
+  // inline arrow function would re-run it on every render and pull the keyboard
+  // cursor back to the first row while the menu is open.
+  const focusFirstMenuItem = React.useCallback((surface: HTMLElement) => {
+    surfaceRef.current = surface
+    surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  }, [])
 
   const trimmed = name.trim()
   const collides = sprintEngineRosterNameTaken(
@@ -368,10 +375,7 @@ export function SavedRostersMenu({
       placement="bottom-end"
       className="shrink-0"
       surfaceClassName={`w-[248px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={(surface) => {
-        surfaceRef.current = surface
-        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
-      }}
+      onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}

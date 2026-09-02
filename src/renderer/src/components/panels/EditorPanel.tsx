@@ -582,6 +582,15 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         {markdownModeToggle}
         {showPreview ? (
           <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8">
+            {/* The mode toggle floats over this same `relative` box at `top-3`
+                and is a `size-control-xs` (26px) IconButton, so it occupies
+                y 12 → 38 — past the 32px `pt-8` inset the prose starts at. The
+                clearance used to be `pt-14`, but 56px is not a step on the
+                space scale and no step above 32px is; so the rest of it is
+                reserved structurally instead, by a spacer exactly one control
+                tall. It reads from the same token the button's height does,
+                which is what keeps the two in step if the control ramp moves. */}
+            <div aria-hidden="true" className="h-control-xs" />
             <div className="max-w-4xl mx-auto">
               {renderMarkdown(activeContent, { lineChanges: previewGitLineChanges })}
             </div>

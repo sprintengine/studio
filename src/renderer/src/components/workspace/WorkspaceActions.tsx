@@ -458,6 +458,14 @@ export function WorkspaceActions({
   // The view-panels menu surface, so its rows rove with the arrow keys the way
   // every other menu in the app does (menu/component.md → Accessibility).
   const viewMenuSurfaceRef = React.useRef<HTMLElement | null>(null)
+  // Stable identity: `Popover`'s auto-focus effect is keyed on this callback, so
+  // an inline arrow function would re-run it on every render and yank the
+  // keyboard position back to row 1 while the menu is open (toggling a row bumps
+  // `viewMenuTick`, which re-renders). See ui/FilterMenu.tsx for the same shape.
+  const focusFirstViewMenuItem = React.useCallback((surface: HTMLElement) => {
+    viewMenuSurfaceRef.current = surface
+    surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  }, [])
   return (
       <div className="app-no-drag flex shrink-0 items-center gap-1.5">
         {/*
@@ -541,10 +549,7 @@ export function WorkspaceActions({
               popupRole="menu"
               placement="bottom-end"
               surfaceClassName={`w-60 ${MENU_LIST_CLASS}`}
-              onOpenAutoFocus={(surface) => {
-                viewMenuSurfaceRef.current = surface
-                surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
-              }}
+              onOpenAutoFocus={focusFirstViewMenuItem}
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
                 <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
                   <button

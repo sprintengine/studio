@@ -274,11 +274,14 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
 
 // The folder mark draws in `currentColor` at two strengths — the back flap held
 // back, the body full — so it reads as a folder by shape on every theme and
-// takes its ink from the row (muted at rest, default on hover, strong when
+// takes its ink from the row (default at rest, strong on hover and when
 // selected) rather than from a private yellow palette (ruled 2026-09-02).
+// The wrapper therefore declares no ink of its own: a `text-*` here would pin
+// the glyph to one tier and the row's three-tier ink would never reach it,
+// which is the whole of what "takes its ink from the row" means.
 function FolderIcon({ expanded }: { expanded: boolean }) {
   return (
-    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center text-[color:var(--text-muted)]">
+    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center">
       <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6" fill="currentColor">
         <path
           d="M2.5 5.8c0-1.1.9-2 2-2h5.1l1.9 2.1h8c1.1 0 2 .9 2 2v.95h-19V5.8Z"

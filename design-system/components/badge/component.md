@@ -45,3 +45,23 @@ Never interactive, and never a second status idiom beside a `status-dot` that
 already says the same thing. A badge carrying meaning takes an `ariaLabel` (a
 bare "3" tells a screen reader nothing); one that merely repeats adjacent text
 is marked `decorative` so it is not read twice.
+
+## Only a count is a live region (2026-09-02)
+
+The two species announce differently, and this is the part a consumer gets
+wrong in both directions.
+
+- **Count** — `role="status"`, so a value changing in place beside its trigger
+  (the attention bell) is announced. This is what an announcement is *for*: the
+  number moved while the reader was elsewhere.
+- **Label** — never a live region. `role="img"` when it carries an `ariaLabel`
+  (a bare `<span>` has no role for the name to hang on), plain text otherwise.
+
+The audit found the label species emitting `role="status"`, which turned a
+hundred-row skill listing into a hundred polite live regions that re-announced
+every time the list narrowed. The fix belongs here rather than at the call
+sites: marking those chips `decorative` would have silenced them, and
+`decorative` means "the adjacent text already says this" — it is not a mute
+button. Used as one it hides a fact nothing else states, which the same audit
+found at three settings rows whose chip was the only thing saying a module was
+unavailable or that a row was a skill rather than a server.

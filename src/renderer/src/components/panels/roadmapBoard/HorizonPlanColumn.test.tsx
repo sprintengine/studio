@@ -458,14 +458,40 @@ run('a cursor on a step that has left the plan falls back to the selection', () 
   assert.equal(nextCursorRef(ORDER, 'gone', 'b', 1), 'b')
 })
 
-// Cursor ≠ focus (2026-09-02 audit): the walked row wears the hover fill, the
-// picked row the selected fill, and the product's one focus ring marks DOM
-// focus alone. The private inset ring it used to draw put two rings on a row.
-run('the cursor is the hover fill, drawn distinct from selection and from focus', () => {
+// Cursor ≠ focus (2026-09-02 audit), but the cursor is not a FILL either: the
+// hover fill is already on any row under the pointer, and a selected row already
+// wears the selection fill, so a fill-only cursor is invisible in both states —
+// which is most of them. The cursor takes its own channel, the kit's leading
+// rule (LIST_CURSOR_MARK_CLASS), which composes with either fill; the product's
+// one focus ring still marks DOM focus alone.
+run('the cursor is a leading mark, drawn distinct from selection, hover and focus', () => {
   const markup = render({ lanes: SIMPLE, cursorRef: 'backlog/one.md' })
-  assert.match(markup, /data-step-row="true"[^>]*bg-\[color:var\(--bg-hover\)\]/)
+  assert.match(markup, /bg-\[color:var\(--text-strong\)\]/, 'the cursored row carries the leading cursor rule')
   assert.doesNotMatch(markup, /ring-2|ring-inset/, 'no second focus idiom beside the shared ring')
   assert.match(markup, /data-step-row="true"[^>]*focus-visible:focus-ring/, 'the shared ring stays on the row')
+  // The cursor never rides a fill, so a cursored row is not painted like a
+  // hovered one, and a cursored+selected row still shows its cursor.
+  const cursoredRow = markup.match(/data-step-row="true"[^>]*class="([^"]*)"/)?.[1] ?? ''
+  assert.ok(cursoredRow, 'a step row renders')
+  assert.ok(
+    !/(?:^|\s)bg-\[color:var\(--bg-hover\)\](?:\s|$)/.test(cursoredRow),
+    'the cursor does not paint the resting hover fill onto the row',
+  )
+  assert.match(cursoredRow, /hover:bg-\[color:var\(--bg-hover\)\]/, 'and hover stays the pointer’s own signal')
+})
+
+run('a cursored row that is also selected keeps both the selection fill and the cursor', () => {
+  const markup = render({ lanes: SIMPLE, cursorRef: 'backlog/one.md', selectedRef: 'backlog/one.md' })
+  assert.match(markup, /data-step-row="true"[^>]*bg-\[color:var\(--bg-selected\)\]/, 'the selection fill survives')
+  assert.match(markup, /bg-\[color:var\(--text-strong\)\]/, 'and the cursor is still visible on it')
+})
+
+run('an uncursored row draws no cursor mark', () => {
+  assert.doesNotMatch(
+    render({ lanes: SIMPLE }),
+    /bg-\[color:var\(--text-strong\)\]/,
+    'the mark is earned by the cursor, not painted on every row',
+  )
 })
 
 run('rows are focusable targets the cursor can land on', () => {
