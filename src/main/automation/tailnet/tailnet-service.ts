@@ -3,6 +3,7 @@ import {
   normalizeTailnetScopes,
   TAILNET_STRUCTURED_SCOPES,
   type TailnetApprovePairRequestView,
+  type TailnetPairRequest,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
   type TailnetScope,
@@ -48,8 +49,17 @@ export type TailnetRemoteService = {
    * button mints the structured set and nothing else, which left
    * `terminal:control` reachable only from an agent on the local socket.
    */
-  approvePairRequest(input: { id: string; scopes?: unknown }): TailnetApprovePairRequestResult
-  denyPairRequest(id: string): TailnetRemoteStatus
+  /**
+   * `via` says which door the answer came through, and exists only so the audit
+   * is written exactly once: a `tailnet.*` tool call is already audited by
+   * dispatch, so only the IPC path records here.
+   */
+  approvePairRequest(input: {
+    id: string
+    scopes?: unknown
+    via?: 'ipc' | 'tool'
+  }): TailnetApprovePairRequestResult
+  denyPairRequest(id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus
   /**
    * Machines on this tailnet, and which of them answer as a Studio.
    *
@@ -120,6 +130,32 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       options.log?.(read.error)
     }
     return settings
+  }
+
+  /**
+   * Write the audit record for an answer given at this keyboard.
+   *
+   * The record is about the PEER that was granted or refused, so it carries
+   * that identity rather than a local one — which is the fact anyone reading
+   * the log later needs.
+   */
+  function auditAnswer(tool: string, request: TailnetPairRequest | undefined, scopes?: TailnetScope[]): void {
+    if (!request) return
+    options.onToolCall?.({
+      context: {
+        metadata: {
+          kind: 'remote-tailnet',
+          deviceName: request.deviceName,
+          ...(request.peerNode ? { peerNode: request.peerNode } : {}),
+        },
+      },
+      tool,
+      args: {
+        peerAddress: request.peerAddress,
+        ...(scopes ? { scopes: scopes.join(', ') } : {}),
+      },
+      durationMs: 0,
+    })
   }
 
   function getStatus(): TailnetRemoteStatus {
@@ -233,18 +269,24 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     },
 
     approvePairRequest(input): TailnetApprovePairRequestResult {
+      const answered = devices
+        .listPairRequests()
+        .find((request) => request.id === (typeof input.id === 'string' ? input.id : ''))
       const outcome = devices.approvePairRequest({
         id: typeof input.id === 'string' ? input.id : '',
         scopes: normalizeTailnetScopes(input.scopes),
       })
       if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message, status: getStatus() }
+      if (input.via !== 'tool') auditAnswer('tailnet.approve_pair_request', answered, outcome.device.scopes)
       // A new device changes what `tools/list` answers for it, and the panel
       // needs the device to appear in the same read that reports success.
       return { ok: true, device: outcome.device, status: getStatus() }
     },
 
-    denyPairRequest(id): TailnetRemoteStatus {
-      devices.denyPairRequest(typeof id === 'string' ? id : '')
+    denyPairRequest(id, via): TailnetRemoteStatus {
+      const requestId = typeof id === 'string' ? id : ''
+      const answered = devices.listPairRequests().find((request) => request.id === requestId)
+      if (devices.denyPairRequest(requestId) && via !== 'tool') auditAnswer('tailnet.deny_pair_request', answered)
       return getStatus()
     },
 

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 
 import type { FleetBrowse, FleetConnection, FleetTerminal } from '../../../../../shared/tailnet-fleet'
+import type { TailnetPeer, TailnetPeerScan } from '../../../../../shared/tailnet-peers'
 import {
   fleetBrowseView,
   fleetConnectionSummary,
+  fleetPeerListView,
+  pendingPairRequestNote,
   fleetInputState,
   fleetLinkBadge,
   fleetTerminalStatus,
@@ -135,6 +138,73 @@ assert.match(
 assert.match(
   fleetConnectionSummary({ ...connection, scopes: ['workspace:read'] }, (value) => value),
   /no terminal access/u
+)
+
+// ── The machine picker (MC-2233) ─────────────────────────────────────────
+// Discovery has existed since MC-2163 but only ever fed the inbound Settings
+// panel. These are the rules that make it a picker.
+
+const studio = { product: 'SprintEngine Studio MCP', transportVersion: 1, protocolVersions: [] }
+const peer = (over: Partial<TailnetPeer> = {}): TailnetPeer => ({
+  id: 'n1',
+  hostName: 'Conal’s Mac mini',
+  dnsName: 'mac-mini.example.ts.net',
+  address: '100.64.0.9',
+  os: 'macOS',
+  online: true,
+  isSelf: false,
+  studio,
+  ...over,
+})
+const scanOf = (peers: TailnetPeer[]): TailnetPeerScan => ({
+  tailscaleAvailable: true,
+  unavailableReason: null,
+  probedPort: 8471,
+  peers,
+})
+
+// Before a scan there is nothing to say but how to get something.
+assert.match(String(fleetPeerListView(null, [], false).emptyMessage), /Scan to see/u)
+assert.match(String(fleetPeerListView(null, [], true).emptyMessage), /Looking for/u)
+
+// This machine is context, not a machine to drive — and a peer that answers
+// nothing is not one either.
+assert.equal(fleetPeerListView(scanOf([peer({ isSelf: true })]), [], false).peers.length, 0)
+assert.equal(fleetPeerListView(scanOf([peer({ studio: null })]), [], false).peers.length, 0)
+assert.equal(fleetPeerListView(scanOf([peer({ online: false })]), [], false).peers.length, 0)
+
+// A machine already paired drops out of "add a machine", where showing it
+// would read as the first pairing not having worked.
+assert.equal(
+  fleetPeerListView(scanOf([peer()]), [{ ...connection, endpoint: '100.64.0.9:8471' }], false).peers.length,
+  0
+)
+assert.match(
+  String(fleetPeerListView(scanOf([peer()]), [{ ...connection, endpoint: '100.64.0.9:8471' }], false).emptyMessage),
+  /already paired/u
+)
+// And the two nothings say which nothing they are.
+assert.match(
+  String(fleetPeerListView(scanOf([peer({ studio: null })]), [], false).emptyMessage),
+  /No other machine/u
+)
+assert.equal(fleetPeerListView(scanOf([peer()]), [], false).peers.length, 1)
+
+// Waiting says what is being waited ON — a person, not a network.
+const pendingRequest = {
+  requestId: 'tpr_1',
+  endpoint: '100.64.0.9:8471',
+  machineName: 'Conal’s Mac mini',
+  comparisonCode: '419306',
+  expiresAt: '2026-09-02T21:05:00.000Z',
+}
+assert.match(
+  pendingPairRequestNote(pendingRequest, Date.parse('2026-09-02T21:04:00.000Z')),
+  /Waiting for someone at Conal’s Mac mini/u
+)
+assert.match(
+  pendingPairRequestNote(pendingRequest, Date.parse('2026-09-02T21:06:00.000Z')),
+  /did not answer in time/u
 )
 
 console.log('fleet model contracts ok')

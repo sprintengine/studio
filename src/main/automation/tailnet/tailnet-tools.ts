@@ -32,8 +32,12 @@ export type TailnetToolsFrontDoor = {
   getTailnetStatus(): TailnetRemoteStatus
   setTailnetEnabled(enabled: boolean): Promise<TailnetRemoteStatus>
   offerTailnetPairing(input?: { scopes?: unknown }): TailnetPairingOfferView
-  approveTailnetPairRequest(input: { id: string; scopes?: unknown }): TailnetApprovePairRequestView
-  denyTailnetPairRequest(id: string): TailnetRemoteStatus
+  approveTailnetPairRequest(input: {
+    id: string
+    scopes?: unknown
+    via?: 'ipc' | 'tool'
+  }): TailnetApprovePairRequestView
+  denyTailnetPairRequest(id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus
   cancelTailnetPairing(): TailnetRemoteStatus
   revokeTailnetDevice(deviceId: string): TailnetRemoteStatus
   listTailnetPeers(): Promise<TailnetPeerScan>
@@ -230,7 +234,9 @@ export function createTailnetTools(options: {
         if (typeof read === 'string') return toolError('invalid_scopes', read)
         scopes = read
       }
-      const outcome = service.approveTailnetPairRequest({ id: requestId, scopes })
+      // `via: 'tool'` suppresses the service's own audit write: this call is
+      // already an audited mutation by the time it reaches here.
+      const outcome = service.approveTailnetPairRequest({ id: requestId, scopes, via: 'tool' })
       // Refused rather than absorbed, for the same reason revoke_device reports
       // an unknown id: "approved" for a request that had already lapsed would
       // read as a machine now being paired when nothing was granted.
@@ -259,7 +265,7 @@ export function createTailnetTools(options: {
       if (!before.pairRequests.some((request) => request.id === requestId)) {
         return toolError('unknown_request', `No pairing request "${requestId}" is waiting on this machine.`)
       }
-      return toolSuccess({ status: service.denyTailnetPairRequest(requestId) })
+      return toolSuccess({ status: service.denyTailnetPairRequest(requestId, 'tool') })
     },
   }
 

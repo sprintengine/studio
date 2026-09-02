@@ -153,6 +153,38 @@ export function fleetTerminalEventChannel(attachId: string): string {
   return `fleet:terminal:${attachId}`
 }
 
+/**
+ * A pairing we have ASKED for and are waiting on (MC-2233), as a window sees
+ * it. The collect secret is not here and never leaves main.
+ */
+export type FleetPairRequestView = {
+  requestId: string
+  endpoint: string
+  machineName: string
+  /** The six digits also on the other machine's screen, for the person to compare. */
+  comparisonCode: string
+  expiresAt: string
+}
+
+export type FleetRequestPairingResult =
+  | { ok: true; request: FleetPairRequestView }
+  | { ok: false; code: string; message: string }
+
+/**
+ * The answer to one poll. `unreachable` is deliberately NOT an outcome here —
+ * it comes back as `ok: false` so the panel keeps waiting rather than tearing
+ * the request down: a machine that went to sleep mid-wait has not refused.
+ */
+export type FleetCollectPairingResult =
+  | { ok: true; status: 'pending'; request: FleetPairRequestView }
+  | { ok: true; status: 'approved'; connection: FleetConnection }
+  | { ok: true; status: 'denied' }
+  | { ok: true; status: 'expired' }
+  | { ok: false; code: string; message: string }
+
+export const FLEET_REQUEST_PAIRING_CHANNEL = 'fleet:request-pairing'
+export const FLEET_COLLECT_PAIRING_CHANNEL = 'fleet:collect-pairing'
+export const FLEET_CANCEL_PAIRING_CHANNEL = 'fleet:cancel-pairing'
 export const FLEET_LIST_CONNECTIONS_CHANNEL = 'fleet:list-connections'
 export const FLEET_PAIR_CHANNEL = 'fleet:pair'
 export const FLEET_FORGET_CHANNEL = 'fleet:forget'

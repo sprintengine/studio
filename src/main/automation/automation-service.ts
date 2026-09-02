@@ -233,9 +233,13 @@ export function createAutomationService(options: AutomationServiceOptions) {
     offerTailnetPairing: (input?: { scopes?: unknown }): TailnetPairingOfferView => tailnetService().offerPairing(input),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
     revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
-    approveTailnetPairRequest: (input: { id: string; scopes?: unknown }): TailnetApprovePairRequestResult =>
-      tailnetService().approvePairRequest(input),
-    denyTailnetPairRequest: (id: string): TailnetRemoteStatus => tailnetService().denyPairRequest(id),
+    approveTailnetPairRequest: (input: {
+      id: string
+      scopes?: unknown
+      via?: 'ipc' | 'tool'
+    }): TailnetApprovePairRequestResult => tailnetService().approvePairRequest(input),
+    denyTailnetPairRequest: (id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus =>
+      tailnetService().denyPairRequest(id, via),
     listTailnetPeers: (): Promise<TailnetPeerScan> => tailnetService().listPeers(),
     /** The Fleet client: the machines this Studio drives (MC-2167). */
     fleet: (): TailnetFleetService => fleetService(),

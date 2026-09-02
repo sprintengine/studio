@@ -1,3 +1,6 @@
+import { randomBytes } from 'crypto'
+
+import { hashSecret } from '../../mobile/bridge/crypto'
 import { hostname } from 'os'
 
 import { backoffDelayMs } from '../../../shared/exponentialBackoff'
@@ -14,14 +17,20 @@ import {
   type FleetTerminal,
   type FleetTerminalEvent,
   type FleetWorkspace,
+  type FleetCollectPairingResult,
+  type FleetPairRequestView,
+  type FleetRequestPairingResult,
 } from '../../../shared/tailnet-fleet'
 import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
 import {
   callRemoteTool,
   formatTailnetEndpoint,
   openRemoteTerminalSocket,
+  collectPairingFromMachine,
   pairWithMachine,
   parsePairingUrl,
+  requestPairingFromMachine,
+  type TailnetEndpoint,
   parseTailnetEndpoint,
   readRemoteIdentity,
   type RemoteTerminalSocket,
@@ -50,6 +59,19 @@ const OFFLINE_AFTER_ATTEMPTS = 3
 export type TailnetFleetService = {
   listConnections(): FleetConnection[]
   pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<FleetPairResult>
+  /**
+   * Ask a machine to pair and wait for someone there to approve it (MC-2233).
+   *
+   * The outward half stays main's for the same reason `pair` does: the listener
+   * refuses any request carrying an `Origin` header, so a window physically
+   * cannot dial a peer. The collect secret lives here and is never handed to a
+   * renderer.
+   */
+  requestPairing(input: { endpoint: unknown; deviceName?: unknown }): Promise<FleetRequestPairingResult>
+  /** Poll one request we made. Lands the connection when it has been approved. */
+  collectPairing(requestId: unknown): Promise<FleetCollectPairingResult>
+  /** Forget a request we made. The far end's copy lapses on its own. */
+  cancelPairing(requestId: unknown): void
   forget(connectionId: unknown): FleetConnection[]
   browse(connectionId: unknown): Promise<FleetBrowse>
   listRuns(
@@ -167,6 +189,100 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           + `(${message(error)}). Revoke this device on that machine and pair again.`,
       }
     }
+  }
+
+  // Requests this machine has made and is waiting on. In memory, like the
+  // target's own pending list: a request that outlived a restart would be
+  // waiting on a moment nobody is still in.
+  const outboundRequests = new Map<
+    string,
+    { endpoint: TailnetEndpoint; collectSecret: string; view: FleetPairRequestView }
+  >()
+
+  async function requestPairing(input: {
+    endpoint: unknown
+    deviceName?: unknown
+  }): Promise<FleetRequestPairingResult> {
+    const endpoint = parseTailnetEndpoint(typeof input.endpoint === 'string' ? input.endpoint : '')
+    if (!endpoint) {
+      return { ok: false, code: 'invalid_endpoint', message: 'That is not a machine address this can dial.' }
+    }
+    const name = typeof input.deviceName === 'string' && input.deviceName.trim() ? input.deviceName.trim() : deviceName()
+    if (!name) {
+      return {
+        ok: false,
+        code: 'device_name_required',
+        message: 'This machine has no name to pair under. Name it and try again.',
+      }
+    }
+    // The secret stays here; only its hash is sent. Collecting the token later
+    // means presenting it, so knowing the request id is not enough to take it.
+    const collectSecret = randomBytes(24).toString('base64url')
+    const asked = await requestPairingFromMachine({
+      endpoint,
+      deviceName: name,
+      collectHash: hashSecret(collectSecret),
+    })
+    if (!asked.ok) return { ok: false, code: asked.code, message: asked.message }
+
+    const peerName = (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
+    const view: FleetPairRequestView = {
+      requestId: asked.value.requestId,
+      endpoint: formatTailnetEndpoint(endpoint),
+      machineName: peerName ?? endpoint.host,
+      comparisonCode: asked.value.comparisonCode,
+      expiresAt: asked.value.expiresAt,
+    }
+    outboundRequests.set(view.requestId, { endpoint, collectSecret, view })
+    return { ok: true, request: view }
+  }
+
+  async function collectPairing(requestId: unknown): Promise<FleetCollectPairingResult> {
+    const id = typeof requestId === 'string' ? requestId : ''
+    const pending = outboundRequests.get(id)
+    if (!pending) {
+      // Nothing here is waiting on that id — which is what a restart, a cancel,
+      // and an id from another window all look like.
+      return { ok: true, status: 'expired' }
+    }
+    const collected = await collectPairingFromMachine({
+      endpoint: pending.endpoint,
+      requestId: id,
+      collectSecret: pending.collectSecret,
+    })
+    if (!collected.ok) return { ok: false, code: collected.code, message: collected.message }
+    if (collected.value.status === 'pending') return { ok: true, status: 'pending', request: pending.view }
+    if (collected.value.status !== 'approved') {
+      outboundRequests.delete(id)
+      return { ok: true, status: collected.value.status }
+    }
+
+    outboundRequests.delete(id)
+    try {
+      const connection = store.add({
+        machineName: pending.view.machineName,
+        endpoint: pending.view.endpoint,
+        deviceId: collected.value.deviceId,
+        deviceName: collected.value.deviceName,
+        deviceToken: collected.value.deviceToken,
+        scopes: collected.value.scopes,
+      })
+      return { ok: true, status: 'approved', connection }
+    } catch (error) {
+      // Same failure the carried-code path has, and the same honesty about it:
+      // the device exists over there now, and nothing here can name it.
+      return {
+        ok: false,
+        code: 'pairing_not_saved',
+        message:
+          `${pending.view.machineName} approved the request, but the credential could not be saved here `
+          + `(${message(error)}). Revoke this device on that machine and ask again.`,
+      }
+    }
+  }
+
+  function cancelPairing(requestId: unknown): void {
+    outboundRequests.delete(typeof requestId === 'string' ? requestId : '')
   }
 
   async function browse(connectionId: unknown): Promise<FleetBrowse> {
@@ -564,6 +680,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   return {
     listConnections: () => store.list(),
     pair,
+    requestPairing,
+    collectPairing,
+    cancelPairing,
     forget(connectionId): FleetConnection[] {
       if (typeof connectionId === 'string') {
         // Panes attached to a machine we just forgot have no credential left to

@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { FleetBrowse, FleetConnection, FleetRun, FleetWorkspace } from '../../../../shared/tailnet-fleet'
+import type {
+  FleetBrowse,
+  FleetConnection,
+  FleetPairRequestView,
+  FleetRun,
+  FleetWorkspace,
+} from '../../../../shared/tailnet-fleet'
+import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { addFleetTerminalTab } from '../../utils/modelRegistry'
 import { EmptyState, GhostButton, InlineNotice, OutlineButton, PanelHeader, PrimaryButton, StatusDot, Input } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   fleetBrowseView,
   fleetConnectionSummary,
+  fleetPeerListView,
+  pendingPairRequestNote,
   fleetTerminalStatus,
   fleetTerminalTabName,
   fleetTerminalTitle,
@@ -28,6 +37,14 @@ interface Props {
 
 type ActionState = { tone: 'idle' | 'busy' | 'error'; message: string }
 
+/**
+ * How often a waiting request asks the other machine for an answer.
+ *
+ * Slow on purpose: the thing being waited on is a person walking to a computer,
+ * and every poll is an authenticated round trip to a real machine.
+ */
+const PAIR_POLL_MS = 2000
+
 export default function FleetPanel({ workspaceId }: Props) {
   const [connections, setConnections] = useState<FleetConnection[]>([])
   const [openConnectionId, setOpenConnectionId] = useState<string | null>(null)
@@ -36,6 +53,13 @@ export default function FleetPanel({ workspaceId }: Props) {
   const [runsByWorkspace, setRunsByWorkspace] = useState<Record<string, FleetRun[] | { error: string }>>({})
   const [pairingLink, setPairingLink] = useState('')
   const [adding, setAdding] = useState(false)
+  // The machine picker (MC-2233). Discovery is a read of the local Tailscale
+  // daemon plus a health probe, so it is safe to run whenever a person asks —
+  // but it is never run unasked, for the same reason a browse is not.
+  const [scan, setScan] = useState<TailnetPeerScan | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [pendingRequest, setPendingRequest] = useState<FleetPairRequestView | null>(null)
+  const [requestNow, setRequestNow] = useState(() => Date.now())
   const [action, setAction] = useState<ActionState>({ tone: 'idle', message: '' })
 
   const refreshConnections = useCallback(async () => {
@@ -89,6 +113,80 @@ export default function FleetPanel({ workspaceId }: Props) {
       setAction({ tone: 'error', message: describe(error, 'Pairing did not work.') })
     }
   }
+
+  const scanPeers = async (): Promise<void> => {
+    setScanning(true)
+    setAction({ tone: 'busy', message: 'Looking for machines on your tailnet.' })
+    try {
+      setScan(await window.api.tailnetListPeers())
+      setAction({ tone: 'idle', message: '' })
+    } catch (error) {
+      setAction({ tone: 'error', message: describe(error, 'Could not read your tailnet.') })
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const requestPairing = async (endpoint: string): Promise<void> => {
+    setAction({ tone: 'busy', message: 'Asking that machine to pair.' })
+    try {
+      const result = await window.api.fleetRequestPairing(endpoint)
+      if (!result.ok) {
+        setAction({ tone: 'error', message: result.message })
+        return
+      }
+      setPendingRequest(result.request)
+      setRequestNow(Date.now())
+      setAction({ tone: 'idle', message: '' })
+    } catch (error) {
+      setAction({ tone: 'error', message: describe(error, 'Could not ask that machine.') })
+    }
+  }
+
+  const cancelRequest = async (): Promise<void> => {
+    const request = pendingRequest
+    setPendingRequest(null)
+    if (request) await window.api.fleetCancelPairing(request.requestId).catch(() => {})
+  }
+
+  // Poll only while a request is actually waiting, and stop the moment it is
+  // answered. A machine that has gone to sleep answers `ok: false`, which keeps
+  // the wait alive rather than ending it — a closed lid is not a refusal.
+  useEffect(() => {
+    if (!pendingRequest) return
+    let cancelled = false
+    const timer = setInterval(() => {
+      setRequestNow(Date.now())
+      void (async () => {
+        const result = await window.api.fleetCollectPairing(pendingRequest.requestId).catch(() => null)
+        if (cancelled || !result || !result.ok) return
+        if (result.status === 'pending') return
+        setPendingRequest(null)
+        if (result.status === 'approved') {
+          setAction({ tone: 'idle', message: `Paired with ${result.connection.machineName}.` })
+          await refreshConnections()
+          setScan(null)
+          return
+        }
+        setAction({
+          tone: 'error',
+          message:
+            result.status === 'denied'
+              ? 'That machine declined the request.'
+              : 'The request lapsed before anyone answered it.',
+        })
+      })()
+    }, PAIR_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [pendingRequest, refreshConnections])
+
+  const peerList = useMemo(
+    () => fleetPeerListView(scan, connections, scanning),
+    [scan, connections, scanning]
+  )
 
   const forget = async (connection: FleetConnection): Promise<void> => {
     setAction({ tone: 'busy', message: `Removing ${connection.machineName}.` })
@@ -180,23 +278,91 @@ export default function FleetPanel({ workspaceId }: Props) {
           </p>
         ) : null}
 
-        {adding ? (
+        {pendingRequest ? (
           <div className="mb-3 space-y-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-3">
-            <p className="text-meta leading-5 text-[color:var(--text-muted)]">
-              On the machine you want to drive, open Settings → Remote and create a pairing code. Paste its link here.
-            </p>
-            <Input
-              value={pairingLink}
-              onChange={(event) => setPairingLink(event.target.value)}
-              placeholder="multicode-tailnet://pair?…"
-              aria-label="Pairing link"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void pair()
-              }}
-            />
-            <PrimaryButton size="md" onClick={() => void pair()} disabled={!pairingLink.trim() || action.tone === 'busy'}>
-              Pair
-            </PrimaryButton>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
+                  {pendingRequest.machineName}
+                </div>
+                <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">
+                  {pendingPairRequestNote(pendingRequest, requestNow)}
+                </p>
+              </div>
+              {/* The same six digits are on the other machine. Comparing them is
+                  what makes approving safe without a secret being carried. */}
+              <div className="text-right">
+                <div className="text-micro text-[color:var(--text-muted)]">Code</div>
+                <div className="font-mono text-heading tracking-wide text-[color:var(--text-strong)]">
+                  {pendingRequest.comparisonCode}
+                </div>
+              </div>
+            </div>
+            <OutlineButton size="xs" onClick={() => void cancelRequest()}>
+              Stop waiting
+            </OutlineButton>
+          </div>
+        ) : null}
+
+        {adding && !pendingRequest ? (
+          <div className="mb-3 space-y-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-3">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-meta text-[color:var(--text-muted)]">
+                  Pick a machine and ask. Someone at it allows the request and chooses what you may do.
+                </p>
+                <OutlineButton size="xs" onClick={() => void scanPeers()} disabled={scanning}>
+                  {scanning ? 'Scanning' : 'Scan'}
+                </OutlineButton>
+              </div>
+              {peerList.emptyMessage ? (
+                <p className="text-meta text-[color:var(--text-muted)]">{peerList.emptyMessage}</p>
+              ) : (
+                <div className="divide-y divide-[color:var(--bg-selected)]">
+                  {peerList.peers.map((peer) => (
+                    <div key={peer.id} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <div className="truncate text-body text-[color:var(--text-strong)]">{peer.hostName}</div>
+                        <div className="font-mono text-micro text-[color:var(--text-muted)]">{peer.address}</div>
+                      </div>
+                      <PrimaryButton
+                        size="xs"
+                        onClick={() => void requestPairing(`${peer.address}:${scan?.probedPort ?? 0}`)}
+                        disabled={action.tone === 'busy'}
+                      >
+                        Ask to pair
+                      </PrimaryButton>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* The carried code stays: a machine with nobody in front of it
+                cannot approve anything, which is the normal case for a server. */}
+            <details className="border-t border-[color:var(--border-subtle)] pt-2">
+              <summary className={`cursor-pointer text-meta text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}>
+                Nobody at that machine? Paste a pairing link instead
+              </summary>
+              <div className="mt-2 space-y-2">
+                <Input
+                  value={pairingLink}
+                  onChange={(event) => setPairingLink(event.target.value)}
+                  placeholder="multicode-tailnet://pair?…"
+                  aria-label="Pairing link"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void pair()
+                  }}
+                />
+                <PrimaryButton
+                  size="md"
+                  onClick={() => void pair()}
+                  disabled={!pairingLink.trim() || action.tone === 'busy'}
+                >
+                  Pair
+                </PrimaryButton>
+              </div>
+            </details>
           </div>
         ) : null}
 

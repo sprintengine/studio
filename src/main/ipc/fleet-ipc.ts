@@ -9,7 +9,10 @@ import {
   FLEET_FORGET_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
+  FLEET_CANCEL_PAIRING_CHANNEL,
+  FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
+  FLEET_REQUEST_PAIRING_CHANNEL,
   FLEET_TERMINAL_INPUT_CHANNEL,
   FLEET_TERMINAL_RESIZE_CHANNEL,
   type FleetTerminalEvent,
@@ -53,6 +56,19 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   ipcMain.handle(FLEET_PAIR_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input)
     return service.fleet().pair({ pairingUrl: record?.pairingUrl, deviceName: record?.deviceName })
+  })
+  // Asking a machine to pair, and polling the answer. Like every other
+  // `fleet:*` channel this is IPC-only: pairing WITH a machine stays a decision
+  // made at this keyboard, reachable from no MCP tool.
+  ipcMain.handle(FLEET_REQUEST_PAIRING_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input)
+    return service.fleet().requestPairing({ endpoint: record?.endpoint, deviceName: record?.deviceName })
+  })
+  ipcMain.handle(FLEET_COLLECT_PAIRING_CHANNEL, (_event, requestId: unknown) =>
+    service.fleet().collectPairing(requestId)
+  )
+  ipcMain.handle(FLEET_CANCEL_PAIRING_CHANNEL, (_event, requestId: unknown) => {
+    service.fleet().cancelPairing(requestId)
   })
   ipcMain.handle(FLEET_FORGET_CHANNEL, (_event, connectionId: unknown) => service.fleet().forget(connectionId))
   ipcMain.handle(FLEET_BROWSE_CHANNEL, (_event, connectionId: unknown) => service.fleet().browse(connectionId))

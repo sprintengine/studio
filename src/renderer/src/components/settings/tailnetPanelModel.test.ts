@@ -7,6 +7,8 @@ import {
   outstandingPairingNote,
   pairingExpiry,
   peerListView,
+  pairRequestAnswerable,
+  pairRequestSummary,
   peerStatus,
   tailnetReadiness,
 } from './tailnetPanelModel'
@@ -218,6 +220,44 @@ check('a peer’s label states what we know, never a guess', () => {
     label: 'No Studio answering on port 8471',
     tone: 'neutral',
   })
+})
+
+check('a waiting request names who is asking, and says when it cannot vouch for the name', () => {
+  const request = {
+    id: 'tpr_1',
+    deviceName: 'Conal’s MacBook Air',
+    peerNode: 'macbook.example.ts.net',
+    peerAddress: '100.64.0.9',
+    comparisonCode: '419306',
+    createdAt: '2026-09-02T21:00:00.000Z',
+    expiresAt: '2026-09-02T21:05:00.000Z',
+  }
+  assert.equal(pairRequestSummary(request), 'Asking from macbook.example.ts.net')
+  // No whois means the address and a stated caveat — never an invented name,
+  // and never dropping the request, which would make the feature dead on any
+  // machine without the Tailscale CLI.
+  assert.equal(
+    pairRequestSummary({ ...request, peerNode: null }),
+    'Asking from 100.64.0.9 · name unverified'
+  )
+  assert.match(pairRequestSummary({ ...request, peerNode: null, peerAddress: '' }), /unknown address/u)
+})
+
+check('a lapsed request explains itself rather than failing when pressed', () => {
+  const request = {
+    id: 'tpr_1',
+    deviceName: 'Laptop',
+    peerNode: null,
+    peerAddress: '100.64.0.9',
+    comparisonCode: '419306',
+    createdAt: '2026-09-02T21:00:00.000Z',
+    expiresAt: '2026-09-02T21:05:00.000Z',
+  }
+  const before = Date.parse('2026-09-02T21:04:59.000Z')
+  const after = Date.parse('2026-09-02T21:05:01.000Z')
+  assert.deepEqual(pairRequestAnswerable(request, before), { canAnswer: true, note: null })
+  assert.equal(pairRequestAnswerable(request, after).canAnswer, false)
+  assert.match(String(pairRequestAnswerable(request, after).note), /lapsed/u)
 })
 
 if (failures > 0) {

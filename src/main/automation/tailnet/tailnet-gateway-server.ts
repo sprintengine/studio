@@ -356,8 +356,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     method: string
   ): Promise<void> {
     if (method === 'GET') {
-      const id = parseUrl(request.url ?? '').searchParams.get('id') ?? ''
-      const outcome = options.devices.collectPairRequest(id)
+      const query = parseUrl(request.url ?? '').searchParams
+      const outcome = options.devices.collectPairRequest(query.get('id') ?? '', query.get('secret') ?? '')
       // Every outcome is a 200: "your request was declined" and "it lapsed" are
       // answers to a well-formed question, not failures of it. The client
       // branches on `status`, which it must do anyway.
@@ -375,14 +375,32 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // Tailscale CLI, and that must not make the feature unusable.
       peerNode: await options.peers.resolve(peerAddress),
       peerAddress: peerAddress ?? '',
+      collectHash: isRecord(body) ? body.collectHash : undefined,
     })
     if (!outcome.ok) {
       // 429 for the caps, 400 for a malformed request: a client must be able to
       // tell "ask again later" from "you sent the wrong thing".
-      const status = outcome.code === 'invalid_device_name' ? 400 : 429
+      const status =
+        outcome.code === 'invalid_device_name' || outcome.code === 'invalid_collect_hash' ? 400 : 429
       writeJson(response, status, { error: { code: outcome.code, message: outcome.message } })
       return
     }
+    // Audited like any other classified mutation, and for the same reason: a
+    // stranger asking for access to this machine is a security event whether or
+    // not anyone approves it. There is no device yet, so the record carries the
+    // name asked for and the peer the transport proved — never a deviceId.
+    options.onToolCall?.({
+      context: {
+        metadata: {
+          kind: 'remote-tailnet',
+          deviceName: outcome.request.deviceName,
+          ...(outcome.request.peerNode ? { peerNode: outcome.request.peerNode } : {}),
+        },
+      },
+      tool: 'tailnet.pair_request',
+      args: { deviceName: outcome.request.deviceName, peerAddress: outcome.request.peerAddress },
+      durationMs: 0,
+    })
     options.onPairRequested?.()
     writeJson(response, 200, {
       requestId: outcome.request.id,

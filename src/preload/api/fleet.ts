@@ -9,14 +9,19 @@ import {
   FLEET_FORGET_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
+  FLEET_CANCEL_PAIRING_CHANNEL,
+  FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
+  FLEET_REQUEST_PAIRING_CHANNEL,
   FLEET_TERMINAL_INPUT_CHANNEL,
   FLEET_TERMINAL_RESIZE_CHANNEL,
   type FleetAttachResult,
   type FleetBrowse,
   type FleetConnection,
   type FleetCreateTerminalResult,
+  type FleetCollectPairingResult,
   type FleetPairResult,
+  type FleetRequestPairingResult,
   type FleetRun,
   type FleetTerminalEvent,
 } from '../../shared/tailnet-fleet'
@@ -33,6 +38,12 @@ export const fleetApi = {
     ipcRenderer.invoke(FLEET_LIST_CONNECTIONS_CHANNEL) as Promise<FleetConnection[]>,
   fleetPair: (pairingUrl: string): Promise<FleetPairResult> =>
     ipcRenderer.invoke(FLEET_PAIR_CHANNEL, { pairingUrl }) as Promise<FleetPairResult>,
+  fleetRequestPairing: (endpoint: string): Promise<FleetRequestPairingResult> =>
+    ipcRenderer.invoke(FLEET_REQUEST_PAIRING_CHANNEL, { endpoint }) as Promise<FleetRequestPairingResult>,
+  fleetCollectPairing: (requestId: string): Promise<FleetCollectPairingResult> =>
+    ipcRenderer.invoke(FLEET_COLLECT_PAIRING_CHANNEL, requestId) as Promise<FleetCollectPairingResult>,
+  fleetCancelPairing: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke(FLEET_CANCEL_PAIRING_CHANNEL, requestId) as Promise<void>,
   fleetForget: (connectionId: string): Promise<FleetConnection[]> =>
     ipcRenderer.invoke(FLEET_FORGET_CHANNEL, connectionId) as Promise<FleetConnection[]>,
   fleetBrowse: (connectionId: string): Promise<FleetBrowse> =>
@@ -76,6 +87,9 @@ export const fleetApi = {
   ElectronApi,
   | 'fleetListConnections'
   | 'fleetPair'
+  | 'fleetRequestPairing'
+  | 'fleetCollectPairing'
+  | 'fleetCancelPairing'
   | 'fleetForget'
   | 'fleetBrowse'
   | 'fleetListRuns'

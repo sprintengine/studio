@@ -151,6 +151,20 @@ export type TailnetPairRequest = {
   expiresAt: string
 }
 
+/**
+ * What a client sends to ask, and must present to collect.
+ *
+ * The request id alone is 12 random bytes and so unguessable — but unguessable
+ * is not BOUND. Without this, anything that learned an id (a log, a proxy, a
+ * shoulder) could collect the device token the approval minted. The asker mints
+ * a secret, sends only its SHA-256, and presents the secret to collect, so the
+ * token can only be taken by the connection that asked for it.
+ */
+export type TailnetPairRequestCredential = {
+  /** Sent on the request. The plaintext never leaves the asking machine. */
+  collectHash: string
+}
+
 /** What a requesting client learns when it polls its own request. */
 export type TailnetPairRequestOutcome =
   | { status: 'pending'; comparisonCode: string; expiresAt: string }

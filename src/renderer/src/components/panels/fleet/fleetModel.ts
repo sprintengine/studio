@@ -2,9 +2,11 @@ import type {
   FleetBrowse,
   FleetConnection,
   FleetLinkState,
+  FleetPairRequestView,
   FleetTerminal,
   FleetTerminalAccess,
 } from '../../../../../shared/tailnet-fleet'
+import type { TailnetPeer, TailnetPeerScan } from '../../../../../shared/tailnet-peers'
 import type { Tone } from '../../ui'
 
 // The Fleet surface's view model, DOM-free so the rules that matter can be
@@ -178,4 +180,57 @@ export function fleetTerminalStatus(terminal: FleetTerminal): { label: string; t
 /** The tab name a remote pane wears. The machine is part of the name, not a tooltip. */
 export function fleetTerminalTabName(machineName: string, title: string): string {
   return `${title} · ${machineName}`
+}
+
+
+/**
+ * The machines on this tailnet that can be ASKED to pair (MC-2233).
+ *
+ * Discovery has existed since MC-2163 but only ever fed Settings → Remote, the
+ * inbound panel, which cannot act on it. This is the picker MC-2163's scope
+ * said it was for: pick a name off a list instead of carrying an address.
+ *
+ * Already-paired machines drop out — a second pairing to the same machine is a
+ * real thing to want, but not from the "add a machine" list, where it would
+ * read as not having worked the first time.
+ */
+export function fleetPeerListView(
+  scan: TailnetPeerScan | null,
+  connections: FleetConnection[],
+  scanning: boolean
+): { emptyMessage: string | null; peers: TailnetPeer[] } {
+  if (scanning && !scan) return { emptyMessage: 'Looking for machines on your tailnet.', peers: [] }
+  if (!scan) return { emptyMessage: 'Scan to see the machines on your tailnet.', peers: [] }
+  if (!scan.tailscaleAvailable) {
+    return { emptyMessage: scan.unavailableReason ?? 'Tailscale is not available on this machine.', peers: [] }
+  }
+  const paired = new Set(connections.map((connection) => connection.endpoint))
+  const peers = scan.peers.filter(
+    (peer) =>
+      !peer.isSelf
+      && peer.studio !== null
+      && peer.online
+      && !paired.has(`${peer.address}:${scan.probedPort}`)
+  )
+  if (peers.length === 0) {
+    // Three different nothings, and the sentence says which: no Studio out
+    // there, or every Studio out there already paired.
+    const anyStudio = scan.peers.some((peer) => !peer.isSelf && peer.studio !== null)
+    return {
+      emptyMessage: anyStudio
+        ? 'Every machine answering on your tailnet is already paired.'
+        : 'No other machine on your tailnet is running a Studio you can pair with.',
+      peers: [],
+    }
+  }
+  return { emptyMessage: null, peers }
+}
+
+/** What the waiting card says while a request we made goes unanswered. */
+export function pendingPairRequestNote(request: FleetPairRequestView, nowMs: number): string {
+  const expiresAtMs = Date.parse(request.expiresAt)
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {
+    return `${request.machineName} did not answer in time. Ask again when someone is at it.`
+  }
+  return `Waiting for someone at ${request.machineName} to allow it. Check the code matches what is on that screen.`
 }

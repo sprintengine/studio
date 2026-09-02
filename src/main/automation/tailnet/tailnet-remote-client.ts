@@ -2,11 +2,12 @@ import { randomBytes } from 'crypto'
 import { request as httpRequest } from 'http'
 import { connect, type Socket } from 'net'
 
-import { isTailnetScope, type TailnetScope } from '../../../shared/tailnet'
+import { isTailnetScope, type TailnetPairRequestOutcome, type TailnetScope } from '../../../shared/tailnet'
 import {
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
+  TAILNET_PAIR_REQUEST_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
@@ -193,6 +194,108 @@ export async function pairWithMachine(input: {
       scopes: readScopes(record.scopes),
     },
   }
+}
+
+/**
+ * Ask a machine to pair, for someone there to approve (MC-2233).
+ *
+ * Only the HASH of the collect secret goes over the wire; the secret itself
+ * stays here and is presented to collect. The answer carries the comparison
+ * code so this machine can show the same six digits the other one is showing.
+ */
+export async function requestPairingFromMachine(input: {
+  endpoint: TailnetEndpoint
+  deviceName: string
+  collectHash: string
+}): Promise<RemoteCallOutcome<{ requestId: string; comparisonCode: string; expiresAt: string }>> {
+  let answer: JsonAnswer
+  try {
+    answer = await requestTailnetJson({
+      endpoint: input.endpoint,
+      method: 'POST',
+      path: TAILNET_PAIR_REQUEST_PATH,
+      body: { deviceName: input.deviceName, collectHash: input.collectHash },
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'unreachable',
+      message: `Could not reach ${formatTailnetEndpoint(input.endpoint)}: ${message(error)}.`,
+    }
+  }
+  const record = asRecord(answer.body)
+  if (answer.status !== 200 || typeof record?.requestId !== 'string') {
+    const error = asRecord(record?.error)
+    return {
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : `http_${answer.status}`,
+      // The other machine's own words again — "there is already a request
+      // waiting there" is the one thing a person needs to hear verbatim.
+      message:
+        typeof error?.message === 'string' ? error.message : `The request was refused (HTTP ${answer.status}).`,
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      requestId: record.requestId,
+      comparisonCode: typeof record.comparisonCode === 'string' ? record.comparisonCode : '',
+      expiresAt: typeof record.expiresAt === 'string' ? record.expiresAt : '',
+    },
+  }
+}
+
+/** Poll a request we made. The device token comes back to exactly one call. */
+export async function collectPairingFromMachine(input: {
+  endpoint: TailnetEndpoint
+  requestId: string
+  collectSecret: string
+}): Promise<RemoteCallOutcome<TailnetPairRequestOutcome>> {
+  let answer: JsonAnswer
+  try {
+    answer = await requestTailnetJson({
+      endpoint: input.endpoint,
+      method: 'GET',
+      path: `${TAILNET_PAIR_REQUEST_PATH}?id=${encodeURIComponent(input.requestId)}`
+        + `&secret=${encodeURIComponent(input.collectSecret)}`,
+    })
+  } catch (error) {
+    // A machine that has gone to sleep mid-wait is not a refusal: the caller
+    // keeps polling rather than tearing the request down.
+    return {
+      ok: false,
+      code: 'unreachable',
+      message: `Could not reach ${formatTailnetEndpoint(input.endpoint)}: ${message(error)}.`,
+    }
+  }
+  const record = asRecord(answer.body)
+  const status = typeof record?.status === 'string' ? record.status : ''
+  if (answer.status !== 200 || !status) {
+    return { ok: false, code: `http_${answer.status}`, message: `The machine answered oddly (HTTP ${answer.status}).` }
+  }
+  if (status === 'approved') {
+    return {
+      ok: true,
+      value: {
+        status: 'approved',
+        deviceId: typeof record?.deviceId === 'string' ? record.deviceId : '',
+        deviceName: typeof record?.deviceName === 'string' ? record.deviceName : '',
+        deviceToken: typeof record?.deviceToken === 'string' ? record.deviceToken : '',
+        scopes: readScopes(record?.scopes),
+      },
+    }
+  }
+  if (status === 'pending') {
+    return {
+      ok: true,
+      value: {
+        status: 'pending',
+        comparisonCode: typeof record?.comparisonCode === 'string' ? record.comparisonCode : '',
+        expiresAt: typeof record?.expiresAt === 'string' ? record.expiresAt : '',
+      },
+    }
+  }
+  return { ok: true, value: { status: status === 'denied' ? 'denied' : 'expired' } }
 }
 
 /** What the remote says our device is and may do, right now. */

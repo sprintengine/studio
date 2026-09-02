@@ -77,6 +77,8 @@ import type {
   FleetPairResult,
   FleetRun,
   FleetTerminalEvent,
+  FleetCollectPairingResult,
+  FleetRequestPairingResult,
 } from './tailnet-fleet'
 import type {
   AutomationsCreateInput,
@@ -3066,6 +3068,14 @@ export type ElectronApi = {
   fleetListConnections: () => Promise<FleetConnection[]>
   /** Redeem a pairing link from another machine's Settings → Remote. */
   fleetPair: (pairingUrl: string) => Promise<FleetPairResult>
+  /**
+   * Ask a machine to pair, for someone there to approve (MC-2233), then poll it.
+   * Main holds the collect secret, so a window can neither dial the peer nor
+   * take the token the approval mints.
+   */
+  fleetRequestPairing: (endpoint: string) => Promise<FleetRequestPairingResult>
+  fleetCollectPairing: (requestId: string) => Promise<FleetCollectPairingResult>
+  fleetCancelPairing: (requestId: string) => Promise<void>
   /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
   fleetForget: (connectionId: string) => Promise<FleetConnection[]>
   /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */

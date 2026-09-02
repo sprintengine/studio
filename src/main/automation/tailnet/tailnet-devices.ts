@@ -109,7 +109,7 @@ export type TailnetPairRequestResult =
   | { ok: true; request: TailnetPairRequest }
   | {
       ok: false
-      code: 'invalid_device_name' | 'too_many_requests' | 'denied_recently'
+      code: 'invalid_device_name' | 'invalid_collect_hash' | 'too_many_requests' | 'denied_recently'
       message: string
     }
 
@@ -141,14 +141,19 @@ export type TailnetDeviceStore = {
     deviceName: unknown
     peerNode: string | null
     peerAddress: string
+    /** SHA-256 of the secret the asker must present to collect. */
+    collectHash: unknown
   }): TailnetPairRequestResult
   /** Requests still awaiting an answer here. Never includes answered ones. */
   listPairRequests(): TailnetPairRequest[]
   /** Approve one, minting the device with exactly the scopes named here. */
   approvePairRequest(input: { id: string; scopes: TailnetScope[] }): TailnetPairApprovalResult
   denyPairRequest(id: string): boolean
-  /** What the requester polls. Yields the device token to exactly one call. */
-  collectPairRequest(id: string): TailnetPairRequestOutcome
+  /**
+   * What the requester polls. Yields the device token to exactly one call, and
+   * only to a caller presenting the secret whose hash the request carried.
+   */
+  collectPairRequest(id: string, collectSecret: string): TailnetPairRequestOutcome
 }
 
 type StoredDevice = TailnetDevice & { tokenHash: string }
@@ -177,7 +182,10 @@ export function createTailnetDeviceStore(options: {
         collectableUntilMs: number
       }
     | { kind: 'denied' }
-  const pairRequests = new Map<string, { request: TailnetPairRequest; state: PendingState }>()
+  const pairRequests = new Map<
+    string,
+    { request: TailnetPairRequest; collectHash: string; state: PendingState }
+  >()
   const deniedPeers = new Map<string, number>()
 
   function persist(): void {
@@ -340,6 +348,17 @@ export function createTailnetDeviceStore(options: {
           message: 'A device name is required so the request is identifiable when it is answered.',
         }
       }
+      const collectHash = typeof input.collectHash === 'string' ? input.collectHash.trim() : ''
+      if (!collectHash) {
+        // Refused rather than defaulted to an unbound request: a client that
+        // forgot the field would otherwise get a token anyone with the id could
+        // take, which is exactly what this field exists to prevent.
+        return {
+          ok: false,
+          code: 'invalid_collect_hash',
+          message: 'A collect hash is required, so the token can only be collected by the machine that asked.',
+        }
+      }
       const nowMs = now().getTime()
       const deniedUntilMs = deniedPeers.get(input.peerAddress)
       if (deniedUntilMs !== undefined && deniedUntilMs > nowMs) {
@@ -369,7 +388,7 @@ export function createTailnetDeviceStore(options: {
         createdAt: new Date(nowMs).toISOString(),
         expiresAt: new Date(nowMs + DEFAULT_PAIR_REQUEST_TTL_MS).toISOString(),
       }
-      pairRequests.set(request.id, { request, state: { kind: 'pending' } })
+      pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' } })
       return { ok: true, request }
     },
 
@@ -401,6 +420,7 @@ export function createTailnetDeviceStore(options: {
       const minted = mintDevice(entry.request.deviceName, scopes)
       pairRequests.set(input.id, {
         request: entry.request,
+        collectHash: entry.collectHash,
         state: {
           kind: 'approved',
           deviceId: minted.device.id,
@@ -417,17 +437,24 @@ export function createTailnetDeviceStore(options: {
       prunePairRequests()
       const entry = pairRequests.get(id)
       if (!entry || entry.state.kind !== 'pending') return false
-      pairRequests.set(id, { request: entry.request, state: { kind: 'denied' } })
+      pairRequests.set(id, { request: entry.request, collectHash: entry.collectHash, state: { kind: 'denied' } })
       deniedPeers.set(entry.request.peerAddress, now().getTime() + DENY_COOLDOWN_MS)
       return true
     },
 
-    collectPairRequest(id): TailnetPairRequestOutcome {
+    collectPairRequest(id, collectSecret): TailnetPairRequestOutcome {
       prunePairRequests()
       const entry = pairRequests.get(id)
       // An unknown id reports expired rather than getting an answer of its own:
       // there is nothing useful to tell a caller about an id it invented.
       if (!entry) return { status: 'expired' }
+      // A wrong secret answers exactly what an unknown id answers, so a caller
+      // holding an id it should not have cannot even learn that it is real.
+      // Note this does NOT burn the request — same reasoning as a wrong pairing
+      // code: a guess must not be able to cancel a pairing in flight.
+      if (!secretsMatch(hashSecret(typeof collectSecret === 'string' ? collectSecret : ''), entry.collectHash)) {
+        return { status: 'expired' }
+      }
       if (entry.state.kind === 'denied') return { status: 'denied' }
       if (entry.state.kind === 'pending') {
         return {
