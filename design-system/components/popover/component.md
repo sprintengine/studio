@@ -122,11 +122,18 @@ stacked-above outside-press guard, and focus returning to the trigger on close.
 
 ## Known drift
 
-- Six shipped files (`Popover.tsx`, `PointerPopover.tsx`, `ContextMenu.tsx`,
-  `CursorErrorPopover.tsx`, `SkillPickerPopover.tsx`, `ProviderRow`) hardcode
-  the dark-only shadow `0 8px 24px -12px rgba(0,0,0,0.6)`, so light-mode
-  overlays cast a dark-tuned shadow and `--sem-shadow-popover` goes unconsumed.
-  The token is the spec; the literals are backlog item **MC-2110**.
-- `Popover.tsx` writes `rounded-[7px]` — the value matches `radius.overlay`
-  but bypasses the variable, so a ramp change would not reach it. Also
-  **MC-2110**.
+None. Both entries that stood here were spent by **MC-2110** and verified gone
+on 2026-09-02:
+
+- ~~Six shipped files hardcode the dark-only shadow
+  `0 8px 24px -12px rgba(0,0,0,0.6)`, so light-mode overlays cast a dark-tuned
+  shadow and `--sem-shadow-popover` goes unconsumed.~~ **Resolved** — the
+  literal appears nowhere in the renderer, and the
+  `MC-2110 no overlay spells its own shadow` seam holds it there.
+- ~~`Popover.tsx` writes `rounded-[7px]`, which matches `radius.overlay` but
+  bypasses the variable.~~ **Resolved** — it draws the radius through the
+  variable.
+
+Recording this rather than deleting the section: a spec that lists drift which
+was fixed two sweeps ago teaches a reader to expect a defect that is not there,
+and to distrust the rest of the entry. The drift log is a list to drain.

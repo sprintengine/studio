@@ -107,6 +107,32 @@
     </div>
 
     <div class="demo-pane">
+      <p class="demo-pane-title">Cursor — a third channel, readable on the selected row</p>
+      <!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. -->
+      <div role="listbox" aria-label="Skill sources" tabindex="0" aria-activedescendant="lr-cursor-light-2">
+        <div role="option" id="lr-cursor-light-1" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">anthropics/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-light-2" aria-selected="true" class="ds-list-row ds-list-row--selected">
+          <span class="ds-list-row-cursor" aria-hidden="true"></span>
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">mattpocock/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-light-3" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">pbakaus/impeccable</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
       <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
@@ -238,6 +264,32 @@
         </span>
         <span class="ds-list-row-trailing">1h</span>
       </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Cursor — a third channel, readable on the selected row</p>
+      <!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. -->
+      <div role="listbox" aria-label="Skill sources" tabindex="0" aria-activedescendant="lr-cursor-dark-2">
+        <div role="option" id="lr-cursor-dark-1" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">anthropics/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-dark-2" aria-selected="true" class="ds-list-row ds-list-row--selected">
+          <span class="ds-list-row-cursor" aria-hidden="true"></span>
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">mattpocock/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-dark-3" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">pbakaus/impeccable</span>
+          </span>
+        </div>
+      </div>
     </div>
 
     <div class="demo-pane">

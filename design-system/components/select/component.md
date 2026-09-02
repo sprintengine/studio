@@ -118,9 +118,13 @@ what makes Escape cheap and focus restoration a non-event.
 
 ## Known drift
 
-- `Popover.tsx` (the popup's surface in the shipped kit) hardcodes a dark-mode
-  shadow literal instead of `--sem-shadow-popover`, so light-mode popups cast a
-  dark-tuned shadow. The token is the canon; see the kit audit.
+- ~~`Popover.tsx` (the popup's surface in the shipped kit) hardcodes a
+  dark-mode shadow literal instead of `--sem-shadow-popover`, so light-mode
+  popups cast a dark-tuned shadow.~~ **Resolved 2026-09-02** — verified absent
+  from the renderer; see `popover/component.md` for the same entry.
 - Shipped option rows and trigger use ad-hoc pixel paddings that land on the
   space scale but bypass the variables. Token canon: option padding
-  `space.md` / `space.xs`.
+  `space.md` / `space.xs`. This is the tree-wide spelling convention rather
+  than a defect in this component — the option rows take `MENU_ROW_CLASS`, so
+  the inset is spelled once for the whole menu family — but the spelling still
+  does not track the variable.

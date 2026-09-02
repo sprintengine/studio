@@ -6,6 +6,10 @@
  * and trailing actions that stay hidden until pointed at or focused. */
 
 .ds-list-row {
+  /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
+     action host is positioned too, but it only exists on rows that reveal
+     actions, and a cursor is not conditional on that. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
@@ -60,6 +64,33 @@
 .ds-list-row--resting {
   background: var(--sem-color-bg-selected-resting);
   color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A third channel: it has to stay visible on a row
+ * that is already selected AND stay distinct from one that is merely hovered,
+ * which neither of those two fills can manage over the other.
+ *
+ * A mark rather than a fill or an outline, and `text.primary` rather than the
+ * accent — `border.focus` and `accent.primary` are the same value in all but
+ * one theme, so an accent bar in the gutter reads as a slipped focus ring.
+ * Mounts inside `.ds-list-row`, which is positioned for it.
+ *
+ * A list that moves real DOM focus with its cursor renders none of this: the
+ * focus ring is already the mark. */
+.ds-list-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-2xs);
+  bottom: var(--sem-space-2xs);
+  width: var(--sem-space-3xs);
+  /* Fully rounded, as `status-dot` is: on a 2px bar a radius step and a pill
+     are the same stub, and matching the dot keeps one spelling for "a small
+     round mark". */
+  border-radius: 999px;
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
 }
 
 /* ── Leading ─────────────────────────────────────────────────────────────

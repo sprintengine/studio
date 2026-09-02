@@ -50,7 +50,26 @@ box, or a glow. See `patterns/selection`.
 | Focus-visible | `focus.ring`, `outline: none`. Never on `:focus` — a mouse click must not draw a ring |
 | Selected (focused pane) | `bg.selected` + `text.primary` |
 | Selected (resting pane) | `bg.selected-resting` + `text.default` |
+| Cursored | `.ds-list-row-cursor` — a 2px `text.primary` mark in the leading gutter. Only for a list that is one tab stop and walks with `aria-activedescendant` |
 | Disabled | `opacity: 0.5`, `cursor: not-allowed`. Stays in layout and stays readable |
+
+**The cursor is a third channel, not a third selection.** A list that walks
+with `aria-activedescendant` keeps DOM focus on one element, so it has a row
+the keyboard is *on* that is neither the row a person picked nor the element
+they are typing in. It cannot borrow either treatment: it must stay visible on
+a row that is already selected and stay distinct from one that is merely
+hovered. A gutter mark composes over both fills, which neither fill can do over
+the other.
+
+It takes `text.primary`, not the accent: `border.focus` and `accent.primary`
+are the same value in all but one theme, so an accent bar in the gutter reads
+as a focus ring that has slipped. And a list that *does* move real DOM focus
+with its cursor renders no mark at all — there the focus ring is already the
+answer, and one idiom beats two.
+
+Added 2026-09-02, after a conformance sweep replaced two lists' private cursor
+outlines with `bg.hover` and made the cursor invisible on every row a person
+had already picked.
 
 ## Usage
 
@@ -100,13 +119,18 @@ Verified against `src/renderer/src/components/ui/InboxRow.tsx` (2026-08-04),
 the shipped counterpart of this row:
 
 - **Padding.** The reference CSS uses `space.xs` / `space.md` (6/10px);
-  shipped rows use `px-3 py-2` (12/8px).
-- **Title size.** This spec sets titles at `font.size.body`; shipped titles
-  sit at `font.size.meta`, one step smaller.
+  shipped rows use `px-3 py-2` (12/8px). **Re-pointed 2026-09-02:** this is not
+  code drifting from a spec, it is two specs disagreeing.
+  [inbox-row](../inbox-row/component.md) prescribes `space.sm` block and
+  `space.lg` inline, which is exactly the 8/12 the code draws. The outlier is
+  this entry's own reference CSS, and one row family cannot have two insets.
+- ~~**Title size.** This spec sets titles at `font.size.body`; shipped titles
+  sit at `font.size.meta`, one step smaller.~~ **Resolved** — MC-2118 ruled for
+  the spec and moved the code: `InboxRow` draws its title at `font.size.body`
+  over supporting text at `font.size.meta`.
 - **`--resting` mechanics.** Shipped rows reach the resting tier via cascade
   (`data-selection-pane` rules in `assets/index.css`) rather than this spec's
   class modifier — same behaviour, different structure — and the
   `data-actions` reserved-padding action host is not implemented (InboxRow's
-  trailing slot is display-only).
-
-MC-2118 owns ruling which side wins on each and reconciling this entry.
+  trailing slot is display-only). The cascade half is a ruled difference, not
+  debt; the reserved padding is still owed.

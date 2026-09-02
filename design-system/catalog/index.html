@@ -2257,6 +2257,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * and trailing actions that stay hidden until pointed at or focused. */
 
 .ds-list-row {
+  /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
+     action host is positioned too, but it only exists on rows that reveal
+     actions, and a cursor is not conditional on that. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
@@ -2311,6 +2315,33 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-list-row--resting {
   background: var(--sem-color-bg-selected-resting);
   color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A third channel: it has to stay visible on a row
+ * that is already selected AND stay distinct from one that is merely hovered,
+ * which neither of those two fills can manage over the other.
+ *
+ * A mark rather than a fill or an outline, and `text.primary` rather than the
+ * accent — `border.focus` and `accent.primary` are the same value in all but
+ * one theme, so an accent bar in the gutter reads as a slipped focus ring.
+ * Mounts inside `.ds-list-row`, which is positioned for it.
+ *
+ * A list that moves real DOM focus with its cursor renders none of this: the
+ * focus ring is already the mark. */
+.ds-list-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-2xs);
+  bottom: var(--sem-space-2xs);
+  width: var(--sem-space-3xs);
+  /* Fully rounded, as `status-dot` is: on a 2px bar a radius step and a pill
+     are the same stub, and matching the dot keeps one spelling for "a small
+     round mark". */
+  border-radius: 999px;
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
 }
 
 /* ── Leading ─────────────────────────────────────────────────────────────
@@ -13729,6 +13760,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </div>
 
     <div class="demo-pane">
+      <p class="demo-pane-title">Cursor — a third channel, readable on the selected row</p>
+      <!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. -->
+      <div role="listbox" aria-label="Skill sources" tabindex="0" aria-activedescendant="lr-cursor-light-2">
+        <div role="option" id="lr-cursor-light-1" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">anthropics/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-light-2" aria-selected="true" class="ds-list-row ds-list-row--selected">
+          <span class="ds-list-row-cursor" aria-hidden="true"></span>
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">mattpocock/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-light-3" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">pbakaus/impeccable</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
       <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
@@ -13863,6 +13920,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </div>
 
     <div class="demo-pane">
+      <p class="demo-pane-title">Cursor — a third channel, readable on the selected row</p>
+      <!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. -->
+      <div role="listbox" aria-label="Skill sources" tabindex="0" aria-activedescendant="lr-cursor-dark-2">
+        <div role="option" id="lr-cursor-dark-1" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">anthropics/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-dark-2" aria-selected="true" class="ds-list-row ds-list-row--selected">
+          <span class="ds-list-row-cursor" aria-hidden="true"></span>
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">mattpocock/skills</span>
+          </span>
+        </div>
+        <div role="option" id="lr-cursor-dark-3" aria-selected="false" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">pbakaus/impeccable</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
       <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
@@ -13947,7 +14030,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving.</p>
 <p>Selection is never the accent colour, and never carries a left bar, a border box, or a glow. See <code>patterns/selection</code>.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<p><strong>The cursor is a third channel, not a third selection.</strong> A list that walks with <code>aria-activedescendant</code> keeps DOM focus on one element, so it has a row the keyboard is *on* that is neither the row a person picked nor the element they are typing in. It cannot borrow either treatment: it must stay visible on a row that is already selected and stay distinct from one that is merely hovered. A gutter mark composes over both fills, which neither fill can do over the other.</p>
+<p>It takes <code>text.primary</code>, not the accent: <code>border.focus</code> and <code>accent.primary</code> are the same value in all but one theme, so an accent bar in the gutter reads as a focus ring that has slipped. And a list that *does* move real DOM focus with its cursor renders no mark at all — there the focus ring is already the answer, and one idiom beats two.</p>
+<p>Added 2026-09-02, after a conformance sweep replaced two lists' private cursor outlines with <code>bg.hover</code> and made the cursor invisible on every row a person had already picked.</p>
 <h4>Usage</h4>
 <p><strong>Actions are withheld until reached for.</strong> Per-row actions — remove, reveal in folder, roll back, close — live in <code>.ds-list-row-actions</code> and are invisible at rest. They appear on hover and on keyboard focus. Ceiling: two. A third action belongs in an overflow menu or the detail pane.</p>
 <p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. Declare <code>data-actions=&quot;1&quot;</code> or <code>&quot;2&quot;</code> on that host: the actions are positioned absolutely and reserve no width themselves, so the count is what the row reserves its trailing padding from. Without it the text runs under the icons. With it the space is held at rest, so revealing never reflows.</p>
@@ -13957,8 +14043,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <ul><li>Interactive rows render as <code>&lt;button type=&quot;button&quot;&gt;</code>. A row that only displays information renders as a <code>&lt;div&gt;</code> and takes no focus.</li><li>The selected row carries <code>aria-current=&quot;true&quot;</code>. A single-select list may instead use <code>role=&quot;listbox&quot;</code> with <code>role=&quot;option&quot;</code> and <code>aria-selected</code>; pick one model and hold to it for the whole list.</li><li>Every action button has an <code>aria-label</code> naming both the verb and the item (&quot;Remove Engineering&quot;), because the label is read out of the row's context.</li><li>Leading glyphs are <code>aria-hidden=&quot;true&quot;</code> when the title already carries the meaning.</li><li><strong>Revealed actions must be keyboard-reachable.</strong> They are in the tab order and become visible on <code>:focus-within</code> — an action that only exists on hover is unreachable for keyboard and touch users.</li><li>Status shown by a leading glyph reads by shape, not colour alone, and carries an accessible name when no adjacent text states it.</li><li>Disabled rows use the <code>disabled</code> attribute (or <code>aria-disabled=&quot;true&quot;</code> when they must stay focusable to explain why).</li><li>Reduced motion removes the reveal fade but never the reveal itself.</li></ul>
 <h4>Known drift</h4>
 <p>Verified against <code>src/renderer/src/components/ui/InboxRow.tsx</code> (2026-08-04), the shipped counterpart of this row:</p>
-<ul><li><strong>Padding.</strong> The reference CSS uses <code>space.xs</code> / <code>space.md</code> (6/10px); shipped rows use <code>px-3 py-2</code> (12/8px).</li><li><strong>Title size.</strong> This spec sets titles at <code>font.size.body</code>; shipped titles sit at <code>font.size.meta</code>, one step smaller.</li><li><strong><code>--resting</code> mechanics.</strong> Shipped rows reach the resting tier via cascade (<code>data-selection-pane</code> rules in <code>assets/index.css</code>) rather than this spec's class modifier — same behaviour, different structure — and the <code>data-actions</code> reserved-padding action host is not implemented (InboxRow's trailing slot is display-only).</li></ul>
-<p>MC-2118 owns ruling which side wins on each and reconciling this entry.</p>
+<ul><li><strong>Padding.</strong> The reference CSS uses <code>space.xs</code> / <code>space.md</code> (6/10px); shipped rows use <code>px-3 py-2</code> (12/8px). <strong>Re-pointed 2026-09-02:</strong> this is not code drifting from a spec, it is two specs disagreeing. [inbox-row](../inbox-row/component.md) prescribes <code>space.sm</code> block and <code>space.lg</code> inline, which is exactly the 8/12 the code draws. The outlier is this entry's own reference CSS, and one row family cannot have two insets.</li><li>~~<strong>Title size.</strong> This spec sets titles at <code>font.size.body</code>; shipped titles sit at <code>font.size.meta</code>, one step smaller.~~ <strong>Resolved</strong> — MC-2118 ruled for the spec and moved the code: <code>InboxRow</code> draws its title at <code>font.size.body</code> over supporting text at <code>font.size.meta</code>.</li><li><strong><code>--resting</code> mechanics.</strong> Shipped rows reach the resting tier via cascade (<code>data-selection-pane</code> rules in <code>assets/index.css</code>) rather than this spec's class modifier — same behaviour, different structure — and the <code>data-actions</code> reserved-padding action host is not implemented (InboxRow's trailing slot is display-only). The cascade half is a ruled difference, not debt; the reserved padding is still owed.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/list-row/component.css</summary><pre><code>/* List row — the pick-an-item worklist row, and the most repeated surface in
@@ -13969,6 +14054,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  * and trailing actions that stay hidden until pointed at or focused. */
 
 .ds-list-row {
+  /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
+     action host is positioned too, but it only exists on rows that reveal
+     actions, and a cursor is not conditional on that. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
@@ -14023,6 +14112,33 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 .ds-list-row--resting {
   background: var(--sem-color-bg-selected-resting);
   color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A third channel: it has to stay visible on a row
+ * that is already selected AND stay distinct from one that is merely hovered,
+ * which neither of those two fills can manage over the other.
+ *
+ * A mark rather than a fill or an outline, and `text.primary` rather than the
+ * accent — `border.focus` and `accent.primary` are the same value in all but
+ * one theme, so an accent bar in the gutter reads as a slipped focus ring.
+ * Mounts inside `.ds-list-row`, which is positioned for it.
+ *
+ * A list that moves real DOM focus with its cursor renders none of this: the
+ * focus ring is already the mark. */
+.ds-list-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-2xs);
+  bottom: var(--sem-space-2xs);
+  width: var(--sem-space-3xs);
+  /* Fully rounded, as `status-dot` is: on a 2px bar a radius step and a pill
+     are the same stub, and matching the dot keeps one spelling for &quot;a small
+     round mark&quot;. */
+  border-radius: 999px;
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
 }
 
 /* ── Leading ─────────────────────────────────────────────────────────────
@@ -14306,6 +14422,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     &lt;/div&gt;
 
     &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Cursor — a third channel, readable on the selected row&lt;/p&gt;
+      &lt;!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. --&gt;
+      &lt;div role=&quot;listbox&quot; aria-label=&quot;Skill sources&quot; tabindex=&quot;0&quot; aria-activedescendant=&quot;lr-cursor-light-2&quot;&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-light-1&quot; aria-selected=&quot;false&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;anthropics/skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-light-2&quot; aria-selected=&quot;true&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
+          &lt;span class=&quot;ds-list-row-cursor&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;mattpocock/skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-light-3&quot; aria-selected=&quot;false&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;pbakaus/impeccable&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
       &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
@@ -14437,6 +14579,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
         &lt;/span&gt;
         &lt;span class=&quot;ds-list-row-trailing&quot;&gt;1h&lt;/span&gt;
       &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Cursor — a third channel, readable on the selected row&lt;/p&gt;
+      &lt;!-- A list that walks with `aria-activedescendant` keeps one tab stop, so
+           the row the keyboard is on is neither the row a person picked nor the
+           element they are typing in. The cursor sits on the SELECTED row here,
+           which is the case a hover fill cannot draw. --&gt;
+      &lt;div role=&quot;listbox&quot; aria-label=&quot;Skill sources&quot; tabindex=&quot;0&quot; aria-activedescendant=&quot;lr-cursor-dark-2&quot;&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-dark-1&quot; aria-selected=&quot;false&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;anthropics/skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-dark-2&quot; aria-selected=&quot;true&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
+          &lt;span class=&quot;ds-list-row-cursor&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;mattpocock/skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div role=&quot;option&quot; id=&quot;lr-cursor-dark-3&quot; aria-selected=&quot;false&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;pbakaus/impeccable&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
 
     &lt;div class=&quot;demo-pane&quot;&gt;
@@ -16300,7 +16468,9 @@ document.addEventListener('keydown', (event) =&gt; {
 <h4>Accessibility</h4>
 <ul><li>The surface carries its role and a <strong>required</strong> <code>aria-label</code> — a portaled surface has no surrounding context to borrow a name from.</li><li>The trigger carries <code>aria-haspopup</code> matching the popup role, <code>aria-expanded</code> for the open state, and <code>aria-controls</code> pointing at the surface's <code>id</code> <strong>only while it is open</strong> — a reference to a node that is not in the document is noise.</li><li>Closing returns focus to the trigger, so Escape never strands keyboard focus on <code>&lt;body&gt;</code>. Closing because the user clicked elsewhere skips the restore — focus follows the click.</li><li>Escape is handled on the document, before window-level listeners, so a hosting dialog keying its own Escape off <code>defaultPrevented</code> sees the popover consume it first regardless of mount order.</li><li>The entrance animation is removed under <code>prefers-reduced-motion: reduce</code>.</li></ul>
 <h4>Known drift</h4>
-<ul><li>Six shipped files (<code>Popover.tsx</code>, <code>PointerPopover.tsx</code>, <code>ContextMenu.tsx</code>, <code>CursorErrorPopover.tsx</code>, <code>SkillPickerPopover.tsx</code>, <code>ProviderRow</code>) hardcode the dark-only shadow <code>0 8px 24px -12px rgba(0,0,0,0.6)</code>, so light-mode overlays cast a dark-tuned shadow and <code>--sem-shadow-popover</code> goes unconsumed. The token is the spec; the literals are backlog item <strong>MC-2110</strong>.</li><li><code>Popover.tsx</code> writes <code>rounded-[7px]</code> — the value matches <code>radius.overlay</code> but bypasses the variable, so a ramp change would not reach it. Also <strong>MC-2110</strong>.</li></ul>
+<p>None. Both entries that stood here were spent by <strong>MC-2110</strong> and verified gone on 2026-09-02:</p>
+<ul><li>~~Six shipped files hardcode the dark-only shadow <code>0 8px 24px -12px rgba(0,0,0,0.6)</code>, so light-mode overlays cast a dark-tuned shadow and <code>--sem-shadow-popover</code> goes unconsumed.~~ <strong>Resolved</strong> — the literal appears nowhere in the renderer, and the <code>MC-2110 no overlay spells its own shadow</code> seam holds it there.</li><li>~~<code>Popover.tsx</code> writes <code>rounded-[7px]</code>, which matches <code>radius.overlay</code> but bypasses the variable.~~ <strong>Resolved</strong> — it draws the radius through the variable.</li></ul>
+<p>Recording this rather than deleting the section: a spec that lists drift which was fixed two sweeps ago teaches a reader to expect a defect that is not there, and to distrust the rest of the entry. The drift log is a list to drain.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/popover/component.css</summary><pre><code>/* Popover — the anchored overlay engine. One shell for everything
@@ -18335,7 +18505,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <h4>Accessibility</h4>
 <ul><li>The trigger is a <code>&lt;button&gt;</code> with <code>role=&quot;combobox&quot;</code>, <code>aria-haspopup=&quot;listbox&quot;</code>, live <code>aria-expanded</code>, <code>aria-controls</code> naming the listbox id, and a required accessible name (<code>aria-label</code> or a wired <code>&lt;label&gt;</code>).</li><li>While open, <code>aria-activedescendant</code> on the trigger tracks the active option's id; each option carries <code>role=&quot;option&quot;</code>, <code>aria-selected</code> on the current value, and <code>aria-disabled</code> where relevant.</li><li>Selection is conveyed by <code>aria-selected</code>, with the check glyph <code>aria-hidden</code> as its visual echo — never by the glyph alone, and never by color alone.</li><li>The active option is kept in view (<code>scrollIntoView</code>, nearest block) as the keyboard moves it through a scrolling popup.</li><li>Toned values keep their meaning without color: the tone marks risk the *label* must also state (&quot;Bypass checks&quot;), so grayscale loses emphasis, not information.</li></ul>
 <h4>Known drift</h4>
-<ul><li><code>Popover.tsx</code> (the popup's surface in the shipped kit) hardcodes a dark-mode shadow literal instead of <code>--sem-shadow-popover</code>, so light-mode popups cast a dark-tuned shadow. The token is the canon; see the kit audit.</li><li>Shipped option rows and trigger use ad-hoc pixel paddings that land on the space scale but bypass the variables. Token canon: option padding <code>space.md</code> / <code>space.xs</code>.</li></ul>
+<ul><li>~~<code>Popover.tsx</code> (the popup's surface in the shipped kit) hardcodes a dark-mode shadow literal instead of <code>--sem-shadow-popover</code>, so light-mode popups cast a dark-tuned shadow.~~ <strong>Resolved 2026-09-02</strong> — verified absent from the renderer; see <code>popover/component.md</code> for the same entry.</li><li>Shipped option rows and trigger use ad-hoc pixel paddings that land on the space scale but bypass the variables. Token canon: option padding <code>space.md</code> / <code>space.xs</code>. This is the tree-wide spelling convention rather than a defect in this component — the option rows take <code>MENU_ROW_CLASS</code>, so the inset is spelled once for the whole menu family — but the spelling still does not track the variable.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/select/component.css</summary><pre><code>/* Select — one value out of a closed list; a select-only combobox
@@ -22933,7 +23103,7 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
 <h4>Accessibility</h4>
 <ul><li>The full text stays in the document — truncation is visual (<code>text-overflow</code>), so screen readers read the whole value with no tooltip needed. The tooltip serves sighted pointer and keyboard users.</li><li>When the tooltip is attached, the trigger follows the tooltip contract: <code>aria-describedby</code> only while shown, Escape and scroll dismiss.</li><li>A clipped value on a non-interactive, non-focusable element is invisible to keyboard users — the tooltip's hover path is the only path. Fine for a value that also lives in the detail pane; otherwise put the truncated text on or inside a focusable element.</li><li>Never swap the full text into the accessible name conditionally — the name is always the full text, clipped or not.</li></ul>
 <h4>Known drift</h4>
-<ul><li>The shipped <code>Tooltip.tsx</code> that <code>TruncatedText.tsx</code> attaches mounts one tooltip instance per trigger, where the tooltip spec's contract is one surface per document repositioned per trigger. The drift belongs to the tooltip primitive, not to the measurement contract here. Unfiled.</li></ul>
+<ul><li>~~The shipped <code>Tooltip.tsx</code> that <code>TruncatedText.tsx</code> attaches mounts one tooltip instance per trigger, where the tooltip spec's contract is one surface per document repositioned per trigger.~~ <strong>Not drift — struck 2026-09-02.</strong> [tooltip](../tooltip/component.md) re-ruled this itself in MC-2118: the code won, and &quot;one surface per document, positioned by custom properties&quot; was an implementation the spec had no business prescribing. What matters is the property — a 200-row list must not put 200 surfaces in the document — and a portal created on open and torn down on close satisfies it. This entry outlived the contract it cited, leaving two specs in one bundle disagreeing about the same component.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/truncated-text/component.css</summary><pre><code>/* Truncated text — ellipsis truncation that earns a tooltip only when the
