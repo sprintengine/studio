@@ -7,9 +7,12 @@ import {
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
   TAILNET_GET_STATUS_CHANNEL,
+  TAILNET_APPROVE_PAIR_REQUEST_CHANNEL,
+  TAILNET_DENY_PAIR_REQUEST_CHANNEL,
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
+  type TailnetApprovePairRequestView,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
   type TailnetScope,
@@ -40,6 +43,10 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_CANCEL_PAIRING_CHANNEL) as Promise<TailnetRemoteStatus>,
   tailnetRevokeDevice: (deviceId: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_REVOKE_DEVICE_CHANNEL, deviceId) as Promise<TailnetRemoteStatus>,
+  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[]): Promise<TailnetApprovePairRequestView> =>
+    ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes) as Promise<TailnetApprovePairRequestView>,
+  tailnetDenyPairRequest: (id: string): Promise<TailnetRemoteStatus> =>
+    ipcRenderer.invoke(TAILNET_DENY_PAIR_REQUEST_CHANNEL, id) as Promise<TailnetRemoteStatus>,
   tailnetListPeers: (): Promise<TailnetPeerScan> =>
     ipcRenderer.invoke(TAILNET_LIST_PEERS_CHANNEL) as Promise<TailnetPeerScan>,
 } satisfies Pick<
@@ -51,5 +58,7 @@ export const automationApi = {
   | 'tailnetOfferPairing'
   | 'tailnetCancelPairing'
   | 'tailnetRevokeDevice'
+  | 'tailnetApprovePairRequest'
+  | 'tailnetDenyPairRequest'
   | 'tailnetListPeers'
 >

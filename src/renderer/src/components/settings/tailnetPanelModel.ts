@@ -1,4 +1,4 @@
-import type { TailnetDevice, TailnetRemoteStatus } from '../../../../shared/tailnet'
+import type { TailnetDevice, TailnetPairRequest, TailnetRemoteStatus } from '../../../../shared/tailnet'
 import type { TailnetPeer, TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import type { Tone } from '../ui'
 
@@ -182,4 +182,34 @@ export function peerStatus(peer: TailnetPeer, probedPort: number): { label: stri
   // off" from "listening elsewhere" from "not running Studio", so the label
   // says what we know rather than picking one.
   return { label: `No Studio answering on port ${probedPort}`, tone: 'neutral' }
+}
+
+
+/**
+ * A waiting request's secondary line: who is asking, and from where.
+ *
+ * An unresolvable peer is stated as unverified rather than dropped or dressed
+ * up — `whois` is unavailable on any machine without the Tailscale CLI, and a
+ * request shown with an invented name would be worse than one shown with an
+ * address and a caveat.
+ */
+export function pairRequestSummary(request: TailnetPairRequest): string {
+  const from = request.peerNode ?? `${request.peerAddress || 'an unknown address'} · name unverified`
+  return `Asking from ${from}`
+}
+
+/**
+ * Whether a waiting request can still be answered, and what to say when it
+ * cannot. A lapsed request stays on screen until the next read rather than
+ * vanishing under the cursor, so the button explains itself instead of failing.
+ */
+export function pairRequestAnswerable(
+  request: TailnetPairRequest,
+  nowMs: number
+): { canAnswer: boolean; note: string | null } {
+  const expiresAtMs = Date.parse(request.expiresAt)
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {
+    return { canAnswer: false, note: 'This request lapsed before it was answered.' }
+  }
+  return { canAnswer: true, note: null }
 }

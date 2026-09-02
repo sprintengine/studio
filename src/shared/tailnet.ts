@@ -96,6 +96,8 @@ export type TailnetRemoteStatus = {
   lastError: string | null
   devices: TailnetDevice[]
   pairing: TailnetPairingState | null
+  /** Requests from other machines waiting to be approved or denied here. */
+  pairRequests: TailnetPairRequest[]
 }
 
 export const TAILNET_GET_STATUS_CHANNEL = 'tailnet:get-status'
@@ -112,3 +114,66 @@ export type TailnetPairingOfferView = {
   /** Full pairing URL when the listener is up, so a QR encodes one scannable string. */
   pairingUrl: string | null
 }
+
+/**
+ * A pairing request waiting for a person to answer it on the machine being
+ * driven (MC-2233).
+ *
+ * The other pairing path — a code minted here and carried to the other machine
+ * — stays exactly as it was: a machine with nobody in front of it cannot
+ * approve anything, which is the normal case for a server and a common one for
+ * a desktop in another room. This adds a path rather than replacing one.
+ */
+export type TailnetPairRequest = {
+  id: string
+  /** The name the requesting client asked to be known by, once paired. */
+  deviceName: string
+  /**
+   * Tailscale's name for the requesting node, or null when `whois` could not
+   * resolve it. Null is shown as the bare address and marked unverified rather
+   * than dropped: refusing an unresolvable peer would make the feature dead on
+   * any machine without the Tailscale CLI, which is most of them.
+   */
+  peerNode: string | null
+  /** The tailnet address the request arrived from. */
+  peerAddress: string
+  /**
+   * Six digits, shown on BOTH machines so the person approving can see they are
+   * answering the request that was actually made.
+   *
+   * It carries no authority and is not a secret: authority is the human
+   * pressing Allow. That is the whole reason it can be six digits — as a
+   * carried credential it would be a million-value space against an endpoint
+   * with no rate limit, which is seconds of brute force.
+   */
+  comparisonCode: string
+  createdAt: string
+  expiresAt: string
+}
+
+/** What a requesting client learns when it polls its own request. */
+export type TailnetPairRequestOutcome =
+  | { status: 'pending'; comparisonCode: string; expiresAt: string }
+  | {
+      status: 'approved'
+      deviceId: string
+      deviceName: string
+      /** Returned exactly once, to the poll that collects it. */
+      deviceToken: string
+      scopes: TailnetScope[]
+    }
+  // Denied and expired are distinct because the client should say different
+  // things: one is an answer, the other is nobody having answered. An UNKNOWN
+  // id also reports expired — there is nothing useful in telling a caller that
+  // an id it invented never existed.
+  | { status: 'denied' }
+  | { status: 'expired' }
+
+/** What a surface learns when it answers a request: the device, and fresh status. */
+export type TailnetApprovePairRequestView =
+  | { ok: true; device: TailnetDevice; status: TailnetRemoteStatus }
+  | { ok: false; code: 'request_not_found'; message: string; status: TailnetRemoteStatus }
+
+export const TAILNET_LIST_PAIR_REQUESTS_CHANNEL = 'tailnet:list-pair-requests'
+export const TAILNET_APPROVE_PAIR_REQUEST_CHANNEL = 'tailnet:approve-pair-request'
+export const TAILNET_DENY_PAIR_REQUEST_CHANNEL = 'tailnet:deny-pair-request'

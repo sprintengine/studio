@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'crypto'
+import { randomBytes, randomInt, timingSafeEqual } from 'crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
@@ -7,6 +7,8 @@ import {
   normalizeTailnetScopes,
   type TailnetDevice,
   type TailnetPairingState,
+  type TailnetPairRequest,
+  type TailnetPairRequestOutcome,
   type TailnetScope,
 } from '../../../shared/tailnet'
 
@@ -52,6 +54,41 @@ export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
  */
 export const DEFAULT_PAIRING_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/**
+ * How long a pairing request waits for someone to answer it (MC-2233).
+ *
+ * Short on purpose, and for the opposite reason to the offer's 30 days. An
+ * offer sits inert until someone redeems it; a REQUEST is a live prompt on
+ * another person's screen, and one that outlives the moment it was made is
+ * something they are asked to adjudicate long after the context is gone. Five
+ * minutes is long enough to walk to the other machine and short enough that a
+ * forgotten request is not still approvable tomorrow.
+ */
+export const DEFAULT_PAIR_REQUEST_TTL_MS = 5 * 60 * 1000
+
+/**
+ * How long an APPROVED request keeps its token collectable.
+ *
+ * The token is handed to the poll that collects it and to nothing else, so this
+ * only bounds how long it waits for a client that may have died between asking
+ * and collecting.
+ */
+const APPROVED_COLLECT_TTL_MS = 5 * 60 * 1000
+
+/** After a denial, how long that peer is refused before it may ask again. */
+const DENY_COOLDOWN_MS = 60 * 1000
+
+/**
+ * Caps on pending requests: one per peer, and a ceiling across all of them.
+ *
+ * This is the new attack surface the approval path opens — any peer on the
+ * tailnet can make a prompt appear here — so the panel can never be buried, and
+ * a denied peer cannot immediately ask again. Neither cap is authorization;
+ * they exist so a nuisance stays a nuisance.
+ */
+const MAX_PENDING_REQUESTS_PER_PEER = 1
+const MAX_PENDING_REQUESTS = 8
+
 /** How often a device's last-seen reaches disk. In memory it is always current. */
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000
 
@@ -68,6 +105,18 @@ export type TailnetPairingResult =
   | { ok: true; device: TailnetDevice; deviceToken: string }
   | { ok: false; code: 'pairing_not_offered' | 'pairing_expired' | 'pairing_invalid' | 'invalid_device_name'; message: string }
 
+export type TailnetPairRequestResult =
+  | { ok: true; request: TailnetPairRequest }
+  | {
+      ok: false
+      code: 'invalid_device_name' | 'too_many_requests' | 'denied_recently'
+      message: string
+    }
+
+export type TailnetPairApprovalResult =
+  | { ok: true; device: TailnetDevice }
+  | { ok: false; code: 'request_not_found'; message: string }
+
 export type TailnetDeviceStore = {
   listDevices(): TailnetDevice[]
   /** Replace any outstanding pairing with a fresh one (the Settings "regenerate" action). */
@@ -81,6 +130,25 @@ export type TailnetDeviceStore = {
   /** Fires with the revoked device id so live streams for it can be closed. */
   onDeviceRevoked(listener: (deviceId: string) => void): () => void
   recordSeen(deviceId: string, peerNode: string | null): void
+
+  // ── Pairing by approval here (MC-2233) ─────────────────────────────────
+  // The mirror of the offer above: instead of a code minted here and carried
+  // away, a peer asks and a person answers. Nothing redeemable crosses the
+  // wire in either direction until the approval mints it.
+
+  /** Record a peer's request to pair. Refused rather than queued when capped. */
+  requestPairing(input: {
+    deviceName: unknown
+    peerNode: string | null
+    peerAddress: string
+  }): TailnetPairRequestResult
+  /** Requests still awaiting an answer here. Never includes answered ones. */
+  listPairRequests(): TailnetPairRequest[]
+  /** Approve one, minting the device with exactly the scopes named here. */
+  approvePairRequest(input: { id: string; scopes: TailnetScope[] }): TailnetPairApprovalResult
+  denyPairRequest(id: string): boolean
+  /** What the requester polls. Yields the device token to exactly one call. */
+  collectPairRequest(id: string): TailnetPairRequestOutcome
 }
 
 type StoredDevice = TailnetDevice & { tokenHash: string }
@@ -95,11 +163,74 @@ export function createTailnetDeviceStore(options: {
   let devices: StoredDevice[] = readDevices(options.resolveUserDataDir(), options.log)
   let pairing: { tokenHash: string; scopes: TailnetScope[]; expiresAtMs: number } | null = null
 
+  // Pending pair requests, and the peers currently in a post-denial cooldown.
+  // In memory for the same reason the offer is: a request is a live prompt, and
+  // one that survived a restart would be asking about a moment that is gone.
+  type PendingState =
+    | { kind: 'pending' }
+    | {
+        kind: 'approved'
+        deviceId: string
+        deviceName: string
+        deviceToken: string
+        scopes: TailnetScope[]
+        collectableUntilMs: number
+      }
+    | { kind: 'denied' }
+  const pairRequests = new Map<string, { request: TailnetPairRequest; state: PendingState }>()
+  const deniedPeers = new Map<string, number>()
+
   function persist(): void {
     const path = join(options.resolveUserDataDir(), TAILNET_DEVICES_FILENAME)
     const body = `${JSON.stringify({ version: 1, devices }, null, 2)}\n`
     writeFileSync(path, body, { mode: 0o600 })
     if (process.platform !== 'win32') chmodSync(path, 0o600)
+  }
+
+  // The one place a device and its token come into existence, so the two
+  // pairing paths cannot drift in what they create.
+  function mintDevice(name: string, scopes: TailnetScope[]): { device: TailnetDevice; deviceToken: string } {
+    const deviceToken = `mctn_${randomBytes(32).toString('base64url')}`
+    const stored: StoredDevice = {
+      id: `tnd_${randomBytes(9).toString('base64url')}`,
+      name,
+      scopes: normalizeTailnetScopes(scopes),
+      createdAt: now().toISOString(),
+      lastSeenAt: null,
+      lastPeerNode: null,
+      tokenHash: hashSecret(deviceToken),
+    }
+    devices = [...devices, stored]
+    persist()
+    return { device: publicDevice(stored), deviceToken }
+  }
+
+  // Drops what nobody can act on any more: lapsed requests, approvals nobody
+  // came back for, and expired cooldowns. Called from every entry point below,
+  // so a store that is never read does not accumulate.
+  function prunePairRequests(): void {
+    const nowMs = now().getTime()
+    for (const [id, entry] of pairRequests) {
+      const deadline =
+        entry.state.kind === 'approved' ? entry.state.collectableUntilMs : Date.parse(entry.request.expiresAt)
+      if (Number.isFinite(deadline) && deadline <= nowMs) pairRequests.delete(id)
+    }
+    for (const [address, untilMs] of deniedPeers) if (untilMs <= nowMs) deniedPeers.delete(address)
+  }
+
+  /**
+   * Six digits, uniformly drawn, and unique among the requests on screen.
+   *
+   * Uniqueness is the point: two prompts showing the same digits would make
+   * the comparison meaningless at exactly the moment it matters.
+   */
+  function nextComparisonCode(): string {
+    const taken = new Set([...pairRequests.values()].map((entry) => entry.request.comparisonCode))
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+      if (!taken.has(code)) return code
+    }
+    return String(randomInt(0, 1_000_000)).padStart(6, '0')
   }
 
   return {
@@ -141,22 +272,12 @@ export function createTailnetDeviceStore(options: {
       if (!name) {
         return { ok: false, code: 'invalid_device_name', message: 'A device name is required so the pairing is identifiable in Settings.' }
       }
-      const deviceToken = `mctn_${randomBytes(32).toString('base64url')}`
-      const stored: StoredDevice = {
-        id: `tnd_${randomBytes(9).toString('base64url')}`,
-        name,
-        scopes: pairing.scopes,
-        createdAt: now().toISOString(),
-        lastSeenAt: null,
-        lastPeerNode: null,
-        tokenHash: hashSecret(deviceToken),
-      }
+      const scopes = pairing.scopes
       // One-time by construction: the offer is consumed whether or not the
       // persist below succeeds, so a failed write cannot leave a live code.
       pairing = null
-      devices = [...devices, stored]
-      persist()
-      return { ok: true, device: publicDevice(stored), deviceToken }
+      const minted = mintDevice(name, scopes)
+      return { ok: true, device: minted.device, deviceToken: minted.deviceToken }
     },
 
     authenticate(bearerToken): TailnetDevice | null {
@@ -207,6 +328,119 @@ export function createTailnetDeviceStore(options: {
         // request the device is making.
         options.log?.(`Tailnet device last-seen write failed: ${message(error)}`)
       }
+    },
+
+    requestPairing(input): TailnetPairRequestResult {
+      prunePairRequests()
+      const name = typeof input.deviceName === 'string' ? input.deviceName.trim().slice(0, 120) : ''
+      if (!name) {
+        return {
+          ok: false,
+          code: 'invalid_device_name',
+          message: 'A device name is required so the request is identifiable when it is answered.',
+        }
+      }
+      const nowMs = now().getTime()
+      const deniedUntilMs = deniedPeers.get(input.peerAddress)
+      if (deniedUntilMs !== undefined && deniedUntilMs > nowMs) {
+        // A denial is an answer. Letting the peer re-ask immediately would turn
+        // "no" into a prompt the person has to keep dismissing.
+        return {
+          ok: false,
+          code: 'denied_recently',
+          message: 'That request was declined. Wait a minute before asking again.',
+        }
+      }
+      const pendingHere = [...pairRequests.values()].filter((entry) => entry.state.kind === 'pending')
+      const fromThisPeer = pendingHere.filter((entry) => entry.request.peerAddress === input.peerAddress)
+      if (fromThisPeer.length >= MAX_PENDING_REQUESTS_PER_PEER || pendingHere.length >= MAX_PENDING_REQUESTS) {
+        return {
+          ok: false,
+          code: 'too_many_requests',
+          message: 'There is already a pairing request waiting to be answered on that machine.',
+        }
+      }
+      const request: TailnetPairRequest = {
+        id: `tpr_${randomBytes(12).toString('base64url')}`,
+        deviceName: name,
+        peerNode: input.peerNode,
+        peerAddress: input.peerAddress,
+        comparisonCode: nextComparisonCode(),
+        createdAt: new Date(nowMs).toISOString(),
+        expiresAt: new Date(nowMs + DEFAULT_PAIR_REQUEST_TTL_MS).toISOString(),
+      }
+      pairRequests.set(request.id, { request, state: { kind: 'pending' } })
+      return { ok: true, request }
+    },
+
+    listPairRequests(): TailnetPairRequest[] {
+      prunePairRequests()
+      return [...pairRequests.values()]
+        .filter((entry) => entry.state.kind === 'pending')
+        .map((entry) => ({ ...entry.request }))
+    },
+
+    approvePairRequest(input): TailnetPairApprovalResult {
+      prunePairRequests()
+      const entry = pairRequests.get(input.id)
+      if (!entry || entry.state.kind !== 'pending') {
+        // Covers unknown, already-answered and lapsed alike: in every one of
+        // them there is no live request to approve, and the panel's next read
+        // will show that.
+        return {
+          ok: false,
+          code: 'request_not_found',
+          message: 'That pairing request is no longer waiting to be answered.',
+        }
+      }
+      // The scopes are whatever the person ticked, NOT anything the requester
+      // asked for: a peer must not be able to influence what approving it
+      // grants. An empty tick-list is a real answer — a device with no scopes
+      // can authenticate and call nothing.
+      const scopes = normalizeTailnetScopes(input.scopes)
+      const minted = mintDevice(entry.request.deviceName, scopes)
+      pairRequests.set(input.id, {
+        request: entry.request,
+        state: {
+          kind: 'approved',
+          deviceId: minted.device.id,
+          deviceName: minted.device.name,
+          deviceToken: minted.deviceToken,
+          scopes: minted.device.scopes,
+          collectableUntilMs: now().getTime() + APPROVED_COLLECT_TTL_MS,
+        },
+      })
+      return { ok: true, device: minted.device }
+    },
+
+    denyPairRequest(id): boolean {
+      prunePairRequests()
+      const entry = pairRequests.get(id)
+      if (!entry || entry.state.kind !== 'pending') return false
+      pairRequests.set(id, { request: entry.request, state: { kind: 'denied' } })
+      deniedPeers.set(entry.request.peerAddress, now().getTime() + DENY_COOLDOWN_MS)
+      return true
+    },
+
+    collectPairRequest(id): TailnetPairRequestOutcome {
+      prunePairRequests()
+      const entry = pairRequests.get(id)
+      // An unknown id reports expired rather than getting an answer of its own:
+      // there is nothing useful to tell a caller about an id it invented.
+      if (!entry) return { status: 'expired' }
+      if (entry.state.kind === 'denied') return { status: 'denied' }
+      if (entry.state.kind === 'pending') {
+        return {
+          status: 'pending',
+          comparisonCode: entry.request.comparisonCode,
+          expiresAt: entry.request.expiresAt,
+        }
+      }
+      // Approved: the token goes to this one call and the record goes with it,
+      // so a second poll — or anyone replaying the id — gets nothing.
+      const { deviceId, deviceName, deviceToken, scopes } = entry.state
+      pairRequests.delete(id)
+      return { status: 'approved', deviceId, deviceName, deviceToken, scopes }
     },
   }
 }

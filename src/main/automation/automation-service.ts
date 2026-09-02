@@ -6,6 +6,7 @@ import type { AutomationServerStatus } from '../../shared/automation'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
 import type { TailnetPairingOfferView, TailnetRemoteStatus } from '../../shared/tailnet'
+import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
 import { createGatewayAuditStore, type GatewayAuditStore } from './gateway-audit'
@@ -232,6 +233,9 @@ export function createAutomationService(options: AutomationServiceOptions) {
     offerTailnetPairing: (input?: { scopes?: unknown }): TailnetPairingOfferView => tailnetService().offerPairing(input),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
     revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
+    approveTailnetPairRequest: (input: { id: string; scopes?: unknown }): TailnetApprovePairRequestResult =>
+      tailnetService().approvePairRequest(input),
+    denyTailnetPairRequest: (id: string): TailnetRemoteStatus => tailnetService().denyPairRequest(id),
     listTailnetPeers: (): Promise<TailnetPeerScan> => tailnetService().listPeers(),
     /** The Fleet client: the machines this Studio drives (MC-2167). */
     fleet: (): TailnetFleetService => fleetService(),

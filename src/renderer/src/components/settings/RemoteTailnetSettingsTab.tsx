@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { encodeQrCode } from '../../../../shared/qr-code'
-import type { TailnetDevice, TailnetPairingOfferView, TailnetRemoteStatus } from '../../../../shared/tailnet'
+import {
+  TAILNET_SCOPES,
+  TAILNET_STRUCTURED_SCOPES,
+  type TailnetDevice,
+  type TailnetPairRequest,
+  type TailnetPairingOfferView,
+  type TailnetRemoteStatus,
+  type TailnetScope,
+} from '../../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
-import { FOCUS_RING_CLASS, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { Checkbox, FOCUS_RING_CLASS, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { MetaCell, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
 import {
   deviceSummary,
   outstandingPairingNote,
+  pairRequestAnswerable,
+  pairRequestSummary,
   pairingExpiry,
   peerListView,
   peerStatus,
@@ -24,10 +34,12 @@ import {
 // which of them answer as a Studio — so connecting is picking a name off a
 // list rather than typing an address.
 //
-// Everything here is IPC-only (`tailnet:*`). No MCP tool reaches these routes,
-// so neither a local agent nor a paired remote device can pair another device
-// or widen its own reach; that is a decision of the epic, not an accident of
-// this panel.
+// Everything here is IPC-only (`tailnet:*`). The matching `tailnet.*` gateway
+// tools let an agent ON THIS MACHINE drive the same service over the local
+// socket, so the two surfaces cannot answer differently — but that family is
+// refused over the tailnet itself, so no paired remote device can pair another
+// device or widen its own reach. That is a decision of the epic, not an
+// accident of this panel.
 
 /** The pairing code's countdown; a code with a minute left should look like it. */
 const EXPIRY_TICK_MS = 1000
@@ -67,6 +79,7 @@ export function RemoteTailnetSettingsTab() {
   const enabled = status?.enabled ?? false
   const busy = action.tone === 'busy'
   const devices = status?.devices ?? []
+  const pairRequests = status?.pairRequests ?? []
   const peers = useMemo(() => peerListView(scan, scanning), [scan, scanning])
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
@@ -94,6 +107,52 @@ export function RemoteTailnetSettingsTab() {
       setNow(Date.now())
       await refresh()
     })
+
+  // Scopes ticked per waiting request, defaulting to the structured set. The
+  // terminal tier is deliberately NOT pre-ticked: it is arbitrary shell on this
+  // machine, and a default nobody chose is not a grant anybody made.
+  const [requestScopes, setRequestScopes] = useState<Record<string, TailnetScope[]>>({})
+  const [answeringId, setAnsweringId] = useState<string | null>(null)
+
+  const scopesFor = (request: TailnetPairRequest): TailnetScope[] =>
+    requestScopes[request.id] ?? [...TAILNET_STRUCTURED_SCOPES]
+
+  const toggleScope = (request: TailnetPairRequest, scope: TailnetScope, next: boolean): void => {
+    setRequestScopes((current) => {
+      const chosen = new Set(current[request.id] ?? TAILNET_STRUCTURED_SCOPES)
+      if (next) chosen.add(scope)
+      else chosen.delete(scope)
+      return { ...current, [request.id]: TAILNET_SCOPES.filter((entry) => chosen.has(entry)) }
+    })
+  }
+
+  const approveRequest = async (request: TailnetPairRequest): Promise<void> => {
+    setAnsweringId(request.id)
+    try {
+      await run(`Pairing ${request.deviceName}.`, async () => {
+        const result = await window.api.tailnetApprovePairRequest(request.id, scopesFor(request))
+        setStatus(result.status)
+        if (!result.ok) {
+          setAction({ tone: 'error', message: result.message })
+          return
+        }
+        setAction({ tone: 'idle', message: `Paired ${result.device.name}.` })
+      })
+    } finally {
+      setAnsweringId(null)
+    }
+  }
+
+  const denyRequest = async (request: TailnetPairRequest): Promise<void> => {
+    setAnsweringId(request.id)
+    try {
+      await run(`Declining ${request.deviceName}.`, async () => {
+        setStatus(await window.api.tailnetDenyPairRequest(request.id))
+      })
+    } finally {
+      setAnsweringId(null)
+    }
+  }
 
   const cancelPairing = (): Promise<void> =>
     run('Cancelling the pairing code.', async () => {
@@ -191,11 +250,11 @@ export function RemoteTailnetSettingsTab() {
           action={
             <div className="flex items-center gap-2">
               {offer || outstandingPairing ? (
-                <OutlineButton size="md" onClick={() => void cancelPairing()} disabled={busy}>
+                <OutlineButton size="xs" onClick={() => void cancelPairing()} disabled={busy}>
                   Cancel
                 </OutlineButton>
               ) : null}
-              <PrimaryButton size="md" onClick={() => void offerPairing()} disabled={busy || !readiness.canPair}>
+              <PrimaryButton size="xs" onClick={() => void offerPairing()} disabled={busy || !readiness.canPair}>
                 {offer || outstandingPairing ? 'New code' : 'Pair a device'}
               </PrimaryButton>
             </div>
@@ -218,6 +277,75 @@ export function RemoteTailnetSettingsTab() {
         )}
       </section>
 
+      {pairRequests.length > 0 ? (
+        <section>
+          <SettingsSectionTitle className="mb-1.5" count={pairRequests.length}>
+            Waiting to be answered
+          </SettingsSectionTitle>
+          <div className="divide-y divide-[color:var(--bg-selected)]">
+            {pairRequests.map((request) => {
+              const answerable = pairRequestAnswerable(request, now)
+              const chosen = scopesFor(request)
+              const busyHere = answeringId === request.id
+              return (
+                <div key={request.id} className="grid gap-2 py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
+                        {request.deviceName}
+                      </div>
+                      <div className="mt-0.5 text-meta text-[color:var(--text-muted)]">
+                        {pairRequestSummary(request)}
+                      </div>
+                    </div>
+                    {/* The digits are the point of the exchange: the same six are
+                        on the asking machine, and comparing them is what makes
+                        approving safe without a carried secret. */}
+                    <div className="text-right">
+                      <div className="text-micro text-[color:var(--text-muted)]">Code on the other machine</div>
+                      <div className="font-mono text-heading tracking-wide text-[color:var(--text-strong)]">
+                        {request.comparisonCode}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {TAILNET_SCOPES.map((scope) => (
+                      <Checkbox
+                        key={scope}
+                        checked={chosen.includes(scope)}
+                        onChange={(next) => toggleScope(request, scope, next)}
+                        disabled={busyHere || !answerable.canAnswer}
+                        label={scope}
+                      />
+                    ))}
+                  </div>
+                  {answerable.note ? (
+                    <p className="text-meta text-[color:var(--text-muted)]">{answerable.note}</p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <PrimaryButton
+                      size="xs"
+                      onClick={() => void approveRequest(request)}
+                      disabled={busyHere || !answerable.canAnswer}
+                    >
+                      {busyHere ? 'Pairing' : 'Allow'}
+                    </PrimaryButton>
+                    <OutlineButton
+                      size="xs"
+                      tone="danger"
+                      onClick={() => void denyRequest(request)}
+                      disabled={busyHere || !answerable.canAnswer}
+                    >
+                      Decline
+                    </OutlineButton>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <section>
         <SettingsSectionTitle className="mb-1.5" count={devices.length}>
           Paired devices
@@ -236,7 +364,7 @@ export function RemoteTailnetSettingsTab() {
                   </div>
                 </div>
                 <OutlineButton
-                  size="md"
+                  size="xs"
                   tone="danger"
                   onClick={() => void revokeDevice(device)}
                   disabled={revokingDeviceId === device.id}
@@ -259,7 +387,7 @@ export function RemoteTailnetSettingsTab() {
           className="mb-1.5"
           count={peers.peers.length > 0 ? peers.peers.length : undefined}
           action={
-            <OutlineButton size="md" onClick={() => void scanPeers()} disabled={scanning}>
+            <OutlineButton size="xs" onClick={() => void scanPeers()} disabled={scanning}>
               {scanning ? 'Scanning' : 'Scan'}
             </OutlineButton>
           }

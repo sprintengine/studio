@@ -2,6 +2,7 @@ import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '.
 import {
   normalizeTailnetScopes,
   TAILNET_STRUCTURED_SCOPES,
+  type TailnetApprovePairRequestView,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
   type TailnetScope,
@@ -23,6 +24,13 @@ import type { TerminalRemoteHost } from '../../terminal-remote-attach'
 // AND this machine actually has a Tailscale interface — no tailnet, no
 // listener, and the reason is reported rather than silently swallowed.
 
+/**
+ * What approving a request answers with. Aliased from the shared view rather
+ * than restated: Settings reads the same shape over IPC, and two declarations
+ * of it would be two things to keep in step.
+ */
+export type TailnetApprovePairRequestResult = TailnetApprovePairRequestView
+
 export type TailnetRemoteService = {
   /** Start the listener if, and only if, it is enabled and a tailnet exists. */
   initialize(): Promise<TailnetRemoteStatus>
@@ -32,6 +40,16 @@ export type TailnetRemoteService = {
   offerPairing(input?: { scopes?: unknown }): TailnetPairingOfferView
   cancelPairing(): TailnetRemoteStatus
   revokeDevice(deviceId: string): TailnetRemoteStatus
+  /**
+   * Answer a pairing request that arrived from another machine (MC-2233).
+   *
+   * The scopes are the ones chosen HERE. This is the first surface on which a
+   * person can grant the terminal tier at all: the Settings "Pair a device"
+   * button mints the structured set and nothing else, which left
+   * `terminal:control` reachable only from an agent on the local socket.
+   */
+  approvePairRequest(input: { id: string; scopes?: unknown }): TailnetApprovePairRequestResult
+  denyPairRequest(id: string): TailnetRemoteStatus
   /**
    * Machines on this tailnet, and which of them answer as a Studio.
    *
@@ -116,6 +134,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       lastError,
       devices: devices.listDevices(),
       pairing: devices.getPairingState(),
+      pairRequests: devices.listPairRequests(),
     }
   }
 
@@ -211,6 +230,22 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
         // than none, and the caller can see from the status why.
         pairingUrl: bound ? pairingUrl(bound.address, bound.port, offer.token) : null,
       }
+    },
+
+    approvePairRequest(input): TailnetApprovePairRequestResult {
+      const outcome = devices.approvePairRequest({
+        id: typeof input.id === 'string' ? input.id : '',
+        scopes: normalizeTailnetScopes(input.scopes),
+      })
+      if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message, status: getStatus() }
+      // A new device changes what `tools/list` answers for it, and the panel
+      // needs the device to appear in the same read that reports success.
+      return { ok: true, device: outcome.device, status: getStatus() }
+    },
+
+    denyPairRequest(id): TailnetRemoteStatus {
+      devices.denyPairRequest(typeof id === 'string' ? id : '')
+      return getStatus()
     },
 
     cancelPairing(): TailnetRemoteStatus {

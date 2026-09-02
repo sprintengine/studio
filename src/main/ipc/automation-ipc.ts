@@ -6,6 +6,8 @@ import {
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
   TAILNET_GET_STATUS_CHANNEL,
+  TAILNET_APPROVE_PAIR_REQUEST_CHANNEL,
+  TAILNET_DENY_PAIR_REQUEST_CHANNEL,
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
@@ -35,6 +37,15 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
     service.offerTailnetPairing({ scopes })
   )
   ipcMain.handle(TAILNET_CANCEL_PAIRING_CHANNEL, () => service.cancelTailnetPairing())
+  // Answering a request is the same authority as minting a code, so it lives on
+  // the same IPC-only front door: a remote device can ask, and only this
+  // keyboard can say yes.
+  ipcMain.handle(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, (_event, id: unknown, scopes: unknown) =>
+    service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes })
+  )
+  ipcMain.handle(TAILNET_DENY_PAIR_REQUEST_CHANNEL, (_event, id: unknown) =>
+    service.denyTailnetPairRequest(typeof id === 'string' ? id : '')
+  )
   ipcMain.handle(TAILNET_REVOKE_DEVICE_CHANNEL, (_event, deviceId: unknown) =>
     service.revokeTailnetDevice(typeof deviceId === 'string' ? deviceId : '')
   )

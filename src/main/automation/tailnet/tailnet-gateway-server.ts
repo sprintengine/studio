@@ -24,6 +24,7 @@ import {
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
+  TAILNET_PAIR_REQUEST_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
@@ -71,6 +72,7 @@ export {
   TAILNET_ROUTE_PREFIX,
   TAILNET_HEALTH_PATH,
   TAILNET_PAIR_PATH,
+  TAILNET_PAIR_REQUEST_PATH,
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_WS_TICKET_PATH,
@@ -107,6 +109,12 @@ export type TailnetGatewayServerOptions = {
    * is unaffected either way.
    */
   terminals?: TerminalRemoteHost
+  /**
+   * Fired when a peer asks to pair (MC-2233), so the surfaces that answer these
+   * can refresh without polling. It carries no detail: a listener's job is to
+   * go and read the requests, not to be told about one it has not authorised.
+   */
+  onPairRequested?: () => void
   onToolCall?: (event: {
     context: McpConnectionContext
     tool: string
@@ -264,6 +272,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       return
     }
 
+    if (path === TAILNET_PAIR_REQUEST_PATH && (method === 'POST' || method === 'GET')) {
+      await handlePairRequest(request, response, method)
+      return
+    }
+
     const device = authenticate(request)
     if (!device) {
       writeUnauthorized(response)
@@ -328,6 +341,58 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   }
 
   /** Run one JSON-RPC message; returns the response object, or null for a notification. */
+  /**
+   * Pairing by approval (MC-2233), both halves.
+   *
+   * Unauthenticated, and deliberately ahead of the auth gate: a peer asking to
+   * be paired has no credential yet, which is the whole point. What stands in
+   * for one is the person at this machine, and the peer identity the store
+   * records is the one this transport established — `whois` on the socket's own
+   * address — never anything the body claimed.
+   */
+  async function handlePairRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+    method: string
+  ): Promise<void> {
+    if (method === 'GET') {
+      const id = parseUrl(request.url ?? '').searchParams.get('id') ?? ''
+      const outcome = options.devices.collectPairRequest(id)
+      // Every outcome is a 200: "your request was declined" and "it lapsed" are
+      // answers to a well-formed question, not failures of it. The client
+      // branches on `status`, which it must do anyway.
+      writeJson(response, 200, outcome)
+      return
+    }
+
+    const body = await readJsonBody(request, response, MAX_CONTROL_BODY_BYTES)
+    if (body === undefined) return
+    const peerAddress = normalizeAddress(request.socket.remoteAddress)
+    const outcome = options.devices.requestPairing({
+      deviceName: isRecord(body) ? body.deviceName : undefined,
+      // Unresolvable stays null and the panel says so, rather than the request
+      // being refused: whois is unavailable on any machine without the
+      // Tailscale CLI, and that must not make the feature unusable.
+      peerNode: await options.peers.resolve(peerAddress),
+      peerAddress: peerAddress ?? '',
+    })
+    if (!outcome.ok) {
+      // 429 for the caps, 400 for a malformed request: a client must be able to
+      // tell "ask again later" from "you sent the wrong thing".
+      const status = outcome.code === 'invalid_device_name' ? 400 : 429
+      writeJson(response, status, { error: { code: outcome.code, message: outcome.message } })
+      return
+    }
+    options.onPairRequested?.()
+    writeJson(response, 200, {
+      requestId: outcome.request.id,
+      // Echoed so the asking machine can show the digits beside the ones now on
+      // the other screen. It is not a credential; comparing is its whole job.
+      comparisonCode: outcome.request.comparisonCode,
+      expiresAt: outcome.request.expiresAt,
+    })
+  }
+
   async function handleMessage(
     parsed: unknown,
     context: McpConnectionContext,

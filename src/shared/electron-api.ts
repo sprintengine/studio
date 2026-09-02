@@ -62,7 +62,12 @@ import type {
   SprintRuntimeStopReasonPush,
 } from './sprintengine/runtime-bridge'
 import type { AutomationServerStatus } from './automation'
-import type { TailnetPairingOfferView, TailnetRemoteStatus, TailnetScope } from './tailnet'
+import type {
+  TailnetApprovePairRequestView,
+  TailnetPairingOfferView,
+  TailnetRemoteStatus,
+  TailnetScope,
+} from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
 import type {
   FleetAttachResult,
@@ -3039,6 +3044,13 @@ export type ElectronApi = {
   tailnetOfferPairing: (scopes?: TailnetScope[]) => Promise<TailnetPairingOfferView>
   tailnetCancelPairing: () => Promise<TailnetRemoteStatus>
   tailnetRevokeDevice: (deviceId: string) => Promise<TailnetRemoteStatus>
+  /**
+   * Answer a pairing request from another machine (MC-2233). The scopes are the
+   * ones chosen here, and this is the only surface that can grant the terminal
+   * tier to a person rather than to an agent on the local socket.
+   */
+  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[]) => Promise<TailnetApprovePairRequestView>
+  tailnetDenyPairRequest: (id: string) => Promise<TailnetRemoteStatus>
   /**
    * Machines on this tailnet, and which of them answer as a Studio (MC-2163).
    *

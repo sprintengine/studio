@@ -2,6 +2,7 @@ import {
   isTailnetScope,
   TAILNET_SCOPES,
   TAILNET_STRUCTURED_SCOPES,
+  type TailnetApprovePairRequestView,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
 } from '../../../shared/tailnet'
@@ -31,6 +32,8 @@ export type TailnetToolsFrontDoor = {
   getTailnetStatus(): TailnetRemoteStatus
   setTailnetEnabled(enabled: boolean): Promise<TailnetRemoteStatus>
   offerTailnetPairing(input?: { scopes?: unknown }): TailnetPairingOfferView
+  approveTailnetPairRequest(input: { id: string; scopes?: unknown }): TailnetApprovePairRequestView
+  denyTailnetPairRequest(id: string): TailnetRemoteStatus
   cancelTailnetPairing(): TailnetRemoteStatus
   revokeTailnetDevice(deviceId: string): TailnetRemoteStatus
   listTailnetPeers(): Promise<TailnetPeerScan>
@@ -42,6 +45,8 @@ export const TAILNET_MUTATION_TOOL_NAMES: readonly string[] = [
   'tailnet.offer_pairing',
   'tailnet.cancel_pairing',
   'tailnet.revoke_device',
+  'tailnet.approve_pair_request',
+  'tailnet.deny_pair_request',
 ]
 
 export function createTailnetTools(options: {
@@ -62,8 +67,9 @@ export function createTailnetTools(options: {
     name: 'tailnet.status',
     description:
       'Read tailnet remote control on this machine: whether it is enabled, whether the listener is actually running '
-      + 'and on what endpoint, this machine\'s Tailscale address, the paired devices, and the outstanding pairing offer '
-      + '(its scopes and expiry — never the code itself). Served only over the local socket.',
+      + 'and on what endpoint, this machine\'s Tailscale address, the paired devices, the outstanding pairing offer '
+      + '(its scopes and expiry — never the code itself), and any pairing requests from other machines waiting to be '
+      + 'answered here. Served only over the local socket.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const service = front()
@@ -192,6 +198,71 @@ export function createTailnetTools(options: {
     },
   }
 
+  const approvePairRequest: McpToolRegistration = {
+    name: 'tailnet.approve_pair_request',
+    description:
+      'Approve a pairing request another machine has made (see tailnet.status for the waiting ones), granting exactly '
+      + 'the scopes named here. The requesting machine collects its device token on its next poll. The scopes are NOT '
+      + 'the ones the requester asked for — it cannot influence what approving it grants. Served only over the local socket.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: 'Request id from tailnet.status.' },
+        scopes: {
+          type: 'array',
+          items: { type: 'string', enum: [...TAILNET_SCOPES] },
+          description:
+            'Scopes to grant. Defaults to the structured-command set. The terminal tier means arbitrary shell on this '
+            + 'machine and is only ever granted by naming it here.',
+        },
+      },
+      required: ['requestId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const service = front()
+      if (!service) return unavailable
+      const requestId = typeof args.requestId === 'string' ? args.requestId.trim() : ''
+      if (!requestId) return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
+      let scopes: string[] = [...TAILNET_STRUCTURED_SCOPES]
+      if (args.scopes !== undefined) {
+        const read = readScopes(args.scopes)
+        if (typeof read === 'string') return toolError('invalid_scopes', read)
+        scopes = read
+      }
+      const outcome = service.approveTailnetPairRequest({ id: requestId, scopes })
+      // Refused rather than absorbed, for the same reason revoke_device reports
+      // an unknown id: "approved" for a request that had already lapsed would
+      // read as a machine now being paired when nothing was granted.
+      if (!outcome.ok) return toolError(outcome.code, outcome.message)
+      return toolSuccess({ device: outcome.device, status: outcome.status })
+    },
+  }
+
+  const denyPairRequest: McpToolRegistration = {
+    name: 'tailnet.deny_pair_request',
+    description:
+      'Decline a pairing request another machine has made. The requester is told it was declined, and that peer cannot '
+      + 'ask again for a short cooldown. Served only over the local socket.',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string', description: 'Request id from tailnet.status.' } },
+      required: ['requestId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const service = front()
+      if (!service) return unavailable
+      const requestId = typeof args.requestId === 'string' ? args.requestId.trim() : ''
+      if (!requestId) return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
+      const before = service.getTailnetStatus()
+      if (!before.pairRequests.some((request) => request.id === requestId)) {
+        return toolError('unknown_request', `No pairing request "${requestId}" is waiting on this machine.`)
+      }
+      return toolSuccess({ status: service.denyTailnetPairRequest(requestId) })
+    },
+  }
+
   const listPeers: McpToolRegistration = {
     name: 'tailnet.list_peers',
     description:
@@ -206,7 +277,7 @@ export function createTailnetTools(options: {
     },
   }
 
-  return [status, setEnabled, offerPairing, cancelPairing, revokeDevice, listPeers]
+  return [status, setEnabled, offerPairing, cancelPairing, revokeDevice, approvePairRequest, denyPairRequest, listPeers]
 }
 
 /**
