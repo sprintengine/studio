@@ -312,16 +312,96 @@ async function testMissingSecretIsNotConfigured(): Promise<void> {
   )
 }
 
-async function testWriteBackIsCapabilityGated(): Promise<void> {
+// MC-2356: write-back is on. MC-1640 shipped the engine but left these flags
+// false, so Linear stayed read-only while Jira and GitHub posted.
+async function testWriteBackCapabilitiesAreOn(): Promise<void> {
   const provider = makeProvider(fakeFetch([]).fetchImpl)
-  assert.deepEqual(provider.capabilities, { canComment: false, canTransition: false, selfHostable: false })
+  assert.deepEqual(provider.capabilities, { canComment: true, canTransition: true, selfHostable: false })
+}
+
+async function testPostCommentSendsMutation(): Promise<void> {
+  const { fetchImpl, requests } = fakeFetch([jsonResponse(200, { data: { commentCreate: { success: true } } })])
+  const provider = makeProvider(fetchImpl)
+  await provider.postComment({ connectionId: CONNECTION.id, externalId: 'issue-uuid', body: '  Run started.  ' })
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].query, /commentCreate/)
+  // The body is trimmed but otherwise verbatim — Linear takes markdown, so there
+  // is no conversion layer to lose anything in.
+  assert.deepEqual(requests[0].variables, { issueId: 'issue-uuid', body: 'Run started.' })
+}
+
+// A 200 carrying `success: false` is a refusal Linear does not raise as a GraphQL
+// error. Swallowing it would let the ledger record a comment that never landed.
+async function testPostCommentRefusalThrows(): Promise<void> {
+  const { fetchImpl } = fakeFetch([jsonResponse(200, { data: { commentCreate: { success: false } } })])
+  const provider = makeProvider(fetchImpl)
   await assert.rejects(
-    () => provider.postComment({ connectionId: CONNECTION.id, externalId: 'x', body: 'hi' }),
-    (err: unknown) => err instanceof TrackerProviderError && err.kind === 'unsupported'
+    () => provider.postComment({ connectionId: CONNECTION.id, externalId: 'issue-uuid', body: 'hi' }),
+    (err: unknown) => err instanceof TrackerProviderError && /did not accept the comment/i.test(err.message)
   )
+}
+
+async function testTransitionSendsStateUpdate(): Promise<void> {
+  const { fetchImpl, requests } = fakeFetch([jsonResponse(200, { data: { issueUpdate: { success: true } } })])
+  const provider = makeProvider(fetchImpl)
+  await provider.transitionIssue({ connectionId: CONNECTION.id, externalId: 'issue-uuid', transitionId: 'state-2' })
+  assert.match(requests[0].query, /issueUpdate/)
+  assert.deepEqual(requests[0].variables, { id: 'issue-uuid', stateId: 'state-2' })
+}
+
+// Linear has no named transition list; the equivalent is the issue's own team's
+// workflow states, read from the tracker and ordered the way the team ordered
+// them — never guessed from a status name.
+async function testListTransitionsReadsTeamStatesInBoardOrder(): Promise<void> {
+  const { fetchImpl, requests } = fakeFetch([
+    jsonResponse(200, {
+      data: {
+        issue: {
+          team: {
+            states: {
+              nodes: [
+                { id: 'state-done', name: 'Done', type: 'completed', position: 3 },
+                { id: 'state-todo', name: 'Todo', type: 'unstarted', position: 1 },
+                { id: 'state-doing', name: 'In Progress', type: 'started', position: 2 },
+              ],
+            },
+          },
+        },
+      },
+    }),
+  ])
+  const provider = makeProvider(fetchImpl)
+  const transitions = await provider.listTransitions({ connectionId: CONNECTION.id, externalId: 'issue-uuid' })
+  assert.deepEqual(transitions, [
+    { id: 'state-todo', name: 'Todo' },
+    { id: 'state-doing', name: 'In Progress' },
+    { id: 'state-done', name: 'Done' },
+  ])
+  assert.deepEqual(requests[0].variables, { id: 'issue-uuid' })
+}
+
+async function testListTransitionsOnMissingIssueThrowsNotFound(): Promise<void> {
+  const { fetchImpl } = fakeFetch([jsonResponse(200, { data: { issue: null } })])
+  const provider = makeProvider(fetchImpl)
   await assert.rejects(
-    () => provider.transitionIssue({ connectionId: CONNECTION.id, externalId: 'x', transitionId: 't' }),
-    (err: unknown) => err instanceof TrackerProviderError && err.kind === 'unsupported'
+    () => provider.listTransitions({ connectionId: CONNECTION.id, externalId: 'gone' }),
+    (err: unknown) => err instanceof TrackerProviderError && err.kind === 'not_found'
+  )
+}
+
+// A read-scoped key rejecting a mutation must classify as 'auth' (so the row says
+// reconnect) and carry Linear's own message about the missing scope.
+async function testReadScopedKeyIsTypedAuthWithLinearsMessage(): Promise<void> {
+  const { fetchImpl } = fakeFetch([
+    jsonResponse(200, {
+      errors: [{ message: 'Access denied - your API key is missing the write scope.', extensions: { type: 'permission error' } }],
+    }),
+  ])
+  const provider = makeProvider(fetchImpl)
+  await assert.rejects(
+    () => provider.postComment({ connectionId: CONNECTION.id, externalId: 'issue-uuid', body: 'hi' }),
+    (err: unknown) =>
+      err instanceof TrackerProviderError && err.kind === 'auth' && /missing the write scope/.test(err.message)
   )
 }
 
@@ -337,7 +417,13 @@ async function main(): Promise<void> {
   await testRateLimitStatusParsesRetryAfter()
   await testTestConnectionSuccessAndFailure()
   await testMissingSecretIsNotConfigured()
-  await testWriteBackIsCapabilityGated()
+  await testWriteBackCapabilitiesAreOn()
+  await testPostCommentSendsMutation()
+  await testPostCommentRefusalThrows()
+  await testTransitionSendsStateUpdate()
+  await testListTransitionsReadsTeamStatesInBoardOrder()
+  await testListTransitionsOnMissingIssueThrowsNotFound()
+  await testReadScopedKeyIsTypedAuthWithLinearsMessage()
   console.log('linear-provider.test.ts: all assertions passed')
 }
 

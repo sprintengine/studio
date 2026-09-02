@@ -131,6 +131,13 @@ function graphQLErrorKind(type: string | undefined): TrackerErrorKind {
   switch (type?.trim().toLowerCase()) {
     case 'authentication error':
     case 'authentication':
+    // A read-scoped key rejecting a mutation comes back as a permission/forbidden
+    // type, not an authentication one. Classifying it 'auth' is what makes the
+    // settings row say "reconnect" and surfaces Linear's own message about the
+    // missing scope, instead of an opaque 'unknown' (MC-2356).
+    case 'permission error':
+    case 'permission':
+    case 'forbidden':
       return 'auth'
     case 'ratelimited':
       return 'rate_limit'

@@ -6,6 +6,7 @@ import {
   type TrackerConnection,
   type TrackerConnectionProbe,
   type TrackerProvider,
+  type TrackerTransition,
 } from '../../../shared/tracker/types'
 import {
   LINEAR_GRAPHQL_ENDPOINT,
@@ -15,28 +16,38 @@ import {
 } from './linear-client'
 import {
   ASSIGNED_ISSUES_QUERY,
+  CREATE_COMMENT_MUTATION,
   FETCH_ISSUE_QUERY,
+  ISSUE_WORKFLOW_STATES_QUERY,
   LINEAR_ASSIGNED_MAX_PAGES,
   LINEAR_PAGE_SIZE,
   LIST_ISSUES_QUERY,
   SEARCH_ISSUES_QUERY,
+  UPDATE_ISSUE_STATE_MUTATION,
   VIEWER_PROBE_QUERY,
   normalizeLinearIssue,
   type AssignedIssuesData,
+  type CreateCommentData,
   type FetchIssueData,
+  type IssueWorkflowStatesData,
   type ListIssuesData,
   type SearchIssuesData,
+  type UpdateIssueStateData,
   type ViewerProbeData,
 } from './linear-queries'
 
 // The Linear TrackerProvider (MC-1636). Cloud-only: `selfHostable: false` drives
 // T2's connection form to fix the endpoint and hide the server-address field with
-// no provider `if`. v1 is read-only — comment/transition write-back is MC-1640, so
-// `canComment`/`canTransition` are false and the write methods reject; flipping
-// them on is that task's job, not a hidden capability here.
+// no provider `if`.
+//
+// Write-back is ON (MC-2356). MC-1640 shipped the engine, ledger, config store and
+// settings surface provider-agnostically but never flipped these flags, so Linear
+// stayed read-only while Jira and GitHub posted — a bug, not a deferral. Linear
+// has no named transition list; its equivalent is the issue's own team's workflow
+// states, which `listTransitions` reads from the tracker and the user maps.
 export const LINEAR_CAPABILITIES: TrackerCapabilities = {
-  canComment: false,
-  canTransition: false,
+  canComment: true,
+  canTransition: true,
   selfHostable: false,
 }
 
@@ -128,11 +139,61 @@ export class LinearTrackerProvider implements TrackerProvider {
   }
 
   async postComment(args: { connectionId: string; externalId: string; body: string }): Promise<void> {
-    throw this.unsupported('Commenting on Linear issues is not available yet.', args.connectionId)
+    const body = args.body.trim()
+    if (!body) {
+      throw new TrackerProviderError('unknown', 'A Linear comment needs a body.', {
+        provider: 'linear',
+        connectionId: args.connectionId,
+      })
+    }
+    const data = await this.request<CreateCommentData>(args.connectionId, CREATE_COMMENT_MUTATION, {
+      issueId: args.externalId,
+      body,
+    })
+    // Linear answers 200 + `success: false` for a refusal it does not raise as a
+    // GraphQL error. Treating that as a post would let the ledger record a comment
+    // that never landed, and the retry would never fire.
+    if (!data.commentCreate?.success) {
+      throw new TrackerProviderError('unknown', 'Linear did not accept the comment.', {
+        provider: 'linear',
+        connectionId: args.connectionId,
+      })
+    }
   }
 
+  // `transitionId` is a Linear workflow-state id from listTransitions — the same
+  // contract as a Jira transition id, resolved against a different concept.
   async transitionIssue(args: { connectionId: string; externalId: string; transitionId: string }): Promise<void> {
-    throw this.unsupported('Changing a Linear issue state is not available yet.', args.connectionId)
+    const data = await this.request<UpdateIssueStateData>(args.connectionId, UPDATE_ISSUE_STATE_MUTATION, {
+      id: args.externalId,
+      stateId: args.transitionId,
+    })
+    if (!data.issueUpdate?.success) {
+      throw new TrackerProviderError('unknown', 'Linear did not accept the status change.', {
+        provider: 'linear',
+        connectionId: args.connectionId,
+      })
+    }
+  }
+
+  async listTransitions(args: { connectionId: string; externalId: string }): Promise<TrackerTransition[]> {
+    const data = await this.request<IssueWorkflowStatesData>(
+      args.connectionId,
+      ISSUE_WORKFLOW_STATES_QUERY,
+      { id: args.externalId }
+    )
+    if (!data.issue) {
+      throw new TrackerProviderError('not_found', 'The Linear issue could not be found.', {
+        provider: 'linear',
+        connectionId: args.connectionId,
+      })
+    }
+    const nodes = data.issue.team?.states?.nodes
+    if (!Array.isArray(nodes)) return []
+    // The team's own board order, so the picker reads the way the team does.
+    return [...nodes]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((state) => ({ id: state.id, name: state.name }))
   }
 
   async testConnection(args: { connectionId: string }): Promise<TrackerConnectionProbe> {
@@ -187,9 +248,6 @@ export class LinearTrackerProvider implements TrackerProvider {
     return secret.value
   }
 
-  private unsupported(message: string, connectionId: string): TrackerProviderError {
-    return new TrackerProviderError('unsupported', message, { provider: 'linear', connectionId })
-  }
 }
 
 function defaultLinearFetch(url: string, init: RequestInit): Promise<Response> {

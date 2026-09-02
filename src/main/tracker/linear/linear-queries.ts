@@ -92,6 +92,35 @@ export const FETCH_ISSUE_QUERY = `
   }
 `
 
+// The workflow states of the issue's own team, which is what Linear offers in
+// place of Jira's named transition list (MC-1640/MC-2356). Read from the tracker
+// and never guessed: the user maps a run event to one of these, exactly as they
+// map a Jira transition. `position` is the team's own ordering, so the picker
+// lists them the way the team sees them on their board.
+export const ISSUE_WORKFLOW_STATES_QUERY = `
+  query TrackerLinearIssueStates($id: String!) {
+    issue(id: $id) {
+      team { states(first: 100) { nodes { id name type position } } }
+    }
+  }
+`
+
+// Comment write-back. Bodies are markdown in both directions, so the composed
+// lifecycle comment posts verbatim with no conversion layer.
+export const CREATE_COMMENT_MUTATION = `
+  mutation TrackerLinearComment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) { success }
+  }
+`
+
+// Status write-back. `stateId` is one of the ids ISSUE_WORKFLOW_STATES_QUERY
+// returned for this issue's team.
+export const UPDATE_ISSUE_STATE_MUTATION = `
+  mutation TrackerLinearSetState($id: String!, $stateId: String!) {
+    issueUpdate(id: $id, input: { stateId: $stateId }) { success }
+  }
+`
+
 // Probe query: identifies the viewer and organization so a successful test shows
 // who the key authenticates as.
 export const VIEWER_PROBE_QUERY = `
@@ -134,6 +163,22 @@ export type SearchIssuesData = { issueSearch: LinearIssueConnection }
 export type ListIssuesData = { issues: LinearIssueConnection }
 export type AssignedIssuesData = { viewer: { assignedIssues: LinearIssueConnection } | null }
 export type FetchIssueData = { issue: LinearIssueNode | null }
+export type LinearWorkflowStateNode = {
+  id: string
+  name: string
+  type: string
+  position: number | null
+}
+
+export type IssueWorkflowStatesData = {
+  issue: { team: { states: { nodes: LinearWorkflowStateNode[] } | null } | null } | null
+}
+
+// Linear returns `success` on both mutations; a false is a refusal we must not
+// swallow into a silent no-op.
+export type CreateCommentData = { commentCreate: { success: boolean } | null }
+export type UpdateIssueStateData = { issueUpdate: { success: boolean } | null }
+
 export type ViewerProbeData = {
   viewer: { id: string; displayName: string | null } | null
   organization: { name: string | null } | null
