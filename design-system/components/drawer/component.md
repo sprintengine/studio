@@ -97,10 +97,18 @@ rather than playing it fast.
 
 ## Known drift
 
-- `Drawer.tsx` ships `aria-modal="false"` while trapping focus, locking
+- ~~`Drawer.tsx` ships `aria-modal="false"` while trapping focus, locking
   scroll, and scrimming — ARIA claiming non-modal on a surface that behaves
   modally. The spec above says `"true"`; rides with the focus/modality work in
-  **MC-2109**.
+  **MC-2109**.~~ **Resolved 2026-09-02:** `aria-modal="true"`. It had stayed
+  false for a mechanical reason — the drawer's Escape handler yields to any
+  `[role="dialog"][aria-modal="true"]`, so declaring itself modal made it
+  yield to itself; the yield now excludes the drawer's own panel and anything
+  inside it. The same pass replaced `outline-none` on the panel (and on
+  `Modal`'s shell) with the inset focus ring, since the shell is the tab stop
+  focus lands on when the surface opens, and derived the close control's name
+  from the title (`Close <title>`, `closeLabel` to override) per the
+  Accessibility section above.
 - `Drawer.tsx` fades its scrim over a `duration-200` literal that is on no
   motion token (the ramp is 120/180/260). The spec pairs the scrim with the
   panel at `motion.duration.deliberate`; the literal rides with **MC-2110**.

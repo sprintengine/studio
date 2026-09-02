@@ -106,12 +106,6 @@ const PATH_EXEMPTIONS = [
     rules: ['no-inline-hex'],
   },
   {
-    // (c) Brand SVG asset: identity colors live on the SVG path attributes.
-    // See knowledge/brand/BRAND.md for the canonical wordmark/mark spec.
-    path: 'src/renderer/src/components/brand/MulticodeSpinner.tsx',
-    rules: ['no-inline-hex'],
-  },
-  {
     // (c) Brand SVG asset: per-CLI badge identity colour.
     path: 'src/renderer/src/components/CliIcon.tsx',
     rules: ['no-inline-hex'],
@@ -174,8 +168,70 @@ const NATIVE_DIALOG = /(?<![\w$.])(?:window\s*\.\s*)?(?:confirm|prompt|alert)\s*
 // and component props on non-interactive primitives (Section, Modal,
 // PanelHeader, etc.) are not matched because their tag name does not appear
 // in the alternation.
-const NATIVE_TITLE_ON_INTERACTIVE =
-  /<(button|a|IconButton|PrimaryButton|GhostButton)\b[^>]*?\btitle\s*=/g
+// The tag walk below replaces a `[^>]*?` regex that stopped at the first `>`
+// inside a className (`[&>svg]`, a `>` in a template) and so missed every
+// multi-line control whose class list carried one (audit 2026-09-02).
+const INTERACTIVE_TAG_OPEN =
+  /<(button|a|IconButton|PrimaryButton|GhostButton|OutlineButton|DangerButton|CloseIconButton)\b/g
+
+// Walk from a `<` to the `>` that closes the opening tag, respecting quotes
+// and brace depth so a `>` inside an attribute value does not end the tag.
+function openingTagEndIndex(source, open) {
+  let depth = 0
+  let quote = null
+  for (let i = open + 1; i < source.length && i - open < 6000; i += 1) {
+    const ch = source[i]
+    if (quote) {
+      if (ch === '\\') i += 1
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch
+      continue
+    }
+    if (ch === '{') depth += 1
+    else if (ch === '}') depth -= 1
+    else if (ch === '<' && depth === 0) return -1
+    else if (ch === '>' && depth === 0) return i
+  }
+  return -1
+}
+
+// Yields { tagName, titleIndex } for every interactive opening tag carrying a
+// native `title=` attribute (attribute position, so a `title:` object key or a
+// `title=` inside a nested string does not count).
+function* nativeTitleOnInteractive(source) {
+  INTERACTIVE_TAG_OPEN.lastIndex = 0
+  let open
+  while ((open = INTERACTIVE_TAG_OPEN.exec(source))) {
+    const end = openingTagEndIndex(source, open.index)
+    if (end < 0) continue
+    const tag = source.slice(open.index, end + 1)
+    // Attribute position: preceded by whitespace, at brace depth 0 in the tag.
+    const attr = /(?<=\s)title\s*=/g
+    let m
+    while ((m = attr.exec(tag))) {
+      let depth = 0
+      let quote = null
+      let inside = false
+      for (let i = 0; i < m.index; i += 1) {
+        const ch = tag[i]
+        if (quote) {
+          if (ch === '\\') i += 1
+          else if (ch === quote) quote = null
+          continue
+        }
+        if (ch === '"' || ch === "'" || ch === '`') quote = ch
+        else if (ch === '{') depth += 1
+        else if (ch === '}') depth -= 1
+      }
+      inside = depth === 0 && quote === null
+      if (inside) yield { tagName: open[1], titleIndex: open.index + m.index }
+    }
+    INTERACTIVE_TAG_OPEN.lastIndex = end + 1
+  }
+}
 
 // Baselined files still hold legacy native dialog calls that are scheduled for
 // migration in the app-wide audit plan. Entries are removed as their owning
@@ -418,10 +474,8 @@ for (const relativePath of TARGET_FILES) {
   // `design-tokens-allow:` markers and `PATH_EXEMPTIONS` honour the
   // exemption.
   if (!fileExemptRules.has('no-native-tooltip-on-control')) {
-    NATIVE_TITLE_ON_INTERACTIVE.lastIndex = 0
-    let titleMatch
-    while ((titleMatch = NATIVE_TITLE_ON_INTERACTIVE.exec(source))) {
-      const titleIndex = titleMatch.index + titleMatch[0].lastIndexOf('title')
+    for (const titleMatch of nativeTitleOnInteractive(source)) {
+      const titleIndex = titleMatch.titleIndex
       const upTo = source.slice(0, titleIndex)
       const lineNumber = upTo.split('\n').length
       const lastNewline = upTo.lastIndexOf('\n')
@@ -441,7 +495,7 @@ for (const relativePath of TARGET_FILES) {
         rule: 'no-native-tooltip-on-control',
         line: lineNumber,
         column,
-        text: `<${titleMatch[1]} ... title=`,
+        text: `<${titleMatch.tagName} ... title=`,
       })
     }
   }

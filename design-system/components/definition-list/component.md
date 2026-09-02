@@ -80,6 +80,7 @@ more lists must be told apart.
 
 ## Known drift
 
-- `DefinitionList.tsx`'s compact-grid layout renders terms in
+- ~~`DefinitionList.tsx`'s compact-grid layout renders terms in
   `text-disabled` while the other two layouts use `text-muted`. One label
-  ink per component: canon is `text.muted` everywhere. Unfiled.
+  ink per component: canon is `text.muted` everywhere.~~ **Resolved
+  2026-09-02:** `text.muted` in all three layouts.

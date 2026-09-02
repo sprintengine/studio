@@ -16,7 +16,7 @@ in it: an input, a select, a segmented control, a switch.
 |---|---|---|
 | Row | `.ds-field` | yes — vertical stack, `space.xs` gap |
 | Label | `.ds-field-label` | yes — a real `<label for>` naming the control |
-| Required mark | `.ds-field-required` | only on required fields — `*` in `status.danger`, `aria-hidden` |
+| Required mark | `.ds-field-required` | only on required fields — `*` in `text.subtle`, `aria-hidden`. Neutral, never `status.danger`: *Empty is not invalid* (below) rules that an untouched required field shows no red, and a red mark on open is exactly that |
 | Control | — | exactly one focusable control, carrying the `id` the label points at |
 | Help | `.ds-field-help` | no — `font.size.meta` in `text.subtle` |
 | Error | `.ds-field-error` | no — `font.size.meta` in `status.danger` |
@@ -83,11 +83,15 @@ Validation appears after the first keystroke, never on open.
 
 ## Known drift (MC-2114)
 
-- Shipped `Field.tsx` renders the label at 12px (`text-meta`) and the
+- ~~Shipped `Field.tsx` renders the label at 12px (`text-meta`) and the
   help/error messages at 11px (`text-micro`). The system's spec — here and in
   the `input` entry, which shipped first — is label at `font.size.body`,
   messages at `font.size.meta`: supporting copy does not drop below the meta
-  step, and 11px is reserved for micro chrome.
+  step, and 11px is reserved for micro chrome.~~ **Resolved 2026-09-02:**
+  label `text-body`, messages `text-meta`. The same pass moved the required
+  `*` from `status.danger` to `text.subtle` and corrected the Anatomy row
+  above, which had contradicted this entry's own *Empty is not invalid*
+  paragraph: the mark stays (with `aria-required`), it just stops being red.
 - `Modal.tsx` exports a **second** `Field` — label at `text-micro`, hint in
   `text.disabled` ink, no error state, no ARIA wiring at all. It predates the
   real one and survives inside dialogs. It is drift, not a variant: one field

@@ -57,6 +57,34 @@
 //
 // Two rules read the token layer instead of the component tree:
 //
+//   flexlayout-scoped-var  `var(--color-N)` outside `.flexlayout__layout`
+//                          (the only block that defines it — elsewhere the
+//                          border resolves to `currentColor`; audit 2026-09-02).
+//   weight-off-ramp        `font-bold` / `font-extrabold` / `font-black` ("Type":
+//                          the weight ramp is regular / medium / emphasis).
+//   named-z-off-ladder     a Tailwind numeric `z-N` other than `z-0` / `z-10`
+//                          ("Tokens or nothing": layering comes from `sem.z.*`;
+//                          the in-flow steps are `--z-pane` / `--z-float`).
+//   spacing-off-scale      a named Tailwind padding / margin / gap step whose
+//                          pixel value is not on `sem.space.*` (14px `*-3.5`,
+//                          28px `*-7`, 36px `*-9`, …). An indent that aligns
+//                          text to a reserved glyph slot is structure, not
+//                          rhythm: keep it with a `design-tokens-allow:` reason.
+//   radius-off-ramp        `rounded-[Npx]` with N off the 3 / 5 / 7 / 9 ramp,
+//                          and `rounded-xl` (12px) — the axes ratchet excludes
+//                          explicit values, so this is the rule that sees them.
+//   disabled-ink-copy      `text-[color:var(--text-disabled)]` on a text element
+//                          (`p`, `span`, `div`, `h*`, `dt`, `dd`, `label`, …) that
+//                          is not itself disabled ("Accessibility": disabled ink
+//                          never carries copy; the ramp certifies it to 3:1
+//                          non-text contrast only).
+//   focus-ring-missing     a `<button>`, `<summary>`, an `<a href>` or a
+//                          `tabIndex={0}` element with an interactive `role`
+//                          whose resolvable class list carries no focus-visible
+//                          ring at all — the UA outline, which the system cannot
+//                          theme. Class lists the guard cannot resolve (a `cn(…)`
+//                          call, a prop passthrough, a spread) are skipped, never
+//                          guessed.
 //   app-token-restates-bundle  the mapping between `index.css` and
 //                              `design-system/foundations/tokens.css`, policed
 //                              three ways. The bundle is the authority
@@ -184,7 +212,7 @@ function readBundleDimensions() {
     )
     process.exit(2)
   }
-  return { microFontSizePx, largestRadiusPx: Math.max(...radiusSteps) }
+  return { microFontSizePx, largestRadiusPx: Math.max(...radiusSteps), radiusStepsPx: radiusSteps }
 }
 
 const bundleDimensions = readBundleDimensions()
@@ -510,6 +538,169 @@ if (bundleDimensions.largestRadiusPx >= MARKETING_RADIUS_FLOOR_PX) {
 const TEXT_SIZE = /(?<![\w-])text-\[(\d+(?:\.\d+)?)px\]/g
 const MICRO_FLOOR_PX = bundleDimensions.microFontSizePx
 
+// ── Rules added by the 2026-09-02 audit ────────────────────────────────
+
+const FLEXLAYOUT_SCOPED_VAR = /var\(--color-[1-6]\)/g
+
+const WEIGHT_OFF_RAMP = /(?<![\w-])font-(?:bold|extrabold|black)(?![\w-])/g
+
+const NAMED_Z = /(?<![\w-])-?z-(\d+)(?![\w.[-])/g
+const NAMED_Z_ALLOWED = new Set([0, 10])
+
+// Tailwind's named step × 4 = px. On-scale steps map to 2/4/6/8/10/12/16/20/24/32.
+const SPACING_NAMED =
+  /(?<![\w-])-?(?:px|py|pt|pr|pb|pl|p|mx|my|mt|mr|mb|ml|m|gap-x|gap-y|gap|space-x|space-y)-(\d+(?:\.\d+)?)(?![\w.[-])/g
+const SPACING_STEPS_ON_SCALE = new Set([0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8])
+
+const RADIUS_ARBITRARY =
+  /(?<![\w-])rounded(?:-(?:[tblr]|[tb][lr]|ss|se|es|ee))?-\[(\d+(?:\.\d+)?)px\]/g
+const RADIUS_XL = /(?<![\w-])rounded(?:-(?:[tblr]|[tb][lr]))?-xl(?![\w-])/g
+const RADIUS_STEPS_PX = new Set(bundleDimensions.radiusStepsPx)
+
+// The bare utility only: `placeholder:`, `disabled:`, `hover:` and every other
+// variant prefix ends in `:` and is excluded by the look-behind.
+const DISABLED_INK = /(?<![\w:-])text-\[(?:color:)?var\(--text-disabled\)\]/g
+// Sentences and headings only. A `span`/`div` in disabled ink is as often a
+// separator, a timestamp or a placeholder-shaped hint as it is copy, and the
+// audit ruled those per site; the elements below are prose by construction.
+const TEXT_ELEMENT_TAG = /^<(?:p|h[1-6]|dt|label|legend|figcaption|caption|summary)\b/
+// Attribute position only: `--text-disabled` inside a class string must not read
+// as the element being disabled.
+const ELEMENT_DISABLED = /(?<=\s)(?:disabled|aria-disabled)(?=[\s=/>])/
+
+// Start index of the innermost JSX opening tag containing `index`, or -1.
+function enclosingOpeningTagStart(source, index, kinds) {
+  const floor = Math.max(0, index - 4000)
+  for (let i = Math.min(index, source.length - 1); i >= floor; i -= 1) {
+    if (source[i] !== '<') continue
+    if (kinds[i] === KIND_STRING || kinds[i] === KIND_COMMENT) continue
+    const nextChar = source[i + 1]
+    if (!nextChar || !/[A-Za-z_]/.test(nextChar)) continue
+    const end = openingTagEnd(source, i, kinds)
+    if (end > index) return i
+  }
+  return -1
+}
+
+const INTERACTIVE_ROLE =
+  /\brole=["'](?:button|option|menuitem|menuitemradio|menuitemcheckbox|tab|checkbox|radio|switch|link)["']/g
+const NATIVE_FOCUSABLE_OPEN = /<(?:button|summary|a)\b/g
+const KEYWORDS = new Set(['true', 'false', 'null', 'undefined', 'typeof', 'void'])
+const CONDITION_FOLLOWS = /^\s*(?:\?|&&|\|\||===|!==|==|!=|>=|<=|>|<|\)|\]|,|:)/
+
+// Text of the value expression of `className=` inside an opening tag, with the
+// tag-relative offset of where it starts; null when the tag has none.
+function classNameExpression(tag) {
+  const at = tag.search(/\bclassName=/)
+  if (at < 0) return null
+  let i = at + 'className='.length
+  const ch = tag[i]
+  if (ch === '"' || ch === "'") {
+    const close = tag.indexOf(ch, i + 1)
+    return { text: tag.slice(i, close + 1), offset: i }
+  }
+  if (ch === '{') {
+    let depth = 0
+    for (let j = i; j < tag.length; j += 1) {
+      if (tag[j] === '{') depth += 1
+      else if (tag[j] === '}') {
+        depth -= 1
+        if (depth === 0) return { text: tag.slice(i, j + 1), offset: i }
+      }
+    }
+  }
+  return null
+}
+
+// Resolve `const NAME = '…'` / `` `…` `` in the same file to its literal text
+// (one level of nested `${CONST}` followed), or null when NAME is not a
+// literal constant here.
+function resolveConstant(file, name, depth = 0) {
+  const decl = new RegExp(`\\bconst\\s+${name}\\s*=\\s*(["'\`])`)
+  const m = decl.exec(file.source)
+  if (!m) return null
+  const quoteIndex = m.index + m[0].length - 1
+  const literal = enclosingLiteral(file.source, quoteIndex + 1, file.kinds)
+  if (literal === null) return ''
+  if (depth >= 2) return literal
+  let out = literal
+  for (const inner of literal.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\s*\}/g)) {
+    const resolved = resolveConstant(file, inner[1], depth + 1)
+    if (resolved !== null) out += '\n' + resolved
+  }
+  return out
+}
+
+// Decide whether an opening tag at `open` carries a focus ring. Returns
+// 'ring' | 'none' | 'unknown'.
+function focusRingVerdict(file, open) {
+  const { source, kinds } = file
+  const end = openingTagEnd(source, open, kinds)
+  if (end < 0) return 'unknown'
+  const tag = source.slice(open, end + 1)
+  if (/\btabIndex=\{\s*-1\s*\}/.test(tag)) return 'ring'
+  if (/\{\s*\.\.\./.test(tag)) return 'unknown'
+  if (/^<a\b/.test(tag) && !/\bhref=/.test(tag)) return 'unknown'
+  if (FOCUS_RING_PRESENT.test(tag)) return 'ring'
+  const expr = classNameExpression(tag)
+  if (!expr) return 'none'
+  const base = open + expr.offset
+  // Split the expression into literal text and code text using the source kinds.
+  let literalText = ''
+  let codeText = ''
+  for (let i = 0; i < expr.text.length; i += 1) {
+    const kind = kinds[base + i]
+    if (kind === KIND_STRING) literalText += expr.text[i]
+    else if (kind === KIND_CODE) codeText += expr.text[i]
+    else codeText += ' '
+  }
+  if (FOCUS_RING_PRESENT.test(literalText)) return 'ring'
+  // A call, member access or prop passthrough makes the list unresolvable.
+  if (/[A-Za-z_$][\w$]*\s*\(/.test(codeText) || /\.\s*[A-Za-z_$]/.test(codeText)) return 'unknown'
+  if (/\bclassName\b/.test(codeText)) return 'unknown'
+  let resolved = ''
+  const identifiers = codeText.matchAll(/[A-Za-z_$][\w$]*/g)
+  for (const found of identifiers) {
+    const name = found[0]
+    if (KEYWORDS.has(name)) continue
+    if (/^FOCUS_RING_/.test(name)) return 'ring'
+    const value = resolveConstant(file, name)
+    if (value !== null) {
+      resolved += '\n' + value
+      continue
+    }
+    // An identifier that only steers a ternary contributes no classes itself.
+    const after = codeText.slice(found.index + name.length)
+    if (CONDITION_FOLLOWS.test(after)) continue
+    return 'unknown'
+  }
+  if (FOCUS_RING_PRESENT.test(resolved)) return 'ring'
+  return 'none'
+}
+
+function scanFocusRingMissing(file, push) {
+  const { source, kinds } = file
+  const seen = new Set()
+  const visit = (open, label) => {
+    if (open < 0 || seen.has(open)) return
+    seen.add(open)
+    if (kinds[open] !== KIND_CODE) return
+    if (focusRingVerdict(file, open) !== 'none') return
+    const tagName = (source.slice(open, open + 40).match(/^<([\w.]+)/) || [])[1] ?? 'element'
+    push('focus-ring-missing', file, open, `<${tagName} …> ${label}`)
+  }
+  forEachMatch(NATIVE_FOCUSABLE_OPEN, source, (match) => visit(match.index, 'has no focus-visible ring'))
+  forEachMatch(INTERACTIVE_ROLE, source, (match) => {
+    if (kinds[match.index] !== KIND_CODE) return
+    const open = enclosingOpeningTagStart(source, match.index, kinds)
+    if (open < 0) return
+    const end = openingTagEnd(source, open, kinds)
+    const tag = source.slice(open, end + 1)
+    if (!/^<(?:button|summary|a)\b/.test(tag) && !/\btabIndex=\{?\s*["']?0["']?\s*\}?/.test(tag)) return
+    visit(open, `${match[0]} has no focus-visible ring`)
+  })
+}
+
 function scanSourceFile(file, push) {
   const { source, kinds } = file
   const inCode = (index) => kinds[index] !== KIND_COMMENT
@@ -607,6 +798,52 @@ function scanSourceFile(file, push) {
     if (Number(match[1]) >= MICRO_FLOOR_PX) return
     push('micro-type-floor', file, match.index, match[0])
   })
+
+  forEachMatch(FLEXLAYOUT_SCOPED_VAR, source, (match) => {
+    if (!inCode(match.index)) return
+    push('flexlayout-scoped-var', file, match.index, match[0])
+  })
+
+  forEachMatch(WEIGHT_OFF_RAMP, source, (match) => {
+    if (!inCode(match.index)) return
+    push('weight-off-ramp', file, match.index, match[0])
+  })
+
+  forEachMatch(NAMED_Z, source, (match) => {
+    if (!inCode(match.index)) return
+    if (NAMED_Z_ALLOWED.has(Number(match[1]))) return
+    push('named-z-off-ladder', file, match.index, match[0])
+  })
+
+  forEachMatch(SPACING_NAMED, source, (match) => {
+    if (!inCode(match.index)) return
+    if (SPACING_STEPS_ON_SCALE.has(Number(match[1]))) return
+    push('spacing-off-scale', file, match.index, match[0])
+  })
+
+  forEachMatch(RADIUS_ARBITRARY, source, (match) => {
+    if (!inCode(match.index)) return
+    const px = Number(match[1])
+    if (RADIUS_STEPS_PX.has(px)) return
+    // At or above the marketing floor the marketing-radii rule already reports it.
+    if (px >= MARKETING_RADIUS_FLOOR_PX) return
+    push('radius-off-ramp', file, match.index, match[0])
+  })
+
+  forEachMatch(RADIUS_XL, source, (match) => {
+    if (!inCode(match.index)) return
+    push('radius-off-ramp', file, match.index, match[0])
+  })
+
+  forEachMatch(DISABLED_INK, source, (match) => {
+    if (!inCode(match.index)) return
+    const tag = enclosingOpeningTag(source, match.index, kinds)
+    if (!tag || !TEXT_ELEMENT_TAG.test(tag)) return
+    if (ELEMENT_DISABLED.test(tag)) return
+    push('disabled-ink-copy', file, match.index, match[0])
+  })
+
+  scanFocusRingMissing(file, push)
 }
 
 function forEachMatch(regex, source, visit) {
@@ -949,6 +1186,13 @@ const RULE_IDS = [
   'hover-without-focus',
   'marketing-radii',
   'micro-type-floor',
+  'flexlayout-scoped-var',
+  'weight-off-ramp',
+  'named-z-off-ladder',
+  'spacing-off-scale',
+  'radius-off-ramp',
+  'disabled-ink-copy',
+  'focus-ring-missing',
   'app-token-restates-bundle',
   'theme-ramp-contrast',
 ]
@@ -963,12 +1207,21 @@ const FIX_HINT = {
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
   'backdrop-filter': 'separation comes from the scrim tone plus the shell shadow',
   'shadow-in-flow': 'overlays take --shadow-popover / --shadow-modal; in-flow chrome takes a hairline',
-  'arbitrary-z-index': 'use the layering scale: sticky 10, drawer 40, popover 50, menu 60, modal 70, toast 80',
+  'arbitrary-z-index': 'use the layering scale: sticky 10, pane 20, float 30, drawer 40, modal 70, popover 80, menu 90, toast 100',
   'accent-marks-active': 'mark active with --bg-selected and an ink lift, not the accent',
   'uppercase-tracked': 'sentence case; hierarchy from weight and size',
   'marketing-radii': 'operational chrome uses --radius-sm / --radius-md',
   'hover-without-focus': 'pair the hover reveal with group-focus-within:opacity-100',
   'micro-type-floor': `grow the container rather than shrinking the type below ${MICRO_FLOOR_PX}px`,
+  'flexlayout-scoped-var':
+    '--color-N exists only inside .flexlayout__layout; use --border-default / --border-strong',
+  'weight-off-ramp': 'the weight ramp is 400 / 500 / 600: font-semibold is the top step',
+  'named-z-off-ladder': 'z-[var(--z-pane)] (20) / z-[var(--z-float)] (30) in flow; --z-drawer and above for overlays',
+  'spacing-off-scale':
+    'move to the neighbouring sem.space step; an indent aligning to a glyph slot keeps its value with a design-tokens-allow: reason',
+  'radius-off-ramp': 'rounded-xs / -sm / -md / -lg (3 / 5 / 7 / 9px)',
+  'disabled-ink-copy': 'copy is read: --text-muted (or EmptyState / Section); disabled ink is for disabled controls',
+  'focus-ring-missing': 'use the kit control, or add FOCUS_RING_CLASS (inset variant on full-bleed rows)',
   'app-token-restates-bundle':
     'alias the bundle variable instead of restating its value, and keep mapped names in the ' +
     'base dark and light blocks',

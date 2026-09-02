@@ -100,9 +100,12 @@ are separate steps.
 
 ## Known drift
 
-Shipped `SegmentedControl.tsx` rounds the group at 6px (`rounded-md`) — a
+~~Shipped `SegmentedControl.tsx` rounds the group at 6px (`rounded-md`) — a
 radius that exists in no token — and pads md segments at 14px, a step the
 space scale does not have. Token canon, which this entry specifies:
 `radius.control` on the group and `space.lg` segment padding. The sm variant's
 26px height is `size.control.xs` and is written as the literal in the source;
-the token is the canon there too.
+the token is the canon there too.~~ **Resolved 2026-09-02:** the group rounds
+at `rounded-sm` (`radius.control`), md segments pad `px-3` (`space.lg`), and
+the sm variant is `h-control-xs`. (`rounded-md` had by then come to mean
+`radius.overlay`, 7px, in the app's `@theme` — the drift had grown by a pixel.)

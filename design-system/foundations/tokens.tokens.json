@@ -1418,6 +1418,30 @@
           }
         }
       },
+      "pane": {
+        "$type": "number",
+        "$value": 20,
+        "$description": "In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins.",
+            "doNotUse": "Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder."
+          }
+        }
+      },
+      "float": {
+        "$type": "number",
+        "$value": 30,
+        "$description": "In-flow depth: panel-internal popovers and HUDs that float over a pane's own content — above docked panes, below every overlay.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The top in-flow depth step: a panel-internal popover, HUD or tray that floats over its own pane's content and must clear a docked `z.pane` sibling, but stays inside the pane and portals nowhere. Sits directly below `z.drawer`.",
+            "doNotUse": "Surfaces that leave their pane (portalled popovers, menus, dialogs) — they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface."
+          }
+        }
+      },
       "drawer": {
         "$type": "number",
         "$value": 40,

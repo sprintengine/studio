@@ -8,8 +8,9 @@ supporting message) and its raised input chrome at `size.control.sm`.
 - `ds-field` — vertical stack, 6px gap: label, control, one supporting
   message.
 - `ds-field-label` — `font.size.body` at `font.weight.medium` in
-  `text.default`; a required mark (`*`) in `status.danger` is `aria-hidden`
-  and mirrored by `aria-required` on the control.
+  `text.default`; a required mark (`*`) in `text.subtle` — neutral, because an
+  untouched required field is empty, not invalid (see `field`) — is
+  `aria-hidden` and mirrored by `aria-required` on the control.
 - `ds-input` — a `size.control.sm` control on `bg.surface-raised` with a
   `border.default` hairline and `radius.control`.
 - `ds-field-help` / `ds-field-error` — `font.size.meta`; help in

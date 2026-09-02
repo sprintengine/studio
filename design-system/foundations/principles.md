@@ -29,7 +29,9 @@ chrome tint, or category code.
 **Selection is neutral.** A selected row uses `bg.selected` — a neutral fill —
 and lifts its title to `text.primary`. It does not use the accent, and it does
 not carry a left bar, a border box, or a glow. A row that is merely *chosen*
-must never outrank the one action worth taking.
+must never outrank the one action worth taking. The Backlog rows' epic-colour
+left bar was retired on 2026-09-02 under this rule: the `EpicColorDot` carries
+epic identity, and the skeleton no longer reserves the bar.
 
 ## Quantified restraint
 
@@ -138,6 +140,11 @@ person with everything at once.
   share a height.
 - Nothing interactive is drawn below `sem.size.hit-target-min`. A small glyph
   pads out to it with a transparent hit area rather than shrinking its target.
+- An indent that aligns text to a reserved glyph slot (the 28px a leading
+  16px glyph plus its gap occupies) is structure, not rhythm: it keeps its
+  computed value, off the space scale if need be, with a one-line comment
+  saying what it lines up with. Moving it to the nearest step misaligns the
+  column it exists to align.
 - At most 2 radii per view. `radius.control` (5px) is the default; larger radii
   belong to overlay and modal shells. Marketing radii (`rounded-2xl` and up)
   never appear on operational chrome.
@@ -364,7 +371,10 @@ A gate, not a preference. No design system supplies it for you.
 - The `--ref-*` tier is internal plumbing for the token file. Components and
   patterns consume `--sem-*` only.
 - Layering comes from `sem.z.*`. A surface that needs to sit between two
-  defined layers is the wrong kind of surface.
+  defined layers is the wrong kind of surface. In-flow depth has its own three
+  steps below `drawer` — `sticky` (10), `pane` (20, docked panes and in-canvas
+  floating chrome) and `float` (30, panel-internal popovers and HUDs) — so a
+  bare `z-20` / `z-30` is a hard-coded z-index like any other.
 
 ## Reject on sight
 

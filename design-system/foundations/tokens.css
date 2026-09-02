@@ -119,6 +119,8 @@
   --sem-focus-ring: 2px solid var(--sem-color-border-focus);
   --sem-z-base: 0;
   --sem-z-sticky: 10;
+  --sem-z-pane: 20;
+  --sem-z-float: 30;
   --sem-z-drawer: 40;
   --sem-z-popover: 80;
   --sem-z-menu: 90;

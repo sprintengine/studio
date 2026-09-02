@@ -86,15 +86,16 @@ panel is rendered; inactive panels are unmounted, not hidden.
 
 ## Known drift
 
-All in `src/renderer/src/components/ui/Tabs.tsx`, unfiled — fold into the
-next tabs pass:
+All in `src/renderer/src/components/ui/Tabs.tsx`:
 
-- Tabs render 32px tall (`h-8`); the control ramp has no 32px step. Canon is
-  `size.control.sm` (30px) — the default for a labeled control.
-- Tab icons render at 14px (`h-3.5`); the icon ramp has no 14px step. Canon
-  is `icon.size.xs` (13px).
-- Disabled tabs ship `opacity-45`; the system-wide disabled treatment
-  (list-row, task-card) is 0.5.
+- ~~Tabs render 32px tall (`h-8`); the control ramp has no 32px step. Canon is
+  `size.control.sm` (30px) — the default for a labeled control.~~ **Resolved
+  2026-09-02:** `h-control-sm`.
+- ~~Tab icons render at 14px (`h-3.5`); the icon ramp has no 14px step. Canon
+  is `icon.size.xs` (13px).~~ **Resolved 2026-09-02:** `size-icon-xs`.
+- ~~Disabled tabs ship `opacity-45`; the system-wide disabled treatment
+  (list-row, task-card) is 0.5.~~ **Resolved 2026-09-02:** `disabled:opacity-50`,
+  the row-family value — a tab is a row in a strip, not a button.
 
 ## Shipped implementation
 

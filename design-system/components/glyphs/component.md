@@ -254,7 +254,15 @@ Cite these rather than matching the code you happen to be nearest.
    `STRIP_BUTTON` — off the 26/30/34 control ramp entirely, and with no
    radius or hover fill where SidebarChrome's 26 px button has both), and
    30 px (`AppMenuButton`). Canon is `--sem-size-control-xs` (26 px).
-   Tracked as **MC-2119** (icon-size conformance axis).
+   Tracked as **MC-2119** (icon-size conformance axis). *2026-09-02:* the
+   kit's own off-ramp sites are resolved — `CursorErrorPopover`'s two 20 px
+   reveal buttons are `IconButton` / `CloseIconButton`, and `MenuSwatchRow`'s
+   20 px swatches pad out to the 24 px hit-target floor. **Resolved 2026-09-02**
+   for the app chrome too: `STRIP_BUTTON` is deleted from `WorkspaceHeader` and
+   `AppTitleBar`, and every strip, popover-trigger and row glyph button in the
+   renderer is `IconButton` / `CloseIconButton` at `--sem-size-control-xs`
+   (backlog `icon-buttons-off-the-control-ramp`); the conformance guard's
+   `focus-ring-missing` rule keeps a bare button from returning.
 2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Sprints, Roadmap, and
    Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions
    with bare 13 px `icon-xs` glyphs and no fixed-width wrapper (39 px), the

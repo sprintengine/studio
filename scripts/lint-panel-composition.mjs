@@ -74,6 +74,7 @@ const ALLOW_LIST = new Map([
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
   ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
   ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],
+  ['ComposerAttachmentStrip.tsx', 'The attachment strip of the chat composer (MC-2148 launch surface), rendered inside AgentChatView: a row of chips above the field, not a panel, so it carries no PanelHeader.'],
   ['runSummaryCharts.tsx', 'Chart primitives rendered inside SprintEngineRunSummaryPanel; parent panel owns PanelHeader chrome.'],
   ['runPullRequest.tsx', 'Pull-request controls + hooks rendered inside SprintEngineBoardPanel: a view chip in the run-hero strip and a primary action in the run-complete banner; the parent panel owns the surrounding chrome.'],
   ['SprintEngineBoardPanel.tsx', 'Carries a bespoke run-hero strip (project name + run-phase lifecycle glyph + progress hairline + settings overflow) above the Tabs strip in place of PanelHeader. The generic title/count chrome was redundant with the FlexLayout tab label and per-tab content, and the hero conveys identity richer than PanelHeader allows.'],
