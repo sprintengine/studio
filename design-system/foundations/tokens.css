@@ -99,9 +99,11 @@
   --sem-radius-control: 7px;
   --sem-radius-overlay: 7px;
   --sem-radius-shell: 9px;
+  --sem-radius-pill: 999px;
   --sem-motion-duration-fast: 120ms;
   --sem-motion-duration-normal: 180ms;
   --sem-motion-duration-deliberate: 260ms;
+  --sem-motion-duration-pulse: 620ms;
   --sem-motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --sem-space-3xs: 2px;
   --sem-space-2xs: 4px;

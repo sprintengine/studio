@@ -18,6 +18,17 @@
 //   no-untokenized-font-family
 //                         a font-family that is not sem.font.family.ui or
 //                         .mono — the system ships two families, permanently
+//   unknown-token-variable
+//                         var(--sem-…) naming a variable foundations/tokens.css
+//                         does not define. An undefined custom property makes
+//                         the whole declaration invalid at computed-value time,
+//                         so the property silently falls back to its initial
+//                         value: `border-radius: var(--sem-radius-pill)` on an
+//                         undeclared token rendered SQUARE, in three shipped
+//                         components, for as long as the reference existed. The
+//                         no-raw-* rules only police values that ARE spelled;
+//                         this one polices a token that is named but is not
+//                         there.
 //
 // Rules over foundations/tokens.tokens.json (every token, so new tokens cannot
 // land without full semantic metadata):
@@ -61,6 +72,14 @@ const RAW_SPACING =
 // Two families, permanently: sem.font.family.ui and sem.font.family.mono.
 // A third family — a serif especially — is a system change, not a style
 // choice. `inherit` and `initial` are allowed; anything else must be a token.
+// Every `--sem-*` a source READS. Compared against what tokens.css DECLARES;
+// the difference is a token that does not exist. A fallback (`var(--x, 4px)`)
+// still names --x, so the reference is checked either way.
+const SEM_VARIABLE_REFERENCE = /var\(\s*(--sem-[\w-]+)/g
+
+// The declarations in foundations/tokens.css, i.e. the names that resolve.
+const SEM_VARIABLE_DECLARATION = /^\s*(--sem-[\w-]+)\s*:/gm
+
 const UNTOKENIZED_FONT_FAMILY =
   /font-family\s*:\s*(?!\s*(?:var\(\s*--sem-font-family-|inherit|initial|unset)\b)[^;{}]+/g
 
@@ -129,6 +148,22 @@ function main() {
     ...collectSources(join(bundleRoot, 'patterns'), []),
   ].sort()
 
+  // The generated stylesheet is the authority on which variables resolve: it is
+  // what a consuming app actually loads. Read from the derived file rather than
+  // from tokens.tokens.json so a stale build is caught too — a token added to
+  // the source but never compiled does not resolve for anyone.
+  const tokensCssPath = join(bundleRoot, 'foundations', 'tokens.css')
+  if (!existsSync(tokensCssPath)) {
+    throw new LintFailure(
+      `Missing foundations/tokens.css in bundle: ${bundleRoot}. ` +
+        'Run `node scripts/build-tokens.mjs` — unknown-token-variable has nothing to check against.',
+      2,
+    )
+  }
+  const declaredSemVariables = new Set(
+    [...readFileSync(tokensCssPath, 'utf8').matchAll(SEM_VARIABLE_DECLARATION)].map((m) => m[1]),
+  )
+
   let totalViolations = 0
 
   for (const filePath of sourceFiles) {
@@ -150,6 +185,17 @@ function main() {
             text: match[0],
           })
         }
+      }
+      SEM_VARIABLE_REFERENCE.lastIndex = 0
+      let reference
+      while ((reference = SEM_VARIABLE_REFERENCE.exec(line))) {
+        if (declaredSemVariables.has(reference[1])) continue
+        findings.push({
+          rule: 'unknown-token-variable',
+          line: index + 1,
+          column: reference.index + 1,
+          text: `${reference[1]} is not declared in foundations/tokens.css`,
+        })
       }
     })
     if (findings.length > 0) {

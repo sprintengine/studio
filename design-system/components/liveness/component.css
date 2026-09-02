@@ -49,7 +49,7 @@
  * colour that ALREADY applies to the thing being marked, so the pulse never
  * introduces an accent of its own. */
 .ds-change-pulse {
-  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+  animation: ds-change-pulse var(--sem-motion-duration-pulse) var(--sem-motion-ease-standard) 1;
 }
 
 @keyframes ds-change-pulse {

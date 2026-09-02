@@ -245,8 +245,15 @@ function readBundleDimensions() {
   }
   const microFontSizePx = readTokenDimensionPx(tokens, 'sem.font.size.micro')
   // `$`-prefixed keys are DTCG metadata on the group itself, not steps of it.
+  // `pill` is excluded because it is an IDIOM, not a rung: 999px fully-rounded
+  // ends, for a badge or a switch track. It is the same exclusion this file
+  // already makes for `rounded-full` in MARKETING_RADIUS, and it has to be made
+  // here too — left in, its 999px becomes `largestRadiusPx` and trips the
+  // marketing-floor assertion below, failing the build on a token the system
+  // deliberately declares. It must also stay out of `radiusStepsPx`, or
+  // `rounded-[999px]` would silently become an on-ramp spelling.
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
-    .filter((step) => !step.startsWith('$'))
+    .filter((step) => !step.startsWith('$') && step !== 'pill')
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
     .filter((value) => value !== null)
   if (microFontSizePx === null || radiusSteps.length === 0) {
@@ -1386,6 +1393,7 @@ const APP_TO_BUNDLE = new Map(
     '--motion-fast': '--sem-motion-duration-fast',
     '--motion-normal': '--sem-motion-duration-normal',
     '--motion-deliberate': '--sem-motion-duration-deliberate',
+    '--motion-pulse': '--sem-motion-duration-pulse',
     '--motion-ease': '--sem-motion-ease-standard',
   }),
 )

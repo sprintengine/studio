@@ -111,9 +111,11 @@
   --sem-radius-control: 7px;
   --sem-radius-overlay: 7px;
   --sem-radius-shell: 9px;
+  --sem-radius-pill: 999px;
   --sem-motion-duration-fast: 120ms;
   --sem-motion-duration-normal: 180ms;
   --sem-motion-duration-deliberate: 260ms;
+  --sem-motion-duration-pulse: 620ms;
   --sem-motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --sem-space-3xs: 2px;
   --sem-space-2xs: 4px;
@@ -2627,7 +2629,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * colour that ALREADY applies to the thing being marked, so the pulse never
  * introduces an accent of its own. */
 .ds-change-pulse {
-  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+  animation: ds-change-pulse var(--sem-motion-duration-pulse) var(--sem-motion-ease-standard) 1;
 }
 
 @keyframes ds-change-pulse {
@@ -7381,9 +7383,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell</code><code class="catalog-token-value">9px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Large overlay and modal shells. Modal shells and the largest overlay surfaces. <strong>Do not:</strong> Operational chrome — larger radii are marketing-only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-pill)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.pill</code><code class="catalog-token-value">999px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Fully-rounded ends. An idiom, not a step of the shape ramp. Badges, status chips, switch tracks and progress rails — anything whose shape says &quot;this is a marker, not a control&quot;. Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square. <strong>Do not:</strong> Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.fast</code><code class="catalog-token-value">120ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Hover, focus, and small state flips. Hover and focus transitions, small state flips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.pulse</code><code class="catalog-token-value">620ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">A one-shot attention pulse. Not a transition step. The single play of a change pulse — a count that just moved, a status icon that just flipped. Long enough to be noticed after the eye arrives, where a transition only has to keep up with a pointer already there. Value taken from the shipped .status-icon-pulse, which hard-coded 620ms. <strong>Do not:</strong> Transitions and state changes — those take fast / normal / deliberate. A 620ms hover is a control that feels broken. Never loop it either: the pulse means &quot;this just changed&quot;, and a loop means &quot;this is still happening&quot;.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label. <strong>Do not:</strong> Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">30px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
@@ -14914,7 +14918,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  * colour that ALREADY applies to the thing being marked, so the pulse never
  * introduces an accent of its own. */
 .ds-change-pulse {
-  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+  animation: ds-change-pulse var(--sem-motion-duration-pulse) var(--sem-motion-ease-standard) 1;
 }
 
 @keyframes ds-change-pulse {

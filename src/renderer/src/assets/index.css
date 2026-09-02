@@ -327,6 +327,11 @@
   --motion-fast: var(--sem-motion-duration-fast);
   --motion-normal: var(--sem-motion-duration-normal);
   --motion-deliberate: var(--sem-motion-duration-deliberate);
+  /* One-shot attention pulse, distinct from the transition ramp above. The
+     620ms below was spelled twice — as a literal here and as a dangling
+     `--sem-motion-duration-slow` in the bundle's liveness component, which made
+     that reference implementation's pulse not play at all. One token now. */
+  --motion-pulse: var(--sem-motion-duration-pulse);
   --motion-ease: var(--sem-motion-ease-standard);
 
   /* The one focus treatment in the product: a 2px outline at a 2px offset.
@@ -1899,7 +1904,7 @@ samp,
 }
 
 .status-icon-pulse {
-  animation: status-icon-pulse 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: status-icon-pulse var(--motion-pulse) var(--motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

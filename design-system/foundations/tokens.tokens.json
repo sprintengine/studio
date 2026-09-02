@@ -1162,6 +1162,25 @@
             "doNotUse": "Operational chrome — larger radii are marketing-only."
           }
         }
+      },
+      "pill": {
+        "$type": "dimension",
+        "$value": "999px",
+        "$description": "Fully-rounded ends. An idiom, not a step of the shape ramp.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "shape",
+            "use": "Badges, status chips, switch tracks and progress rails — anything whose shape says \"this is a marker, not a control\". Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
+            "doNotUse": "Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
+            "components": [
+              "badge",
+              "liveness",
+              "wizard-progress",
+              "switch",
+              "status-dot"
+            ]
+          }
+        }
       }
     },
     "motion": {
@@ -1199,6 +1218,21 @@
               "seeded": true,
               "role": "motion",
               "use": "Drawer and large-surface enter/exit."
+            }
+          }
+        },
+        "pulse": {
+          "$type": "duration",
+          "$value": "620ms",
+          "$description": "A one-shot attention pulse. Not a transition step.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "motion",
+              "use": "The single play of a change pulse — a count that just moved, a status icon that just flipped. Long enough to be noticed after the eye arrives, where a transition only has to keep up with a pointer already there. Value taken from the shipped .status-icon-pulse, which hard-coded 620ms.",
+              "doNotUse": "Transitions and state changes — those take fast / normal / deliberate. A 620ms hover is a control that feels broken. Never loop it either: the pulse means \"this just changed\", and a loop means \"this is still happening\".",
+              "components": [
+                "liveness"
+              ]
             }
           }
         }
