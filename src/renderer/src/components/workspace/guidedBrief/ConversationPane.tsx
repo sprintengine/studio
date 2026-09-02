@@ -15,7 +15,7 @@ type Props = {
   specialistSubline: string
   working: boolean
   /** Live specialist status from the transport's own session signal (MC-1503):
-   * drives the header status chip and the "needs your input" attention ring. */
+   * drives the header status line. */
   liveStatus?: StageLiveStatus
   /** Whether the stage's validated artifacts are ready (chip shows the check). */
   ready?: boolean
@@ -56,7 +56,6 @@ export function ConversationPane({
   const [terminalPreference, setTerminalPreference] = useState<TerminalPreference>('auto')
   const [answeredQuestionId, setAnsweredQuestionId] = useState<string | null>(null)
   const conversationTransport = session?.transport === 'conversation'
-  const needsAttention = liveStatus === 'needs-input'
 
   const question = working ? interview?.currentQuestion ?? null : null
   const interviewActive = Boolean(question && onAnswer && session)
@@ -94,7 +93,7 @@ export function ConversationPane({
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
+          className="inline-flex size-control-xs shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
         >
           <svg viewBox="0 0 24 24" fill="none" className="icon-md">
             <circle cx="12" cy="9" r="3" stroke="currentColor" strokeWidth="1.6" />
@@ -128,13 +127,11 @@ export function ConversationPane({
         ) : null}
       </div>
 
-      <div
-        className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-[color:var(--bg-app)] ${
-          needsAttention
-            ? 'border-[color:var(--tone-warn)] ring-1 ring-[color:var(--tone-warn)]'
-            : 'border-[color:var(--border-default)]'
-        }`}
-      >
+      {/* The pane no longer rings itself in the warn tone for `needs-input`: the
+          status line in the header above already says it, and a tone ring
+          around the whole pane was the same status said twice (audit,
+          status-said-twice). */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">
         {session ? (
           <>
             {interviewActive && question ? (

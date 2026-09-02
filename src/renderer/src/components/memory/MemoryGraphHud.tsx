@@ -21,7 +21,7 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   // repaints on every pan, and a blur over it re-runs each frame.
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-default)]">
-      <div className="mb-1.5 text-micro font-semibold text-[color:var(--text-disabled)]">
+      <div className="mb-1.5 text-micro font-semibold text-[color:var(--text-muted)]">
         Types
       </div>
       <ul className="space-y-1">
@@ -35,7 +35,7 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
                 aria-hidden
               />
               <span className="capitalize">{bucket}</span>
-              <span className="tabular-nums text-[color:var(--text-disabled)]">{count}</span>
+              <span className="tabular-nums text-[color:var(--text-muted)]">{count}</span>
             </li>
           )
         })}
@@ -69,7 +69,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
           {title}
         </span>
       </div>
-      <div className="mt-0.5 truncate text-[color:var(--text-disabled)]">
+      <div className="mt-0.5 truncate text-[color:var(--text-muted)]">
         <span className="capitalize">{bucket}</span>
         {node.inboundDegree > 0 ? (
           <span> · {node.inboundDegree} inbound</span>

@@ -189,7 +189,7 @@ export function SprintEngineTasksKanbanView({
               })}
 
               {column.cards.length === 0 ? (
-                <li className="m-1 rounded-[5px] px-2 py-3 text-micro leading-5 text-[color:var(--text-disabled)]">
+                <li className="m-1 rounded-[5px] px-2 py-3 text-micro leading-5 text-[color:var(--text-muted)]">
                   {getSprintEngineKanbanEmptyMessage(column.key)}
                 </li>
               ) : null}

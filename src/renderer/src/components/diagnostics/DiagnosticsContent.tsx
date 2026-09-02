@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ProcessMetricKind, ProcessMetricsSnapshot, TerminalReapEvent, WorkspaceMemorySample } from '../../../../shared/electron-api'
+import { Badge, GhostButton, StatusDot } from '../ui'
 import { Select } from '../ui/Select'
 import { Table } from '../ui/Table'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
@@ -168,17 +169,43 @@ function Td({ children, numeric, title }: { children: React.ReactNode; numeric?:
   )
 }
 
+// A flagged metric is DEGRADED, not failed: the app still runs, a number has
+// crossed a threshold. So the warn tone (never the error red the `warn` prop
+// used to paint), and a dot beside the figure so the state reads without
+// colour — a number in red ink was colour alone.
+function WarnMetric({
+  flagged,
+  label,
+  className,
+  children,
+}: {
+  flagged: boolean
+  /** Accessible name for the dot; names the threshold that was crossed. */
+  label: string
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 ${flagged ? 'text-[color:var(--tone-warn)]' : ''} ${className ?? ''}`}
+    >
+      {flagged ? <StatusDot tone="warn" label={label} /> : null}
+      {children}
+    </span>
+  )
+}
+
 function SummaryStat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
   return (
     <div className="flex min-w-[96px] flex-col gap-0.5">
       <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
-      <span
-        className={`text-sm font-semibold tabular-nums ${
-          tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
-        }`}
+      <WarnMetric
+        flagged={tone === 'warn'}
+        label={`${label} needs attention`}
+        className={`text-sm font-semibold tabular-nums ${tone === 'warn' ? '' : 'text-[color:var(--text-strong)]'}`}
       >
         {value}
-      </span>
+      </WarnMetric>
     </div>
   )
 }
@@ -251,15 +278,15 @@ function DashboardCard({
   tone?: 'warn'
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+    <div className="flex flex-col gap-0.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
       <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
-      <span
-        className={`text-title font-semibold tabular-nums ${
-          tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
-        }`}
+      <WarnMetric
+        flagged={tone === 'warn'}
+        label={`${label} needs attention`}
+        className={`text-title font-semibold tabular-nums ${tone === 'warn' ? '' : 'text-[color:var(--text-strong)]'}`}
       >
         {value}
-      </span>
+      </WarnMetric>
       {detail ? <span className="text-micro tabular-nums text-[color:var(--text-muted)]">{detail}</span> : null}
     </div>
   )
@@ -461,20 +488,16 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           <span className="text-micro text-[color:var(--text-muted)]">dev · polling {PROCESS_METRICS_POLL_MS}ms</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <button
+          <GhostButton
+            size="xs"
             onClick={handleToggleBaseline}
-            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
             aria-label={metricsTrend.baseline ? 'Clear memory baseline' : 'Mark current metrics as baseline'}
           >
             {metricsTrend.baseline ? 'Clear baseline' : 'Mark baseline'}
-          </button>
-          <button
-            onClick={handleCopy}
-            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-            aria-label="Copy diagnostics report to clipboard"
-          >
+          </GhostButton>
+          <GhostButton size="xs" onClick={handleCopy} aria-label="Copy diagnostics report to clipboard">
             {copied ? 'Copied!' : 'Copy'}
-          </button>
+          </GhostButton>
           {headerActions}
         </div>
       </div>
@@ -689,9 +712,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
                 <span>
                   Growth ({Math.round(metricsTrend.growth.windowMs / 1000)}s): RSS{' '}
-                  <span className={(metricsTrend.growth.rssBytesPerMin ?? 0) > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+                  <WarnMetric flagged={(metricsTrend.growth.rssBytesPerMin ?? 0) > 0} label="RSS is growing">
                     {formatPerMin(metricsTrend.growth.rssBytesPerMin)}
-                  </span>
+                  </WarnMetric>
                 </span>
                 <span>heap {formatPerMin(metricsTrend.growth.heapBytesPerMin)}</span>
                 <span className="text-[color:var(--text-subtle)]">{metricsTrend.growth.sampleCount} samples</span>
@@ -750,9 +773,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             Long tasks (main-thread stalls &gt; 50ms, last {Math.round(longTaskSummary.windowMs / 1000)}s)
           </h2>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
-            <span className={longTaskSummary.count > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+            <WarnMetric flagged={longTaskSummary.count > 0} label="Long tasks recorded">
               Count <strong>{longTaskSummary.count}</strong>
-            </span>
+            </WarnMetric>
             <span>Blocking {longTaskSummary.totalBlockingMs} ms</span>
             <span>Max {msOrDash(longTaskSummary.maxMs)} ms</span>
             <span>p95 {msOrDash(longTaskSummary.p95Ms)} ms</span>
@@ -768,12 +791,12 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             Rendering cadence (frames, last {Math.round(frameStats.windowMs / 1000)}s)
           </h2>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
-            <span className={frameStats.fps !== null && frameStats.fps < 50 ? 'text-[color:var(--tone-error)]' : ''}>
+            <WarnMetric flagged={frameStats.fps !== null && frameStats.fps < 50} label="Frame rate below 50">
               FPS <strong>{frameStats.fps ?? '—'}</strong>
-            </span>
-            <span className={frameStats.longFrameCount > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+            </WarnMetric>
+            <WarnMetric flagged={frameStats.longFrameCount > 0} label="Long frames recorded">
               Long frames {frameStats.longFrameCount} ({frameStats.longFramePercent}%)
-            </span>
+            </WarnMetric>
             <span>p95 {msOrDash(frameStats.p95Ms)} ms</span>
             <span>worst {msOrDash(frameStats.maxMs)} ms</span>
             <span className="text-[color:var(--text-subtle)]">{frameStats.frameCount} frames</span>
@@ -873,9 +896,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                 {sortedRows.map((row) => (
                   <tr
                     key={row.sessionId}
-                    className={`border-b border-[color:var(--border-subtle)] ${
-                      row.warnings.length > 0 ? 'bg-[color:var(--tone-error-soft)]' : ''
-                    }`}
+                    // The warning badges in the last cell carry the row's
+                    // state; a tinted row ground said it a second time.
+                    className="border-b border-[color:var(--border-subtle)]"
                   >
                     <Td title={row.workspaceId ?? undefined}>{row.workspaceName ?? row.workspaceId ?? '—'}</Td>
                     <Td title={row.sessionId}>{row.agentId ?? row.terminalId ?? row.sessionId}</Td>
@@ -884,9 +907,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                     <Td>{activityLabel(row.activity)}</Td>
                     <Td>
                       {row.hiddenButVisible ? (
-                        <span className="text-[color:var(--tone-error)]" title="Runtime-visible but workspace is hidden">
+                        <WarnMetric flagged label="Runtime-visible but workspace is hidden">
                           hidden
-                        </span>
+                        </WarnMetric>
                       ) : row.visible ? (
                         'yes'
                       ) : (
@@ -901,13 +924,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                       {row.warnings.length > 0 ? (
                         <span className="flex flex-wrap gap-1">
                           {row.warnings.map((warning) => (
-                            <span
-                              key={warning}
-                              title={WARNING_LABEL[warning]}
-                              className="rounded bg-[color:var(--tone-error-soft)] px-1 text-micro text-[color:var(--tone-error)]"
-                            >
+                            <Badge key={warning} tone="warn" ariaLabel={WARNING_LABEL[warning]}>
                               {WARNING_SHORT[warning]}
-                            </span>
+                            </Badge>
                           ))}
                         </span>
                       ) : (
@@ -1025,7 +1044,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                       <Td numeric>{workspace.idleCount}</Td>
                       <Td numeric>
                         {workspace.hiddenButVisibleCount > 0 ? (
-                          <span className="text-[color:var(--tone-error)]">{workspace.hiddenButVisibleCount}</span>
+                          <WarnMetric flagged label="Terminals visible while the workspace is hidden">
+                            {workspace.hiddenButVisibleCount}
+                          </WarnMetric>
                         ) : (
                           0
                         )}
@@ -1096,9 +1117,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               {scrollback.totalLines.toLocaleString()} lines · ~{formatBytes(scrollback.estimatedBytes)} est.
             </span>
             <span>Write total {formatBytes(terminalThroughput.totalBytesPerSec)}/s</span>
-            <span className={terminalThroughput.hiddenBytesPerSec > 0 ? 'text-[color:var(--tone-error)]' : ''}>
+            <WarnMetric flagged={terminalThroughput.hiddenBytesPerSec > 0} label="Hidden terminals are writing">
               hidden {formatBytes(terminalThroughput.hiddenBytesPerSec)}/s
-            </span>
+            </WarnMetric>
             <span>visible {formatBytes(terminalThroughput.visibleBytesPerSec)}/s</span>
           </div>
         </section>

@@ -83,6 +83,8 @@ import {
   InlineNotice,
   LIFECYCLE_LABEL,
   LifecycleGlyph,
+  OutlineButton,
+  OverflowMenu,
   PanelHeader,
   PrimaryButton,
   RoleAvatar,
@@ -95,7 +97,6 @@ import {
 } from '../ui'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
-  artifactStatusTone,
   buildTaskTimeline,
   formatArtifactBlockerSummary,
   formatArtifactSummary,
@@ -148,7 +149,7 @@ function SectionList({
           ))}
         </ul>
       ) : (
-        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
+        <div className="text-meta text-[color:var(--text-muted)]">{emptyLabel}</div>
       )}
     </div>
   )
@@ -211,13 +212,23 @@ function ConfidenceDial({ value, size = 14, label }: { value: number; size?: num
   }
 
   return (
-    <span className="inline-flex shrink-0 items-center" title={ariaLabel} aria-label={ariaLabel} role="img">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
-        <circle cx={cx} cy={cy} r={radius} stroke={trackTone} strokeWidth={stroke} fill="none" />
-        {arc}
-        <circle cx={cx} cy={cy} r={Math.max(0.8, size / 14)} fill={tone} />
-      </svg>
-    </span>
+    // The dial's meaning rides the product tooltip on a focusable trigger, not a
+    // native `title` — the row's other stops are buttons, so this is reachable
+    // in the same tab sequence (tooltip/component.md).
+    <Tooltip content={ariaLabel} placement="top">
+      <span
+        className={`inline-flex shrink-0 items-center rounded-full ${FOCUS_RING_CLASS}`}
+        aria-label={ariaLabel}
+        role="img"
+        tabIndex={0}
+      >
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+          <circle cx={cx} cy={cy} r={radius} stroke={trackTone} strokeWidth={stroke} fill="none" />
+          {arc}
+          <circle cx={cx} cy={cy} r={Math.max(0.8, size / 14)} fill={tone} />
+        </svg>
+      </span>
+    </Tooltip>
   )
 }
 
@@ -315,6 +326,36 @@ export function SprintEngineBlockedByRow({
   )
 }
 
+// A row action that shows itself on hover or when anything in the row holds
+// keyboard focus, so the keyboard path is never hover-only. The parent row is
+// `group`. Written out in full, per the literal rule in ui/tokens.
+const ARTIFACT_ROW_REVEAL_CLASS =
+  'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
+
+/**
+ * A relative time whose absolute value rides the product tooltip on a focusable
+ * `<time>`, not a native `title` on a span that no keyboard can reach
+ * (tooltip/component.md).
+ */
+function RelativeTimestamp({
+  relative,
+  absolute,
+  className,
+}: {
+  relative: string
+  absolute: string | null | undefined
+  className?: string
+}) {
+  if (!absolute) return <span className={className}>{relative}</span>
+  return (
+    <Tooltip content={absolute} placement="top">
+      <time tabIndex={0} className={`rounded-xs ${FOCUS_RING_CLASS} ${className ?? ''}`}>
+        {relative}
+      </time>
+    </Tooltip>
+  )
+}
+
 /**
  * The outcome of an artifact action, in the app's one error-card idiom.
  *
@@ -401,7 +442,7 @@ function SprintEngineArtifactInspector({
   })
   items.push({
     term: 'Updated',
-    description: <span title={absoluteTimestamp}>{relativeTimestamp}</span>,
+    description: <RelativeTimestamp relative={relativeTimestamp} absolute={absoluteTimestamp} />,
   })
   items.push({
     term: 'Kind',
@@ -433,7 +474,7 @@ function SprintEngineArtifactInspector({
         )}
       </span>
     ) : (
-      <span className="text-[color:var(--text-disabled)]">No file path recorded.</span>
+      <span className="text-[color:var(--text-muted)]">No file path recorded.</span>
     ),
   })
   if (confidencePct !== null) {
@@ -498,7 +539,7 @@ function SprintEngineArtifactInspector({
 
         {mobileDecision ? (
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Mobile decision</div>
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Mobile decision</h3>
             <div className="text-meta leading-5 text-[color:var(--text-default)]">
               {formatMobileArtifactDecision(mobileDecision)}
             </div>
@@ -507,7 +548,7 @@ function SprintEngineArtifactInspector({
 
         {artifact.status === 'approved' && artifact.approvalMode === 'policy' ? (
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Approval</div>
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Approval</h3>
             <div className="text-meta leading-5 text-[color:var(--text-default)]">
               Approved automatically by run policy · on your behalf
               {artifact.approvedAt ? ` · ${formatRelativeTime(artifact.approvedAt)}` : ''}
@@ -517,7 +558,7 @@ function SprintEngineArtifactInspector({
 
         {readyForReview && autoApproval.label ? (
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Auto-approval</div>
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Auto-approval</h3>
             <div
               className={`text-meta leading-5 ${
                 autoApproval.eligible
@@ -532,7 +573,7 @@ function SprintEngineArtifactInspector({
 
         {actionState && actionState.status !== 'pending' ? (
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Last action</div>
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Last action</h3>
             <ArtifactActionOutcome action={actionState} />
           </div>
         ) : null}
@@ -574,7 +615,7 @@ export function SprintEngineArtifactList({
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="text-micro font-semibold text-[color:var(--text-muted)]">{title}</div>
           {artifacts.length > 0 ? (
-            <span className="text-micro text-[color:var(--text-disabled)]">
+            <span className="text-micro text-[color:var(--text-muted)]">
               {formatArtifactSummary(artifacts)}
             </span>
           ) : null}
@@ -605,7 +646,7 @@ export function SprintEngineArtifactList({
             const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : 'No timestamp'
 
             return (
-              <li key={artifact.id} className="grid gap-3 px-3 py-2.5 @[520px]:grid-cols-[minmax(0,1fr)_auto] @[520px]:items-center">
+              <li key={artifact.id} className="group grid gap-3 px-3 py-2.5 @[520px]:grid-cols-[minmax(0,1fr)_auto] @[520px]:items-center">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">{artifact.id}</span>
@@ -613,7 +654,11 @@ export function SprintEngineArtifactList({
                     {confidencePct !== null ? (
                       <ConfidenceDial value={confidencePct} label="Agent confidence" />
                     ) : null}
-                    <span className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-micro font-bold ${artifactStatusTone(artifact.status)}`}>
+                    {/* One status idiom: the shape-coded glyph plus the word,
+                        not a tinted pill that spent the product accent on
+                        "ready for review" (2026-09-02 audit). */}
+                    <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-micro text-[color:var(--text-muted)]">
+                      <LifecycleGlyph state={sprintEngineInboxRowLifecycle(artifact)} live={false} className="translate-y-px" />
                       {isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>
@@ -634,7 +679,7 @@ export function SprintEngineArtifactList({
                         <span>·</span>
                       </>
                     )}
-                    <span title={absoluteTimestamp ?? undefined}>{relativeTimestamp}</span>
+                    <RelativeTimestamp relative={relativeTimestamp} absolute={absoluteTimestamp} />
                     {mobileDecision ? (
                       <span className="text-[color:var(--text-muted)]">{formatMobileArtifactDecision(mobileDecision)}</span>
                     ) : null}
@@ -648,21 +693,47 @@ export function SprintEngineArtifactList({
                     <ArtifactActionOutcome action={action} className="mt-1.5" />
                   ) : null}
                 </div>
+                {/* Ruling 9 (2026-09-02): the accent budget is one primary per
+                    view, and that one is the selected artifact's Approve in the
+                    detail pane — so the per-row Approve is an outline. At most
+                    two row actions are visible: Approve always, Open revealed
+                    on hover or keyboard focus, and Request changes behind the
+                    overflow. A pending action stays visible so its progress
+                    label does not vanish the moment the pointer leaves. */}
                 <div className="flex flex-wrap items-center gap-1.5 justify-self-end">
+                  {readyForReview ? (
+                    <OutlineButton size="xs" onClick={() => onApproveArtifact(artifact)} disabled={pending}>
+                      {pending && action?.kind === 'approve' ? 'Approving…' : 'Approve'}
+                    </OutlineButton>
+                  ) : null}
                   {canOpenArtifact ? (
-                    <GhostButton onClick={() => onOpenArtifact(artifact)} disabled={pending}>
+                    <GhostButton
+                      size="xs"
+                      onClick={() => onOpenArtifact(artifact)}
+                      disabled={pending}
+                      className={pending ? '' : ARTIFACT_ROW_REVEAL_CLASS}
+                    >
                       {pending && action?.kind === 'open' ? 'Opening…' : 'Open'}
                     </GhostButton>
                   ) : null}
                   {readyForReview ? (
-                    <>
-                      <PrimaryButton onClick={() => onApproveArtifact(artifact)} disabled={pending}>
-                        {pending && action?.kind === 'approve' ? 'Approving…' : 'Approve'}
-                      </PrimaryButton>
-                      <GhostButton onClick={() => onRequestArtifactChanges(artifact)} disabled={pending}>
-                        {pending && action?.kind === 'requestChanges' ? 'Requesting changes…' : 'Request changes'}
-                      </GhostButton>
-                    </>
+                    <span className={pending ? 'inline-flex' : `inline-flex ${ARTIFACT_ROW_REVEAL_CLASS}`}>
+                      <OverflowMenu
+                        ariaLabel={`More actions for ${artifact.id}`}
+                        triggerTooltip="More actions"
+                        items={[
+                          {
+                            id: 'request-changes',
+                            label:
+                              pending && action?.kind === 'requestChanges'
+                                ? 'Requesting changes…'
+                                : 'Request changes',
+                            onSelect: () => onRequestArtifactChanges(artifact),
+                            disabled: pending,
+                          },
+                        ]}
+                      />
+                    </span>
                   ) : null}
                 </div>
               </li>
@@ -670,7 +741,7 @@ export function SprintEngineArtifactList({
           })}
         </ol>
       ) : (
-        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
+        <div className="text-meta text-[color:var(--text-muted)]">{emptyLabel}</div>
       )}
     </div>
   )
@@ -1500,7 +1571,7 @@ function FeedbackDetail({
     : feedback.agentId?.trim() || ''
   return (
     <div className="mt-2 space-y-2 pl-3 text-meta leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
         <span>{sourceLabel}</span>
         {/* Who reported it: the role when the reporter had one, else the agent
             id it recorded under — never "Unknown role" for an agent that
@@ -1606,7 +1677,7 @@ function ArtifactDetail({
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
     <div className="mt-2 space-y-1.5 pl-3 text-meta leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
         <span>{kindLabel}</span>
         <span>·</span>
         <span>{statusLabel}</span>
@@ -1645,11 +1716,11 @@ function EvidenceDetail({
 
   return (
     <div className="mt-2 space-y-2 pl-3 text-meta leading-5">
-      <div className="text-micro text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
+      <div className="text-micro text-[color:var(--text-muted)]">Recorded evidence (latest snapshot)</div>
       {summary ? (
         <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
       ) : (
-        <div className="text-[color:var(--text-disabled)]">No summary recorded.</div>
+        <div className="text-[color:var(--text-muted)]">No summary recorded.</div>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-[color:var(--text-muted)]">
         <span>
@@ -1725,7 +1796,7 @@ function TaskTimeline({
   }, [])
 
   if (groups.length === 0) {
-    return <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
+    return <div className="text-meta text-[color:var(--text-muted)]">{emptyLabel}</div>
   }
 
   return (
@@ -1822,12 +1893,11 @@ function TaskTimeline({
                 />
               ) : null}
             </div>
-            <span
-              title={absolute}
-              className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
-            >
-              {relative}
-            </span>
+            <RelativeTimestamp
+              relative={relative}
+              absolute={absolute}
+              className="tabular-nums font-mono text-micro text-[color:var(--text-muted)]"
+            />
           </li>
         )
       })}
@@ -2009,7 +2079,7 @@ function AgentActivityFeed({
       </div>
 
       {entries.length === 0 ? (
-        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
+        <div className="text-meta text-[color:var(--text-muted)]">{emptyLabel}</div>
       ) : (
         <ol className="space-y-2.5">
           {entries.map(({ entry, taskId, taskTitle }) => {
@@ -2061,12 +2131,11 @@ function AgentActivityFeed({
                     />
                   ) : null}
                 </div>
-                <span
-                  title={absolute}
-                  className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
-                >
-                  {relative}
-                </span>
+                <RelativeTimestamp
+                  relative={relative}
+                  absolute={absolute}
+                  className="tabular-nums font-mono text-micro text-[color:var(--text-muted)]"
+                />
               </li>
             )
           })}
@@ -2129,7 +2198,7 @@ function DiffLineRow({ line }: { line: SprintEngineTaskDiffLine }) {
 function ChangedFileDiff({ diff }: { diff: SprintEngineTaskDiff }) {
   if (diff.hunks.length === 0) {
     return (
-      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-meta text-[color:var(--text-disabled)]">
+      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-meta text-[color:var(--text-muted)]">
         No hunks captured for this file.
       </div>
     )
@@ -2161,7 +2230,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
 
   if (diffs.length === 0) {
     return (
-      <div className="text-meta text-[color:var(--text-disabled)]">
+      <div className="text-meta text-[color:var(--text-muted)]">
         Diff capture unavailable. Republish the task or check the worker log.
       </div>
     )
@@ -2302,9 +2371,11 @@ function TaskItemPointer({
 
   if (!pointer.onOpen) {
     return (
-      <div className={layout} title={pointer.title}>
-        {body}
-      </div>
+      <Tooltip content={pointer.title} placement="top" wrapperClassName="block">
+        <div className={`${layout} ${FOCUS_RING_CLASS}`} tabIndex={0}>
+          {body}
+        </div>
+      </Tooltip>
     )
   }
   return (
@@ -2345,14 +2416,22 @@ function TaskExecutionFacts({ task }: { task: SprintEngineTask }) {
 }
 
 function TaskFact({ term, value, title }: { term: string; value: string; title?: string }) {
+  const valueClass = 'mt-0.5 font-mono text-micro text-[color:var(--text-default)] [overflow-wrap:anywhere]'
   return (
     <div className="min-w-0">
       <dt className="text-micro text-[color:var(--text-subtle)]">{term}</dt>
-      <dd
-        className="mt-0.5 font-mono text-micro text-[color:var(--text-default)] [overflow-wrap:anywhere]"
-        title={title || undefined}
-      >
-        {value}
+      <dd className={valueClass}>
+        {title ? (
+          // The paths behind a module list ride the product tooltip on a
+          // focusable value, not a native `title` (tooltip/component.md).
+          <Tooltip content={title} placement="top" multiline>
+            <span className={`rounded-xs ${FOCUS_RING_CLASS}`} tabIndex={0}>
+              {value}
+            </span>
+          </Tooltip>
+        ) : (
+          value
+        )}
       </dd>
     </div>
   )
@@ -2371,7 +2450,7 @@ function ActivitySparkline({ bars, label }: { bars: ActivitySparkBar[]; label: s
         // rectangle rather than a chart.
         <span
           key={index}
-          className={`flex-1 rounded-[1px] bg-[color:var(--accent-primary)] ${
+          className={`flex-1 bg-[color:var(--accent-primary)] ${
             bar.recent ? '' : 'opacity-25'
           }`}
           // A quiet bucket still paints its baseline. A bucket of literally no
@@ -2802,23 +2881,25 @@ export function SprintEngineInspectorPanel({
         />
         <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
           <div className="flex flex-wrap gap-1.5">
+            {/* Two kit buttons, not a hand-rolled accent-tinted fourth variant
+                at 28px (2026-09-02 audit): Spawn is this pane's one primary,
+                Open terminal is the outline secondary. */}
             {hasLiveTerminal ? (
-              <button
-                type="button"
+              <OutlineButton
+                size="xs"
                 onClick={() => onOpenAgentTerminal(agent.id)}
                 disabled={Boolean(terminalActionsUnavailable)}
                 aria-label={
                   terminalActionsUnavailable
-                    ? `Open Terminal — unavailable: ${terminalActionsUnavailable}`
+                    ? `Open terminal — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className={`h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-micro font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
               >
-                Open Terminal
-              </button>
+                Open terminal
+              </OutlineButton>
             ) : (
-              <button
-                type="button"
+              <PrimaryButton
+                size="xs"
                 onClick={() => onSpawnAgent(agent.id)}
                 disabled={Boolean(terminalActionsUnavailable)}
                 aria-label={
@@ -2826,17 +2907,16 @@ export function SprintEngineInspectorPanel({
                     ? `Spawn — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className={`h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
               >
                 Spawn
-              </button>
+              </PrimaryButton>
             )}
           </div>
         </div>
 
         <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Currently Working On</div>
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Currently working on</h3>
             {currentTask ? (
               <button
                 type="button"
@@ -2852,9 +2932,9 @@ export function SprintEngineInspectorPanel({
           </div>
 
           <div>
-            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
+            <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">
               Tasks worked on ({workedOnTasks.length})
-            </div>
+            </h3>
             <AgentWorkedOnTasksList worked={workedOnTasks} onSelectTask={onSelectTask} />
           </div>
 
@@ -3131,7 +3211,7 @@ function SprintEngineTaskBody({
           reachable, never deleted — agents read the full metadata and the run
           statistics are built from it. */}
       <details className="group">
-        <summary className="cursor-pointer list-none text-micro font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+        <summary className={`cursor-pointer list-none rounded-xs text-micro font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}>
           <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
           More
         </summary>

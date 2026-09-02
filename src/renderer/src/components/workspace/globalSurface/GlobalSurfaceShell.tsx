@@ -1,7 +1,7 @@
 import React, { useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
-import { CloseIconButton, FOCUS_RING_CLASS } from '../../ui'
+import { CloseIconButton, IconButton } from '../../ui'
 import { SIDEBAR_DEFAULT_WIDTH } from '../sidebarWidth'
 import { useContextRailSlot } from './contextRail'
 import { useGlobalSurfaceBarSlot } from './surfaceBarSlot'
@@ -84,7 +84,7 @@ function ModalSurfaceBar({
   onClose: () => void
 }): JSX.Element {
   return (
-    <div className="flex shrink-0 items-center gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3.5">
+    <div className="flex shrink-0 items-center gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3">
       <h2 className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">
         {title}
       </h2>
@@ -292,17 +292,19 @@ export function GlobalSurfaceShell({
 // the gutter line, and the LEADING EDGE OF THE BAR keeps the alignment the title
 // used to keep alone. The inline fallback bar has no gutter to align to, so it
 // takes the plain box.
+// The kit's `IconButton` (26px, the one icon-button size) rather than a hand
+// 24px box: the chevron used to be the only icon control in the strip at its
+// own size, radius and hover recipe.
 function BarBackChevron({ onBack, inGutter = false }: { onBack: () => void; inGutter?: boolean }): JSX.Element {
   return (
-    <button
-      type="button"
+    <IconButton
       onClick={onBack}
       aria-label="Back"
-      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${inGutter ? '-ml-2' : ''} ${FOCUS_RING_CLASS}`}
+      className={`shrink-0 ${inGutter ? '-ml-2' : ''}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
         <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </button>
+    </IconButton>
   )
 }

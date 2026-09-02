@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState, type OverflowMenuItem } from '../ui'
+import { ContextMenu, EmptyState, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -1521,8 +1521,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!folderPath) {
     return (
-      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-meta text-[color:var(--text-disabled)]">
-        Open a folder to use Git controls.
+      <div className="h-full bg-[color:var(--bg-surface)]">
+        <EmptyState title="Open a folder to use Git controls." />
       </div>
     )
   }
@@ -1537,11 +1537,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!repoRoot) {
     return (
-      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-meta text-[color:var(--text-disabled)]">
-        This folder is not a Git repository.
+      <div className="h-full bg-[color:var(--bg-surface)]">
+        <EmptyState title="This folder is not a Git repository." />
       </div>
     )
   }
+
+  // The view strip is the kit's `Tabs` (one tab stop, arrow keys, `aria-controls`
+  // onto real `tabpanel`s) rather than the panel's own `role="tab"` buttons,
+  // which had no keyboard model at all (2026-09-02 audit). Counts ride the
+  // item, so the strip reads exactly as before.
+  const gitTabsIdPrefix = `git-panel-${workspaceId}`
+  const gitViewTabs: TabItem<GitPanelView>[] = [
+    { id: 'changes', label: 'Changes', count: allEntries.length },
+    { id: 'worktrees', label: 'Worktrees', count: worktreeCount },
+    { id: 'log', label: 'Log', count: totalCommitCount },
+    { id: 'stashes', label: 'Stashes', count: stashes.length },
+    { id: 'terminal', label: 'Terminal' },
+  ]
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
@@ -1596,7 +1609,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
            * between, so the row never appears and the panel is unchanged.
            */}
           {workspaceWorktrees.length > 1 ? (
-            <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2" title={activeRepoRoot ?? undefined}>
+            <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
               <span className="text-micro text-[color:var(--text-subtle)]">Project</span>
               <Select<string>
                 ariaLabel="Active project"
@@ -1639,7 +1652,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           {worktreeCount > 0 && activeView !== 'worktrees' ? (
             <div
               className={`grid ${activeScope?.kind === 'worktree' ? 'grid-cols-[4rem_minmax(0,1fr)_auto]' : 'grid-cols-[4rem_minmax(0,1fr)]'} items-center gap-2`}
-              title={activeScopePath}
             >
               <span className="text-micro text-[color:var(--text-subtle)]">Worktree</span>
               <Select<string>
@@ -1697,40 +1709,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
          * four tabs (Terminal clipped past the right edge), and Stashes made it
          * five. Tabs stay shrink-0 so they scroll rather than squeeze.
          */}
-        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">
-          <GitPanelTab
-            active={activeView === 'changes'}
-            label="Changes"
-            count={allEntries.length}
-            onClick={() => setActiveView('changes')}
-          />
-          <GitPanelTab
-            active={activeView === 'worktrees'}
-            label="Worktrees"
-            count={worktreeCount}
-            onClick={() => setActiveView('worktrees')}
-          />
-          <GitPanelTab
-            active={activeView === 'log'}
-            label="Log"
-            count={totalCommitCount}
-            onClick={() => setActiveView('log')}
-          />
-          <GitPanelTab
-            active={activeView === 'stashes'}
-            label="Stashes"
-            count={stashes.length}
-            onClick={() => setActiveView('stashes')}
-          />
-          <GitPanelTab
-            active={activeView === 'terminal'}
-            label="Terminal"
-            onClick={() => setActiveView('terminal')}
+        <div className="shrink-0 overflow-x-auto bg-[color:var(--bg-surface)]">
+          <Tabs<GitPanelView>
+            ariaLabel="Git panel views"
+            idPrefix={gitTabsIdPrefix}
+            items={gitViewTabs}
+            value={activeView}
+            onChange={setActiveView}
+            className="px-3"
           />
         </div>
 
-        {activeView === 'changes' ? (
-          <>
+        <TabPanel idPrefix={gitTabsIdPrefix} tabId="changes" active={activeView === 'changes'} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (
                 <div className="py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
@@ -1774,19 +1764,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               scopeLabel={activeScopeLabel}
               scopePath={activeScopePath}
             />
-          </>
-        ) : activeView === 'worktrees' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <WorktreeManager
-              workspaceId={workspaceId}
-              repoRoot={mainRepoRoot ?? repoRoot}
-              currentBranch={branches?.current ?? null}
-              branchOptions={branchOptions.map((branch) => branch.name)}
-              mode="tab"
-              onChanged={refreshAll}
-            />
-          </div>
-        ) : activeView === 'log' ? (
+        </TabPanel>
+        <TabPanel idPrefix={gitTabsIdPrefix} tabId="worktrees" active={activeView === 'worktrees'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <WorktreeManager
+            workspaceId={workspaceId}
+            repoRoot={mainRepoRoot ?? repoRoot}
+            currentBranch={branches?.current ?? null}
+            branchOptions={branchOptions.map((branch) => branch.name)}
+            mode="tab"
+            onChanged={refreshAll}
+          />
+        </TabPanel>
+        <TabPanel idPrefix={gitTabsIdPrefix} tabId="log" active={activeView === 'log'} className="flex min-h-0 flex-1 flex-col">
           <GitGraphView
             state={graph}
             currentBranch={branches?.current ?? null}
@@ -1795,24 +1784,25 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             onReturnToBranch={(branch) => void handleSwitchBranch(branch)}
             onLoadMore={() => void handleLoadMoreGraph()}
             loadingMore={loadingMoreGraph}
+            onRetry={() => void refreshGraph()}
           />
-        ) : activeView === 'stashes' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <StashList
-              stashes={stashes}
-              busy={busy}
-              onApply={(entry, pop) => void handleStashApply(entry, pop)}
-              onDrop={(entry) => void handleStashDrop(entry)}
-            />
-          </div>
-        ) : (
+        </TabPanel>
+        <TabPanel idPrefix={gitTabsIdPrefix} tabId="stashes" active={activeView === 'stashes'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <StashList
+            stashes={stashes}
+            busy={busy}
+            onApply={(entry, pop) => void handleStashApply(entry, pop)}
+            onDrop={(entry) => void handleStashDrop(entry)}
+          />
+        </TabPanel>
+        <TabPanel idPrefix={gitTabsIdPrefix} tabId="terminal" active={activeView === 'terminal'} className="flex min-h-0 flex-1 flex-col">
           <GitTerminalView
             key={`${workspaceId}:${repoRoot}`}
             workspaceId={workspaceId}
             repoRoot={repoRoot}
             terminalId={`git-${workspaceId}-${terminalIdPart(activeScope?.id ?? repoRoot)}`}
           />
-        )}
+        </TabPanel>
       </div>
 
       {/*
@@ -1870,41 +1860,6 @@ function GitPanelSkeleton(): JSX.Element {
         ))}
       </div>
     </div>
-  )
-}
-
-function GitPanelTab({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean
-  label: string
-  count?: number
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      // Not a `GhostButton`: a tab carries `role="tab"` and an active state the
-      // button primitives do not model. What it does take is the kit's geometry
-      // — `control-sm` and the 5px radius — so the strip stops running the
-      // panel's private 28px/6px ramp beside kit controls two rows away.
-      className={`inline-flex h-control-sm shrink-0 items-center gap-1.5 rounded-[5px] px-2 text-meta font-semibold transition-colors ${FOCUS_RING_CLASS} ${
-        active
-          ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-      }`}
-    >
-      <span>{label}</span>
-      {typeof count === 'number' ? (
-        <span className={active ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'}>{count}</span>
-      ) : null}
-    </button>
   )
 }
 
@@ -1972,7 +1927,7 @@ function ConflictGroup({
                 <InboxRow
                   hideDot
                   title={title}
-                  trailing={<span className="font-mono text-micro font-bold opacity-80">!</span>}
+                  trailing={<span className="font-mono text-micro font-semibold opacity-80">!</span>}
                   onSelect={() => void onOpenFile(entry)}
                   ariaLabel={`Open ${entry.relativePath}, conflicted`}
                 />
@@ -2013,11 +1968,7 @@ function StashList({
   onDrop: (entry: GitStashEntry) => void
 }) {
   if (stashes.length === 0) {
-    return (
-      <div className="py-2 text-meta text-[color:var(--text-subtle)]">
-        No stashes — park the working tree with “Stash all changes” from the Unstaged menu on the Changes tab.
-      </div>
-    )
+    return <EmptyState density="list" title="No stashes" />
   }
 
   return (
@@ -2031,11 +1982,13 @@ function StashList({
          */}
         {stashes.map((entry) => (
           <div key={entry.ref} className="group/row flex flex-col py-1">
-            <span className="min-w-0 truncate text-meta text-[color:var(--text-default)]" title={entry.message}>
-              {entry.message || 'Stashed changes'}
-            </span>
+            <TruncatedText
+              as="span"
+              text={entry.message || 'Stashed changes'}
+              className="min-w-0 text-meta text-[color:var(--text-default)]"
+            />
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className="flex min-w-[7rem] flex-1 items-center gap-1.5 overflow-hidden text-micro text-[color:var(--text-disabled)]">
+              <span className="flex min-w-[7rem] flex-1 items-center gap-1.5 overflow-hidden text-micro text-[color:var(--text-muted)]">
                 <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{entry.ref}</span>
                 {entry.branch ? (
                   <>
@@ -2145,7 +2098,7 @@ function ChangeGroup({
         ) : null}
       </div>
       {group.entries.length === 0 ? (
-        <div className="py-1.5 text-micro text-[color:var(--text-disabled)]">{group.empty}</div>
+        <div className="py-1.5 text-micro text-[color:var(--text-muted)]">{group.empty}</div>
       ) : (
         <>
           <div className="space-y-1">
@@ -2172,7 +2125,7 @@ function ChangeGroup({
                 </span>
               )
               const trailing = appearance.badge ? (
-                <span className="font-mono text-micro font-bold opacity-80">{appearance.badge}</span>
+                <span className="font-mono text-micro font-semibold opacity-80">{appearance.badge}</span>
               ) : null
               const rowKey = changeSelectionKey(group.scope, entry.path)
               const rowSelected = selectedKeys.has(rowKey)
@@ -2319,13 +2272,22 @@ function CommitComposer({
       <div className="mb-2 min-w-0 text-micro text-[color:var(--text-subtle)]">
         <span className="font-medium text-[color:var(--text-muted)]">Commit scope</span>
         <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
-        <span className="font-mono" title={scopePath}>{scopeLabel}</span>
+        {/* The full path is a product tooltip on a keyboard-reachable trigger,
+            not a native `title` on a span nobody can tab to. */}
+        <Tooltip content={scopePath} multiline>
+          <span tabIndex={0} className={`rounded-xs font-mono ${FOCUS_RING_CLASS}`}>
+            {scopeLabel}
+          </span>
+        </Tooltip>
       </div>
-      <textarea
+      <Textarea
+        size="sm"
+        resize="none"
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Commit message"
-        className={`h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+        aria-label="Commit message"
+        className="h-16"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">

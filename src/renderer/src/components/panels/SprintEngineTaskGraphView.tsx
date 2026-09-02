@@ -10,9 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  SprintEngineRoleId,
   SprintEngineState,
-  SprintEngineTask,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskStatus,
 } from '../../types/workspace'
@@ -27,7 +25,8 @@ import {
 } from '../../utils/sprintengine'
 import { formatSprintEngineGoal } from '../../utils/sprintengineRunSummary'
 import { isEditableTarget } from '../../utils/keyboard'
-import { EmptyState, PanelHeader, Tooltip, TruncatedText } from '../ui'
+import { EmptyState, IconButton, LifecycleGlyph, PanelHeader, Tooltip, TruncatedText } from '../ui'
+import { taskBoardColumnToLifecycle } from '../../../../shared/sprintengine/state'
 import {
   buildTaskGraphLayout,
   defaultTaskGraphZoom,
@@ -36,7 +35,6 @@ import {
   maxTaskGraphZoom,
   minTaskGraphZoom,
   taskGraphEdgePath,
-  taskGraphStatusTone,
   type TaskGraphZoomAnchor,
 } from './sprintEngineTaskGraph'
 
@@ -137,30 +135,15 @@ function taskGraphNodeStatusLabel(
  return sprintEngineTaskStateLabel[taskStatus]
 }
 
-function taskGraphNodeStyle(
- task: SprintEngineTask,
- ownerRole: SprintEngineRoleId | null | undefined,
- focused: boolean,
- selected: boolean
-): React.CSSProperties {
- const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role ?? null)
- const statusAccent =
- task.status === 'done'
- ? 'var(--tone-good)'
- : task.status === 'needs_input'
- ? 'var(--tone-warn)'
- : roleAccent
-
- // statusAccent may be a CSS variable, which hexToRgba cannot parse (it
- // returned rgba(NaN,…) for done/needs_input nodes) — color-mix takes both.
- return {
- borderColor:
- selected || focused
- ? `color-mix(in srgb, ${statusAccent} 82%, transparent)`
- : 'var(--border-strong)',
- backgroundColor: 'var(--bg-surface-raised)',
- boxShadow: selected ? `0 0 0 3px color-mix(in srgb, ${statusAccent} 14%, transparent)` : undefined,
- }
+// Selection and hover on a graph node speak the same language as every list
+// row (ruling 7, 2026-09-02): selected is `--bg-selected` on a strong hairline,
+// hover is a background change, focus is the one ring. The role hue lives only
+// on the swatch beside the role label; it never reaches the node's chrome, and
+// there is no glow, no tone-coloured border and no scale.
+function taskGraphNodeClass(selected: boolean): string {
+ return selected
+ ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
+ : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)]'
 }
 
 export function SprintEngineTaskGraphView({
@@ -482,7 +465,7 @@ export function SprintEngineTaskGraphView({
  return (
  <div
  key={node.id}
- className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden [content-visibility:auto] [contain-intrinsic-size:252px_154px] rounded-lg border-2 border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
+ className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden [content-visibility:auto] [contain-intrinsic-size:252px_154px] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
  style={{
  left: node.x,
  top: node.y,
@@ -490,7 +473,7 @@ export function SprintEngineTaskGraphView({
  minHeight: node.height,
  }}
  >
- <div className="flex items-center gap-1.5 text-micro font-bold text-[color:var(--tone-good)]">
+ <div className="flex items-center gap-1.5 text-micro font-semibold text-[color:var(--tone-good)]">
  <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
  <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
@@ -533,32 +516,24 @@ export function SprintEngineTaskGraphView({
  data-task-graph-node={task.id}
  onClick={() => onSelectTask(task.id)}
  aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus-visible:focus-ring ${
+ className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-sm border p-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus-visible:focus-ring ${taskGraphNodeClass(isSelected)} ${
  isSelected || isFocused ? 'z-10' : 'z-0'
  }`}
  style={{
- ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
  left: node.x,
  top: node.y,
  width: node.width,
  minHeight: node.height,
  }}
  >
- {/* The node's role band, swatch and label are the role itself: a task
- with none renders neither, rather than a neutral stand-in (MC-2055). */}
- {task.role ? (
- <span
- aria-hidden="true"
- className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
- style={{
- backgroundColor: getSprintEngineRoleAccent(task.role),
- }}
- />
- ) : null}
- <div className="flex items-start justify-between gap-3 pl-2">
+ {/* The node's role swatch and label are the role itself: a task with
+ none renders neither, rather than a neutral stand-in (MC-2055). The
+ role-accent left bar that used to sit beside them is gone (ruling 7):
+ the swatch is the role's one carrier on the node. */}
+ <div className="flex items-start justify-between gap-3">
  <div className="min-w-0">
  <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
- <div className="mt-1 flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-disabled)]">
+ <div className="mt-1 flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
  <span>{task.id}</span>
  {task.role ? (
  <>
@@ -576,10 +551,12 @@ export function SprintEngineTaskGraphView({
  ) : null}
  </div>
  </div>
- <span
- className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-micro font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
- >
- {taskGraphNodeStatusLabel(task.status, boardColumn)}
+ {/* One status idiom: the shared lifecycle glyph beside the word, in
+ neutral ink — the tinted pill that used to sit here said the same
+ thing a second time, by colour (ruling 7). */}
+ <span className="flex max-w-[112px] shrink-0 items-center gap-1 text-micro font-medium text-[color:var(--text-muted)]">
+ <LifecycleGlyph state={taskBoardColumnToLifecycle(boardColumn)} live={false} />
+ <span className="min-w-0 truncate">{taskGraphNodeStatusLabel(task.status, boardColumn)}</span>
  </span>
  </div>
 
@@ -587,10 +564,10 @@ export function SprintEngineTaskGraphView({
  as="p"
  multiline
  text={task.description || 'No description recorded.'}
- className="mt-3 line-clamp-2 pl-2 text-meta leading-5 text-[color:var(--text-muted)]"
+ className="mt-3 line-clamp-2 text-meta leading-5 text-[color:var(--text-muted)]"
  />
 
- <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-micro text-[color:var(--text-disabled)]">
+ <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-micro text-[color:var(--text-muted)]">
  <span>
  {dependencyLabel}
  </span>
@@ -800,15 +777,13 @@ export function SprintEngineTaskGraphView({
         primaryAction={
           <div className="flex items-center gap-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5">
             <Tooltip content="Zoom out">
-              <button
-                type="button"
+              <IconButton
                 onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
                 disabled={!canZoomOut}
-                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
                 aria-label="Zoom out task graph"
               >
                 <ZoomOutSprintEngineIcon />
-              </button>
+              </IconButton>
             </Tooltip>
             <div
               className="min-w-[2.75rem] px-1 text-center text-micro font-semibold tabular-nums text-[color:var(--text-default)]"
@@ -817,37 +792,28 @@ export function SprintEngineTaskGraphView({
               {zoomPercent}%
             </div>
             <Tooltip content="Zoom in">
-              <button
-                type="button"
+              <IconButton
                 onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
                 disabled={!canZoomIn}
-                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
                 aria-label="Zoom in task graph"
               >
                 <ZoomInSprintEngineIcon />
-              </button>
+              </IconButton>
             </Tooltip>
             <span className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" aria-hidden="true" />
             <Tooltip content="Fit graph">
-              <button
-                type="button"
-                onClick={fitGraphToViewport}
-                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                aria-label="Fit task graph to viewport"
-              >
+              <IconButton onClick={fitGraphToViewport} aria-label="Fit task graph to viewport">
                 <FitGraphZoomIcon />
-              </button>
+              </IconButton>
             </Tooltip>
             <Tooltip content="Reset zoom">
-              <button
-                type="button"
+              <IconButton
                 onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
                 disabled={!canResetZoom}
-                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
                 aria-label="Reset task graph zoom"
               >
                 <ResetGraphZoomIcon />
-              </button>
+              </IconButton>
             </Tooltip>
           </div>
         }
@@ -924,13 +890,13 @@ export function SprintEngineTaskGraphView({
  </div>
 
  {taskCount > 0 ? (
- <div className="pointer-events-none absolute bottom-3 left-3 z-30">
+ <div className="pointer-events-none absolute bottom-3 left-3 z-[var(--z-float)]">
  <div className="pointer-events-auto inline-flex flex-col items-start">
  <button
  type="button"
  onClick={() => setLegendOpen((open) => !open)}
  aria-expanded={legendOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-bold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
  >
  Legend
  <svg
@@ -947,7 +913,7 @@ export function SprintEngineTaskGraphView({
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
  <div className="mt-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-micro shadow-[var(--shadow-drawer)]">
- <div className="text-micro font-bold text-[color:var(--text-disabled)]">
+ <div className="text-meta font-semibold text-[color:var(--text-muted)]">
  Status
  </div>
  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[color:var(--text-muted)]">
@@ -958,7 +924,6 @@ export function SprintEngineTaskGraphView({
  <TaskGraphLegendDot color="var(--text-muted)" label="Todo" />
  </div>
  <div className="mt-3 border-t border-[color:var(--border-default)] pt-2 text-micro leading-5 text-[color:var(--text-subtle)]">
- <div>Left bar &middot; role accent</div>
  <div>Edge color &middot; dependency state (green when complete)</div>
  </div>
  </div>
@@ -968,13 +933,13 @@ export function SprintEngineTaskGraphView({
  ) : null}
 
  {taskCount > 0 ? (
- <div className="pointer-events-none absolute bottom-3 right-3 z-30">
+ <div className="pointer-events-none absolute bottom-3 right-3 z-[var(--z-float)]">
  <div className="pointer-events-auto inline-flex flex-col items-end">
  <button
  type="button"
  onClick={() => setMinimapOpen((open) => !open)}
  aria-expanded={minimapOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-bold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
  >
  Minimap
  <svg
@@ -992,7 +957,7 @@ export function SprintEngineTaskGraphView({
  // graph-overlay disclosure card so canvas pan/zoom keeps working.
  <div className="mt-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 shadow-[var(--shadow-drawer)]">
  <div
- className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-surface)]"
+ className="relative cursor-crosshair overflow-hidden rounded-sm bg-[color:var(--bg-surface)]"
  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}
  onPointerDown={(event) => {
  if (event.button !== 0) return

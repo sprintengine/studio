@@ -36,7 +36,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineNotice, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -2040,7 +2040,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         )}
       </div>
 
-      <div className="relative px-4 pb-3.5 pt-1">
+      <div className="relative px-4 pb-4 pt-1">
         {slashPickerActive ? (
           <InlineSkillPicker
             ref={slashPickerRef}
@@ -2055,13 +2055,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           />
         ) : null}
         {!atBottom && timelineRows.length > 0 ? (
-          <button
-            type="button"
+          <OutlineButton
+            size="xs"
             onClick={jumpToLatest}
-            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-meta font-medium text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]"
+            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
           >
             {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
-          </button>
+          </OutlineButton>
         ) : null}
         <ConversationPendingDock
           pendingApproval={pendingApprovalEntry}
@@ -2109,7 +2109,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * silent, invisible pending action.
          */}
         {queuedTurn ? (
-          <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
             <div className="flex min-w-0 items-baseline gap-2">
               <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
               <TruncatedText
@@ -2135,7 +2135,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * placeholder says why the composer is waiting.
          */}
         <div
-          className={`relative rounded-xl border bg-[color:var(--bg-surface)] transition-colors ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative rounded-lg border bg-[color:var(--bg-surface)] transition-colors ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -2173,7 +2173,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           {dropActive && imagesEnabled ? (
             // Opaque, not a scrim: the field's own text ghosting through the
             // drop state reads as a rendering artifact rather than a state.
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
           ) : null}
@@ -2252,14 +2252,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                     }}
                   />
                   <Tooltip content="Attach an image" placement="top">
-                    <button
-                      type="button"
+                    <IconButton
                       aria-label="Attach an image"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center rounded-md p-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
                     >
                       <PaperclipGlyph className="icon-sm" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </>
               ) : null}
@@ -2314,7 +2312,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 onClick={() => void interrupt()}
                 disabled={stopDisabledForPending(pending)}
               >
-                <StopGlyph className="icon-sm" />
+                <StopGlyph className="icon-sm shrink-0" />
               </ComposerActionButton>
             ) : (
               <ComposerActionButton
@@ -2323,7 +2321,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 onClick={submitComposer}
                 disabled={sendAction.disabled}
               >
-                <SendArrowGlyph className="icon-sm" />
+                <SendArrowGlyph className="icon-sm shrink-0" />
               </ComposerActionButton>
             )}
           </div>
@@ -2382,7 +2380,7 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   const nearFull = fraction >= 0.9
   return (
     <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
-      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
+      <span className="inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
         <svg className="icon-sm -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--border-strong)" strokeWidth="2" />
           <circle
@@ -2574,7 +2572,7 @@ export function PermissionPresetPill({
             ref={ref}
             type="button"
             onClick={togglePopover}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
               preset === 'bypass' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
             }`}
             {...triggerProps}
@@ -2635,7 +2633,7 @@ function ModelPickerPill({
   if (locked) {
     return (
       <Tooltip content="Model is fixed once the conversation starts" placement="top">
-        <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
+        <span className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
           <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
           <span className="max-w-[200px] truncate">{label}</span>
         </span>
@@ -2669,7 +2667,7 @@ function ModelPickerPill({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >
           <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
@@ -2758,7 +2756,7 @@ function ModelPickerPill({
                       <button
                         type="button"
                         onClick={() => onAddKey(group.providerId)}
-                        className="rounded px-2 py-1 text-meta font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                        className={`rounded-sm px-2 py-1 text-meta font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                       >
                         Add key in Settings
                       </button>
@@ -2779,10 +2777,13 @@ function ModelPickerPill({
                       aria-checked={isCurrent}
                       disabled={Boolean(group.unavailable)}
                       onClick={() => onSelect(group.providerId, model.id)}
-                      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors disabled:cursor-default disabled:opacity-45 ${
+                      // The menu canon carries the row geometry, the hover
+                      // fill, the disabled state and the inset focus ring; the
+                      // row only adds its ink and the checked fill.
+                      className={`${MENU_ITEM_CLASS} ${
                         isCurrent
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-default)]'
+                          : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] disabled:hover:text-[color:var(--text-default)]'
                       }`}
                     >
                       <TruncatedText as="span" text={model.displayName ?? model.id} className="min-w-0 flex-1" />
@@ -2801,9 +2802,13 @@ function ModelPickerPill({
   )
 }
 
-// Square composer action (30px, rounded-8 per the approved mockup):
-// accent-filled send, or a bordered neutral stop while a turn streams. Flat
-// fill only — no gradient/shadow — per the app-shell button rules.
+// Square composer action (30px): the accent-filled send, or a neutral stop
+// while a turn streams. Built from the kit rather than by hand (2026-09-02
+// audit, ruling 9): the send is the composer's ONE primary — `PrimaryButton`
+// squared to the control-sm step — and the stop is the kit's 30px `IconButton`,
+// so radius, focus ring, hover and the 45% disabled step all come from
+// `Buttons.tsx` instead of a private recipe. The bordered `bg-hover` /
+// `bg-active` neutral this used to draw was a fourth button variant.
 function ComposerActionButton({
   tone,
   ariaLabel,
@@ -2817,27 +2822,23 @@ function ComposerActionButton({
   disabled?: boolean
   children: React.ReactNode
 }) {
-  // On-accent ink is `--text-on-accent`, never `--bg-app`. The two coincide on
-  // the dark default, which is why painting the send glyph with the app canvas
-  // looked right — and why it went invisible on every theme where the canvas is
-  // not the on-accent colour (MC-2113). Geometry comes off the ramp for the
-  // same reason: a `control-sm` square at the kit's 5px radius rather than a
-  // typed `h-[30px]` at Tailwind's 8px `rounded-lg`, and the primitives' 45%
-  // disabled step rather than a private 40%.
-  const toneClass =
-    tone === 'accent'
-      ? 'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
-      : 'border border-[color:var(--border-default)] bg-[color:var(--bg-hover)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)] disabled:hover:bg-[color:var(--bg-hover)]'
+  if (tone === 'accent') {
+    return (
+      <PrimaryButton
+        size="sm"
+        aria-label={ariaLabel}
+        onClick={onClick}
+        disabled={disabled}
+        className="w-control-sm shrink-0"
+      >
+        {children}
+      </PrimaryButton>
+    )
+  }
   return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex size-control-sm shrink-0 items-center justify-center rounded-[5px] transition-colors disabled:cursor-default disabled:opacity-45 ${toneClass}`}
-    >
+    <IconButton size="md" aria-label={ariaLabel} onClick={onClick} disabled={disabled} className="shrink-0">
       {children}
-    </button>
+    </IconButton>
   )
 }
 
@@ -3016,9 +3017,9 @@ function DockShell({
       aria-label={ariaLabel}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="mb-2 max-h-[60vh] overflow-y-auto rounded-xl border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] outline-none"
+      className="mb-2 max-h-[60vh] overflow-y-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] outline-none"
     >
-      <div className="flex items-center gap-2 px-3.5 pt-2.5">
+      <div className="flex items-center gap-2 px-4 pt-2.5">
         {/* Decorative: the eyebrow beside it is the same string, so a labelled
             dot would announce the state twice. */}
         <StatusDot tone={dotTone} />
@@ -3027,7 +3028,7 @@ function DockShell({
         </span>
       </div>
       {children}
-      <div className="flex items-center gap-2.5 px-3.5 pb-3 pt-2">
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
         {hints ? <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span> : null}
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
@@ -3037,7 +3038,7 @@ function DockShell({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded border border-b-2 border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-1 py-px font-sans text-micro font-medium leading-none text-[color:var(--text-muted)]">
+    <kbd className="rounded-xs border border-b-2 border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-1 py-px font-sans text-micro font-medium leading-none text-[color:var(--text-muted)]">
       {children}
     </kbd>
   )
@@ -3152,24 +3153,24 @@ function ConversationPermissionCard({
           >
             Deny
           </OutlineButton>
-          <PrimaryButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
+          <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve <Kbd>⏎</Kbd>
-          </PrimaryButton>
+          </OutlineButton>
         </>
       }
     >
       {command ? (
-        <div className="mx-3.5 mt-2 overflow-x-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-meta text-[color:var(--terminal-fg)]">
+        <div className="mx-4 mt-2 overflow-x-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-meta text-[color:var(--terminal-fg)]">
           <span className="select-none text-[color:var(--accent-primary)]">$ </span>
           {command}
         </div>
       ) : (
-        <p className="px-3.5 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+        <p className="px-4 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           {entry.summary}
         </p>
       )}
       {workspaceName ? (
-        <div className="flex items-center gap-1.5 px-3.5 pt-1.5 text-meta text-[color:var(--text-subtle)]">
+        <div className="flex items-center gap-1.5 px-4 pt-1.5 text-meta text-[color:var(--text-subtle)]">
           <FolderGlyph className="icon-xs" />
           in {workspaceName}
         </div>
@@ -3222,18 +3223,18 @@ function ConversationPlanCard({
           >
             Keep planning
           </OutlineButton>
-          <PrimaryButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
+          <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve plan <Kbd>⏎</Kbd>
-          </PrimaryButton>
+          </OutlineButton>
         </>
       }
     >
       {entry.plan?.trim() ? (
-        <div className="mx-3.5 mt-2 max-h-64 overflow-y-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-meta leading-5">
+        <div className="mx-4 mt-2 max-h-64 overflow-y-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-meta leading-5">
           {renderMarkdown(entry.plan)}
         </div>
       ) : (
-        <p className="px-3.5 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
+        <p className="px-4 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
       )}
     </DockShell>
   )
@@ -3361,13 +3362,13 @@ function ConversationQuestionCard({
           >
             Dismiss
           </OutlineButton>
-          <PrimaryButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
+          <OutlineButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
             {isLast ? 'Answer' : 'Next'} <Kbd>⏎</Kbd>
-          </PrimaryButton>
+          </OutlineButton>
         </>
       }
     >
-      <p className="px-3.5 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+      <p className="px-4 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
         {question.question}
       </p>
       <div
@@ -3386,7 +3387,7 @@ function ConversationQuestionCard({
               aria-checked={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
-              className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+              className={`flex items-start gap-2.5 rounded-sm px-2.5 py-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
                 checked
                   ? 'bg-[color:var(--bg-selected)]'
                   : 'hover:bg-[color:var(--bg-hover)]'
@@ -3395,7 +3396,7 @@ function ConversationQuestionCard({
               {index < 9 ? (
                 <span
                   aria-hidden="true"
-                  className={`mt-0.5 shrink-0 rounded border px-1 py-px font-mono text-micro font-medium leading-none ${
+                  className={`mt-0.5 shrink-0 rounded-xs border px-1 py-px font-mono text-micro font-medium leading-none ${
                     checked
                       ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
                       : 'border-[color:var(--border-strong)] text-[color:var(--text-subtle)]'
@@ -3424,7 +3425,7 @@ function ConversationQuestionCard({
         })}
       </div>
       {question.allowFreeText !== false ? (
-        <div className="px-[18px] pb-1 pt-1.5">
+        <div className="px-5 pb-1 pt-1.5">
           <input
             type="text"
             value={otherText[question.question] ?? ''}
@@ -3446,7 +3447,7 @@ function ConversationQuestionCard({
             placeholder="Something else…"
             disabled={busy}
             aria-label={`Other answer for: ${question.question}`}
-            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
+            className={`w-full rounded-sm border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
           />
         </div>
       ) : null}
@@ -3474,7 +3475,7 @@ export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { k
   const attachments = entry.attachments ?? []
   return (
     <div className="flex justify-end pb-6">
-      <div className="max-w-[76%] rounded-[10px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+      <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
         {attachments.length > 0 ? (
           <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
@@ -3482,7 +3483,7 @@ export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { k
                 key={attachment.id}
                 src={attachmentPreviewUrl(attachment)}
                 alt={attachment.name ?? 'Attached image'}
-                className="h-16 w-16 rounded-md border border-[color:var(--border-subtle)] object-cover"
+                className="h-16 w-16 rounded-sm border border-[color:var(--border-subtle)] object-cover"
               />
             ))}
           </div>
@@ -3532,7 +3533,7 @@ function AssistantTurnBlock({
           // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
           // muted label, no affordance — the model for a finished turn is fixed
           // exactly like the pill is once a conversation starts.
-          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)]">
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-sm bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)]">
             <ChatGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
           </span>
@@ -3569,7 +3570,7 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronRightGlyph className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`} />
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
@@ -3612,7 +3613,7 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronRightGlyph className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`} />
         {working ? (
@@ -3632,7 +3633,7 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className={`self-start rounded-sm px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3677,7 +3678,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-meta ${
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${
     running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
   }`
   const header = (
@@ -3713,7 +3714,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className={`${headerClass} transition-colors hover:bg-[color:var(--bg-hover)]`}
+          className={`${headerClass} transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
         >
           {header}
         </button>
@@ -3726,7 +3727,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className={`self-start rounded-sm px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3751,7 +3752,7 @@ function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
   return (
     <>
       <div
-        className={`relative flex items-baseline gap-2 rounded-md px-2 py-1 text-meta ${
+        className={`relative flex items-baseline gap-2 rounded-sm px-2 py-1 text-meta ${
           running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
@@ -3800,7 +3801,7 @@ function StepOutput({ output }: { output: string }) {
   const collapsed = !expanded && lines.length > STEP_OUTPUT_COLLAPSED_LINES
   const visible = collapsed ? lines.slice(0, STEP_OUTPUT_COLLAPSED_LINES) : lines
   return (
-    <div className="mb-1.5 ml-2 mt-0.5 overflow-hidden rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)]">
+    <div className="mb-1.5 ml-2 mt-0.5 overflow-hidden rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)]">
       <pre className="overflow-x-auto px-3 py-2 font-mono text-meta leading-[1.6] text-[color:var(--terminal-fg)]">
         {/* Matches a tick the test runner already printed into its own output:
             agent-authored text this pane only tones, never a glyph the product
@@ -3815,7 +3816,9 @@ function StepOutput({ output }: { output: string }) {
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="block w-full border-t border-[color:var(--border-subtle)] px-3 py-1 text-left text-micro text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
+          // Inset: the row is full-bleed inside an `overflow-hidden` block, so
+          // an outset ring would be clipped by it.
+          className={`block w-full border-t border-[color:var(--border-subtle)] px-3 py-1 text-left text-micro text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)] ${FOCUS_RING_INSET_CLASS}`}
         >
           {collapsed ? `Show ${lines.length - STEP_OUTPUT_COLLAPSED_LINES} more lines` : 'Show less'}
         </button>
@@ -3841,7 +3844,7 @@ function TurnErrorBlock({
     ? 'The session could not authenticate — usually a sign your sign-in expired. Run `claude login` in a terminal, then retry. Your message is kept; retrying resumes the same conversation.'
     : 'Something went wrong while responding. Your message is kept; retrying resumes the same conversation.'
   return (
-    <div className="mt-1 max-w-[68ch] rounded-[10px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
+    <div className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
       <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
         <StatusDot tone="error" label="Turn failed" />
         {chrome.assistantName} couldn’t finish this turn
@@ -3849,23 +3852,23 @@ function TurnErrorBlock({
       <p className="mb-2.5 mt-1 text-body leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
       <div className="flex items-center gap-2">
         {chrome.retryTurnId === entry.turnId ? (
-          <PrimaryButton size="sm" onClick={chrome.onRetry} disabled={chrome.retryDisabled}>
+          <OutlineButton size="sm" onClick={chrome.onRetry} disabled={chrome.retryDisabled}>
             Retry
-          </PrimaryButton>
+          </OutlineButton>
         ) : null}
         {detail ? (
           <button
             type="button"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((value) => !value)}
-            className="ml-auto text-meta text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
+            className={`ml-auto rounded-sm text-meta text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
           >
             {showDetails ? 'Hide details' : 'Show details'}
           </button>
         ) : null}
       </div>
       {showDetails && detail ? (
-        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2 font-mono text-micro leading-[1.6] text-[color:var(--text-subtle)]">
+        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2 font-mono text-micro leading-[1.6] text-[color:var(--text-subtle)]">
           {detail}
         </pre>
       ) : null}
@@ -3895,12 +3898,12 @@ export function ResolvedDecisions({ rows, className }: { rows: ConversationDecis
 function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRow, { kind: 'decisionGroup' }> }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-4">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-body font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
+        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-body font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronRightGlyph
           className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -3949,7 +3952,7 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
     </div>
   )
   return (
-    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-4">
       {entry.requestKind === 'question' && entry.questions?.length ? (
         <div className="space-y-2">
           {entry.questions.map((question) => {
@@ -4016,7 +4019,7 @@ function EmptyChatState({
   ]
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-      <ChatGlyph className="mb-3.5 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
+      <ChatGlyph className="mb-4 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
       <h2 className="mb-1 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
         Ask {assistantName} about this workspace
       </h2>
@@ -4029,7 +4032,7 @@ function EmptyChatState({
             key={suggestion.text}
             type="button"
             onClick={() => onSuggestion(suggestion.text)}
-            className="group flex items-center gap-2.5 rounded-[9px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]"
+            className={`group flex items-center gap-2.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
           >
             {suggestion.glyph}
             <span className="min-w-0 flex-1">{suggestion.text}</span>
@@ -4079,7 +4082,7 @@ function ReadinessState({
     && (readiness.kind === 'provider-unavailable' || readiness.kind === 'model-unavailable' || readiness.kind === 'missing-key')
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-      <ChatGlyph className="mb-3.5 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
+      <ChatGlyph className="mb-4 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
       <h2 className="mb-1 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{title}</h2>
       <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
         {readinessLabel(readiness)}

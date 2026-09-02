@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { FOCUS_RING_CLASS, Input, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { EmptyState, FOCUS_RING_CLASS, GhostButton, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -310,7 +310,7 @@ export default function MobileSettingsTab() {
       {/* Relay status line: dot + text, not a tinted pill; the message below is
           plain status copy, not an alert block. The dot is earned — it only
           renders while the companion is on (live link, working, or failing). */}
-      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-3.5">
+      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-4">
         <div className="flex items-center gap-1.5">
           {enabled ? (
             <StatusDot
@@ -322,9 +322,11 @@ export default function MobileSettingsTab() {
             {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
           </span>
         </div>
-        <p className={`text-body leading-5 ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}>
-          {action.message || statusMessage(state)}
-        </p>
+        {action.status === 'error' ? (
+          <InlineNotice tone="error">{action.message || statusMessage(state)}</InlineNotice>
+        ) : (
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">{action.message || statusMessage(state)}</p>
+        )}
       </div>
 
       <div className="divide-y divide-[color:var(--border-subtle)]">
@@ -473,9 +475,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-body leading-5 text-[color:var(--text-disabled)]">
-            No mobile messages yet.
-          </p>
+          <EmptyState density="list" title="No mobile messages yet." />
         )}
       </section>
 
@@ -483,13 +483,9 @@ export default function MobileSettingsTab() {
         <SettingsSectionTitle
           className="mb-1.5"
           action={
-            <button
-              type="button"
-              onClick={() => void refreshDiagnostics()}
-              className="rounded-md px-2.5 py-1 text-meta font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-            >
+            <GhostButton size="xs" onClick={() => void refreshDiagnostics()}>
               {showDiagnostics ? 'Refresh' : 'Show'}
-            </button>
+            </GhostButton>
           }
         >
           Diagnostics
@@ -505,7 +501,7 @@ export default function MobileSettingsTab() {
                 />
                 <div className="min-w-0">
                   <div className="text-[color:var(--text-default)]">{entry.message}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-disabled)]">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
                     <span className="font-mono">{entry.code}</span>
                     <span>{formatDate(entry.timestamp)}</span>
                   </div>
@@ -514,9 +510,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-body leading-5 text-[color:var(--text-disabled)]">
-            No diagnostics recorded.
-          </p>
+          <EmptyState density="list" title="No diagnostics recorded." />
         )}
       </section>
     </div>

@@ -44,7 +44,7 @@ type FieldProps = {
  */
 function FieldLabel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <span className={['text-meta font-medium text-[color:var(--text-default)]', className ?? ''].join(' ')}>
+    <span className={['text-body font-medium text-[color:var(--text-default)]', className ?? ''].join(' ')}>
       {children}
     </span>
   )
@@ -70,7 +70,7 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
     <>
       {label}
       {required ? (
-        <span aria-hidden="true" className="ml-1 text-[color:var(--tone-error)]">
+        <span aria-hidden="true" className="ml-1 text-[color:var(--text-subtle)]">
           *
         </span>
       ) : null}
@@ -82,7 +82,7 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
       {htmlFor ? (
         <label
           htmlFor={htmlFor}
-          className="text-meta font-medium text-[color:var(--text-default)]"
+          className="text-body font-medium text-[color:var(--text-default)]"
         >
           {labelBody}
         </label>
@@ -90,16 +90,16 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
         // A `<label>` with no `for` and no control inside it labels nothing —
         // it is a span that lies about being a label, which is worse than a
         // span. So: a span, at the same type step.
-        <span className="text-meta font-medium text-[color:var(--text-default)]">{labelBody}</span>
+        <span className="text-body font-medium text-[color:var(--text-default)]">{labelBody}</span>
       )}
       {labelledChild}
       {error ? (
-        <p id={errorId} className="text-micro text-[color:var(--tone-error)]">
+        <p id={errorId} className="text-meta text-[color:var(--tone-error)]">
           {error}
         </p>
       ) : null}
       {help && !error ? (
-        <p id={helpId} className="text-micro text-[color:var(--text-subtle)]">
+        <p id={helpId} className="text-meta text-[color:var(--text-subtle)]">
           {help}
         </p>
       ) : null}

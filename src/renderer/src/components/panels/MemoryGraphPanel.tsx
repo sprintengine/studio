@@ -9,8 +9,19 @@ import {
   MemoryGraphTooltip,
 } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { IconButton, LoadingOverlay, PanelHeader, RefreshIcon, StatusDot } from '../ui'
+import {
+  EmptyState,
+  IconButton,
+  InboxSearchInput,
+  InlineNotice,
+  KbdChord,
+  LoadingOverlay,
+  PanelHeader,
+  RefreshIcon,
+  StatusDot,
+} from '../ui'
 import { Tooltip } from '../ui/Tooltip'
+import { KnowledgeGraphSettingsIcon } from '../AppIcons'
 
 type CursorPoint = { x: number; y: number }
 
@@ -45,7 +56,10 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
 
   const canvasRef = useRef<MemoryGraphCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
+  // The `/` shortcut focuses the search field through its wrapper: the kit's
+  // `InboxSearchInput` owns the input and hands no ref back, so the band holds
+  // the ref and reaches the one `<input>` inside it.
+  const searchInputRef = useRef<HTMLDivElement>(null)
 
   const loadGraph = useCallback(async () => {
     setLoading(true)
@@ -201,7 +215,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
         || (target?.isContentEditable ?? false)
       if (event.key === '/' && !isTextInput) {
         event.preventDefault()
-        searchInputRef.current?.focus()
+        searchInputRef.current?.querySelector('input')?.focus()
         return
       }
       if (isTextInput) return
@@ -240,30 +254,18 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
         divider={false}
       />
       <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
-        {/* Not `InboxSearchInput`: the `/` shortcut focuses this field by ref,
-            and the primitive owns no ref to hand back. Same 30px control height
-            and 5px radius, so the band measures the same either way. */}
-        <div className="relative min-w-0 flex-1">
-          <span
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-meta text-[color:var(--text-subtle)]"
-            aria-hidden
-          >
-            ⌕
-          </span>
-          <input
-            ref={searchInputRef}
+        {/* The kit's search field and chord (2026-09-02 audit) — not a bare
+            `<input outline-none>` with a `⌕` character for a glyph and a hand
+            `<kbd>`. The wrapper carries the ref the `/` shortcut focuses. */}
+        <div ref={searchInputRef} className="flex min-w-0 flex-1">
+          <InboxSearchInput
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search notes"
+            onChange={setQuery}
+            ariaLabel="Search notes"
             placeholder="Search notes…"
-            className="h-control-sm w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-field)] pl-7 pr-7 text-meta text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:focus-ring"
           />
-          <kbd
-            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-micro text-[color:var(--text-disabled)]"
-          >
-            /
-          </kbd>
         </div>
+        <KbdChord keys={['/']} ariaLabel="Slash focuses search" className="shrink-0" />
       </div>
 
       <div className="relative flex min-h-0 flex-1">
@@ -348,25 +350,24 @@ function MemoryNotice({
   hint?: string
   tone: 'info' | 'error'
 }) {
-  return (
-    <div className="flex h-full w-full items-center justify-center px-6 text-center">
-      <div className="max-w-md">
-        <div className="mb-3 text-xl text-[color:var(--text-subtle)]" aria-hidden>
-          {tone === 'error' ? '!' : '◌'}
-        </div>
-        <div className="text-sm font-semibold text-[color:var(--text-strong)]">{title}</div>
-        {tone === 'error' ? (
-          <div
-            className="mx-auto mt-3 max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-left font-mono text-micro text-[color:var(--text-muted)]"
-          >
-            {message}
-          </div>
-        ) : (
-          <div className="mt-2 text-xs leading-6 text-[color:var(--text-muted)]">{message}</div>
-        )}
-        {hint ? <div className="mt-3 text-xs leading-6 text-[color:var(--text-muted)]">{hint}</div> : null}
+  // Two of the kit's data-state idioms, not one hand-rolled card with `!` / `◌`
+  // characters for glyphs and `text-xl/sm/xs` off the type ramp (2026-09-02
+  // audit): a failure is the error card with the raw message behind "Show
+  // details"; anything else is the empty state.
+  if (tone === 'error') {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-6">
+        <InlineNotice tone="error" title={title} hint={hint} detail={message} className="w-full max-w-md" />
       </div>
-    </div>
+    )
+  }
+  return (
+    <EmptyState
+      className="w-full"
+      glyph={<KnowledgeGraphSettingsIcon className="size-icon-lg" />}
+      title={title}
+      body={hint ? `${message} ${hint}` : message}
+    />
   )
 }
 
@@ -387,7 +388,10 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-micro">
+      {/* `StatusDot` + the words, on a quiet surface ground so it stays legible
+          over the canvas — not a bordered pill (badge/component.md; 2026-09-02
+          audit). */}
+      <div className="flex items-center gap-2 rounded-sm bg-[color:var(--bg-surface)] px-2 py-1 text-micro">
         <StatusDot tone={dotTone} pulse={isLive} />
         {!status.isInstalled ? (
           <span className={labelTone}>Activity tracking off</span>

@@ -5,7 +5,7 @@ import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
-import { EmptyState, IconButton, InlineNotice, Spinner, Tooltip } from '../ui'
+import { CloseIconButton, EmptyState, FOCUS_RING_INSET_CLASS, GhostButton, IconButton, InlineNotice, Spinner, Tooltip } from '../ui'
 import {
   createExternalFileLoadingBuffer,
   createExternalFileTab,
@@ -194,51 +194,51 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
                     : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={() => setActivePath(tab.path)}
-                  className="min-w-0 max-w-[200px] truncate bg-transparent"
-                  title={tab.path}
-                >
-                  {tab.name}
-                </button>
+                <Tooltip content={tab.path} placement="bottom" wrapperClassName="flex min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setActivePath(tab.path)}
+                    // Inset: the strip scrolls horizontally, so an outset ring
+                    // at either end would be clipped by the overflow container.
+                    className={`min-w-0 max-w-[200px] truncate rounded-sm bg-transparent ${FOCUS_RING_INSET_CLASS}`}
+                  >
+                    {tab.name}
+                  </button>
+                </Tooltip>
                 <span
-                  className={`inline-flex h-3 w-3 shrink-0 items-center justify-center ${isDirty(buffers[tab.path]) ? '' : 'opacity-0 group-hover/tab:opacity-100'}`}
+                  className={`inline-flex size-control-xs shrink-0 items-center justify-center ${
+                    isDirty(buffers[tab.path])
+                      ? ''
+                      : // Revealed on hover AND on keyboard focus inside the tab
+                        // (Tab → close button): hover-only is a bug, not a style.
+                        'opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100'
+                  }`}
                 >
                   {isDirty(buffers[tab.path]) ? (
-                    <span className="text-[color:var(--tone-warn)]" aria-label="Unsaved changes" title="Unsaved changes">
+                    <span className="text-[color:var(--tone-warn)]" role="img" aria-label="Unsaved changes">
                       •
                     </span>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => closeTab(tab.path)}
-                      aria-label={`Close ${tab.name}`}
-                      className="text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]"
-                    >
-                      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden="true">
-                        <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                      </svg>
-                    </button>
+                    <CloseIconButton onClick={() => closeTab(tab.path)} aria-label={`Close ${tab.name}`} />
                   )}
                 </span>
               </div>
             )
           })}
         </div>
-        <button
-          type="button"
+        <GhostButton
+          size="xs"
           onClick={() => void dockActive()}
           disabled={!activeTab}
           aria-label="Dock current file back into the workspace"
-          className="app-no-drag inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
+          className="app-no-drag shrink-0"
         >
           <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
             <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
             <path d="M6 3v10" stroke="currentColor" strokeWidth="1.4" />
           </svg>
           Dock into workspace
-        </button>
+        </GhostButton>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -335,7 +335,7 @@ function renderBody(
   }
   if (showPreview) {
     return (
-      <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-14">
+      <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8">
         <div className="mx-auto max-w-4xl">{renderMarkdown(buffer.value)}</div>
       </div>
     )

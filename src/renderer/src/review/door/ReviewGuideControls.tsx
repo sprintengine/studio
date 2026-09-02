@@ -5,11 +5,12 @@ import type { AgentCli } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { CliModelPickerButton } from '../../components/ui/CliModelPicker'
 import { Drawer } from '../../components/ui/Drawer'
-import { GhostButton, PrimaryButton } from '../../components/ui/Buttons'
+import { GhostButton, OutlineButton, PrimaryButton } from '../../components/ui/Buttons'
+import { InlineNotice } from '../../components/ui/InlineNotice'
+import { Textarea } from '../../components/ui/Input'
 import { KbdChord } from '../../components/ui/KbdChord'
 import { SegmentedControl, type SegmentedControlItem } from '../../components/ui/SegmentedControl'
 import { Spinner } from '../../components/ui/Spinner'
-import { FOCUS_RING_CLASS } from '../../components/ui/tokens'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -173,9 +174,12 @@ export function ReviewGuideActions({
           runtime.setModel(nextCli, nextModel)
         }}
       />
-      <PrimaryButton onClick={session.startRun} className="shrink-0">
+      {/* Outline, not primary (ruling 9): the bar's "Post review" is the view's
+          one solid accent, and this control sits beside it whenever a degraded
+          pull-request review has pending comments. */}
+      <OutlineButton onClick={session.startRun} className="shrink-0">
         {failed ? 'Try again' : 'Prepare walkthrough'}
-      </PrimaryButton>
+      </OutlineButton>
       {/* The depth one-liner is the control's accessible description only. On
           screen the three segment labels are the difference; a caption spelling
           out what "Standard" adds was a sentence explaining a control that is
@@ -252,7 +256,9 @@ export function AskGuideDrawer({
         <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           Your question goes to the guide’s terminal, and it answers there. Sending opens that terminal.
         </p>
-        <textarea
+        {/* The kit's Textarea: one field chrome with the comment composer and
+            the change form's patch box, not a third private inset. */}
+        <Textarea
           ref={inputRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -265,10 +271,16 @@ export function AskGuideDrawer({
           aria-label="Your question for the guide"
           placeholder="Ask about any line, step, or decision…"
           rows={6}
-          className={`mt-3 min-h-[120px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body leading-5 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          size="sm"
+          resize="none"
+          className="mt-3 min-h-[120px] flex-1"
         />
+        {/* A failed send is the shared error card — glyph, role, tint — with
+            Send below as its retry; never red ink alone. */}
         {error ? (
-          <p className="mt-2 text-micro leading-4 text-[color:var(--tone-error)]">The guide couldn’t be reached: {error}</p>
+          <InlineNotice tone="error" className="mt-2">
+            The guide couldn’t be reached: {error}
+          </InlineNotice>
         ) : null}
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="flex items-center gap-1 text-micro text-[color:var(--text-subtle)]">

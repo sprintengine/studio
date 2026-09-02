@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { GhostButton, InlineNotice, Select, type SelectItem } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, InlineNotice, Select, type SelectItem } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
 import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -142,7 +142,7 @@ export function AttachmentFields({
               <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-micro text-[color:var(--text-muted)]">
                 {pickedSkillLabel ?? selectedSkillId}
               </code>
-              <GhostButton type="button" onClick={onClearSkill} className="h-6 shrink-0 px-2 text-micro">
+              <GhostButton size="xs" onClick={onClearSkill} className="shrink-0">
                 Clear
               </GhostButton>
             </div>
@@ -159,7 +159,7 @@ export function AttachmentFields({
                   ref={ref}
                   type="button"
                   onClick={togglePopover}
-                  className="flex h-7 w-full items-center justify-between rounded-[5px] border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)]"
+                  className={`flex h-7 w-full items-center justify-between rounded-[5px] border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
                   {...triggerProps}
                 >
                   Add a skill

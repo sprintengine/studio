@@ -46,7 +46,9 @@ export function EmptyState({
     <div
       className={[
         'flex flex-col items-center text-center',
-        pane ? 'h-full justify-center gap-2 px-6 py-10' : 'gap-1 px-3 py-10',
+        // `space.4xl` (32px) is the scale's top step; the 40px this carried was
+        // on no step.
+        pane ? 'h-full justify-center gap-2 px-6 py-8' : 'gap-1 px-3 py-8',
         className ?? '',
       ].join(' ')}
     >

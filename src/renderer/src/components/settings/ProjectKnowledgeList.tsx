@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { GhostButton, InlineNotice, Input, StatusDot } from '../ui'
+import { Checkbox, GhostButton, InlineNotice, Input, StatusDot } from '../ui'
 import type { Tone } from '../ui'
 import {
   listOpenProjectKnowledge,
@@ -23,38 +23,6 @@ function dotLabel(entry: ProjectKnowledgeEntry, status: RowStatus, checking: boo
   return status.ok
     ? `${entry.name}: knowledge folder ready`
     : `${entry.name}: knowledge folder unavailable`
-}
-
-function CheckGlyph({ checked, mixed }: { checked: boolean; mixed?: boolean }) {
-  const filled = checked || mixed
-  return (
-    <span
-      aria-hidden="true"
-      className={[
-        'inline-flex size-icon-sm shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-strong)]',
-        // The tick (or the dash) is the state; the box stays on the neutral
-        // ramp so the accent is left to the one action in this view.
-        filled ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'bg-transparent',
-      ].join(' ')}
-    >
-      {mixed ? (
-        <svg width="8" height="8" viewBox="0 0 8 8" focusable="false">
-          <path d="M1.5 4h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      ) : checked ? (
-        <svg width="8" height="8" viewBox="0 0 8 8" focusable="false">
-          <path
-            d="M1.5 4l1.5 1.5L6.5 2"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : null}
-    </span>
-  )
 }
 
 type ProjectKnowledgeListProps = {
@@ -247,16 +215,14 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
     <div className="space-y-2">
       {projects.length > 1 ? (
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
-            onClick={toggleAll}
-            className="flex items-center gap-2 text-body text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
-          >
-            <CheckGlyph checked={allSelected} mixed={someSelected && !allSelected} />
-            Select all
-          </button>
+          <Checkbox
+            checked={allSelected}
+            indeterminate={someSelected && !allSelected}
+            onChange={toggleAll}
+            label="Select all"
+            size="body"
+            className="w-fit"
+          />
           {someSelected ? (
             <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
               <span className="tabular-nums">{selectedEntries.length} selected</span>
@@ -284,18 +250,14 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
               className={`-mx-2 rounded-md px-2 ${isActive ? 'bg-[color:var(--bg-selected)]' : ''}`}
             >
               <div className="flex items-center gap-3 py-2.5">
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={isSelected}
-                  aria-label={`Select ${entry.name}`}
-                  onClick={() =>
+                <Checkbox
+                  checked={isSelected}
+                  ariaLabel={`Select ${entry.name}`}
+                  onChange={() =>
                     setSelected((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))
                   }
-                  className="flex shrink-0 items-center"
-                >
-                  <CheckGlyph checked={isSelected} />
-                </button>
+                  className="shrink-0"
+                />
                 <StatusDot
                   tone={dotTone(status, isChecking)}
                   label={dotLabel(entry, status, isChecking)}

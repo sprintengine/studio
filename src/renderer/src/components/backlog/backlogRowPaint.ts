@@ -37,6 +37,13 @@ import { getHighlightSwatch } from '../../utils/highlight'
 // block, and would buy nothing — so this is a ruling, not a debt.
 // The `left-bar` axis in `components/ui/designSystemAxes.test.ts` carries the
 // matching allow-marker; this comment is the reason it points at.
+//
+// RE-RULED 2026-09-02 (design-system audit) — the bar is dropped. `EpicColorDot`
+// carries epic identity on the row, and selection is `--bg-selected` plus the
+// title lift alone. The panel list (`panels/BacklogPanel.tsx`) and its skeleton
+// no longer reserve a `border-l-[3px]`, the door list followed, and the New
+// sprint dialog keeps only its own implied-child accent rule (a mockup ruling,
+// not identity paint). This helper therefore paints background only.
 export function backlogRowPaintClass({
   color,
   litFill,
@@ -47,9 +54,8 @@ export function backlogRowPaintClass({
   selected: boolean
 }): string {
   const swatch = color ? getHighlightSwatch(color) : null
-  const bar = swatch ? swatch.border : 'border-l-transparent'
-  if (selected) return `${bar} bg-[color:var(--bg-selected)]`
+  if (selected) return 'bg-[color:var(--bg-selected)]'
   // Hover is a background change only, and it is deliberately allowed to win
   // over the resting tint: the pointer's feedback is the more urgent signal.
-  return `${bar}${swatch && litFill ? ` ${swatch.dimBg}` : ''} hover:bg-[color:var(--bg-hover)]`
+  return `${swatch && litFill ? `${swatch.dimBg} ` : ''}hover:bg-[color:var(--bg-hover)]`
 }

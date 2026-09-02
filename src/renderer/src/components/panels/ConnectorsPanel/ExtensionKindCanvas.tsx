@@ -27,6 +27,7 @@ import type {
 } from '../../../../../shared/electron-api'
 import {
   CliProviderStateLine,
+  EmptyState,
   GhostButton,
   InboxSearchInput,
   InlineNotice,
@@ -441,11 +442,9 @@ export function ExtensionKindCanvas({
       ) : null}
 
       {entries.length === 0 ? (
-        <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">{copy.empty}</p>
+        <EmptyState density="list" title={copy.empty} />
       ) : matched.length === 0 ? (
-        <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
-          {`No ${copy.label.toLowerCase()} match “${query.trim()}”.`}
-        </p>
+        <EmptyState density="list" title={`No ${copy.label.toLowerCase()} match “${query.trim()}”.`} />
       ) : (
         <div className="mt-4 flex gap-4">
           <div className="min-w-0 flex-1 space-y-2">

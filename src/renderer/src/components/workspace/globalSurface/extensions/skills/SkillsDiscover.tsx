@@ -28,16 +28,18 @@ import type {
   SkillSearchHit,
 } from '../../../../../../../shared/skills'
 import {
+  Badge,
   GhostButton,
   InboxSearchInput,
   InlineNotice,
   OutlineButton,
+  Section,
   SegmentedControl,
   Spinner,
   StarGlyph,
 } from '../../../../ui'
 import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
-import { EmptyState, SectionHead } from './SkillSourceCanvas'
+import { EmptyState } from './SkillSourceCanvas'
 import {
   createSkillSearchScheduler,
   describeSearchBudget,
@@ -248,31 +250,34 @@ export function DiscoverRepoList({
       ) : (
         <Condition condition={degraded} onConfigureToken={onConfigureToken} onRetry={onRetry} />
       )}
-      <SectionHead
-        label="Most starred"
+      <Section
+        inset={false}
+        level={4}
+        title="Most starred"
         count={results.length}
         action={
           <span className="text-meta text-[color:var(--text-subtle)]">
             {tokenOnlyGap ? 'Sorted by stars' : 'Repositories carrying a plugin manifest first, then stars'}
           </span>
         }
-      />
-      {results.length === 0 ? (
-        <EmptyState title={degraded ? 'Nothing was returned for this list.' : POPULAR_REPOS_EMPTY_LINE} />
-      ) : (
-        <div role="list" className="mt-1.5 flex flex-col gap-0.5">
-          {results.map((hit) => (
-            <div role="listitem" key={hit.repo}>
-              <RepoHitRow
-                hit={hit}
-                added={isRepoAdded(addedRepos, hit.repo)}
-                onScan={() => onScanRepo(hit.repo)}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      <Budget rateLimit={rateLimit} />
+      >
+        {results.length === 0 ? (
+          <EmptyState title={degraded ? 'Nothing was returned for this list.' : POPULAR_REPOS_EMPTY_LINE} />
+        ) : (
+          <div role="list" className="mt-1.5 flex flex-col gap-0.5">
+            {results.map((hit) => (
+              <div role="listitem" key={hit.repo}>
+                <RepoHitRow
+                  hit={hit}
+                  added={isRepoAdded(addedRepos, hit.repo)}
+                  onScan={() => onScanRepo(hit.repo)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <Budget rateLimit={rateLimit} />
+      </Section>
     </>
   )
 }
@@ -324,18 +329,19 @@ export function DiscoverSearchResults({
     <>
       <Condition condition={degraded} onConfigureToken={onConfigureToken} onRetry={onRetry} />
       {degraded?.reason === 'needs_token' ? null : (
-        <>
-          {/* Labelled with the query the rows actually belong to, so results
-              still on screen while a newer query is being typed say so. */}
-          <SectionHead
-            label={`Results for “${load.query}”`}
-            count={results.length}
-            action={
-              <span className="text-meta text-[color:var(--text-subtle)]">
-                Skills, not repositories — GitHub&apos;s own relevance order
-              </span>
-            }
-          />
+        // Labelled with the query the rows actually belong to, so results
+        // still on screen while a newer query is being typed say so.
+        <Section
+          inset={false}
+          level={4}
+          title={`Results for “${load.query}”`}
+          count={results.length}
+          action={
+            <span className="text-meta text-[color:var(--text-subtle)]">
+              Skills, not repositories — GitHub&apos;s own relevance order
+            </span>
+          }
+        >
           {results.length === 0 ? (
             <EmptyState
               title={degraded ? 'Nothing was returned for this search.' : skillSearchEmptyLine(load.query)}
@@ -353,7 +359,7 @@ export function DiscoverSearchResults({
               ))}
             </div>
           )}
-        </>
+        </Section>
       )}
       <Budget rateLimit={rateLimit} />
     </>
@@ -436,12 +442,17 @@ function RepoHitRow({
             ) : null}
           </span>
           {hit.curated ? (
-            <span
-              title="Carries .claude-plugin/marketplace.json — someone curated its contents."
-              className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-meta text-[color:var(--text-subtle)]"
+            // The kit's label badge. What "Manifest" means is stated once, in
+            // the list head above ("Repositories carrying a plugin manifest
+            // first"), and in the badge's accessible name — never a native
+            // `title=` on a span the keyboard could not reach.
+            <Badge
+              tone="neutral"
+              className="shrink-0"
+              ariaLabel="Manifest — carries .claude-plugin/marketplace.json; someone curated its contents"
             >
               Manifest
-            </span>
+            </Badge>
           ) : null}
           {/* Never a zero: a repository the search returned without a star
               count has an unknown one, and 0 is a different fact. */}

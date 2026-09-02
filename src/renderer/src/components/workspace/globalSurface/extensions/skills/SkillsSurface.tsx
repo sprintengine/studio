@@ -12,7 +12,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { PlusIcon } from '../../../../AppIcons'
+import { GhostButton, InlineNotice, OutlineButton, Spinner } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SurfaceCanvasState, SurfaceRail, type SurfaceRailRow } from '../../surfaceSubstrate'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
@@ -303,19 +304,17 @@ export function SkillsSurface({
             onConfigureToken={onConfigureGitHubToken}
           />
         ) : !activeSource ? (
+          // First run: the door has never held a source, so this is the one
+          // canvas that keeps the richer treatment. An svg glyph, never a
+          // character (the glyph spec), and the kit's outline button rather
+          // than a ghost wearing a border.
           <SurfaceCanvasState
             kind="empty"
-            glyph="+"
+            firstRun
+            glyph={<PlusIcon className="icon-md" />}
             title="No skill sources"
             body="Add a public GitHub repository of skills to browse what it holds."
-            action={
-              <GhostButton
-                onClick={() => setAddRepo('')}
-                className="border border-[color:var(--border-default)]"
-              >
-                Add a source
-              </GhostButton>
-            }
+            action={<OutlineButton onClick={() => setAddRepo('')}>Add a source</OutlineButton>}
           />
         ) : !activeScan || activeScan.status === 'loading' ? (
           <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">

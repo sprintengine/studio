@@ -73,14 +73,20 @@ function area(file: string): string {
 
 const AXES = {
   /**
-   * Tailwind-native radius steps are 2/4/6/8/12/16px — none of them on the
-   * system's 3/5/7/9 ramp. Matching the literal `rounded-[5px]` is deliberately
-   * NOT a violation today (it is the token's value) but it will not move if the
-   * ramp moves, which is why the ramp radii are the target rather than the ban.
-   * `rounded-full` and `rounded-[…]` are excluded: a pill and an explicit value
-   * are decisions, not defaults.
+   * The named steps `xs / sm / md / lg` are ON the ramp: `assets/index.css`
+   * rebinds `--radius-xs/sm/md/lg` to `sem.radius.chip/control/overlay/shell`
+   * (3/5/7/9px), so `rounded-sm` IS `radius.control` and is the spelling the
+   * kit uses. What is still off the ramp is the bare `rounded` (Tailwind's 4px
+   * default) and `xl`/`2xl`/`3xl` (12/16/24px). Re-ruled 2026-09-02; before
+   * that this axis counted every named step, which made the on-ramp spelling
+   * look like growth. Matching the literal `rounded-[5px]` is deliberately NOT
+   * a violation (it is the token's value) but it will not move if the ramp
+   * moves, which is why the ramp names are the target. `rounded-full` and
+   * `rounded-[…]` are excluded: a pill and an explicit value are decisions,
+   * not defaults — and the conformance guard's `radius-off-ramp` rule polices
+   * explicit values off the ramp.
    */
-  radius: /(?:^|["'\s`])-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-(?:xs|sm|md|lg|xl|2xl|3xl))?(?=["'\s`])/g,
+  radius: /(?:^|["'\s`])-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-(?:xl|2xl|3xl))?(?=["'\s`])/g,
   /**
    * A shadow spelled with a color literal rather than a token. `transparent`
    * and `var(--…)` are fine — the failure mode is a TUNED color, because the
@@ -138,15 +144,13 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // `rounded-*` spellings left the tree with it. Locked in here rather than
   // left as headroom, which is what lets the next regression show up as one.
   radius: {
-    'components/workspace': 169,
-    'components/panels': 145,
+    'components/workspace': 42,
+    'components/panels': 35,
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
     // aside could draw the same mark as the Extensions door. Its one
     // `rounded-lg` changed address — the CommandPalette precedent below —
     // rather than a new off-ramp appearing anywhere.
-    'components/settings': 29,
-    'components/backlog': 19,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
     // two radii — nothing regressed, the debt changed address — then 17 → 14
     // when the menu unification dropped ContextMenu's surface `rounded-md` and
@@ -155,15 +159,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // that item paid for are in workspace (197 → 193), panels (173 → 171),
     // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
-    'components/ui': 10,
-    'components/worktree': 9,
-    'components/diagnostics': 6,
-    utils: 4,
-    'components/automations': 2,
-    'components/auxWindows': 2,
-    'components/learn': 1,
-    modules: 1,
-    review: 2,
+    'components/ui': 3,
   },
   // `utils/highlight.ts` is 14 of the 17: per-language terminal highlight rings,
   // each a tuned inset glow in the language's own hue. They are content colour
@@ -177,7 +173,6 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // (MC-2110). The two that remained were inset hairlines, not elevation;
     // 2 → 1 when the title bar's specialist split-button was deleted with its
     // frame (MC-2222). Locked in rather than left as headroom.
-    'components/workspace': 1,
   },
   // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
   // `--z-*` tokens (MC-2109): the New sprint dialog and the roster manager gave
@@ -185,15 +180,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // tier it was already sitting on. What remains on this axis is in-flow depth
   // inside a pane, not overlay layering.
   z: {
-    'components/workspace': 16,
-    'components/panels': 13,
-    'components/ui': 3,
-    'components/memory': 2,
+    'components/workspace': 7,
+    'components/panels': 10,
+    'components/ui': 1,
+    'components/memory': 1,
     'components/auxWindows': 1,
-    'components/onboarding': 1,
   },
   type: {
-    'components/panels': 17,
+    'components/panels': 10,
     utils: 6,
     'components/diagnostics': 2,
   },
@@ -201,14 +195,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // above: the deleted composer popover spelled its own icon boxes, and
   // `SpawnPicker` takes the ramp classes the picker surface already uses.
   icon: {
-    'components/workspace': 38,
-    'components/panels': 29,
-    'components/ui': 21,
-    'components/backlog': 8,
-    'components/auxWindows': 1,
-    'components/brand': 1,
+    'components/workspace': 32,
+    'components/panels': 24,
+    'components/ui': 16,
+    'components/backlog': 3,
     'components/settings': 1,
-    review: 1,
   },
 }
 
@@ -251,13 +242,13 @@ const KIT_HARD_RULES: Axis[] = ['shadow', 'z', 'type']
  * Kit files exempt from the `z` hard rule, each with its reason on the record.
  *
  * The rule is about OVERLAY LAYERS — surfaces that stack against each other
- * across the app. These three express depth WITHIN their own pane, which the
- * overlay ladder has nothing to say about; giving them `--z-popover` would
- * claim a global tier none of them wants.
+ * across the app. In-flow depth WITHIN a pane has its own token steps since
+ * 2026-09-02 — `--z-sticky` 10, `--z-pane` 20, `--z-float` 30 — which is what
+ * `SidePane`'s resize handle and `SkillPickerPopover`'s composer surface now
+ * consume; their exemptions were spent when that became true. The one left
+ * spells a bare `z-10` and drains when it next moves.
  */
 const Z_HARD_RULE_EXEMPT: Record<string, string> = {
-  'SidePane.tsx': 'z-20: the resize handle above its own pane, not an overlay layer',
-  'SkillPickerPopover.tsx': 'z-30: anchored inside a composer, the app panel-internal tier',
   'TerminalReplaySkeleton.tsx': 'z-10: a skeleton over its own terminal, not a layer',
 }
 

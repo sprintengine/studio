@@ -1,8 +1,6 @@
 import React from 'react'
 
-import { CheckIcon } from '../../AppIcons'
-import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, Popover, RoleAvatar, Tooltip } from '../../ui'
+import { CliModelPickerButton, RoleAvatar, Select, type SelectItem } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -102,13 +100,12 @@ export function SprintEngineRosterTable({
                 onSetReasoning={onSetReasoning}
               />
             ) : (
-              <CliPicker
-                role={role}
-                label={label}
+              <AgentCliSelect
+                ariaLabel={`${label} CLI`}
                 value={roleCli}
                 disabled={cliDisabled}
                 cliOptions={cliOptions}
-                onChange={onSetCli}
+                onChange={(cli) => onSetCli(role, cli)}
               />
             )}
           </div>
@@ -245,33 +242,19 @@ function RoleRuntimePicker({
   )
 }
 
-function CliPicker({
-  role,
-  label,
-  value,
-  disabled,
-  cliOptions,
-  onChange,
-}: {
-  role: SprintEngineRoleId
-  label: string
-  value: AgentCli
-  disabled: boolean
-  cliOptions: SprintEngineCliOption[]
-  onChange: (role: SprintEngineRoleId, cli: AgentCli) => void
-}) {
-  return (
-    <AgentCliPicker
-      ariaLabel={`${label} CLI`}
-      value={value}
-      disabled={disabled}
-      cliOptions={cliOptions}
-      onChange={(cli) => onChange(role, cli)}
-    />
-  )
-}
-
-export function AgentCliPicker({
+// The CLI-only value picker for a row without model selection: the kit's
+// `Select` — a select-only combobox with the arrow-key, Home/End, type-ahead
+// and Escape contract every value picker in the app shares. It replaced a
+// hand-rolled `Popover` listbox whose option rows had no focus ring, no
+// keyboard model, a text `▾` glyph and a raw `rgba()` hover tint (audit,
+// menus-and-listboxes-rebuilt-without-a-keyboard-model). `Select` has no
+// leading-node slot, so the option is its label alone; the CLI mark still
+// shows on the model-aware picker beside it.
+//
+// A value the catalogue no longer lists (a plugin that was removed after the
+// default was saved) is kept as a labelled option rather than dropped, so the
+// trigger never shows a blank for a CLI the roster still names.
+export function AgentCliSelect({
   ariaLabel,
   value,
   disabled,
@@ -284,72 +267,20 @@ export function AgentCliPicker({
   cliOptions: SprintEngineCliOption[]
   onChange: (cli: AgentCli) => void
 }) {
-  const [open, setOpen] = React.useState(false)
-  const options = cliOptions.some((option) => option.value === value)
-    ? cliOptions
-    : [{ value, label: value }, ...cliOptions]
-  const selected = options.find((option) => option.value === value) ?? options[0]
-  if (!selected) return null
+  const items: SelectItem<AgentCli>[] = React.useMemo(() => {
+    const listed = cliOptions.map((option) => ({ value: option.value, label: option.label }))
+    return cliOptions.some((option) => option.value === value)
+      ? listed
+      : [{ value, label: value }, ...listed]
+  }, [cliOptions, value])
   return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
+    <Select<AgentCli>
       ariaLabel={ariaLabel}
-      popupRole="listbox"
-      placement="bottom-end"
+      items={items}
+      value={value}
+      disabled={disabled}
+      onChange={onChange}
       className="shrink-0"
-      surfaceClassName="w-[180px] p-1"
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <Tooltip content={`Agent CLI: ${selected.label}`} wrapperClassName="inline-flex">
-          <button
-            ref={ref}
-            type="button"
-            aria-label={`${ariaLabel}: ${selected.label}`}
-            disabled={disabled}
-            onClick={togglePopover}
-            className="
-              interactive inline-flex h-7 min-w-[140px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
-              bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)]
-              hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-              focus-visible:focus-ring
-              disabled:cursor-not-allowed disabled:opacity-45
-            "
-            {...triggerProps}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <CliIcon cli={selected.value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
-              <span className="truncate">{selected.label}</span>
-            </span>
-            <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">▾</span>
-          </button>
-        </Tooltip>
-      )}
-    >
-      {options.map((option) => {
-        const isCurrent = option.value === selected.value
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="option"
-            aria-selected={isCurrent}
-            onClick={() => {
-              onChange(option.value)
-              setOpen(false)
-            }}
-            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta transition-colors ${
-              isCurrent
-                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
-            }`}
-          >
-            <CliIcon cli={option.value} className="icon-sm shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            {/* aria-selected on the option carries the meaning. */}
-            {isCurrent ? <CheckIcon className="icon-xs ml-auto shrink-0" /> : null}
-          </button>
-        )
-      })}
-    </Popover>
+    />
   )
 }

@@ -31,7 +31,8 @@ const SOURCE_SEGMENTS: { value: ReviewSourceInput['kind']; label: string }[] = [
 // its own three-constant vocabulary — a label scale, a help scale, and a field
 // box at `rounded-[6px]`, which is between the 5px control step and the 7px
 // overlay step and lands on neither — and its labels were `<span>`s inside a
-// wrapping `<label>`, so nothing carried an `htmlFor` (MC-2114).
+// wrapping `<label>`, so nothing carried an `htmlFor` (MC-2114). The probe card
+// below had kept that 6px; it is the control step (`rounded-sm`) now.
 //
 // `Field.Label` is the standalone label, for the one row whose control is a
 // SegmentedControl — a radio group rather than a single labellable field.
@@ -433,7 +434,7 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
   }
   const { title, stats } = probe.probe
   return (
-    <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+    <div className="flex items-start gap-2 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
       <StatusDot tone="accent" label={reachabilityLabel(sourceKind)} className="mt-1.5" />
       <div className="min-w-0">
         <p className="truncate text-body text-[color:var(--text-default)]">{title ?? 'Ready to review'}</p>

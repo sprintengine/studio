@@ -568,9 +568,17 @@ async function main(): Promise<void> {
     for (const forbidden of ['release', 'lint', 'regenerate', 'version history', 'pull']) {
       assert.ok(!text.includes(forbidden), `the canvas must not offer "${forbidden}"`)
     }
-    // The two actions that DO belong are both about the folder.
-    assert.ok(text.includes('reveal'), 'Reveal is offered')
-    assert.ok(text.includes('reload'), 'Reload is offered')
+    // The two actions that DO belong are both about the folder — and since the
+    // 2026-09-02 audit they ride the door bar (`DesignGlobalSurface`'s
+    // `bar.actions`), not a second chrome band inside the canvas.
+    assert.ok(!text.includes('reveal') && !text.includes('reload'), 'the canvas draws no chrome band of its own')
+    const surfaceSource = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/design/DesignGlobalSurface.tsx'),
+      'utf8',
+    )
+    const actions = surfaceSource.slice(surfaceSource.indexOf('actions:'))
+    assert.ok(/>\s*Reveal\s*</.test(actions), 'Reveal is offered, in the door bar')
+    assert.ok(/'Reload'/.test(actions), 'Reload is offered, in the door bar')
   })
 
   await run('2003 the specimen has no container and the name appears exactly once', () => {
@@ -617,8 +625,16 @@ async function main(): Promise<void> {
     const primaries = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
       (button) => classesOf(button).some((token) => /^bg-\[color:var\(--accent-primary/.test(token)),
     )
-    assert.equal(primaries.length, 1, 'exactly one accent-filled control')
-    assert.match(primaries[0].textContent ?? '', /Point at a folder/)
+    // The one accent-filled control rides the door bar (`DesignGlobalSurface`'s
+    // `bar.actions`, audit 2026-09-02); the screen itself paints none.
+    assert.equal(primaries.length, 0, 'the create screen paints no accent-filled control of its own')
+    const surfaceSource = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/design/DesignGlobalSurface.tsx'),
+      'utf8',
+    )
+    const actions = surfaceSource.slice(surfaceSource.indexOf('actions:'), surfaceSource.indexOf(': undefined,'))
+    assert.equal((actions.match(/<PrimaryButton\b/g) ?? []).length, 1, 'exactly one accent-filled control in the bar')
+    assert.match(actions, /Point at a folder/)
   })
 
   await run('2005 no heading sits above the grid', () => {

@@ -536,7 +536,7 @@ function MenuTick({ shown }: { shown: boolean }): JSX.Element {
 // uses. CliIcon is reserved for CLI plugins, and a plain shell is not one.
 function TerminalPromptGlyph(): JSX.Element {
   return (
-    <span aria-hidden="true" className="font-mono text-micro font-bold leading-none">
+    <span aria-hidden="true" className="font-mono text-micro font-semibold leading-none">
       ›_
     </span>
   )

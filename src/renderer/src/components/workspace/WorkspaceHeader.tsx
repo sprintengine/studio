@@ -10,15 +10,12 @@
 // (WorkspaceManager), since the Sprint Engines aside can own that corner.
 
 import React from 'react'
-import { Tooltip } from '../ui'
+import { IconButton, Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { AppMenuButton } from './SidebarChrome'
 import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 import type { WorkspaceId } from '../../types/workspace'
-
-const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] focus-visible:focus-ring'
 
 type WorkspaceHeaderProps<MenuItem extends string> = {
   // Window-scoped active workspace — the panel switches derive their active
@@ -59,7 +56,7 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
 function DiagnosticsButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Performance diagnostics" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Open performance diagnostics" className={STRIP_BUTTON}>
+      <IconButton onClick={onOpen} aria-label="Open performance diagnostics" className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
             d="M1 8h3l2-4.5L9.5 13 12 8h3"
@@ -69,7 +66,7 @@ function DiagnosticsButton({ onOpen }: { onOpen: () => void }) {
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -78,12 +75,12 @@ function DiagnosticsButton({ onOpen }: { onOpen: () => void }) {
 function OpenSidebarButton({ onToggle }: { onToggle: () => void }) {
   return (
     <Tooltip content="Open sidebar" placement="bottom">
-      <button type="button" onClick={onToggle} aria-label="Open sidebar" aria-pressed={false} className={STRIP_BUTTON}>
+      <IconButton onClick={onToggle} aria-label="Open sidebar" aria-pressed={false} className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -91,12 +88,12 @@ function OpenSidebarButton({ onToggle }: { onToggle: () => void }) {
 function LauncherSearchButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Search" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Search" className={STRIP_BUTTON}>
+      <IconButton onClick={onOpen} aria-label="Search" className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -106,11 +103,11 @@ function LauncherSearchButton({ onOpen }: { onOpen: () => void }) {
 function NewAgentButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="New…" placement="bottom">
-      <button type="button" onClick={onClick} aria-label="New…" className={STRIP_BUTTON}>
+      <IconButton onClick={onClick} aria-label="New…" className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }

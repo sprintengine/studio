@@ -5,6 +5,7 @@ import {
   ContextMenu,
   FOCUS_RING_INSET_CLASS,
   GhostButton,
+  IconButton,
   LifecycleGlyph,
   MenuDivider,
   MenuFlyoutItem,
@@ -779,8 +780,7 @@ export function SprintEngineRosterView({
                 agent's own runtime — needs the workspace. With none, the menu
                 would hold nothing operable, so the row does not offer it. */}
             {terminalActionsUnavailable ? null : (
-              <button
-                type="button"
+              <IconButton
                 aria-label={`${displayName} actions`}
                 aria-haspopup="menu"
                 onClick={(event) => {
@@ -788,14 +788,16 @@ export function SprintEngineRosterView({
                   const rect = event.currentTarget.getBoundingClientRect()
                   setMenu({ kind: 'actions', agentId: agent.id, x: rect.right, y: rect.bottom })
                 }}
-                className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-focus-within:opacity-100 group-hover:opacity-100"
+                // A live control in readable ink (it sat in `--text-disabled`),
+                // revealed on hover and on focus within the row.
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
               >
                 <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
                   <circle cx="8" cy="3.4" r="1.3" />
                   <circle cx="8" cy="8" r="1.3" />
                   <circle cx="8" cy="12.6" r="1.3" />
                 </svg>
-              </button>
+              </IconButton>
             )}
           </span>
         </div>

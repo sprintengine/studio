@@ -9,11 +9,11 @@
 // extra leading option: "Use the horizon's roster", which clears the override
 // and names what the step falls back to, so the choice is never made blind.
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
-import { CheckIcon } from '../AppIcons'
-import { Popover } from '../ui'
-import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
+import { CheckIcon, ChevronDownIcon } from '../AppIcons'
+import { MenuItem, Popover, StatusDot, Tooltip, roveMenuFocus } from '../ui'
+import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 
@@ -39,11 +39,15 @@ const ROW_ROSTER_TRIGGER_BASE =
 // The three tiers stay distinguishable without hover. INHERITED is quiet — it is
 // the common case and says the horizon decides — but it is legible at rest. An
 // OVERRIDE is a bordered chip, because a step deciding for itself is the
-// interesting state. A MISSING roster is loud, because that step cannot start.
+// interesting state. A MISSING roster is loud, because that step cannot start —
+// but loud is a warn `StatusDot` leading the label, never a tone-tinted border
+// or tone ink (status is a glyph, chrome stays neutral; design-system audit
+// 2026-09-02). The chip keeps the override's bordered shape so a missing
+// roster still reads as "this step decided for itself".
 export const ROW_ROSTER_TRIGGER_CLASS: Record<'inherited' | 'override' | 'missing', string> = {
   inherited: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]`,
   override: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--border-subtle)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)]`,
-  missing: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--tone-warn)] text-[color:var(--tone-warn)] hover:bg-[color:var(--bg-active)]`,
+  missing: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--border-subtle)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)]`,
 }
 
 export function RosterMenu({
@@ -95,15 +99,30 @@ export function RosterMenu({
         ? ' (inherited from this horizon)'
         : ' (set for this step)'
       : ''
-  // The shared menu row (MC-2103). It used to be a local re-type at `rounded
-  // px-2` with no disabled state and an inset fill — the shape the menu spec
-  // rules out, and a copy that could not follow the canon when it moved.
-  const itemClass = `${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`
-
   const pick = (name: string | undefined): void => {
     onSelect(name)
     setOpen(false)
   }
+
+  // The kit's menu keyboard model (design-system/components/menu): focus lands on
+  // the first row when the menu opens, and ArrowUp/Down (wrapping), Home and End
+  // rove through the `MenuItem`s. The surface `Popover` draws carries
+  // `role="menu"`, which is what `roveMenuFocus` walks — the rows inside it are
+  // the kit's own, so a menu opened from a step row and one opened from the
+  // policy bar are the same menu with the same keys.
+  const focusFirstRow = useCallback((surface: HTMLElement) => {
+    surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  }, [])
+
+  // The trailing cell every roster row carries: the silent check (aria-checked
+  // already announces it) and the supporting text. Outside the truncating label
+  // so a long roster name cannot clip either.
+  const trailing = (checked: boolean, note: string, noteClassName = ''): JSX.Element => (
+    <>
+      {checked ? <CheckIcon className="icon-xs shrink-0" /> : null}
+      <span className={`shrink-0 text-micro text-[color:var(--text-subtle)] ${noteClassName}`}>{note}</span>
+    </>
+  )
 
   return (
     <Popover
@@ -113,129 +132,130 @@ export function RosterMenu({
       popupRole="menu"
       placement="bottom-start"
       surfaceClassName={`w-[260px] ${MENU_LIST_CLASS}`}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          {...triggerProps}
-          onClick={(event) => {
-            // The plan column's row is a sibling click target; opening the menu
-            // must not also re-select the row underneath.
-            event.stopPropagation()
-            togglePopover()
-          }}
-          // The trigger's own text is only a roster NAME, which does not say what
-          // the control does. `ariaLabel` names the popup; the button needs its
-          // own accessible name or a screen-reader user hears just "Mobile UI".
-          aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
-          className={variant === 'row' ? ROW_ROSTER_TRIGGER_CLASS[triggerTone] : POLICY_ROSTER_TRIGGER_CLASS}
-        >
-          <span
-            // A row chip truncates to keep the step's title readable, so the
-            // full team name stays reachable on hover rather than lost.
-            {...(variant === 'row' ? { title: `${triggerLabel}${triggerTier}` } : {})}
-            className={
-              variant === 'row'
-                ? 'min-w-0 truncate'
-                : missing
-                  ? 'text-[color:var(--tone-error)]'
-                  : undefined
-            }
-          >
-            {triggerLabel}
-            {missing ? ' (not found)' : ''}
-          </span>
-          {variant === 'row' ? null : (
-            <span aria-hidden="true" className="shrink-0 text-[color:var(--text-subtle)]">▾</span>
-          )}
-        </button>
-      )}
-    >
-      {inherit ? (
-        <>
+      onOpenAutoFocus={focusFirstRow}
+      renderTrigger={({ ref, triggerProps, togglePopover }) => {
+        const trigger = (
           <button
+            ref={ref}
             type="button"
-            role="menuitemradio"
-            aria-checked={inherit.selected}
-            className={itemClass}
-            onClick={() => {
-              inherit.onChoose()
-              setOpen(false)
+            {...triggerProps}
+            onClick={(event) => {
+              // The plan column's row is a sibling click target; opening the menu
+              // must not also re-select the row underneath.
+              event.stopPropagation()
+              togglePopover()
             }}
+            // The trigger's own text is only a roster NAME, which does not say what
+            // the control does. `ariaLabel` names the popup; the button needs its
+            // own accessible name or a screen-reader user hears just "Mobile UI".
+            aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
+            className={variant === 'row' ? ROW_ROSTER_TRIGGER_CLASS[triggerTone] : POLICY_ROSTER_TRIGGER_CLASS}
           >
-            <span className="min-w-0 flex-1 truncate">Use the horizon&apos;s roster</span>
-            {inherit.selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-            <span className="shrink-0 max-w-[7.5rem] truncate text-micro text-[color:var(--text-subtle)]">
-              {isNoRolesRosterRef(inherit.resolvedLabel) ? JUST_AN_AGENT_LABEL : inherit.resolvedLabel}
+            {/* The missing tier is a status, so it is carried by the app's status
+                glyph beside the word — never by tone ink or a tinted edge alone. */}
+            {missing ? <StatusDot tone="warn" /> : null}
+            <span className={variant === 'row' ? 'min-w-0 truncate' : undefined}>
+              {triggerLabel}
+              {missing ? ' (not found)' : ''}
             </span>
-          </button>
-          {/* Spacing separates the groups — never hairlines (owner, 2026-08-06:
-              "we don't need these, we can just use spacing instead"). */}
-          <div aria-hidden="true" className="h-1.5" />
-        </>
-      ) : null}
-      {/* A missing roster leads, so the problem is the first thing read. */}
-      {missing && selectedName ? (
-        <>
-          <button type="button" role="menuitemradio" aria-checked className={itemClass}>
-            <span className="min-w-0 flex-1 truncate text-[color:var(--tone-error)]">
-              {selectedName} (not found)
-            </span>
-          </button>
-          <div aria-hidden="true" className="h-1.5" />
-        </>
-      ) : null}
-      {/* Just an agent — the absence of a roster. Pinned first, no staffing
-          summary: which agent is the picker's job, not this menu's. */}
-      <button
-        type="button"
-        role="menuitemradio"
-        aria-checked={noRolesSelected}
-        className={itemClass}
-        onClick={() => pick(undefined)}
-      >
-        <span className="min-w-0 flex-1 truncate">{JUST_AN_AGENT_LABEL}</span>
-        {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-        <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">no roles</span>
-      </button>
-      <div aria-hidden="true" className="h-1.5" />
-      {rosters.map((roster) => {
-        const staffed = Object.values(roster.roleCounts).filter((count) => (count ?? 0) > 0).length
-        const checked = !noRolesSelected
-          && roster.name.trim().toLowerCase() === (selectedName ?? '').trim().toLowerCase()
-        return (
-          <button
-            key={roster.id}
-            type="button"
-            role="menuitemradio"
-            aria-checked={checked}
-            className={itemClass}
-            onClick={() => pick(roster.name)}
-          >
-            <span className="min-w-0 flex-1 truncate">{roster.name}</span>
-            {/* Every row here is a menuitemradio, so aria-checked already
-                announces the choice and the mark stays silent. It sits outside
-                the truncating label so a long roster name cannot clip it. */}
-            {checked ? <CheckIcon className="icon-xs shrink-0" /> : null}
-            {/* A name alone is not enough to choose between rosters. */}
-            <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
-              {staffed} role{staffed === 1 ? '' : 's'}
-            </span>
+            {variant === 'row' ? null : (
+              <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+            )}
           </button>
         )
-      })}
-      <div aria-hidden="true" className="h-1.5" />
-      <button
-        type="button"
-        role="menuitem"
-        className={itemClass}
-        onClick={() => {
-          setOpen(false)
-          onManageRosters()
-        }}
-      >
-        <span className="min-w-0 flex-1 truncate">Manage rosters…</span>
-      </button>
+        // A row chip truncates to keep the step's title readable, so the full
+        // team name and its tier stay reachable — through the product tooltip on
+        // the focusable trigger, so the keyboard reaches it too, never a native
+        // `title=`.
+        return variant === 'row' ? (
+          <Tooltip content={`${triggerLabel}${triggerTier}`} wrapperClassName="inline-flex min-w-0">
+            {trigger}
+          </Tooltip>
+        ) : (
+          trigger
+        )
+      }}
+    >
+      <div onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}>
+        {inherit ? (
+          <>
+            <MenuItem
+              checked={inherit.selected}
+              selection="one-of"
+              onClick={() => {
+                inherit.onChoose()
+                setOpen(false)
+              }}
+              trailing={trailing(
+                inherit.selected,
+                isNoRolesRosterRef(inherit.resolvedLabel) ? JUST_AN_AGENT_LABEL : inherit.resolvedLabel,
+                'max-w-[7.5rem] truncate',
+              )}
+            >
+              Use the horizon&apos;s roster
+            </MenuItem>
+            {/* Spacing separates the groups — never hairlines (owner, 2026-08-06:
+                "we don't need these, we can just use spacing instead"). */}
+            <div aria-hidden="true" className="h-1.5" />
+          </>
+        ) : null}
+        {/* A missing roster leads, so the problem is the first thing read. It is
+            the current choice, so it is checked — and it cannot be re-chosen, so
+            the row is disabled rather than a control that does nothing. The
+            reason is its supporting line; the warn glyph, not red ink, says why. */}
+        {missing && selectedName ? (
+          <>
+            <MenuItem
+              checked
+              selection="one-of"
+              disabled
+              onClick={() => {}}
+              icon={<StatusDot tone="warn" label="Not found" />}
+              trailing={trailing(false, 'not found')}
+            >
+              {selectedName}
+            </MenuItem>
+            <div aria-hidden="true" className="h-1.5" />
+          </>
+        ) : null}
+        {/* Just an agent — the absence of a roster. Pinned first, no staffing
+            summary: which agent is the picker's job, not this menu's. */}
+        <MenuItem
+          checked={noRolesSelected}
+          selection="one-of"
+          onClick={() => pick(undefined)}
+          trailing={trailing(noRolesSelected, 'no roles')}
+        >
+          {JUST_AN_AGENT_LABEL}
+        </MenuItem>
+        <div aria-hidden="true" className="h-1.5" />
+        {rosters.map((roster) => {
+          const staffed = Object.values(roster.roleCounts).filter((count) => (count ?? 0) > 0).length
+          const checked = !noRolesSelected
+            && roster.name.trim().toLowerCase() === (selectedName ?? '').trim().toLowerCase()
+          return (
+            <MenuItem
+              key={roster.id}
+              checked={checked}
+              selection="one-of"
+              onClick={() => pick(roster.name)}
+              // A name alone is not enough to choose between rosters.
+              trailing={trailing(checked, `${staffed} role${staffed === 1 ? '' : 's'}`, 'tabular-nums')}
+            >
+              {roster.name}
+            </MenuItem>
+          )
+        })}
+        <div aria-hidden="true" className="h-1.5" />
+        <MenuItem
+          onClick={() => {
+            setOpen(false)
+            onManageRosters()
+          }}
+        >
+          Manage rosters…
+        </MenuItem>
+      </div>
     </Popover>
   )
 }

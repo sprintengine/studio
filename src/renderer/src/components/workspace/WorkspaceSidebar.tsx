@@ -194,10 +194,12 @@ function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
   return groupOrder.map((key) => groups.get(key)!)
 }
 
+// No `shadow` member: the active row used to wear a 1px border box drawn as an
+// inset shadow on top of its fill, and `patterns/selection` is the fill and the
+// ink lift, nothing else (audit, sidebar-selected-row-wears-a-border-box).
 type RowAccent = {
   bg: string
   text: string
-  shadow: string
   glyph: string
 }
 
@@ -217,19 +219,16 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
   sprintengine: {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     glyph: 'text-[color:var(--tool-sprintengine)]',
   },
   switchboard: {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     glyph: 'text-[color:var(--tool-switchboard)]',
   },
   'guided-brief': {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     glyph: 'text-[color:var(--accent-primary)]',
   },
   // Automations host carries the same primary-accent identity as its registered
@@ -238,13 +237,11 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
   'automations-host': {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     glyph: 'text-[color:var(--accent-primary)]',
   },
   standard: {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
     glyph: 'text-[color:var(--text-muted)]',
   },
 }
@@ -262,7 +259,6 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
     return {
       bg: swatch.bg,
       text: swatch.text,
-      shadow: swatch.shadow,
       glyph: `text-[${swatch.hex}]`,
     }
   }
@@ -300,7 +296,7 @@ function rowGlyphClass(workspace: Workspace, moduleOverrides: ModuleEnablementOv
 // appears and disappears without shifting the row's content sideways.
 function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
   const accent = rowAccent(workspace, moduleOverrides)
-  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text} ${accent.shadow}`
+  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text}`
 }
 
 // Class fragment applied to inactive rows that have a highlight color set, so
@@ -432,7 +428,7 @@ function ShowOlderRow({
 }) {
   const remaining = hiddenTotal - revealed
   const rowClass =
-    'flex h-control-xs cursor-pointer select-none items-center gap-1.5 rounded-md text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
+    `flex h-control-xs cursor-pointer select-none items-center gap-1.5 rounded-md text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
   return (
     <div className="mx-1.5 my-0.5 flex items-center gap-1">
       {remaining > 0 ? (
@@ -441,6 +437,7 @@ function ShowOlderRow({
           onClick={onShowMore}
           aria-expanded={revealed > 0}
           aria-controls={controlsId}
+          // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file)
           className={`${rowClass} min-w-0 flex-1 pl-[30px] pr-1.5`}
         >
           <svg
@@ -461,6 +458,7 @@ function ShowOlderRow({
           type="button"
           onClick={onShowFewer}
           aria-controls={controlsId}
+          // design-tokens-allow: alignment — the same 30px fold-row indent as the Show-more button above, when this button stands alone
           className={`${rowClass} shrink-0 px-2 ${remaining > 0 ? '' : 'flex-1 pl-[30px]'}`}
         >
           Show fewer
@@ -1270,6 +1268,7 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
+        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row glyph on the sidebar's 36px glyph column (see the layout note below)
         className={`interactive group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
           active
             ? activeRowClass(workspace, moduleOverrides)
@@ -1552,7 +1551,7 @@ export default function WorkspaceSidebar({
         onPointerDown={handleResizePointerDown}
         onKeyDown={handleResizeKeyDown}
         onDoubleClick={handleResizeDoubleClick}
-        className={`group absolute right-0 top-0 z-20 h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
+        className={`group absolute right-0 top-0 z-[var(--z-pane)] h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
       >
         <span
           aria-hidden="true"
@@ -1814,6 +1813,11 @@ export default function WorkspaceSidebar({
                     className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-md ring-2 ring-[color:var(--accent-primary)]"
                   />
                 ) : null}
+                <Tooltip
+                  content={group.fullPath ?? 'Workspaces with no folder'}
+                  placement="bottom"
+                  wrapperClassName="flex h-full min-w-0 flex-1"
+                >
                 <button
                   type="button"
                   onClick={() =>
@@ -1821,7 +1825,6 @@ export default function WorkspaceSidebar({
                   }
                   aria-expanded={!collapsed}
                   aria-controls={folderBodyId}
-                  title={group.fullPath ?? 'Workspaces with no folder'}
                   className={`flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pl-4 text-left transition-colors hover:text-[color:var(--text-default)] ${
                     group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
                   } ${FOCUS_RING_CLASS}`}
@@ -1856,6 +1859,7 @@ export default function WorkspaceSidebar({
                     {group.displayName}
                   </span>
                 </button>
+                </Tooltip>
                 {group.missing ? (
                   <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
                     <StatusDot tone="warn" label="Folder missing" />

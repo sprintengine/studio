@@ -116,14 +116,20 @@ function hasNestedButton(markup: string): boolean {
 
 run('a skill row carries two targets and never nests them', () => {
   const markup = canvas()
-  assert.ok(markup.includes('role="checkbox"'), 'the select target is a checkbox')
+  // The select target is the kit's native checkbox (ui/Checkbox): a real
+  // `<input type="checkbox">` carries Space, the label association and the
+  // shared focus treatment — no `role="checkbox"` drawn by hand.
+  assert.ok(markup.includes('type="checkbox"'), 'the select target is a checkbox')
   assert.ok(markup.includes('aria-label="Select tdd"'), 'the checkbox names the skill it selects')
-  assert.ok(markup.includes('aria-checked="false"'))
+  assert.equal(markup.includes('role="checkbox"'), false, 'no hand-rolled checkbox beside the kit one')
+  assert.equal(markup.includes('checked=""'), false, 'neither row is selected')
   assert.ok(markup.includes('>Read<'), 'the row body opens the skill to be read')
   assert.equal(hasNestedButton(markup), false)
   // The row clips its children, so an outset focus ring survives as a 1px
-  // sliver: both targets ring inward or the keyboard has no visible focus.
-  assert.equal(markup.match(/focus-visible:focus-ring-inset/g)?.length, 4, 'both targets on both rows')
+  // sliver: the row body rings inward, and the checkbox's box takes the
+  // shared ring through its peer input.
+  assert.equal(markup.match(/focus-visible:focus-ring-inset/g)?.length, 2, 'the row body on both rows')
+  assert.equal(markup.match(/peer-focus-visible:focus-ring/g)?.length, 2, 'the checkbox on both rows')
 })
 
 run('a grouped source renders its group tree and one group of rows', () => {
@@ -148,14 +154,14 @@ run('a search-first source renders no rows until a category or query is chosen',
   const scan = scanOf(skills, { groups: ['ecommerce'], groupingSignal: 'folders' })
   const markup = canvas({ scan })
   assert.ok(markup.includes('Pick a category, or search.'))
-  assert.ok(!markup.includes('role="checkbox"'), 'no rows are rendered yet')
+  assert.ok(!markup.includes('type="checkbox"'), 'no rows are rendered yet')
   assert.ok(markup.includes('placeholder="Search 103 skills"'))
 })
 
 run('a solo source renders the skill page, not a list of one', () => {
   const markup = canvas({ scan: scanOf([skill('impeccable')]) })
   assert.ok(markup.includes('data-skill-page="impeccable"'))
-  assert.ok(!markup.includes('role="checkbox"'))
+  assert.ok(!markup.includes('type="checkbox"'))
 })
 
 run('the connector skills deflect to MCP servers', () => {
@@ -166,7 +172,7 @@ run('the connector skills deflect to MCP servers', () => {
   })
   assert.ok(markup.includes('These 194 skills are paired with their MCP connectors.'))
   assert.ok(markup.includes('Browse MCP servers'))
-  assert.ok(!markup.includes('role="checkbox"'), 'none of the 194 are listed here')
+  assert.ok(!markup.includes('type="checkbox"'), 'none of the 194 are listed here')
 })
 
 run('with no workspace the Install affordances are disabled and say why', () => {

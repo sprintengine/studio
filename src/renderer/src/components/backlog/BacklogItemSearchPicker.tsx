@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { InboxSearchInput } from '../ui'
+import { EmptyState, InboxSearchInput, MENU_ITEM_CLASS } from '../ui'
 
 export type BacklogItemSearchOption = {
   id: string
@@ -97,12 +97,17 @@ export function BacklogItemSearchPicker({
           autoFocus
         />
       </div>
+      {/* Copy a person reads is readable ink: the helper line is `text-muted`,
+          and a list that came back empty is the kit's list-density empty state
+          — never disabled ink, which is certified only to a non-text floor. */}
       {!hasQuery ? (
-        <p className="px-2.5 py-2 text-meta text-[color:var(--text-disabled)]">
-          {options.length === 0 ? noOptionsMessage : 'Type an item ID or name.'}
-        </p>
+        options.length === 0 ? (
+          <EmptyState density="list" title={noOptionsMessage} />
+        ) : (
+          <p className="px-2.5 py-2 text-meta text-[color:var(--text-muted)]">Type an item ID or name.</p>
+        )
       ) : visible.length === 0 ? (
-        <p className="px-2.5 py-2 text-meta text-[color:var(--text-disabled)]">No matching items.</p>
+        <EmptyState density="list" title="No matching items." />
       ) : (
         <div
           role={resultRole === 'listbox' ? 'listbox' : undefined}
@@ -122,7 +127,9 @@ export function BacklogItemSearchPicker({
                 data-backlog-search-result="true"
                 tabIndex={-1}
                 onClick={() => onSelect(option)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                // The shared menu row: full-bleed hover, the inset ring, the
+                // menu's own size — the same row a kebab or a right-click opens.
+                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
                 {multiple ? (
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
@@ -137,7 +144,7 @@ export function BacklogItemSearchPicker({
             )
           })}
           {remaining > 0 ? (
-            <p className="px-2.5 py-1.5 text-micro text-[color:var(--text-disabled)]">
+            <p className="px-2.5 py-1.5 text-micro text-[color:var(--text-muted)]">
               {remaining} more — refine the search.
             </p>
           ) : null}

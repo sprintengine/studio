@@ -52,7 +52,7 @@ import {
 } from '../../utils/sprintengine'
 import SprintEngineFrond from '../brand/SprintEngineFrond'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, OutlineButton, PrimaryButton, TruncatedText, WizardProgress } from '../ui'
+import { Checkbox, CliModelPickerButton, CloseIconButton, EmptyState, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, OutlineButton, PrimaryButton, SegmentedControl, Skeleton, TruncatedText, WizardProgress } from '../ui'
 import { OVERLAY_SHELL_CLASS, OVERLAY_WIDTH_PX } from '../ui/tokens'
 import {
   analyzeWorkspaceTargetPath,
@@ -170,6 +170,15 @@ const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
 }
 
 type WorkspaceFolderSource = 'folder' | 'github'
+
+// The MCP catalogue read for the Tool integrations step: pending, landed, or
+// failed with the bridge's own message — so the step can render a skeleton, a
+// list (or an honest empty), or an error with a retry, and never one screen
+// for all three.
+type McpCatalogLoad =
+  | { status: 'loading' }
+  | { status: 'ready'; servers: McpCatalogServer[] }
+  | { status: 'error'; message: string }
 
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
@@ -470,7 +479,18 @@ export default function NewWorkspacePanel({
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
-  const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogServer[]>([])
+  // The MCP catalogue read, as three states the step can tell apart. It used
+  // to be a bare `McpCatalogServer[]` that stayed `[]` on a rejected or `ok:
+  // false` read, so a failed load rendered as "Loading…" forever and looked
+  // identical to an empty catalogue (audit,
+  // new-workspace-mcp-step-fails-as-loading-forever). `attempt` is what a
+  // retry bumps to re-run the read.
+  const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogLoad>({ status: 'loading' })
+  const [integrationsCatalogAttempt, setIntegrationsCatalogAttempt] = useState(0)
+  const retryIntegrationsCatalog = useCallback(() => {
+    setIntegrationsMcpCatalog({ status: 'loading' })
+    setIntegrationsCatalogAttempt((attempt) => attempt + 1)
+  }, [])
   const [integrationsMessage] = useState<string | null>(null)
   // Surfaced when create-time Advanced setup persistence (MCP sync, knowledge
   // root, design system) fails, so the wizard reports the failure instead of
@@ -479,16 +499,29 @@ export default function NewWorkspacePanel({
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window.api.mcpListCatalog === 'function') {
-      void window.api.mcpListCatalog().then((result) => {
-        if (cancelled) return
-        if (result.ok) setIntegrationsMcpCatalog(result.servers)
-      }).catch(() => {})
+    if (typeof window.api.mcpListCatalog !== 'function') {
+      // No catalogue bridge in this build: not a failure, just nothing to list.
+      setIntegrationsMcpCatalog({ status: 'ready', servers: [] })
+      return
     }
+    void window.api
+      .mcpListCatalog()
+      .then((result) => {
+        if (cancelled) return
+        if (result.ok) setIntegrationsMcpCatalog({ status: 'ready', servers: result.servers })
+        else setIntegrationsMcpCatalog({ status: 'error', message: result.message })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setIntegrationsMcpCatalog({
+          status: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [integrationsCatalogAttempt])
 
   // The role-registry read moved into useRosterEditor with the rest of the
   // roster state (MC-1879).
@@ -1767,7 +1800,7 @@ export default function NewWorkspacePanel({
                         the page itself never scrolls. */}
                     <div
                       key={step}
-                      className={`flex w-full ${stepColumnClass} ${step === 'workspace' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
+                      className={`flex w-full ${stepColumnClass} ${step === 'workspace' ? 'h-full' : ''} flex-col gap-8 px-6 py-5 ${stepAnimationClass}`}
                     >
                       {stepIndex > 0 ? (
                         <button
@@ -1900,6 +1933,7 @@ export default function NewWorkspacePanel({
           {showAdvancedSetup ? (
             <AdvancedSetupDisclosure
               mcpCatalog={integrationsMcpCatalog}
+              onRetryMcpCatalog={retryIntegrationsCatalog}
               mcpSettings={mcpSettings ?? null}
               onToggleMcp={toggleMcpInWizard}
               integrationsMessage={integrationsMessage}
@@ -2088,7 +2122,7 @@ function WorkspaceStep({
           onChange={(event) => onChangeName(event.target.value)}
           placeholder="my-workspace"
           className={`
-            block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
+            block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4
             text-heading text-[color:var(--text-strong)] transition-colors
             placeholder:text-[color:var(--text-disabled)]
             hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
@@ -2099,32 +2133,19 @@ function WorkspaceStep({
       <div className="flex flex-col gap-2">
         <FieldLabel>Folder</FieldLabel>
         {onChangeFolderSource ? (
-          <div className="flex items-center gap-1.5" role="group" aria-label="Folder source">
-            {(
-              [
-                ['folder', 'Empty folder'],
-                ['github', 'Clone from GitHub'],
-              ] as const
-            ).map(([source, label]) => {
-              const active = folderSource === source
-              return (
-                <button
-                  key={source}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onChangeFolderSource(source)}
-                  className={`
-                    h-7 rounded-full border px-3 text-meta font-medium transition-colors ${FOCUS_RING_CLASS}
-                    ${active
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)]'}
-                  `}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          // A two-value choice is the kit's segmented control: one tab stop,
+          // arrow keys, and the neutral `--bg-selected` active segment. It was an
+          // `aria-pressed` pill pair whose active state spent the accent as a
+          // border and a fill (audit, segmented-choices-and-tab-strips-rebuilt).
+          <SegmentedControl<WorkspaceFolderSource>
+            ariaLabel="Folder source"
+            items={[
+              { value: 'folder', label: 'Empty folder' },
+              { value: 'github', label: 'Clone from GitHub' },
+            ]}
+            value={folderSource}
+            onChange={onChangeFolderSource}
+          />
         ) : null}
         <div className="flex items-center gap-2">
           <input
@@ -2136,7 +2157,7 @@ function WorkspaceStep({
             autoComplete="off"
             aria-invalid={folderError ? true : undefined}
             className={`
-              block h-11 w-full min-w-0 flex-1 rounded-md border bg-[color:var(--bg-surface)] px-3.5
+              block h-11 w-full min-w-0 flex-1 rounded-md border bg-[color:var(--bg-surface)] px-4
               font-mono text-meta text-[color:var(--text-strong)] transition-colors
               placeholder:text-[color:var(--text-disabled)]
               hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
@@ -2239,6 +2260,7 @@ function ConfigStepSection({
 // persistence are identical — selections still write to project settings.
 function AdvancedSetupDisclosure({
   mcpCatalog,
+  onRetryMcpCatalog,
   mcpSettings,
   onToggleMcp,
   integrationsMessage,
@@ -2250,7 +2272,8 @@ function AdvancedSetupDisclosure({
   designSystemAttachSelection,
   onSelectDesignSystemAttach,
 }: {
-  mcpCatalog: McpCatalogServer[]
+  mcpCatalog: McpCatalogLoad
+  onRetryMcpCatalog: () => void
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
   onToggleMcp: (server: McpCatalogServer) => void
   integrationsMessage: string | null
@@ -2264,8 +2287,9 @@ function AdvancedSetupDisclosure({
   onSelectDesignSystemAttach: (source: DesignSystemAttachSource | null) => void
 }) {
   const [open, setOpen] = useState(false)
+  const catalogServers = mcpCatalog.status === 'ready' ? mcpCatalog.servers : []
   const selectedCount =
-    mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
+    catalogServers.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
     (designSystemAttachSelection ? 1 : 0)
 
   return (
@@ -2303,6 +2327,7 @@ function AdvancedSetupDisclosure({
             <h4 className="text-meta font-semibold text-[color:var(--text-strong)]">Tool integrations</h4>
             <McpServersStep
               mcpCatalog={mcpCatalog}
+              onRetry={onRetryMcpCatalog}
               mcpSettings={mcpSettings}
               onToggleMcp={onToggleMcp}
               message={integrationsMessage}
@@ -2337,16 +2362,19 @@ function AdvancedSetupDisclosure({
 
 function McpServersStep({
   mcpCatalog,
+  onRetry,
   mcpSettings,
   onToggleMcp,
   message,
 }: {
-  mcpCatalog: McpCatalogServer[]
+  mcpCatalog: McpCatalogLoad
+  onRetry: () => void
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
   onToggleMcp: (server: McpCatalogServer) => void
   message: string | null
 }) {
-  const selectedCount = mcpCatalog.reduce(
+  const servers = mcpCatalog.status === 'ready' ? mcpCatalog.servers : []
+  const selectedCount = servers.reduce(
     (count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0),
     0,
   )
@@ -2357,62 +2385,84 @@ function McpServersStep({
         <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           Selected tools are added to this project when you create it. Manage them anytime in Settings.
         </p>
-        {mcpCatalog.length > 0 ? (
+        {servers.length > 0 ? (
           <span className="shrink-0 pt-0.5 text-micro tabular-nums text-[color:var(--text-subtle)]">
             {selectedCount} selected
           </span>
         ) : null}
       </div>
-      {mcpCatalog.length === 0 ? (
-        <p className="text-micro text-[color:var(--text-subtle)]">Loading…</p>
+      {/* Three states, never one screen for all three: a skeleton while the
+          catalogue is pending, the failure with its retry, and an honest empty
+          when the catalogue really lists nothing. */}
+      {mcpCatalog.status === 'loading' ? (
+        <ul aria-hidden="true" className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
+          {[0, 1, 2, 3].map((index) => (
+            <li key={index}>
+              <Skeleton className="h-[58px] w-full rounded-md bg-[color:var(--bg-surface-raised)]" />
+            </li>
+          ))}
+        </ul>
+      ) : mcpCatalog.status === 'error' ? (
+        <InlineNotice
+          tone="error"
+          title="The tool catalogue could not be loaded."
+          hint="Tools can still be added later from Settings."
+          detail={mcpCatalog.message}
+          action={
+            <OutlineButton size="xs" onClick={onRetry}>
+              Try again
+            </OutlineButton>
+          }
+        />
+      ) : servers.length === 0 ? (
+        <EmptyState
+          density="list"
+          title="No tools are available to add."
+          body="Tools you install later can be added from Settings."
+        />
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
-          {mcpCatalog.map((server) => {
+          {servers.map((server) => {
             const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
             return (
               <li key={server.id}>
-                <button
-                  type="button"
-                  onClick={() => onToggleMcp(server)}
-                  aria-pressed={enabled}
+                {/* The card IS the kit checkbox: the native input carries the
+                    checked state, Space and the focus ring, and the card body
+                    is its label. Selection is neutral — `--bg-selected` and
+                    the strong hairline, title at `text-strong` — where it used
+                    to spend the accent as a border and a fill on every enabled
+                    card beside a hand-drawn tick (audit, accent-spent-on-
+                    selection; checkboxes-rebuilt-beside-ui-checkbox). */}
+                <Checkbox
+                  checked={enabled}
+                  onChange={() => onToggleMcp(server)}
                   className={`
-                    grid h-full min-h-[58px] w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-left
-                    transition-colors focus-visible:focus-ring
+                    h-full min-h-[58px] w-full rounded-md border px-3 py-2 text-left
+                    transition-colors
                     ${enabled
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+                      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'}
                   `}
-                >
-                  <span
-                    aria-hidden
-                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                      enabled
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                        : 'border-[color:var(--border-default)]'
-                    }`}
-                  >
-                    {enabled ? (
-                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
-                      </svg>
-                    ) : null}
-                  </span>
-                  <span className="min-w-0">
-                    <TruncatedText
-                      as="span"
-                      text={server.name}
-                      className="block text-body font-semibold text-[color:var(--text-strong)]"
-                    />
-                    <span className="mt-0.5 block truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
-                      {server.transport} · {server.category ?? 'Other'}
+                  label={
+                    <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <span className="min-w-0 flex-1">
+                        <TruncatedText
+                          as="span"
+                          text={server.name}
+                          className={`block text-body font-semibold ${enabled ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+                        />
+                        <span className="mt-0.5 block truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
+                          {server.transport} · {server.category ?? 'Other'}
+                        </span>
+                      </span>
+                      {server.recommendedScope === 'user' ? (
+                        <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-micro text-[color:var(--text-subtle)]">
+                          user
+                        </span>
+                      ) : null}
                     </span>
-                  </span>
-                  {server.recommendedScope === 'user' ? (
-                    <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-micro text-[color:var(--text-subtle)]">
-                      user
-                    </span>
-                  ) : null}
-                </button>
+                  }
+                />
               </li>
             )
           })}
@@ -2644,7 +2694,7 @@ function GuidedIdeaStep({
           placeholder={copy.ideaPlaceholder}
           autoFocus
           className={`
-            min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
+            min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3
             text-heading leading-6 text-[color:var(--text-strong)] transition-colors
             placeholder:text-[color:var(--text-disabled)]
             hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
@@ -2781,8 +2831,8 @@ function GuidedRoleToggle({
   const effectiveChecked = locked || checked
   return (
     <div
-      className={`flex items-start justify-between gap-3 rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-3 py-2.5 ${
-        disabled ? 'opacity-55' : 'hover:border-[color:var(--color-5)]'
+      className={`flex items-start justify-between gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2.5 ${
+        disabled ? 'opacity-50' : 'hover:border-[color:var(--border-strong)]'
       }`}
     >
       <span className="min-w-0">
@@ -2849,12 +2899,12 @@ function GuidedChoiceCard({
       className={`
         flex min-h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus-visible:focus-ring
-        disabled:cursor-not-allowed disabled:opacity-55
+        disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]
         ${active
           ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
           : disabled
-            ? 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)]'
-            : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+            ? 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)]'
+            : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span className="text-body font-semibold leading-4 text-[color:var(--text-strong)]">

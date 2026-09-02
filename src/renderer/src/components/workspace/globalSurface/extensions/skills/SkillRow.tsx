@@ -5,6 +5,8 @@
 
 import React from 'react'
 
+import { Badge } from '../../../../ui/Badge'
+import { Checkbox } from '../../../../ui/Checkbox'
 import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
 import { skillGroupLabel, type SkillListItem } from './skillsSurfaceModel'
 
@@ -30,32 +32,18 @@ export function SkillRow({
         selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
       }`}
     >
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={selected}
-        aria-label={`Select ${item.name}`}
-        onClick={onToggleSelect}
-        // Inset rings: the two targets sit flush inside the row's fill, so an
-        // outset ring would collide with the neighbouring rows' fills.
-        className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_INSET_CLASS}`}
-      >
-        <span
-          aria-hidden="true"
-          className={`grid size-icon-sm place-items-center rounded-[3px] border ${
-            selected
-              ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-              : 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-transparent'
-          }`}
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5">
-            <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      </button>
+      {/* The kit checkbox: a real `<input>` carries Space, the label
+          association and the shared focus treatment, so this row no longer
+          draws its own box beside `ui/Checkbox` (MC-2117). The 32px column is
+          the hit target the row always had. */}
+      <span className="grid w-8 shrink-0 place-items-center">
+        <Checkbox checked={selected} onChange={onToggleSelect} ariaLabel={`Select ${item.name}`} />
+      </span>
       <button
         type="button"
         onClick={onOpen}
+        // Inset ring: the target sits flush inside the row's fill, so an
+        // outset ring would collide with the neighbouring rows' fills.
         className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_INSET_CLASS}`}
       >
         <span className="flex min-w-0 flex-1 flex-col">
@@ -69,7 +57,12 @@ export function SkillRow({
             {skillGroupLabel(item.group)}
           </span>
         ) : null}
-        <FileCountChip count={item.fileCount} />
+        {/* The kit's label badge, said in words: "3 files" needs no tooltip to
+            explain a glyph, and nothing here is a native `title=` on a span
+            the keyboard could never reach. */}
+        <Badge tone="neutral" className="shrink-0 tabular-nums">
+          {`${item.fileCount} file${item.fileCount === 1 ? '' : 's'}`}
+        </Badge>
         {item.hasExecutables ? (
           <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">Runs scripts</span>
         ) : null}
@@ -84,24 +77,5 @@ export function SkillRow({
         </span>
       </button>
     </div>
-  )
-}
-
-export function FileCountChip({ count }: { count: number }): JSX.Element {
-  return (
-    <span
-      className="inline-flex shrink-0 items-center gap-1 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-meta tabular-nums text-[color:var(--text-subtle)]"
-      title={`${count} file${count === 1 ? '' : 's'}`}
-    >
-      <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5" aria-hidden="true">
-        <path
-          d="M4 2h5l3 3v9H4zM9 2v3h3"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinejoin="round"
-        />
-      </svg>
-      {count}
-    </span>
   )
 }

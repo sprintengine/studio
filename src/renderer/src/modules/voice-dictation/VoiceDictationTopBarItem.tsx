@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { StatusDot, Tooltip } from '../../components/ui'
+import { IconButton, StatusDot, Tooltip } from '../../components/ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   getEffectiveKeybindingLabel,
@@ -11,8 +11,10 @@ import { voiceDictationController } from './voiceDictationController'
 // The mic button, moved out of WorkspaceActions' hardcoded markup and into the
 // module (MC-1861): it renders through the registerTopBarItem contribution
 // point, so disabling the module removes it because nothing registered it —
-// not because a call site checks a flag. Styling matches the sibling shell
-// controls in the communication cluster (Notifications).
+// not because a call site checks a flag. It is the kit's icon button at the
+// same `md` step as its neighbours in the communication cluster
+// (Notifications), so the four controls in the strip share one size, one
+// radius, one focus ring and one disabled treatment.
 
 function MicIcon({ className }: { className?: string }) {
   return (
@@ -52,17 +54,16 @@ export function VoiceDictationTopBarItem() {
       }
       placement="bottom"
     >
-      <button
-        type="button"
+      {/* Recording is said once: the pulsing error-tone dot. The pressed state
+          is the neutral selection fill — a tone-coloured border around the
+          same button was the status said twice (audit, status-said-twice). */}
+      <IconButton
+        size="md"
         onClick={voiceDictationController.toggle}
         disabled={transcribing}
         aria-label={recording ? 'Stop voice transcription' : 'Start voice transcription'}
         aria-pressed={recording}
-        className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-60 ${
-          recording
-            ? 'border-[color:var(--tone-error)] bg-[color:var(--bg-hover)] text-[color:var(--tone-error)]'
-            : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-        }`}
+        className={`relative ${recording ? 'bg-[color:var(--bg-selected)]' : ''}`}
       >
         <MicIcon className="size-icon-md" />
         {recording ? (
@@ -70,7 +71,7 @@ export function VoiceDictationTopBarItem() {
             <StatusDot tone="error" pulse label="Recording" />
           </span>
         ) : null}
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }

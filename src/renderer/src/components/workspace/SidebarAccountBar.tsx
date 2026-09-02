@@ -47,7 +47,7 @@ function GearIcon({ className }: { className?: string }) {
 function footerIconButtonClass(open: boolean): string {
   return `inline-flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
     open
-      ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
       : 'border-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
   }`
 }
@@ -334,7 +334,7 @@ export default function SidebarAccountBar({
             type="button"
             onClick={togglePopover}
             className={`flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-              accountOpen ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+              accountOpen ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
             }`}
             aria-label={`Account · ${tierStyle.label} plan`}
             {...triggerProps}
@@ -351,7 +351,7 @@ export default function SidebarAccountBar({
       type="button"
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}
-      className={`inline-flex h-control-md items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-body font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 ${FOCUS_RING_CLASS} ${
+      className={`inline-flex h-control-md items-center rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-body font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface-raised)] disabled:hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS} ${
         collapsed ? 'w-8 justify-center' : 'min-w-0 flex-1 justify-center px-3'
       }`}
       aria-busy={authState.status === 'checking'}

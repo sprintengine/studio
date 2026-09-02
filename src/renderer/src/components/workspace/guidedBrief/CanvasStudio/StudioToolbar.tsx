@@ -1,13 +1,20 @@
 import type { RefObject } from 'react'
-import { TruncatedText } from '../../../ui'
+import { FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, TruncatedText } from '../../../ui'
 import { screenSwitcherMode, type CanvasStudioNav } from './canvasStudioModel'
 
-// The one floating pill that chromes the canvas (MC-1510): the screen/document
+// The one floating strip that chromes the canvas (MC-1510): the screen/document
 // switcher. Viewport/zoom/reload stay in the artifact frame's own header
 // (existing HtmlArtifactFrame chrome) rather than being duplicated here, and
 // so does the live Comment (annotate) toggle — T11 wired the sinks, so the
-// pill's earlier disabled Comment placeholder is gone (never two toggles for
+// strip's earlier disabled Comment placeholder is gone (never two toggles for
 // one mode).
+//
+// Radii sit on the ramp: the strip is floating chrome (`radius.overlay`,
+// `rounded-md`) and the controls inside it are controls (`rounded-sm`). The
+// capsule shapes it shipped with were pills on rectangular controls (audit,
+// radii-off-the-ramp), and the open Screens toggle spent the product accent as a
+// selection fill — it is the neutral `--bg-selected` now (accent-spent-on-
+// selection).
 
 type Props = {
   nav: CanvasStudioNav
@@ -18,13 +25,13 @@ type Props = {
 }
 
 export function StudioToolbar({ nav, drawerOpen, onToggleDrawer, screensButtonRef }: Props) {
-  // With no trailing controls, a nav-less pill would be an empty capsule.
+  // With no trailing controls, a nav-less strip would be an empty capsule.
   if (nav.kind === 'none') return null
   return (
     <div
       role="group"
       aria-label="Canvas controls"
-      className="absolute left-1/2 top-3.5 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2.5 rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3.5 py-1.5 shadow-[var(--shadow-drawer)]"
+      className="absolute left-1/2 top-3.5 z-[var(--z-pane)] flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-4 py-1.5 shadow-[var(--shadow-drawer)]"
     >
       <NavRegion
         nav={nav}
@@ -48,9 +55,9 @@ function NavRegion({ nav, drawerOpen, onToggleDrawer, screensButtonRef }: Props)
             onClick={onToggleDrawer}
             aria-expanded={drawerOpen}
             aria-haspopup="dialog"
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-micro font-medium transition-colors focus-visible:focus-ring ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3 py-1 text-micro font-medium transition-colors ${FOCUS_RING_CLASS} ${
               drawerOpen
-                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
             }`}
           >
@@ -119,7 +126,7 @@ function PillSegmented({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex min-w-0 overflow-hidden rounded-full border border-[color:var(--border-default)]"
+      className="inline-flex min-w-0 overflow-hidden rounded-sm border border-[color:var(--border-default)]"
     >
       {options.map((option, index) => {
         const isActive = option.id === activeId
@@ -132,7 +139,7 @@ function PillSegmented({
             className={`
               max-w-[13ch] truncate px-2.5 py-1 text-micro transition-colors
               disabled:cursor-not-allowed
-              focus-visible:focus-ring-inset
+              ${FOCUS_RING_INSET_CLASS}
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
               ${
                 isActive
@@ -148,4 +155,3 @@ function PillSegmented({
     </div>
   )
 }
-

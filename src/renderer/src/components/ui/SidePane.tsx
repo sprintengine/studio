@@ -200,7 +200,7 @@ export function SidePane({
       onPointerDown={handleResizePointerDown}
       onKeyDown={handleResizeKeyDown}
       onDoubleClick={onResizeReset}
-      className={`group absolute top-0 z-20 h-full w-1.5 cursor-col-resize ${FOCUS_RING_CLASS} ${
+      className={`group absolute top-0 z-[var(--z-pane)] h-full w-1.5 cursor-col-resize ${FOCUS_RING_CLASS} ${
         side === 'right' ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2'
       }`}
     >

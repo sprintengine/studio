@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
-import { EmptyState, HtmlPreviewCard, htmlArtifactFrameSandbox, TruncatedText } from '../../ui'
+import { EmptyState, HtmlPreviewCard, htmlArtifactFrameSandbox, Spinner, TruncatedText } from '../../ui'
 import type { DesignArtifactIndex } from './designArtifacts'
 import {
   buildComponentGalleryModel,
@@ -402,10 +402,7 @@ function BuildingCard({ title, path }: { title: string; path: string }) {
       className="flex flex-col overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
     >
       <span className="flex h-[108px] flex-col items-center justify-center gap-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-        <span
-          aria-hidden="true"
-          className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[color:var(--border-default)] border-t-[color:var(--accent-primary)] motion-reduce:animate-none"
-        />
+        <Spinner size={14} />
         <span className="text-micro text-[color:var(--text-subtle)]">Building {title}…</span>
       </span>
       <span className="flex flex-col gap-0.5 px-3 py-2">

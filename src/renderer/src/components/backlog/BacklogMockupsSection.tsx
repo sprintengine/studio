@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
-import { FOCUS_RING_CLASS, Popover, Section, Tooltip, TruncatedText } from '../ui'
+import {
+  GhostButton,
+  IconButton,
+  Input,
+  MENU_ITEM_STACKED_CLASS,
+  MENU_LIST_CLASS,
+  Popover,
+  Section,
+  Tooltip,
+  TruncatedText,
+} from '../ui'
 import { HtmlPreviewCard } from '../ui/HtmlPreviewCard'
 import { basename, joinFilePath } from '../../utils/paths'
 import { humanizeFileTitle } from '../workspace/guidedBrief/MockupPreviewPane'
@@ -161,7 +171,9 @@ function MockupRow({
             tabIndex={0}
             role="note"
             aria-label={`${entry.path}: missing, no file on disk`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            // Readable ink: the path is what a person reads to fix the row, so it
+            // is never disabled ink — the "Missing" word beside it carries state.
+            className="min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 font-mono text-meta text-[color:var(--text-muted)] outline-none focus-visible:focus-ring"
           >
             {entry.path}
           </span>
@@ -193,7 +205,10 @@ function MockupRow({
         <span className="px-1 text-micro text-[color:var(--text-subtle)]">Found in this item</span>
       ) : null}
       {onRemove ? (
-        <div className="absolute right-1.5 top-1.5">
+        // The raised ground sits on the wrapper, not the button: it keeps the
+        // glyph legible over the preview while the kit button keeps its own
+        // hover fill.
+        <div className="absolute right-1.5 top-1.5 rounded-sm bg-[color:var(--bg-surface-raised)]">
           <RemoveButton label={`Remove mockup ${entry.path}`} onClick={onRemove} />
         </div>
       ) : null}
@@ -201,19 +216,16 @@ function MockupRow({
   )
 }
 
+// The kit's icon button (26px, the one control-xs square) — this was a 20px
+// hand-rolled square under the 24px hit-target floor.
 function RemoveButton({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
   return (
     <Tooltip content="Remove" placement="top">
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onClick}
-        className="interactive inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[color:var(--bg-surface-raised)]/80 text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-      >
+      <IconButton aria-label={label} onClick={onClick} className="shrink-0">
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -300,6 +312,33 @@ function AttachMockupEditor({
     setOpen(false)
   }
 
+  // The listbox keyboard model (design-system/components/menu → Accessibility):
+  // ArrowDown from the search field enters the list; ArrowUp/Down wrap through
+  // the options; Home/End jump. The surface stays a `listbox` of `option`s —
+  // these are values to pick, not actions — so the kit's `roveMenuFocus`, which
+  // walks a `role="menu"`, is mirrored here over the option rows.
+  const listRef = useRef<HTMLUListElement | null>(null)
+  const optionsOf = (): HTMLElement[] =>
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]:not([disabled])') ?? [])
+  const roveOptions = (event: React.KeyboardEvent): void => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    const options = optionsOf()
+    if (options.length === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const active = document.activeElement as HTMLElement | null
+    const index = active ? options.indexOf(active) : -1
+    const next =
+      event.key === 'Home'
+        ? options[0]
+        : event.key === 'End'
+          ? options[options.length - 1]
+          : event.key === 'ArrowDown'
+            ? index < 0 ? options[0] : options[(index + 1) % options.length]
+            : index < 0 ? options[options.length - 1] : options[(index - 1 + options.length) % options.length]
+    next?.focus()
+  }
+
   return (
     <Popover
       open={open}
@@ -310,49 +349,60 @@ function AttachMockupEditor({
       ariaLabel="Attach a mockup"
       popupRole="dialog"
       placement="bottom-end"
-      surfaceClassName="min-w-[20rem] p-1"
+      // No surface inset: the option rows are full-bleed (the menu list layer),
+      // and the search field carries its own gutter.
+      surfaceClassName="min-w-[20rem]"
       renderTrigger={({ ref, togglePopover, open: opened, triggerProps }) => (
-        <button
+        <GhostButton
           ref={ref}
-          type="button"
+          size="xs"
           aria-haspopup="dialog"
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-micro font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
-            opened
-              ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-          }`}
+          className={opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : ''}
         >
           Attach mockup…
-        </button>
+        </GhostButton>
       )}
     >
-      <div className="flex flex-col gap-1">
-        <input
-          type="text"
-          autoFocus
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search mockups or type a path…"
-          aria-label="Search mockup files"
-          className={`w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-        />
-        <ul role="listbox" aria-label="Mockup files" className="flex max-h-64 flex-col gap-0.5 overflow-auto">
+      <div className="flex flex-col" onKeyDown={roveOptions}>
+        <div className="p-1.5">
+          <Input
+            type="text"
+            size="sm"
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search mockups or type a path…"
+            aria-label="Search mockup files"
+          />
+        </div>
+        <ul
+          ref={listRef}
+          role="listbox"
+          aria-label="Mockup files"
+          className={`flex max-h-64 flex-col overflow-auto ${MENU_LIST_CLASS}`}
+        >
           {filtered.map((choice) => (
             <li key={choice.relativePath}>
               <button
                 type="button"
+                role="option"
+                aria-selected={false}
+                data-menu-item="true"
+                tabIndex={-1}
                 onClick={() => commit(choice.relativePath)}
-                className="interactive flex w-full min-w-0 flex-col rounded px-2 py-1 text-left hover:bg-[color:var(--bg-hover)]"
+                className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
-                <span className="truncate text-meta text-[color:var(--text-default)]">{choice.title}</span>
-                <TruncatedText
-                  as="span"
-                  text={choice.relativePath}
-                  className="font-mono text-micro text-[color:var(--text-subtle)]"
-                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-meta">{choice.title}</span>
+                  <TruncatedText
+                    as="span"
+                    text={choice.relativePath}
+                    className="font-mono text-micro text-[color:var(--text-subtle)]"
+                  />
+                </span>
               </button>
             </li>
           ))}
@@ -360,16 +410,22 @@ function AttachMockupEditor({
             <li>
               <button
                 type="button"
+                role="option"
+                aria-selected={false}
+                data-menu-item="true"
+                tabIndex={-1}
                 onClick={() => commit(freeTextPath)}
-                className="interactive flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+                className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
-                <span className="text-[color:var(--text-muted)]">Attach path</span>
-                <span className="truncate font-mono text-micro">{freeTextPath}</span>
+                <span className="flex min-w-0 flex-1 items-center gap-1 text-meta">
+                  <span className="shrink-0 text-[color:var(--text-muted)]">Attach path</span>
+                  <span className="truncate font-mono text-micro">{freeTextPath}</span>
+                </span>
               </button>
             </li>
           ) : null}
           {filtered.length === 0 && !freeTextValid ? (
-            <li className="px-2 py-1 text-micro text-[color:var(--text-disabled)]">
+            <li className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
               {choices.length === 0 ? 'No mockup files found under backlog/mockups.' : 'No matching mockups.'}
             </li>
           ) : null}

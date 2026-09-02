@@ -346,14 +346,29 @@ function renderCanvas({
       />
     )
   }
+  // First run: the door has never held a review, so this canvas keeps the
+  // richer treatment; the glyph is an svg, never a text character.
   return (
     <SurfaceCanvasState
       kind="empty"
-      glyph="◎"
+      firstRun
+      glyph={<ReviewsDoorGlyph />}
       title="No reviews yet"
       body="Reviews from every project collect here. Start one from a pull request, branch, or patch and the guide walks you through the change."
       action={<PrimaryButton onClick={onNewReview}>Review a change</PrimaryButton>}
     />
+  )
+}
+
+// The door's mark for its first-run canvas: a ring with a centre — the eye a
+// walkthrough puts on a change. An svg on the icon ramp, sized for the
+// substrate's accent disc.
+function ReviewsDoorGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" className="icon-lg" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+    </svg>
   )
 }
 

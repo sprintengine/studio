@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { FOCUS_RING_CLASS, OutlineButton } from '../../../ui'
 import {
   annotateSubmitLabel,
   annotationDisplayRect,
@@ -7,11 +8,18 @@ import {
 import type { AnnotationRect, MockupAnnotation } from './types'
 
 // The floating batch tray (MC-1468 batch-first decision): pending notes
-// accumulate here and leave as ONE submit. At rest it is a compact pill —
+// accumulate here and leave as ONE submit. At rest it is a compact strip —
 // count, Clear, and the send action; the count expands the numbered list
 // (numbers mirror the pins, so identity is never color-only) with per-note
 // edit/remove. A failed submit keeps the batch and says so; nothing is
 // silently dropped.
+//
+// The strip and its buttons sit on the control radius, not `rounded-full`: a
+// pill is for dots, avatars and badges, and a rectangular control in a capsule
+// was a third radius on the canvas (audit, radii-off-the-ramp). Send is the
+// outline button — the annotate composer's commit is the surface's one primary
+// (ruling 9), and two accent fills were on screen whenever a batch existed
+// while the composer was open.
 
 type Props = {
   annotations: readonly MockupAnnotation[]
@@ -45,7 +53,7 @@ export function AnnotateTray({
 
   return (
     <div
-      className="pointer-events-auto absolute bottom-3 left-1/2 z-20 flex w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-col items-center gap-2"
+      className="pointer-events-auto absolute bottom-3 left-1/2 z-[var(--z-pane)] flex w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-col items-center gap-2"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && listOpen) {
           event.stopPropagation()
@@ -74,9 +82,7 @@ export function AnnotateTray({
                   disabled={submitting}
                   onClick={() => onEdit(index)}
                   aria-label={`Edit note ${index + 1}: ${annotation.message}`}
-                  className="
-                    min-w-0 flex-1 text-left focus-visible:focus-ring disabled:opacity-60
-                  "
+                  className={`min-w-0 flex-1 rounded-xs text-left disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
                 >
                   <span className="line-clamp-2 text-meta leading-5 text-[color:var(--text-default)]">
                     {annotation.message}
@@ -92,14 +98,14 @@ export function AnnotateTray({
                   disabled={submitting}
                   onClick={() => onRemove(index)}
                   aria-label={`Remove note ${index + 1}`}
-                  className="
+                  className={`
                     mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm
                     text-[color:var(--text-subtle)] opacity-0 transition-opacity
                     hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-                    focus-visible:focus-ring
+                    ${FOCUS_RING_CLASS}
                     focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100
-                    disabled:opacity-0
-                  "
+                    disabled:cursor-not-allowed disabled:opacity-0
+                  `}
                 >
                   <svg viewBox="0 0 12 12" className="icon-xs" fill="none" aria-hidden="true">
                     <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -118,17 +124,17 @@ export function AnnotateTray({
           {submitState.reason}
         </div>
       ) : null}
-      <div className="flex items-center gap-1 rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-1 pl-1 pr-1 shadow-[var(--shadow-drawer)]">
+      <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-1 shadow-[var(--shadow-drawer)]">
         <button
           ref={countButtonRef}
           type="button"
           onClick={onToggleList}
           aria-expanded={listOpen}
-          className="
-            inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro text-[color:var(--text-strong)]
+          className={`
+            inline-flex h-6 items-center gap-1 rounded-sm px-2.5 text-micro text-[color:var(--text-strong)]
             transition-colors hover:bg-[color:var(--bg-hover)]
-            focus-visible:focus-ring
-          "
+            ${FOCUS_RING_CLASS}
+          `}
         >
           <span className="tabular-nums font-semibold">{annotations.length}</span>
           note{annotations.length === 1 ? '' : 's'}
@@ -145,27 +151,18 @@ export function AnnotateTray({
           type="button"
           disabled={submitting}
           onClick={onClear}
-          className="
-            inline-flex h-6 items-center rounded-full px-2 text-micro text-[color:var(--text-subtle)]
+          className={`
+            inline-flex h-6 items-center rounded-sm px-2 text-micro text-[color:var(--text-subtle)]
             transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-            disabled:opacity-60
-            focus-visible:focus-ring
-          "
+            disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-subtle)]
+            ${FOCUS_RING_CLASS}
+          `}
         >
           Clear
         </button>
-        <button
-          type="button"
-          disabled={submitting || annotations.length === 0}
-          onClick={onSend}
-          className="
-            inline-flex h-6 items-center rounded-full bg-[color:var(--accent-primary)] px-3 text-micro font-medium
-            text-[color:var(--text-on-accent)] transition-colors disabled:opacity-60 enabled:hover:opacity-90
-            focus-visible:focus-ring
-          "
-        >
+        <OutlineButton size="xs" disabled={submitting || annotations.length === 0} onClick={onSend}>
           {submitting ? 'Sending…' : submitLabel ?? annotateSubmitLabel(annotations.length)}
-        </button>
+        </OutlineButton>
       </div>
     </div>
   )

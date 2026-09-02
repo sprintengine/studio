@@ -19,7 +19,7 @@ import {
   selectAgentCliCatalog,
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
+import { IconButton, PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { bracketedPaste } from '../../utils/terminalDrop'
@@ -311,7 +311,10 @@ export default function AgentPanel({
 
   return (
     <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-meta text-[color:var(--text-default)] ${cliShellTone}`}>
-      <div className={`group relative flex flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
+      {/* No needs-input tint on the pane: the workspace tab's lifecycle glyph
+          already carries that state, and a 1px tone-coloured inset line said it a
+          second time by colour alone (2026-09-02, status-said-twice). */}
+      <div className="group relative flex flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)]">
         {hasStarted && (canSuspendTerminal || canLockTerminal || backlogItemRef || canUseSkill) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
           // its child in a `position: relative` span, so an `absolute` child
@@ -320,7 +323,7 @@ export default function AgentPanel({
           // of truth); here we keep the skill picker, pause, lock, and Backlog
           // link. The suspended state is surfaced by the quiet footer below,
           // not a button.
-          <div className="absolute right-2 top-2 z-30 flex items-center gap-1.5">
+          <div className="absolute right-2 top-2 z-[var(--z-float)] flex items-center gap-1.5">
             {canUseSkill ? (
               <SkillPickerPopover
                 open={skillPickerOpen}
@@ -332,16 +335,18 @@ export default function AgentPanel({
                 placement="bottom-end"
                 renderTrigger={({ ref, triggerProps, togglePopover, open }) => (
                   <Tooltip content="Use a skill — inserts the invocation at the prompt" placement="bottom">
-                    <button
+                    {/* Kit icon button on the raised ground so it stays legible
+                        over terminal output; hover-revealed, and focus-revealed
+                        for the keyboard. */}
+                    <IconButton
                       ref={ref}
-                      type="button"
                       onClick={togglePopover}
                       aria-label="Use a skill"
-                      className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
+                      className={`bg-[color:var(--bg-surface-raised)] transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
                       {...triggerProps}
                     >
                       <StarGlyph filled={false} stroked className="size-icon-sm" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 )}
               />
@@ -352,17 +357,16 @@ export default function AgentPanel({
               // button while live, a status indicator once suspended). Hidden
               // while locked — the lock's whole promise is "never paused".
               <Tooltip content="Suspend agent — free its memory, keep the output to read" placement="bottom">
-                <button
-                  type="button"
+                <IconButton
                   onClick={suspendTerminal}
                   aria-label="Suspend agent to free memory"
-                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100"
+                  className="bg-[color:var(--bg-surface-raised)] opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >
                   <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                     <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
                     <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
                   </svg>
-                </button>
+                </IconButton>
               </Tooltip>
             ) : null}
             {canLockTerminal ? (
@@ -377,15 +381,15 @@ export default function AgentPanel({
                 }
                 placement="bottom"
               >
-                <button
-                  type="button"
+                <IconButton
                   onClick={toggleTerminalLock}
                   aria-label={isTerminalLocked ? 'Unlock terminal — allow automatic pausing' : 'Lock terminal — never pause automatically'}
                   aria-pressed={isTerminalLocked}
-                  className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border transition-opacity focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 ${
+                  className={`transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${
                     isTerminalLocked
-                      ? 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] opacity-100'
-                      : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)]'
+                      ? // Pressed is the neutral selection fill, never the accent.
+                        'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] opacity-100'
+                      : 'bg-[color:var(--bg-surface-raised)] opacity-0'
                   }`}
                 >
                   {isTerminalLocked ? (
@@ -401,16 +405,15 @@ export default function AgentPanel({
                       <path d="M5.75 7V4.4a2.25 2.25 0 0 1 4.5 0v.35" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
                   )}
-                </button>
+                </IconButton>
               </Tooltip>
             ) : null}
             {backlogItemRef ? (
               <Tooltip content={`Open Backlog item: ${backlogItemRef.title}`} placement="bottom">
-                <button
-                  type="button"
+                <IconButton
                   onClick={openLinkedBacklogItem}
                   aria-label={`Open Backlog item: ${backlogItemRef.title}`}
-                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+                  className="bg-[color:var(--bg-surface-raised)]"
                 >
                   {/* Matches the Backlog rail glyph (PanelRail) so the iconography
                       reads as "the Backlog" at a glance. */}
@@ -420,7 +423,7 @@ export default function AgentPanel({
                     <circle cx="3" cy="8" r="1" fill="currentColor" />
                     <circle cx="3" cy="11.5" r="1" fill="currentColor" />
                   </svg>
-                </button>
+                </IconButton>
               </Tooltip>
             ) : null}
           </div>
@@ -491,7 +494,7 @@ export default function AgentPanel({
                     ? 'Resuming agent'
                     : 'Resume paused agent — click or type to resume'
                 }
-                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-micro text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-4 py-2 text-left text-micro text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
                     The pulse while resuming is the "alive right now" signal; it

@@ -40,12 +40,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+  Badge,
+  BoardLaneDropIndicator,
   ContextMenu,
   GhostButton,
   LifecycleGlyph,
   MenuItem,
   OverflowMenu,
   PrimaryButton,
+  StatusDot,
   Tooltip,
   TruncatedText,
 } from '../../ui'
@@ -557,32 +560,36 @@ function PlanBand({
         }}
       >
         {band.rows.length === 0 && band.kind !== 'now' ? (
-          <li className="list-none px-2 py-2 text-micro text-[color:var(--text-disabled)]">
+          <li className="list-none px-2 py-2 text-micro text-[color:var(--text-muted)]">
             {band.kind === 'track' ? 'No steps in this track yet.' : 'Nothing queued — use “Add work”.'}
           </li>
         ) : null}
         {band.rows.map((row) => (
-          <li key={row.ref} className="list-none">
-            {showDrop && over?.index === row.entryIndex ? <DropIndicator /> : null}
-            <StepRow
-              row={row}
-              selected={row.ref === selectedRef}
-              cursored={row.ref === cursorRef}
-              dragging={drag?.lane === row.laneIndex && drag.index === row.entryIndex}
-              showProjectTag={showProjectTag}
-              rosters={rosters}
-              policyRoster={policyRoster}
-              onManageRosters={onManageRosters}
-              onSelect={() => onSelect(row.ref)}
-              onSetRoster={(roster) => onLanes(setEntryRoster(lanes, row.laneIndex, row.entryIndex, roster))}
-              onDragStart={() => onDragStart({ lane: row.laneIndex, index: row.entryIndex })}
-              onDragEnd={onDragEnd}
-              onMenu={(position) => onRowMenu(row, position)}
-              buttonRef={(node) => rowRefs.current.set(row.ref, node)}
-            />
-          </li>
+          <React.Fragment key={row.ref}>
+            {/* The kit's lane indicator, a sibling row rather than a stripe
+                nested inside the next one. */}
+            {showDrop && over?.index === row.entryIndex ? <BoardLaneDropIndicator /> : null}
+            <li className="list-none">
+              <StepRow
+                row={row}
+                selected={row.ref === selectedRef}
+                cursored={row.ref === cursorRef}
+                dragging={drag?.lane === row.laneIndex && drag.index === row.entryIndex}
+                showProjectTag={showProjectTag}
+                rosters={rosters}
+                policyRoster={policyRoster}
+                onManageRosters={onManageRosters}
+                onSelect={() => onSelect(row.ref)}
+                onSetRoster={(roster) => onLanes(setEntryRoster(lanes, row.laneIndex, row.entryIndex, roster))}
+                onDragStart={() => onDragStart({ lane: row.laneIndex, index: row.entryIndex })}
+                onDragEnd={onDragEnd}
+                onMenu={(position) => onRowMenu(row, position)}
+                buttonRef={(node) => rowRefs.current.set(row.ref, node)}
+              />
+            </li>
+          </React.Fragment>
         ))}
-        {showDrop && over !== null && over.index > lastShownIndex ? <DropIndicator /> : null}
+        {showDrop && over !== null && over.index > lastShownIndex ? <BoardLaneDropIndicator /> : null}
       </ul>
     </div>
   )
@@ -593,7 +600,7 @@ function PlanBand({
 function StepRow({
   row,
   selected,
-  cursored,
+  cursored: active,
   dragging,
   showProjectTag,
   rosters,
@@ -656,11 +663,16 @@ function StepRow({
         // content-driven — two lines of text — because the 26px single-line row
         // truncated every title to a stub and made the plan unreadable without
         // clicking each step in turn.
+        // Cursor ≠ focus: the j/k cursor is the hover fill, the picked row is
+        // the selected fill, and the shared ring marks DOM focus alone. A
+        // second inset ring in the focus hue put two rings on one row.
         className={`flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
           selected
             ? 'bg-[color:var(--bg-selected)]'
-            : 'hover:bg-[color:var(--bg-hover)]'
-        } ${cursored ? 'ring-2 ring-inset ring-[color:var(--border-focus)]' : ''}`}
+            : active
+              ? 'bg-[color:var(--bg-hover)]'
+              : 'hover:bg-[color:var(--bg-hover)]'
+        }`}
       >
         {/* One icon slot, the same swap the app sidebar's folder rows use: the
             state glyph at rest, the grip on hover. A dedicated 11px handle column
@@ -730,18 +742,20 @@ function StepRow({
               button (one click target per row). */}
           <span className="flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
             {row.ready ? (
-              // Good news in the accent, never the warn tone: this is the rail's
-              // whole answer to "which step can I start?". The action itself is
-              // the detail header's louder "Start sprint".
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-[color:var(--accent-primary-soft-strong)] px-1.5 font-medium leading-4 text-[color:var(--accent-primary)]">
-                <span aria-hidden="true" className="size-[5px] rounded-full bg-current" />
+              // Good news in the accent (the lifecycle vocabulary's own "ready"
+              // hue), never the warn tone: this is the rail's whole answer to
+              // "which step can I start?". The kit badge, with no dot inside it
+              // — the pill and a dot said it twice. The row's aria-label already
+              // reads "ready to start", so the badge is decorative.
+              <Badge tone="accent" decorative className="shrink-0">
                 Ready
-              </span>
+              </Badge>
             ) : row.notice ? (
-              // Attention as ONE word, the same volume as Ready. The reason and
-              // the action are the detail header's — the rail only flags.
+              // Attention as ONE word, the same volume as Ready: the status dot
+              // and its label. The reason and the action are the detail
+              // header's — the rail only flags.
               <span className="inline-flex shrink-0 items-center gap-1 font-medium leading-4 text-[color:var(--text-default)]">
-                <span aria-hidden="true" className="size-[5px] rounded-full bg-[color:var(--tone-warn)]" />
+                <StatusDot tone="warn" />
                 {noticeLabel(row.notice.kind)}
               </span>
             ) : null}
@@ -950,10 +964,6 @@ function StepContextMenu({
 }
 
 // ── shared chrome ────────────────────────────────────────────────────────────
-
-function DropIndicator(): JSX.Element {
-  return <div aria-hidden="true" className="mx-2 my-px h-[2px] rounded-full bg-[color:var(--accent-primary)]" />
-}
 
 // Which ENTRY index a drop at this pointer position lands on. Rows carry their
 // own entry index, so a band showing only part of a track (the ordered remainder

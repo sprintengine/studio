@@ -12,7 +12,8 @@
 
 import type { SprintEngineTask, SprintEngineVcsRepo } from '../../../../../../shared/sprintengine/run-types'
 import type { RepoMergeBlockers } from '../../../../../../shared/sprintengine/roadmap-surface'
-import { InlineNotice, StatusDot } from '../../../ui'
+import { InlineNotice, StatusDot, TruncatedText } from '../../../ui'
+import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import {
   formatProjectList,
   repoDisplayName,
@@ -49,12 +50,16 @@ export function SprintsRepoStrip({
 
   return (
     <section className="flex flex-col gap-2" aria-label="Repositories">
-      <h3 className="text-micro font-semibold text-[color:var(--text-subtle)]">
-        Repositories
+      {/* The heading is `ui/Section`'s (meta, semibold, strong ink) so the doors
+          and the review canvas share one heading size and ink. Written here
+          rather than through the component because this strip's cards sit on
+          the canvas edge and `Section`'s own inset would step them in. */}
+      <div className="flex items-baseline gap-1.5">
+        <h3 className="text-meta font-semibold text-[color:var(--text-strong)]">Repositories</h3>
         {multiRepo ? (
-          <span className="font-normal text-[color:var(--text-subtle)]"> · merge order enforced</span>
+          <span className="text-meta text-[color:var(--text-muted)]">merge order enforced</span>
         ) : null}
-      </h3>
+      </div>
       <ul className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2.5">
         {repos.map((repo, index) => {
           const name = repoDisplayName(repo, projectRoot)
@@ -101,21 +106,28 @@ function RepoCard({
   return (
     <div className="flex h-full flex-col gap-1.5 rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-meta font-medium text-[color:var(--text-strong)]" title={name}>
-          {name}
-        </span>
-        {/* Entry zero is the repo that holds the run and its plan. A plain word,
-            not a badge — the card's one tinted idiom is its status dot. */}
+        <TruncatedText
+          as="span"
+          text={name}
+          className="min-w-0 flex-1 text-meta font-medium text-[color:var(--text-strong)]"
+        />
+        {/* Entry zero is the repo that holds the run and its plan. A plain word
+            in neutral ink, not a badge and not the accent — the card's one
+            tinted idiom is its status dot, and the accent is the primary
+            action's alone. */}
         {primary ? (
-          <span className="shrink-0 text-micro font-medium text-[color:var(--accent-primary)]">Primary</span>
+          <span className="shrink-0 text-micro font-medium text-[color:var(--text-muted)]">Primary</span>
         ) : null}
       </div>
-      <div
-        className="flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]"
-        title={repo.baseRef ? `${repo.branchName} → ${repo.baseRef}` : repo.branchName}
-      >
+      {/* The base ref reads in the line itself rather than behind a native
+          tooltip a keyboard cannot reach; a clipped line reveals its full text. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
         <BranchGlyph />
-        <span className="truncate font-mono">{repo.branchName}</span>
+        <TruncatedText
+          as="span"
+          text={repo.baseRef ? `${repo.branchName} → ${repo.baseRef}` : repo.branchName}
+          className="min-w-0 font-mono"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <StatusDot tone={REPO_PR_STATE_TONE[state]} className="shrink-0" />
@@ -125,7 +137,9 @@ function RepoCard({
             href={repo.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="interactive shrink-0 text-micro text-[color:var(--accent-primary)] hover:underline"
+            // A link is strong ink and an underline, never the accent — the
+            // accent is spent on the one primary action in the view.
+            className={`interactive shrink-0 rounded-xs text-micro text-[color:var(--text-strong)] underline ${FOCUS_RING_CLASS}`}
           >
             View
           </a>

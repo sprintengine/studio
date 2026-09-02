@@ -43,11 +43,17 @@ import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 // stylesheet order, not by the order they appear in the attribute, so appending
 // `text-strong` to a base that already says `text-subtle` silently loses. The
 // base therefore sets no colour at all.
-const BRAND_ROW_BUTTON_BASE = `app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-md bg-transparent transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`
-const BRAND_ROW_BUTTON = `${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]`
+//
+// The focus ring is spelled as the literal utility, FIRST, on each variant rather than once on the base: the
+// conformance guard reads a template literal from its first literal chunk, so a ring behind an interpolation or two template
+// levels deep read as missing to it, and a guard that cannot see the ring is a
+// guard that will not notice when it goes.
+const BRAND_ROW_BUTTON_BASE =
+  'app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-md bg-transparent transition-colors hover:bg-[color:var(--bg-hover)]'
+const BRAND_ROW_BUTTON = `focus-visible:focus-ring ${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]`
 // For a control whose panel is open: strong at rest and on hover, so hovering
 // the open state never reads as dimming it.
-const BRAND_ROW_BUTTON_STRONG = `${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-strong)]`
+const BRAND_ROW_BUTTON_STRONG = `focus-visible:focus-ring ${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-strong)]`
 
 type SidebarChromeProps<MenuItem extends string> = {
   isMac: boolean

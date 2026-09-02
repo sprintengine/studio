@@ -5,7 +5,7 @@ import type {
   CliInstallMethodInfo,
   CliInstallResult,
 } from '../../../../shared/electron-api'
-import { GhostButton, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
 
 export type CliInstallControlProps = {
   cli: string
@@ -435,7 +435,9 @@ export function CliInstallControl({
               )}
 
               {installError && (
-                <p className="mt-2 text-meta leading-5 text-[color:var(--tone-error)]">{installError}</p>
+                <InlineNotice tone="error" className="mt-2">
+                  {installError}
+                </InlineNotice>
               )}
             </>
           )}

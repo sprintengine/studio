@@ -3,7 +3,6 @@ import type { StageLiveStatus } from '../stageReadiness'
 import {
   agentInitials,
   bubbleDotTone,
-  bubbleNeedsAttention,
   bubbleStatusLine,
 } from './canvasStudioModel'
 
@@ -48,7 +47,6 @@ export function AgentBubble({
 
   const statusLine = bubbleStatusLine(liveStatus, ready)
   const dotTone = bubbleDotTone(liveStatus, ready)
-  const attention = bubbleNeedsAttention(liveStatus)
 
   return (
     <button
@@ -58,18 +56,20 @@ export function AgentBubble({
       aria-expanded={false}
       aria-label={`Open the ${name} conversation — ${statusLine}`}
       className={`
-        absolute bottom-5 right-5 z-20 flex max-w-[calc(100%-2.5rem)] items-center gap-2.5
+        absolute bottom-5 right-5 z-[var(--z-pane)] flex max-w-[calc(100%-2.5rem)] items-center gap-2.5
         rounded-full border bg-[color:var(--bg-surface-raised)] py-2 pl-2.5 pr-4 text-left
         shadow-[var(--shadow-drawer)] transition-colors hover:bg-[color:var(--bg-hover)]
-        focus-visible:focus-ring
-        ${attention
-          ? 'border-[color:var(--tone-warn)] ring-1 ring-[color:var(--tone-warn)]'
-          : 'border-[color:var(--border-default)]'}
+        focus-visible:focus-ring border-[color:var(--border-default)]
       `}
     >
+      {/* One status mark: the dot on the avatar. The warn ring around the whole
+          pill for `needs-input` (and the accent-soft avatar behind the dot)
+          said the same status twice; the status line beside the name and
+          `aria-label` carry it in words (audit, status-said-twice).
+          The host still decides the collapsed/expanded flip via `bubbleNeedsAttention`. */}
       <span
         aria-hidden="true"
-        className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--accent-primary-soft)] text-micro font-semibold text-[color:var(--accent-primary)]"
+        className="relative inline-flex size-control-xs shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-micro font-semibold text-[color:var(--text-muted)]"
       >
         {agentInitials(name)}
         <span
@@ -111,7 +111,7 @@ function ExpandedCard({ name, children }: { name: string; children: ReactNode })
       role="dialog"
       aria-label={`${name} conversation`}
       className={`
-        absolute bottom-5 right-5 z-30 flex h-[480px] max-h-[calc(100%-2.5rem)] w-[380px]
+        absolute bottom-5 right-5 z-[var(--z-float)] flex h-[480px] max-h-[calc(100%-2.5rem)] w-[380px]
         max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[var(--radius-md)] border
         border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-3
         shadow-[var(--shadow-drawer)]

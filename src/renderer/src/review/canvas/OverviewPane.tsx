@@ -16,7 +16,7 @@ interface OverviewPaneProps {
 
 function LabeledParagraph({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <p className="mb-3.5 max-w-[80ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
+    <p className="mb-4 max-w-[80ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
       <span className="font-medium text-[color:var(--text-strong)]">{label}</span> {children}
     </p>
   )
@@ -24,13 +24,14 @@ function LabeledParagraph({ label, children }: { label: string; children: ReactN
 
 // The Overview pane: what the change is, its blast radius, and how to read it,
 // then the reserved change-map slot. Knowledge the guide grounded the walkthrough
-// in is surfaced as an accent-colored list rather than silently inlined.
+// in is surfaced as a list in strong ink rather than silently inlined — strong,
+// not accent: the refs are not links, and the accent is the view's one action.
 export function OverviewPane({ overview, knowledgeRefs, unassignedPaths, changeMapSlot }: OverviewPaneProps) {
   return (
     <div>
       <h4 className="mb-2 text-title font-semibold tracking-tight text-[color:var(--text-strong)]">Overview</h4>
       {unassignedPaths.length > 0 ? (
-        <InlineNotice tone="warn" className="mb-3.5 max-w-[80ch]">
+        <InlineNotice tone="warn" className="mb-4 max-w-[80ch]">
           <span className="font-medium">Not covered by the walkthrough</span> — {unassignedPaths.length}{' '}
           {unassignedPaths.length === 1 ? 'file' : 'files'} the guide did not fold into a step:
           <span className="mt-1 block font-mono text-meta">{unassignedPaths.join(', ')}</span>
@@ -45,7 +46,7 @@ export function OverviewPane({ overview, knowledgeRefs, unassignedPaths, changeM
           <span className="font-medium text-[color:var(--text-muted)]">Grounded in </span>
           {knowledgeRefs.map((ref, index) => (
             <span key={ref.note}>
-              <span className="text-[color:var(--accent-primary)]">{ref.note}</span>
+              <span className="text-[color:var(--text-strong)]">{ref.note}</span>
               {index < knowledgeRefs.length - 1 ? ', ' : ''}
             </span>
           ))}

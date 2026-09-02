@@ -10,18 +10,17 @@
 //   - `buildTaskGraphLayout` — the topological-level layered layout
 //   - `getTaskGraphFocusTaskId` — picks the task the view should auto-center
 //   - `taskGraphEdgePath` + `taskGraphEdgeStyle` + `taskGraphEndEdgeStyle`
-//   - `taskGraphStatusTone` — the per-status text-color class
 //
-// What stays in SprintEngineBoardPanel.tsx:
+// What stays in SprintEngineTaskGraphView.tsx:
 //   - The component itself (state, refs, JSX, keyboard handlers)
 //   - JSX leaf components (TaskGraphLegendDot, zoom icons)
-//   - `taskGraphNodeStyle` (uses panel-local `hexToRgba`)
+//   - `taskGraphNodeClass` — the node's neutral selection / hover chrome
+//
+// `taskGraphStatusTone` (a per-status text-colour class for a tinted status
+// pill) was retired 2026-09-02: the node's status is the shared LifecycleGlyph
+// beside the word, and a colour-only pill beside it said the same thing twice.
 
-import type {
-  SprintEngineTask,
-  SprintEngineTaskBoardColumn,
-  SprintEngineTaskStatus,
-} from '../../types/workspace'
+import type { SprintEngineTask } from '../../types/workspace'
 import {
   getSprintEngineTaskBoardColumn,
   getSprintEngineRoleAccent,
@@ -352,24 +351,5 @@ export function taskGraphEndEdgeStyle(
     opacity: task.status === 'done' ? 0.58 : 0.32,
     weight: task.status === 'done' ? 2 : 1.5,
     dashed: false,
-  }
-}
-
-export function taskGraphStatusTone(
-  taskStatus: SprintEngineTaskStatus,
-  boardColumn: SprintEngineTaskBoardColumn,
-): string {
-  if (boardColumn === 'ready') return 'text-[color:var(--tone-good)]'
-  if (boardColumn === 'review') return 'text-[color:var(--tone-warn)]'
-
-  switch (taskStatus) {
-    case 'done':
-      return 'text-[color:var(--tone-good)]'
-    case 'needs_input':
-      return 'text-[color:var(--tone-warn)]'
-    case 'in_progress':
-      return 'text-[color:var(--tone-warn)]'
-    default:
-      return 'text-[color:var(--text-muted)]'
   }
 }

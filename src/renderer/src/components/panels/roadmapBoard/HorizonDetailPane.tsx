@@ -21,7 +21,7 @@
 
 import { useMemo } from 'react'
 
-import { GhostButton, LifecycleGlyph, PrimaryButton, Spinner, TruncatedText } from '../../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Spinner, TruncatedText } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { BacklogItemDetailPane } from '../../backlog/BacklogItemDetailPane'
 import { RoadmapPullRequests } from './RoadmapPullRequests'
@@ -455,9 +455,7 @@ function HorizonRunStrip({
       {/* A read failure must not blank the strip that carries the steering — it
           says so quietly and keeps the controls. */}
       {error ? (
-        <p role="status" className="text-micro leading-4 text-[color:var(--tone-warn)]">
-          Couldn’t read this sprint’s progress. {error}
-        </p>
+        <InlineNotice tone="error">Couldn’t read this sprint’s progress. {error}</InlineNotice>
       ) : null}
       {/* The pull-request surface, for a run whose repos need a merge ORDER. One
           repo needs no ordering, so the common case never pays for it. */}
@@ -493,7 +491,7 @@ function PlayGlyph(): JSX.Element {
 
 function DetailMessage({ title, body, detail }: { title: string; body: string; detail?: string }): JSX.Element {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 py-12 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 py-8 text-center">
       <h3 className="text-body font-semibold text-[color:var(--text-strong)]">{title}</h3>
       <p className="max-w-[46ch] text-meta leading-5 text-[color:var(--text-muted)]">{body}</p>
       {detail ? (

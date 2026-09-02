@@ -24,14 +24,14 @@ export function RecentFolderRow({ path, active, onSelect }: RecentFolderRowProps
       aria-label={path}
       onClick={() => onSelect(path)}
       className={`
-        group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
+        group flex w-full min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left
         transition-colors focus-visible:focus-ring
         ${active ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
         aria-hidden="true"
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] ${
+        className={`flex size-control-xs shrink-0 items-center justify-center rounded-sm text-[color:var(--text-subtle)] ${
           active ? 'bg-[color:var(--border-default)] text-[color:var(--text-muted)]' : 'bg-[color:var(--bg-surface-raised)] group-hover:text-[color:var(--text-muted)]'
         }`}
       >

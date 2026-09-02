@@ -59,7 +59,7 @@ export function CliPermissionPresetRow({
   const current = cliPermissionOptions.find((option) => option.value === preset) ?? cliPermissionOptions[0]
   const isBypass = preset === 'bypass'
   return (
-    <div className="flex flex-col gap-2 px-3.5 py-3">
+    <div className="flex flex-col gap-2 px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0">
           <span className="block text-body font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
@@ -159,17 +159,17 @@ export function PathRadio({
       }}
       className={`
         grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border text-left
-        ${dense ? 'px-2.5 py-2' : 'px-3.5 py-3'}
+        ${dense ? 'px-2.5 py-2' : 'px-4 py-3'}
         transition-colors focus-visible:focus-ring
-        disabled:cursor-not-allowed disabled:opacity-55
+        disabled:cursor-not-allowed disabled:opacity-45
         ${checked
-          ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
-          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
+          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
       <span
         className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-          checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
+          checked ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--border-default)]'
         }`}
         aria-hidden="true"
       >
@@ -267,7 +267,7 @@ export function RosterAndRunSettings({
             preset={cliPermissionPreset}
             onChange={onChangeCliPermissionPreset}
           />
-          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
+          <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-4 py-3">
             <div>
               <span className="block text-body font-semibold text-[color:var(--text-strong)]">Automation</span>
               <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">

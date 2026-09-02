@@ -350,26 +350,13 @@ export function formatArtifactBlockerSummary(
   return `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'} from ${taskIds}`
 }
 
-export function artifactStatusTone(status: SprintEngineArtifact['status']): string {
-  switch (status) {
-    case 'approved':
-      return 'bg-[color:var(--tone-good-soft)] text-[color:var(--tone-good)]'
-    case 'ready_for_review':
-      return 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-    case 'changes_requested':
-      return 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
-    case 'superseded':
-      return 'bg-[color:var(--bg-hover)] text-[color:var(--text-disabled)]'
-    default:
-      return 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
-  }
-}
-
-// Inbox status idiom: the shared shape-coded LifecycleGlyph (see
+// Status idiom: the shared shape-coded LifecycleGlyph (see
 // knowledge/brand/glyph-system.md), so artifact review stage reads by shape and
-// matches the board columns — not a colour-only dot. The tinted pill
-// (artifactStatusTone above) is kept for other surfaces; the inbox row + detail
-// resolve status to a LifecycleState here.
+// matches the board columns — not a colour-only dot. The tinted status pill
+// (`artifactStatusTone`) that the artifact list rows used to draw beside this
+// was the same status said twice, with the product accent spent on
+// `ready_for_review`; it was removed in the 2026-09-02 audit and every surface
+// resolves status to a LifecycleState here.
 export function sprintEngineInboxRowLifecycle(artifact: SprintEngineArtifact): LifecycleState {
   if (artifact.id === SOURCE_HANDOFF_ARTIFACT_ID) return 'ready'
   switch (artifact.status) {

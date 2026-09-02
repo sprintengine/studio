@@ -16,7 +16,7 @@ interface AnnotationRibbonProps {
 
 const SparkMark = () => (
   <span
-    className="mt-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--accent-primary)]"
+    className="mt-0.5 inline-flex size-icon-sm shrink-0 items-center justify-center rounded-xs bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--accent-primary)]"
     aria-hidden="true"
   >
     <svg viewBox="0 0 16 16" className="icon-xs" fill="currentColor">
@@ -47,37 +47,50 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
 
   const expandable = Boolean(annotation.detail)
 
+  // The head line is copy first. With a detail to reveal it is a disclosure
+  // button; without one it is plain text, not a disabled button — a control
+  // that is off has to dim to the disabled canon (45%), and dimming the one
+  // line that explains the code would defeat the ribbon.
+  const headLine = (
+    <>
+      {expandable ? (
+        <svg
+          viewBox="0 0 16 16"
+          className="icon-xs mr-1 inline-block shrink-0 align-[-1px] text-[color:var(--text-subtle)] transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'none' }}
+          fill="none"
+          aria-hidden="true"
+        >
+          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+      <span className="font-medium text-[color:var(--text-strong)]">{annotation.title}</span>
+      <span className="text-[color:var(--text-default)]"> — {annotation.summary}</span>
+      <span className="ml-2 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+        {anchorRangeLabel(annotation.anchor)}
+      </span>
+    </>
+  )
+
   return (
     <div
       ref={ref}
-      className={`flex gap-2.5 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}
+      className={`flex gap-2.5 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] py-2.5 ${ZONE_CONTENT_INSET} pr-4`}
     >
       <SparkMark />
       <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => expandable && setOpen((value) => !value)}
-          aria-expanded={expandable ? open : undefined}
-          disabled={!expandable}
-          className={`block w-full text-left text-body leading-5 text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS} ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
-        >
-          {expandable ? (
-            <svg
-              viewBox="0 0 16 16"
-              className="icon-xs mr-1 inline-block shrink-0 align-[-1px] text-[color:var(--text-subtle)] transition-transform"
-              style={{ transform: open ? 'rotate(90deg)' : 'none' }}
-              fill="none"
-              aria-hidden="true"
-            >
-              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : null}
-          <span className="font-medium text-[color:var(--text-strong)]">{annotation.title}</span>
-          <span className="text-[color:var(--text-default)]"> — {annotation.summary}</span>
-          <span className="ml-2 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
-            {anchorRangeLabel(annotation.anchor)}
-          </span>
-        </button>
+        {expandable ? (
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className={`block w-full cursor-pointer text-left text-body leading-5 text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS}`}
+          >
+            {headLine}
+          </button>
+        ) : (
+          <p className="text-body leading-5 text-[color:var(--text-default)]">{headLine}</p>
+        )}
         {open && annotation.detail ? (
           <p className="mt-1.5 max-w-[72ch] text-body leading-5 text-[color:var(--text-muted)]">{annotation.detail}</p>
         ) : null}

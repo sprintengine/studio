@@ -34,12 +34,12 @@ export const DefinitionList = React.forwardRef<HTMLUListElement, DefinitionListP
 ) {
   if (definitions.length === 0) {
     return (
-      <div className="flex w-full shrink-0 flex-col items-center justify-center gap-3 px-6 py-10 text-center md:w-[340px] md:border-r md:border-[color:var(--border-default)]">
-        <p className="text-meta font-medium text-[color:var(--text-strong)]">No automations yet</p>
-        <p className="max-w-[15rem] text-micro leading-5 text-[color:var(--text-muted)]">
-          Schedule an agent to run on this project — a nightly review, a recurring check.
-        </p>
-        <PrimaryButton onClick={onCreate}>New automation</PrimaryButton>
+      <div className="w-full shrink-0 md:w-[340px] md:border-r md:border-[color:var(--border-default)]">
+        <EmptyState
+          title="No automations yet"
+          body="Schedule an agent to run on this project — a nightly review, a recurring check."
+          action={<PrimaryButton onClick={onCreate}>New automation</PrimaryButton>}
+        />
       </div>
     )
   }
@@ -199,7 +199,7 @@ function DefinitionRow({
         <GhostButton
           onClick={(e) => { e.stopPropagation(); onRunNow() }}
           disabled={busy || def.status === 'paused'}
-          className="h-6 px-2 text-micro"
+          size="xs"
         >
           Run now
         </GhostButton>

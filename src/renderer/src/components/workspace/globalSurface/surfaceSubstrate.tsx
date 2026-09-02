@@ -7,8 +7,10 @@
 // the same:
 //
 //   • SurfaceCanvasState — the canvas renders exactly one of three states:
-//       loading (spinner + line), empty (glyph + CTA), error (the shared error
-//       card, ALWAYS with "Try again", never a dead end, never a blocking dialog).
+//       loading (spinner + line), empty (the kit EmptyState, or the richer
+//       first-run canvas when the door has never held anything), error (the
+//       shared error card, ALWAYS with "Try again", never a dead end, never a
+//       blocking dialog).
 //   • SurfaceRail — the internal list rail: list semantics (role="list"), a
 //       status glyph + title + state line per row, ↑/↓ + j/k keyboard navigation,
 //       the "New …" affordance at the top, an optional leading project lens, and
@@ -25,6 +27,7 @@
 import React, { useCallback, useRef } from 'react'
 
 import { GhostButton } from '../../ui/Buttons'
+import { EmptyState } from '../../ui/EmptyState'
 import { FilterMenu, type FilterMenuGroup } from '../../ui/FilterMenu'
 import { InboxSearchInput } from '../../ui/InboxSearchInput'
 import { InlineNotice } from '../../ui/InlineNotice'
@@ -32,6 +35,8 @@ import { type SelectItem } from '../../ui/Select'
 import { Spinner } from '../../ui/Spinner'
 import { StatusDot } from '../../ui/StatusDot'
 import { FOCUS_RING_CLASS, type StatusTone } from '../../ui/tokens'
+import { Tooltip } from '../../ui/Tooltip'
+import { TruncatedText } from '../../ui/TruncatedText'
 
 // ── SurfaceCanvasState ───────────────────────────────────────────────────────
 // The three shared canvas states. Same anatomy on every door; only the copy
@@ -42,12 +47,23 @@ export type SurfaceCanvasStateProps =
   | { kind: 'loading'; label: string }
   | {
       kind: 'empty'
-      /** The glyph inside the accent-soft circle (an svg or a single character). */
+      /** An svg glyph (from `AppIcons` or the door's own mark) — never a text
+       *  character: the glyph spec forbids characters as icons. */
       glyph: React.ReactNode
       title: string
       body?: React.ReactNode
       /** The one call-to-action (never a dead end for a first-time surface). */
       action?: React.ReactNode
+      /**
+       * The door has never held anything — "No reviews yet", "Run your first
+       * sprint". Only that canvas keeps the richer treatment (the accent-soft
+       * disc and a title-sized heading), per the empty-state ruling (MC-2117).
+       * Everything else — a list narrowed to nothing, a scan that failed, no
+       * project open — is the quiet kit `EmptyState`, the same one a pane one
+       * click away already renders. Defaults to false so a new call site gets
+       * the quiet state unless it says otherwise.
+       */
+      firstRun?: boolean
     }
   | {
       kind: 'error'
@@ -74,9 +90,21 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
     )
   }
   if (props.kind === 'empty') {
+    if (!props.firstRun) {
+      return (
+        <EmptyState
+          density="pane"
+          glyph={props.glyph}
+          title={props.title}
+          body={props.body}
+          action={props.action}
+        />
+      )
+    }
+    // First run only: the one canvas that earns the accent disc and a heading.
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-title text-[color:var(--accent-primary)]">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 py-8 text-center">
+        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]">
           {props.glyph}
         </div>
         <h3 className="text-title font-semibold text-[color:var(--text-strong)]">{props.title}</h3>
@@ -183,8 +211,12 @@ export interface SurfaceRailRow {
   /** The row's status/type mark (a LifecycleGlyph or a type glyph). Optional —
    *  a row with no mark renders title + state line only. */
   icon?: React.ReactNode
-  /** Hover tooltip for the whole row; defaults to "title — stateLine" so a
-   *  truncated row is always readable in place. */
+  /** A whole-row tooltip (the product `Tooltip`, on the row button), for a door
+   *  whose row carries more than it shows — Sprints adds the lifecycle word its
+   *  glyph draws. Without it the title and the state line each surface their
+   *  own full text only when actually clipped (`TruncatedText`), so a row that
+   *  fits says nothing twice. Never a native `title=`: an OS tooltip is a
+   *  second dialect beside the product one and is unreachable by keyboard. */
   tooltip?: string
   /** Row-scoped actions (an overflow trigger). Rendered as a SIBLING of the row
    *  button, never nested inside it — one click target per row stays the rule, and
@@ -299,12 +331,16 @@ export function SurfaceRailHeader({
           const rect = event.currentTarget.getBoundingClientRect()
           newAffordance.onActivate({ x: rect.left, y: rect.bottom })
         }}
-        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-meta transition-colors ${FOCUS_RING_CLASS} ${
-          newAffordance.disabled
-            ? 'cursor-default text-[color:var(--text-disabled)]'
-            : newAffordance.selected
-              ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+        // Disabled is the button canon (ui/Buttons): the opacity step and the
+        // `not-allowed` cursor, with the hover lift pinned back under
+        // `disabled:hover:` — `:hover` still matches a disabled button, so
+        // without the pin the row would light up while refusing the click. It
+        // used to swap to disabled ink with no opacity step, and read as a
+        // quiet label rather than a control that is off.
+        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS} ${
+          newAffordance.selected && !newAffordance.disabled
+            ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
         }`}
       >
         {PLUS_ICON}
@@ -446,55 +482,66 @@ export function SurfaceRail({
 
   const renderRow = (row: SurfaceRailRow): JSX.Element => {
     const selected = row.id === selectedId
+    // Never a native `title=`: the OS tooltip beside the product `Tooltip` one
+    // column over was two tooltip dialects on one door, and a native one cannot
+    // be reached from the keyboard. The row button is the focusable trigger for
+    // the door's whole-row tooltip; a clipped title or state line reveals its
+    // own full text through `TruncatedText`.
+    const rowButton = (
+      <button
+        ref={(node) => {
+          rowRefs.current.set(row.id, node)
+        }}
+        type="button"
+        aria-current={selected ? 'true' : undefined}
+        onClick={() => onSelect(row.id)}
+        onContextMenu={
+          row.onContextMenu
+            ? (event) => {
+                event.preventDefault()
+                row.onContextMenu?.({ x: event.clientX, y: event.clientY })
+              }
+            : undefined
+        }
+        className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${FOCUS_RING_CLASS} ${
+          selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
+        }`}
+      >
+        {reserveIconSlot ? (
+          <span
+            data-rail-icon-slot="true"
+            className="flex size-icon-sm shrink-0 items-center justify-center"
+          >
+            {row.icon ?? null}
+          </span>
+        ) : null}
+        <span className="flex min-w-0 flex-1 flex-col">
+          {/* The selected row's ink lift is the second channel of the
+              selection, so an unselected title has to sit a step below it —
+              and in a resting rail the lift drops back out with the fill. */}
+          <TruncatedText
+            as="span"
+            text={row.title}
+            className={`text-body font-medium ${
+              selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+            }`}
+          />
+          <TruncatedText as="span" text={row.stateLine} className="text-meta text-[color:var(--text-subtle)]" />
+        </span>
+        {/* Reserve the trailing gutter so revealing the overflow never reflows
+            the title mid-hover. */}
+        {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
+      </button>
+    )
     return (
       <li key={row.id} className="group/rail-row relative flex min-w-0">
-        <button
-          ref={(node) => {
-            rowRefs.current.set(row.id, node)
-          }}
-          type="button"
-          aria-current={selected ? 'true' : undefined}
-          onClick={() => onSelect(row.id)}
-          onContextMenu={
-            row.onContextMenu
-              ? (event) => {
-                  event.preventDefault()
-                  row.onContextMenu?.({ x: event.clientX, y: event.clientY })
-                }
-              : undefined
-          }
-          // The tooltip carries the untruncated row — title AND state — so a
-          // clipped title or a terse state line is always readable on hover.
-          title={row.tooltip ?? `${row.title} — ${row.stateLine}`}
-          className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${FOCUS_RING_CLASS} ${
-            selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
-          }`}
-        >
-          {reserveIconSlot ? (
-            <span
-              data-rail-icon-slot="true"
-              className="flex size-icon-sm shrink-0 items-center justify-center"
-            >
-              {row.icon ?? null}
-            </span>
-          ) : null}
-          <span className="flex min-w-0 flex-1 flex-col">
-            {/* The selected row's ink lift is the second channel of the
-                selection, so an unselected title has to sit a step below it —
-                and in a resting rail the lift drops back out with the fill. */}
-            <span
-              className={`truncate text-body font-medium ${
-                selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
-              }`}
-            >
-              {row.title}
-            </span>
-            <span className="truncate text-meta text-[color:var(--text-subtle)]">{row.stateLine}</span>
-          </span>
-          {/* Reserve the trailing gutter so revealing the overflow never reflows
-              the title mid-hover. */}
-          {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
-        </button>
+        {row.tooltip ? (
+          <Tooltip content={row.tooltip} wrapperClassName="flex min-w-0 flex-1">
+            {rowButton}
+          </Tooltip>
+        ) : (
+          rowButton
+        )}
         {row.actions ? (
           <span
             className={`absolute right-1 top-1/2 flex -translate-y-1/2 items-center transition-opacity ${

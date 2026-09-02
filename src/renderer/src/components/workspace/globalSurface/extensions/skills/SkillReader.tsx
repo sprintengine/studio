@@ -63,7 +63,7 @@ export function SkillReader({
       <SkillFileList files={files} activePath={active?.path ?? ''} onOpen={setActivePath} />
       <div
         ref={documentPane}
-        className="min-w-0 border-t border-[color:var(--border-subtle)] pt-4 lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0"
+        className="min-w-0 border-t border-[color:var(--border-subtle)] pt-4 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0"
       >
         <div className="max-w-[74ch] min-w-0">
           {!active ? (
@@ -125,7 +125,7 @@ function SkillFileList({
                   {file.isEntry ? (
                     <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">Entry</span>
                   ) : null}
-                  <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-disabled)]">
+                  <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
                     {formatSkillFileSize(file.size)}
                   </span>
                 </button>

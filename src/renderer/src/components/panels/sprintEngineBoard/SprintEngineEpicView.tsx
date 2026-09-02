@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { FOCUS_RING_INSET_CLASS, GhostButton, PanelHeader, SidePane, Tooltip } from '../../ui'
+import { FOCUS_RING_INSET_CLASS, GhostButton, InlineNotice, PanelHeader, SidePane, Tooltip } from '../../ui'
 import {
   BACKLOG_STATUS_LABEL,
   BacklogRowContent,
@@ -153,20 +153,23 @@ export function SprintEngineEpicView({
           divider={false}
         />
 
+        {/* Degraded (the epic file is unavailable, the view still shows the
+            seed) reads warn; a backlog read or action that did not happen is a
+            failure and reads error. Glyph and role carry the tone, not the ink. */}
         {model?.epicUnavailableReason ? (
-          <p className="shrink-0 px-3 pb-2 text-micro leading-4 text-[color:var(--tone-warn)]">
+          <InlineNotice tone="warn" className="mx-3 mb-2 shrink-0">
             {seed.relativePath} — {model.epicUnavailableReason}
-          </p>
+          </InlineNotice>
         ) : null}
         {backlog.error ? (
-          <p role="status" className="shrink-0 px-3 pb-2 text-micro leading-4 text-[color:var(--tone-warn)]">
+          <InlineNotice tone="error" className="mx-3 mb-2 shrink-0">
             {backlog.error}
-          </p>
+          </InlineNotice>
         ) : null}
         {backlog.actionError ? (
-          <p role="status" className="shrink-0 px-3 pb-2 text-micro leading-4 text-[color:var(--tone-warn)]">
+          <InlineNotice tone="error" className="mx-3 mb-2 shrink-0">
             {backlog.actionError}
-          </p>
+          </InlineNotice>
         ) : null}
         {notice ? (
           <p role="status" className="shrink-0 px-3 pb-2 text-micro leading-4 text-[color:var(--text-muted)]">

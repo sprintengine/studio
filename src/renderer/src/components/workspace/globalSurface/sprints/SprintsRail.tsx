@@ -26,6 +26,17 @@ import {
 
 const ALL_PROJECTS = ' all'
 
+/**
+ * The whole-row tooltip: the run, the lifecycle word its glyph draws, and the
+ * state line — so Merged / Ready for review is readable on hover and focus even
+ * where the glyph alone carries it. It rides the substrate's product `Tooltip`
+ * on the row button (never a native `title`), which is why it is a pure
+ * function the rail test can assert on rather than markup it can grep for.
+ */
+export function sprintRowTooltip(row: SprintRailRow): string {
+  return `${row.title} — ${row.glyph.label} · ${row.stateLine}`
+}
+
 export function SprintsRail({
   runs,
   selectedStatePath,
@@ -62,7 +73,7 @@ export function SprintsRail({
       id: row.id,
       title: row.title,
       stateLine: row.stateLine,
-      tooltip: `${row.title} — ${row.glyph.label} · ${row.stateLine}`,
+      tooltip: sprintRowTooltip(row),
       icon: (
         <LifecycleGlyph
           state={row.glyph.state}

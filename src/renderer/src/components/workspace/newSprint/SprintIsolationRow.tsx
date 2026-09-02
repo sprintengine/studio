@@ -31,7 +31,7 @@ const ITEMS = [...SPRINT_ISOLATION_ITEMS]
 
 export function SprintIsolationRowView({ row }: { row: SprintIsolationRow }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
+    <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-default)] px-4 py-3">
       <Tooltip content={SPRINT_ISOLATION_TOOLTIP}>
         <span
           tabIndex={0}

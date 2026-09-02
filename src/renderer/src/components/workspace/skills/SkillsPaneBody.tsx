@@ -239,6 +239,8 @@ function Row({
 function DetailShell({ children }: { children: React.ReactNode }) {
   // Continues the selected row's fill rather than drawing a card, so the row and
   // its disclosure read as one opened thing.
+  // design-tokens-allow: alignment — the detail sits on the row title's text edge, past the chevron and glyph slots
+  // design-tokens-allow: alignment — the detail text starts under the row's title, past the row's `px-3` inset and its 22px `size-icon-lg` glyph slot
   return <div className={`px-3 pb-3 pl-9 text-meta ${SELECTED_TIERS}`}>{children}</div>
 }
 

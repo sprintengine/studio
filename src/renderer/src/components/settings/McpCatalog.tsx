@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import type { BuiltinSkill } from '../../../../shared/electron-api'
 import type { McpCatalogServer } from '../../types/workspace'
-import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, TruncatedText } from '../ui'
+import { Badge, CloseIconButton, FOCUS_RING_CLASS, GhostButton, PrimaryButton, TruncatedText } from '../ui'
 import { ExtensionIcon } from '../ui/ExtensionIcon'
 import { mcpMonogram } from '../ui/mcpMonogram'
 
@@ -107,16 +107,7 @@ export function McpInfoPanel({
             ) : null}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close details"
-          className="interactive grid size-control-xs shrink-0 place-items-center rounded-md text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-        >
-          <svg viewBox="0 0 12 12" className="icon-xs" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-            <path d="M3 3l6 6M9 3l-6 6" />
-          </svg>
-        </button>
+        <CloseIconButton onClick={onClose} aria-label="Close details" className="shrink-0" />
       </div>
       {server.description ? (
         <div className="mt-3">
@@ -129,9 +120,7 @@ export function McpInfoPanel({
         <ul className="mt-1 space-y-1.5 text-body text-[color:var(--text-muted)]">
           <li className="flex items-center gap-1.5">
             <span>MCP server</span>
-            <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
-              {server.transport}
-            </span>
+            <Badge decorative>{server.transport}</Badge>
           </li>
           {server.skill ? (
             <li>
@@ -139,9 +128,7 @@ export function McpInfoPanel({
                 <span className="font-medium text-[color:var(--text-default)]">
                   {drivingSkill?.name ?? server.skill}
                 </span>
-                <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
-                  Skill
-                </span>
+                <Badge decorative>Skill</Badge>
               </div>
               {drivingSkill?.description ? (
                 <div className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]">

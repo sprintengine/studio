@@ -224,7 +224,7 @@ export function TrackerWriteBackSettings({
     <ConnectionFrame connection={connection}>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
         <div>
-          <div className="flex items-center gap-2.5 border-b border-[color:var(--border-subtle)] pb-3.5">
+          <div className="flex items-center gap-2.5 border-b border-[color:var(--border-subtle)] pb-4">
             <Switch
               id={masterId}
               checked={config.enabled}
@@ -242,7 +242,7 @@ export function TrackerWriteBackSettings({
           </div>
 
           {config.enabled ? (
-            <div className="flex flex-col gap-4 pt-3.5">
+            <div className="flex flex-col gap-4 pt-4">
               {notices.length > 0 ? (
                 <InlineNotice
                   tone="error"
@@ -390,7 +390,7 @@ function ConnectionFrame({
 }) {
   return (
     <section className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-4">
-      <div className="mb-3.5 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <span
           className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-meta font-semibold text-[color:var(--text-muted)]"
           aria-hidden="true"

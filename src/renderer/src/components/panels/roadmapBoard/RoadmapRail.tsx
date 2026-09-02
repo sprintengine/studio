@@ -20,8 +20,7 @@
 
 import { useState, type ReactNode } from 'react'
 
-import { ContextMenu, LifecycleGlyph, MenuItem } from '../../ui'
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { ContextMenu, IconButton, LifecycleGlyph, MenuItem } from '../../ui'
 import { SurfaceRail, type SurfaceRailRow } from '../../workspace/globalSurface/surfaceSubstrate'
 
 export type RoadmapRailRow = {
@@ -90,8 +89,7 @@ export function RoadmapRail({
           onContextMenu: (position: { x: number; y: number }) =>
             setMenu({ roadmapRef: row.roadmapRef, ...position }),
           actions: (
-            <button
-              type="button"
+            <IconButton
               aria-label={`Actions for ${row.title}`}
               onClick={(event) => {
                 // The row button is a sibling, not an ancestor, but the click
@@ -101,16 +99,13 @@ export function RoadmapRail({
                 const rect = event.currentTarget.getBoundingClientRect()
                 setMenu({ roadmapRef: row.roadmapRef, x: rect.left, y: rect.bottom })
               }}
-              // `rounded-md`, matching the row it sits on — it shipped at
-              // `rounded` (4px) against the row's 6px (MC-2099).
-              className={`flex h-5 w-5 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <circle cx="4" cy="8" r="1.2" fill="currentColor" />
                 <circle cx="8" cy="8" r="1.2" fill="currentColor" />
                 <circle cx="12" cy="8" r="1.2" fill="currentColor" />
               </svg>
-            </button>
+            </IconButton>
           ),
         }
       : {}),

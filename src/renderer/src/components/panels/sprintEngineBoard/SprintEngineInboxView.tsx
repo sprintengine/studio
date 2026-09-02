@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, FOCUS_RING_INSET_CLASS, InboxRow, InboxSearchInput, PanelHeader, Section, SidePane, Tooltip } from '../../ui'
+import { FilePreviewPane, FOCUS_RING_INSET_CLASS, GhostButton, InboxRow, InboxSearchInput, InlineNotice, PanelHeader, Section, SidePane, Tooltip } from '../../ui'
 import { BacklogRowContent, BacklogRowHoverCard } from '../../backlog/BacklogRow'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
@@ -619,6 +619,7 @@ function SprintEngineSeedRowButton({
         type="button"
         onClick={onOpen}
         aria-current={selected ? 'true' : undefined}
+        // design-tokens-allow: alignment — an epic's child row indents one glyph slot past the epic row's own text edge
         className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left focus-visible:focus-ring-inset ${isChild ? 'pl-10' : 'pl-5'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
       >
         {item ? (
@@ -846,9 +847,9 @@ function SprintEngineSeedFilePreview({
           Loading preview…
         </div>
       ) : (
-        <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-          <span className="text-meta font-semibold text-[color:var(--tone-warn)]">Preview unavailable</span>
-          <span className="text-meta leading-5 text-[color:var(--text-muted)]">{state.reason}</span>
+        <div className="flex h-full items-start justify-center px-6 py-6">
+          {/* Degraded, not failed: the seed still opens, only the preview does not. */}
+          <InlineNotice tone="warn" title="Preview unavailable" hint={state.reason} className="w-full max-w-md" />
         </div>
       )}
     </SprintEngineSeedPreviewShell>
@@ -879,13 +880,8 @@ function SprintEngineSeedPreviewShell({
         title={title}
         subtitle={path}
         leading={
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-meta font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            aria-label="Back"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+          <GhostButton size="xs" onClick={onBack} className="shrink-0" aria-label="Back">
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
               <path
                 d="M10 4L6 8L10 12"
                 stroke="currentColor"
@@ -895,7 +891,7 @@ function SprintEngineSeedPreviewShell({
               />
             </svg>
             Back
-          </button>
+          </GhostButton>
         }
       />
       <div className="min-h-0 flex-1 overflow-auto">{children}</div>

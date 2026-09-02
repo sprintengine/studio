@@ -11,7 +11,9 @@ import type {
   ReviewComment,
 } from '../../../../shared/review'
 import { Drawer } from '../../components/ui/Drawer'
+import { EmptyState } from '../../components/ui/EmptyState'
 import { KbdChord } from '../../components/ui/KbdChord'
+import { Section } from '../../components/ui/Section'
 import { TopBar } from './TopBar'
 import { StepRail } from './StepRail'
 import { StepPane } from './StepPane'
@@ -255,11 +257,12 @@ export function ReviewWalkthrough({
             {activeStep ? (
               <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={onAskGuide} />
             ) : (
-              <div className="h-full border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
-                <span className="mb-2.5 block text-micro font-medium text-[color:var(--text-subtle)]">In this step</span>
-                <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
-                  Pick a step to see the guide’s notes for it.
-                </p>
+              // The same `Section` head the AnnotationsPanel draws, so the column
+              // does not change heading size when a step is picked.
+              <div className="h-full border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]">
+                <Section title="In this step">
+                  <EmptyState density="list" title="Pick a step to see the guide’s notes for it." />
+                </Section>
               </div>
             )}
           </div>
@@ -295,7 +298,7 @@ const ALT_KEY = IS_MAC ? 'Option' : 'Alt'
 // on a step pane, and the comment chord only when commenting is wired.
 function ShortcutHints({ inStep, commentsEnabled }: { inStep: boolean; commentsEnabled: boolean }) {
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-end gap-x-3.5 gap-y-1 text-micro text-[color:var(--text-subtle)]">
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-micro text-[color:var(--text-subtle)]">
       <span className="inline-flex items-center gap-1">
         <KbdChord keys={['[']} />
         <KbdChord keys={[']']} /> panes

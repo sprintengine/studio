@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
 import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
-import { Badge, InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Tooltip, TruncatedText } from '../ui'
+import { Badge, IconButton, InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Tooltip, TruncatedText } from '../ui'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AttentionQueueBadge } from '../../utils/attentionQueue'
@@ -110,17 +110,12 @@ export function AttentionQueuePopover({
       placement="bottom-end"
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
         <Tooltip content="Attention queue" placement="bottom">
-          <button
+          <IconButton
             ref={ref}
-            type="button"
             onClick={togglePopover}
             aria-pressed={open}
             aria-label={triggerAriaLabel(badge.count)}
-            className={`app-no-drag interactive relative inline-flex h-7 w-7 items-center justify-center bg-transparent focus-visible:focus-ring ${
-              open
-                ? 'text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
-            }`}
+            className={`app-no-drag relative ${open ? 'bg-[color:var(--bg-selected)]' : ''}`}
             {...triggerProps}
           >
             <AttentionQueueIcon className="icon-sm" />
@@ -136,7 +131,7 @@ export function AttentionQueuePopover({
                 className="border-[color:var(--bg-surface)]"
               />
             ) : null}
-          </button>
+          </IconButton>
         </Tooltip>
       )}
     >

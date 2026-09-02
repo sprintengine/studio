@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
 
-import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../../ui'
+import {
+  DefinitionList,
+  GhostButton,
+  InlineNotice,
+  LifecycleGlyph,
+  Section,
+  Spinner,
+  Tooltip,
+  TruncatedText,
+} from '../../../ui'
+import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import type { AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import { AutomationRunActions } from '../../../panels/AutomationsPanel/AutomationRunActions'
 import { useAutomationRunHistory } from '../../../panels/AutomationsPanel/useAutomationRunHistory'
@@ -67,11 +77,16 @@ export function AutomationSurfaceCanvas({
             swapping between automations never jumps the layout the way the
             variable-height run list would. What happened comes after. */}
         <div>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-meta">
-            <WhatRow label="Trigger" value={cadenceSummary(definition.trigger)} />
-            <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
-            <WhatRow label="What runs" value={actionLabel(definition.action.kind)} />
-          </dl>
+          {/* The kit's label / value rows — the same term column and type step
+              the Sprints run frame uses, not a hand `<dl>` with its own gaps. */}
+          <DefinitionList
+            className="py-1"
+            items={[
+              { term: 'Trigger', description: <WhatValue value={cadenceSummary(definition.trigger)} /> },
+              { term: 'Project', description: <WhatValue value={projectLabel(workspaceRoot)} /> },
+              { term: 'What runs', description: <WhatValue value={actionLabel(definition.action.kind)} /> },
+            ]}
+          />
           {prompt ? (
             <div className="flex flex-col gap-1 pt-1.5">
               <span className="text-meta text-[color:var(--text-subtle)]">Prompt</span>
@@ -92,7 +107,7 @@ export function AutomationSurfaceCanvas({
         <Section
           title="Recent runs"
           count={state === 'ready' ? runs.length : undefined}
-          action={<GhostButton onClick={() => void reload()} className="h-6 px-2 text-micro">Refresh</GhostButton>}
+          action={<GhostButton size="xs" onClick={() => void reload()}>Refresh</GhostButton>}
         >
           {state === 'loading' || state === 'idle' ? (
             <div className="flex items-center gap-2 py-3 text-micro text-[color:var(--text-muted)]">
@@ -131,13 +146,10 @@ export function AutomationSurfaceCanvas({
   )
 }
 
-function WhatRow({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt className="text-[color:var(--text-subtle)]">{label}</dt>
-      <dd className="min-w-0 truncate text-[color:var(--text-default)]" title={value}>{value}</dd>
-    </>
-  )
+// A value that clips to its row and reveals its full text only when it does —
+// never a native `title` a keyboard cannot reach.
+function WhatValue({ value }: { value: string }) {
+  return <TruncatedText as="span" text={value} className="block min-w-0" />
 }
 
 // One run: shape-coded lifecycle glyph, the plain outcome + relative time, the
@@ -158,7 +170,9 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
       id={`automation-surface-run-${run.id}`}
       className={[
         'flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 transition-colors last:border-b-0',
-        highlighted ? 'bg-[color:var(--accent-primary-soft)]' : '',
+        // The deep-linked row is SELECTED for a moment, and selection is
+        // neutral — the accent is the primary action's, never a row fill.
+        highlighted ? 'bg-[color:var(--bg-selected)]' : '',
       ].join(' ')}
     >
       <LifecycleGlyph
@@ -171,9 +185,16 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-meta font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
           {stamp !== null ? (
-            <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
-              {relativeFromNow(stamp, now)}
-            </span>
+            // The absolute time rides the product tooltip on a focusable stamp,
+            // so the keyboard reaches it too — never a native `title`.
+            <Tooltip content={absoluteTime(stamp)} placement="left">
+              <span
+                tabIndex={0}
+                className={`shrink-0 rounded-xs tabular-nums text-micro text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
+              >
+                {relativeFromNow(stamp, now)}
+              </span>
+            </Tooltip>
           ) : null}
         </div>
         {run.summary ? (
@@ -185,7 +206,11 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
           />
         ) : null}
         {run.blockedReason ? (
-          <p className="mt-0.5 text-micro leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
+          // Degraded, not failed: the warn notice with its glyph, never amber
+          // ink alone (`principles.md` → Status is earned).
+          <InlineNotice tone="warn" className="mt-1">
+            {run.blockedReason}
+          </InlineNotice>
         ) : null}
         <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
       </div>

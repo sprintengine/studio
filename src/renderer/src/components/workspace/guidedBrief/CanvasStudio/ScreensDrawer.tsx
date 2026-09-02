@@ -69,9 +69,9 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
       role="dialog"
       aria-label="Screens"
       onKeyDown={onKeyDown}
-      className="absolute bottom-5 left-5 top-16 z-30 flex w-60 max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[9px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-drawer)]"
+      className="absolute bottom-5 left-5 top-16 z-[var(--z-float)] flex w-60 max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-drawer)]"
     >
-      <div className="flex shrink-0 items-baseline justify-between border-b border-[color:var(--border-subtle)] px-3.5 py-2.5">
+      <div className="flex shrink-0 items-baseline justify-between border-b border-[color:var(--border-subtle)] px-4 py-2.5">
         <span className="text-meta font-semibold text-[color:var(--text-strong)]">Screens</span>
         <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">
           {screens.length}
@@ -98,7 +98,7 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
                 onClose()
               }}
               className={`
-                flex w-full items-center gap-2.5 py-1.5 pl-3 pr-3.5 text-left outline-none transition-colors
+                flex w-full items-center gap-2.5 py-1.5 pl-3 pr-4 text-left outline-none transition-colors
                 focus-visible:focus-ring-inset
                 ${
                   isSelected
@@ -134,10 +134,10 @@ function ScreenThumbnail() {
   return (
     <span
       aria-hidden="true"
-      className="relative h-5 w-[30px] shrink-0 overflow-hidden rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
+      className="relative h-5 w-[30px] shrink-0 overflow-hidden rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
     >
-      <span className="absolute left-[3px] right-3 top-[3px] h-[3px] rounded-[1px] bg-[color:var(--bg-selected)]" />
-      <span className="absolute bottom-[3px] left-[3px] right-[5px] top-[9px] rounded-[1px] bg-[color:var(--bg-hover)]" />
+      <span className="absolute left-[3px] right-3 top-[3px] h-[3px] bg-[color:var(--bg-selected)]" />
+      <span className="absolute bottom-[3px] left-[3px] right-[5px] top-[9px] bg-[color:var(--bg-hover)]" />
     </span>
   )
 }

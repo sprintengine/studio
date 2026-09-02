@@ -11,10 +11,11 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import {
+  EmptyState,
   GhostButton,
   InboxSearchInput,
   InlineNotice,
-  PrimaryButton,
+  OutlineButton,
   Spinner,
   StatusDot,
   Tabs,
@@ -224,13 +225,15 @@ export function ReadyConnectorsRail({
                 <span>Connector ready</span>
               </div>
             </div>
+            {/* Per-row actions are secondary: one solid primary per view, and a
+                list of N ready rows would have shown N of them. */}
             <div className="flex items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              <GhostButton size="sm" onClick={() => onUseInAutomation(server.id)}>
+              <GhostButton size="xs" onClick={() => onUseInAutomation(server.id)}>
                 Use in automation
               </GhostButton>
-              <PrimaryButton size="sm" onClick={() => onLaunchConnector(catalogServerAsComposerConnector(server))}>
+              <OutlineButton size="xs" onClick={() => onLaunchConnector(catalogServerAsComposerConnector(server))}>
                 New chat
-              </PrimaryButton>
+              </OutlineButton>
             </div>
           </li>
         ))}
@@ -330,19 +333,20 @@ export function ConnectorsBody({
 
   if (view.status === 'empty') {
     return (
-      <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
-        No connectors are available yet.
-      </p>
+      <EmptyState density="list" title="No connectors are available yet." />
     )
   }
 
   if (view.status === 'no-match') {
     return (
-      <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
-        {view.query
-          ? `No connectors match “${view.query}”${view.facet !== 'All' ? ` in ${view.facet}` : ''}.`
-          : `No connectors in ${view.facet}.`}
-      </p>
+      <EmptyState
+        density="list"
+        title={
+          view.query
+            ? `No connectors match “${view.query}”${view.facet !== 'All' ? ` in ${view.facet}` : ''}.`
+            : `No connectors in ${view.facet}.`
+        }
+      />
     )
   }
 

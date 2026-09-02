@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 /* The design system is the authority on the palette (design-system/USAGE.md).
    The base dark block and the light block below alias these `--sem-*`
@@ -376,9 +376,14 @@
      Drawer at 40, Popover and Tooltip at 50, ContextMenu and PointerPopover at
      60. Only Modal was off, at 50 — which put it BELOW the menu tier, so a
      context menu opened over a dialog painted on top of it.
-     Overlay surfaces consume these; in-flow depth (a sticky header, an in-canvas
-     HUD) stays on the app's low `z-10`/`z-20` utilities. */
+     Overlay surfaces consume the overlay steps; in-flow depth — a sticky header
+     (`--z-sticky`), a docked pane or in-canvas floating chrome (`--z-pane`), a
+     panel-internal popover or HUD (`--z-float`) — has its own three steps in
+     the same source since 2026-09-02, so Tailwind's bare `z-20` / `z-30` are
+     no longer the way to say it: write `z-[var(--z-pane)]` / `z-[var(--z-float)]`. */
   --z-sticky: var(--sem-z-sticky);
+  --z-pane: var(--sem-z-pane);
+  --z-float: var(--sem-z-float);
   --z-drawer: var(--sem-z-drawer);
   --z-popover: var(--sem-z-popover);
   --z-menu: var(--sem-z-menu);

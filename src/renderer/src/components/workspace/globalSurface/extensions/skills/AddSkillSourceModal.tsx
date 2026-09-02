@@ -98,7 +98,7 @@ export function AddSkillSourceModal({
         title="Add a skill source from GitHub"
         onClose={onClose}
       />
-      <ModalBody className="flex flex-col gap-3.5">
+      <ModalBody className="flex flex-col gap-4">
         <Input
           value={repo}
           autoFocus

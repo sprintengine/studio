@@ -17,7 +17,28 @@ import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import { ContextMenu, IconButton, MenuDivider, MenuItem, Tooltip } from '../ui'
+import { ContextMenu, EmptyState, IconButton, InlineNotice, MenuDivider, MenuItem, Spinner, Tooltip } from '../ui'
+
+// The editor's three non-content states, each in its own kit idiom so a failed
+// read never renders like an empty pane (principles.md → Accessibility;
+// 2026-09-02 audit). They used to be five identical sentences in disabled ink,
+// one of them red.
+function EditorLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center gap-2 bg-[color:var(--bg-app)] text-meta text-[color:var(--text-muted)]">
+      <Spinner />
+      <span role="status">{label}</span>
+    </div>
+  )
+}
+
+function EditorEmpty({ title }: { title: string }) {
+  return (
+    <div className="h-full bg-[color:var(--bg-app)]">
+      <EmptyState title={title} />
+    </div>
+  )
+}
 
 interface Props {
   workspaceId: string
@@ -474,43 +495,33 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   }, [activeContent, activeFile?.path, gitBaseContent, showPreview])
 
   if (!filePath) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
-        Open a file from the Files pane
-      </div>
-    )
+    return <EditorEmpty title="Open a file from the Files pane" />
   }
 
   if (contentLoadError?.path === activeFilePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--tone-error)] text-body font-mono">
-        Failed to load file: {contentLoadError.message}
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-4">
+        <InlineNotice
+          tone="error"
+          title="Couldn't load this file."
+          hint={<span className="break-all font-mono">{activeFilePath}</span>}
+          detail={contentLoadError.message}
+          className="w-full max-w-[46rem]"
+        />
       </div>
     )
   }
 
   if (restoringFilePath === activeFilePath || canRestoreMissingActiveFile) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
-        Loading file...
-      </div>
-    )
+    return <EditorLoading label="Loading file…" />
   }
 
   if (!activeFile) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-body font-mono">
-        This file is no longer open.
-      </div>
-    )
+    return <EditorEmpty title="This file is no longer open." />
   }
 
   if (!activeFileContentReady) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
-        Loading file...
-      </div>
-    )
+    return <EditorLoading label="Loading file…" />
   }
 
   const markdownModeToggle = isMarkdown ? (
@@ -548,11 +559,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (isImage && activeFilePath) {
     if (!imageDataUrl || imageDataUrl.path !== activeFilePath) {
-      return (
-        <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
-          Loading image...
-        </div>
-      )
+      return <EditorLoading label="Loading image…" />
     }
 
     return (
@@ -574,7 +581,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       <div className="relative flex-1 overflow-hidden">
         {markdownModeToggle}
         {showPreview ? (
-          <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-14">
+          <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8">
             <div className="max-w-4xl mx-auto">
               {renderMarkdown(activeContent, { lineChanges: previewGitLineChanges })}
             </div>

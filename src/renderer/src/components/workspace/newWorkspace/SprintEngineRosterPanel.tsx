@@ -24,7 +24,20 @@ import {
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
-import { CliModelPickerButton, Input, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
+import {
+  CliModelPickerButton,
+  GhostButton,
+  Input,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_LIST_CLASS,
+  MenuDivider,
+  MenuItem,
+  Popover,
+  PrimaryButton,
+  RoleAvatar,
+  roveMenuFocus,
+  Switch,
+} from '../../ui'
 import { type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
   NO_ROLES_ROSTER_ID,
@@ -172,7 +185,7 @@ function RoleGlyphStack({
   registry: SprintEngineRoleRegistry | null
 }) {
   if (roles.length === 0) {
-    return <span className="text-meta text-[color:var(--text-disabled)]">No roles on</span>
+    return <span className="text-meta text-[color:var(--text-muted)]">No roles on</span>
   }
   return (
     <span className="flex pl-1.5" aria-hidden="true">
@@ -321,8 +334,12 @@ export function SavedRostersMenu({
     setEditing('idle')
     setName('')
   }
-  const itemClass =
-    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+  // The menu surface, so the rows rove with the arrow keys like every other
+  // menu (menu/component.md → Accessibility); focus lands on the first row on
+  // open, as ContextMenu does, so the keys work immediately. The rows are the
+  // kit's `MenuItem` — the local `itemClass` they used to share was a third
+  // spelling of the menu row with no ring and an inset fill.
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
 
   const trimmed = name.trim()
   const collides = sprintEngineRosterNameTaken(
@@ -350,7 +367,11 @@ export function SavedRostersMenu({
       popupRole="menu"
       placement="bottom-end"
       className="shrink-0"
-      surfaceClassName="w-[248px] p-1"
+      surfaceClassName={`w-[248px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={(surface) => {
+        surfaceRef.current = surface
+        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+      }}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -397,122 +418,109 @@ export function SavedRostersMenu({
             </span>
           ) : null}
           <div className="flex items-center justify-end gap-1">
-            <button type="button" onClick={close} className={`${itemClass} w-auto`}>
-              Cancel
-            </button>
+            <GhostButton onClick={close}>Cancel</GhostButton>
             <PrimaryButton disabled={!canSubmit} onClick={submitName}>
               {editing === 'renaming' ? 'Rename' : 'Save'}
             </PrimaryButton>
           </div>
         </div>
       ) : (
-        <>
+        <div onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}>
           {/* MC-1876: the built-in is pinned first and separated from saved
               rosters, because choosing it means "no roster" — not "a roster
               named No roles". It carries no staffing summary for the same
               reason, and offers no rename/delete. */}
-          <button
-            type="button"
-            role="menuitemradio"
-            aria-checked={noRolesSelected}
-            className={itemClass}
+          <MenuItem
+            checked={noRolesSelected}
+            selection="one-of"
             onClick={() => { onSelectRoster(NO_ROLES_ROSTER_ID); setOpen(false) }}
+            trailing={
+              <>
+                {/* aria-checked on the radio already announces the choice. */}
+                {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
+                <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
+              </>
+            }
           >
-            <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
-            {/* aria-checked on the radio already announces the choice. */}
-            {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-            <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
-          </button>
-          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+            {NO_ROLES_ROSTER_NAME}
+          </MenuItem>
+          <MenuDivider />
           {/* The way to a hand-tuned role set whenever something else is
               selected — including the built-in: with "No roles" a level above
               rosters (MC-2064) this row is how a fresh install, whose only
               other entry is the pinned default, reaches the role rows at all. */}
           {selectedRosterId != null ? (
-            <button type="button" role="menuitem" className={itemClass} onClick={() => { onSelectRoster(null); setOpen(false) }}>
-              <span className="min-w-0 flex-1 truncate">Custom roster</span>
-            </button>
+            <MenuItem onClick={() => { onSelectRoster(null); setOpen(false) }}>Custom roster</MenuItem>
           ) : null}
           {rosters.length > 0 ? (
             <>
-              <div className="px-2 pb-0.5 pt-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
-                Saved rosters
-              </div>
+              <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Saved rosters</div>
               {rosters.map((roster) => {
                 const total = Object.values(roster.roleCounts).reduce<number>((sum, n) => sum + (n ?? 0), 0)
                 return (
-                  <button
+                  <MenuItem
                     key={roster.id}
-                    type="button"
-                    role="menuitem"
-                    className={itemClass}
                     onClick={() => {
                       onSelectRoster(roster.id)
                       setOpen(false)
                     }}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{roster.name}</span>
-                    {/* Unlike the pinned "No roles" radio above, these rows are
-                        plain menuitems: nothing else announces which one is in
-                        use, so the mark carries its own name. */}
-                    {roster.id === selectedRosterId ? (
+                    trailing={
                       <>
-                        <CheckIcon className="icon-xs shrink-0" />
-                        <span className="sr-only">Selected</span>
+                        {/* Unlike the pinned "No roles" radio above, these rows
+                            are plain menuitems: nothing else announces which
+                            one is in use, so the mark carries its own name. */}
+                        {roster.id === selectedRosterId ? (
+                          <>
+                            <CheckIcon className="icon-xs shrink-0" />
+                            <span className="sr-only">Selected</span>
+                          </>
+                        ) : null}
+                        <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
+                          {total} role{total === 1 ? '' : 's'}
+                        </span>
                       </>
-                    ) : null}
-                    <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
-                      {total} role{total === 1 ? '' : 's'}
-                    </span>
-                  </button>
+                    }
+                  >
+                    {roster.name}
+                  </MenuItem>
                 )
               })}
-              <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+              <MenuDivider />
             </>
           ) : null}
-          <button type="button" role="menuitem" className={itemClass} onClick={() => setEditing('adding')}>
-            Save as new roster…
-          </button>
+          <MenuItem onClick={() => setEditing('adding')}>Save as new roster…</MenuItem>
           {selectedRoster && selectedRosterDirty ? (
-            <button
-              type="button"
-              role="menuitem"
-              className={itemClass}
+            <MenuItem
               onClick={() => {
                 onUpdateRoster(selectedRoster.id, selectedRoster.name)
                 setOpen(false)
               }}
             >
               Update “{selectedRoster.name}”
-            </button>
+            </MenuItem>
           ) : null}
           {selectedRoster ? (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                className={itemClass}
+              <MenuItem
                 onClick={() => {
                   setName(selectedRoster.name)
                   setEditing('renaming')
                 }}
               >
                 Rename…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={`${itemClass} text-[color:var(--tone-error)] hover:text-[color:var(--tone-error)]`}
+              </MenuItem>
+              <MenuItem
+                variant="danger"
                 onClick={() => {
                   onDeleteRoster(selectedRoster.id)
                   setOpen(false)
                 }}
               >
                 Delete
-              </button>
+              </MenuItem>
             </>
           ) : null}
-        </>
+        </div>
       )}
     </Popover>
   )

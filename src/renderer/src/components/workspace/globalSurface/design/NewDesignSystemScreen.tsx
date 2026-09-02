@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { composePreviewSrcDoc, type PreviewMode } from '../../../../../../shared/design-system/preview-doc'
 import type { DesignSystemBundleView } from '../../../../../../shared/design-system/bundle-view'
-import { PrimaryButton } from '../../../ui'
+import { GhostButton, InlineNotice } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import { PreviewFrame } from './PreviewFrame'
 
@@ -12,9 +12,12 @@ import { PreviewFrame } from './PreviewFrame'
 //
 // Build-to-it mockup: backlog/mockups/2026-07-30-design-system-new.html.
 //
-// **Point at a folder is the primary action**, in the chrome bar, and it is the
-// one accent-filled control on the screen — owner ruling 2026-07-30: "it will
-// always just be pointing at a folder at least for now."
+// **Point at a folder is the primary action**, in the DOOR bar (the surface's
+// `bar.actions`, composed by `DesignGlobalSurface`), and it is the one
+// accent-filled control on the screen — owner ruling 2026-07-30: "it will
+// always just be pointing at a folder at least for now." This screen renders no
+// bar of its own: the app strip is the door's one title bar and nothing stacks
+// between it and the content (`principles.md` → The door surface).
 //
 // **No heading over the grid.** With the rejected "bring one in" row cut there is
 // one group on screen, and `principles.md` is explicit that a heading must
@@ -51,27 +54,35 @@ export function NewDesignSystemScreen({
   /** The name of the source being created from, while creation is in flight. */
   busy: string | null
   error: string | null
+  /** The recovery for a refused folder: pick another. The primary itself lives
+   *  in the door bar. */
   onPointAtFolder: () => void
   onSeedFrom: (source: NewDesignSystemSource) => void
 }): JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* The chrome bar carries the one primary action and nothing else. The
-          line of copy that used to sit beside it ("a design system lives in a
-          Git repo you clone") was explanatory text on a surface the owner ruled
-          must be self-evident — if a control needs a sentence, redesign the
+      {/* No line of copy over the grid, either: "a design system lives in a Git
+          repo you clone" was explanatory text on a surface the owner ruled must
+          be self-evident — if a control needs a sentence, redesign the
           control. */}
-      <div className="flex shrink-0 items-center justify-end border-b border-[color:var(--border-subtle)] px-6 py-2">
-        <PrimaryButton onClick={onPointAtFolder} disabled={busy !== null}>
-          Point at a folder
-        </PrimaryButton>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6">
         {error ? (
-          <p className="mb-4 text-meta leading-5 text-[color:var(--tone-error)]">{error}</p>
+          // A failure, not a note: the shared error card with its recovery,
+          // never red ink alone (`principles.md` → Status is earned).
+          <InlineNotice
+            tone="error"
+            className="mb-4"
+            action={
+              <GhostButton onClick={onPointAtFolder} disabled={busy !== null}>
+                Choose another folder
+              </GhostButton>
+            }
+          >
+            {error}
+          </InlineNotice>
         ) : null}
         {/* No heading: one group on screen labels nothing. */}
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-5 gap-y-7">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-5 gap-y-8">
           {sources.map((source) => (
             <StartCard
               key={source.path ?? 'empty'}
@@ -117,7 +128,10 @@ function StartCard({
       aria-label={source.path ? `Start from ${source.name}` : 'Start from an empty system'}
       // Hover is a background change only — no scale, no shadow, no border
       // appearing. `rounded-md` is radius.control, one of this view's two radii.
-      className={`group flex flex-col rounded-md p-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] disabled:cursor-default ${FOCUS_RING_CLASS}`}
+      // Disabled is the button canon (ui/Buttons): opacity step, `not-allowed`,
+      // and the hover fill pinned off — `:hover` still matches a disabled
+      // button, so without the pin a dead card lit up under the pointer.
+      className={`group flex flex-col rounded-md p-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
     >
       {srcDoc ? (
         <PreviewFrame

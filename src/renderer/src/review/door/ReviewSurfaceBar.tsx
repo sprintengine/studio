@@ -54,7 +54,8 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
   ) : (
     <GhostButton onClick={session.openTray} className="shrink-0">
       Your review
-      {pending > 0 ? <span className="font-medium tabular-nums text-[color:var(--accent-primary)]"> · {pending}</span> : null}
+      {/* Neutral ink for the count: the accent is spent on "Post review" alone. */}
+      {pending > 0 ? <span className="font-medium tabular-nums text-[color:var(--text-strong)]"> · {pending}</span> : null}
     </GhostButton>
   )
 }
@@ -101,7 +102,7 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
       )}
       {guideActions ? (
         <GhostButton onClick={session.openAsk} className="shrink-0">
-          <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
+          <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
             <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
           </svg>
           Ask the guide

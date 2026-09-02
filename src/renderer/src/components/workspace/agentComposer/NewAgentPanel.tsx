@@ -21,14 +21,17 @@ import {
   CliModelPopoverSurface,
   CloseIconButton,
   FOCUS_RING_CLASS,
+  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   InlineSkillPicker,
   Popover,
+  PrimaryButton,
   SkillPickerPopover,
   StarGlyph,
   Tooltip,
   TruncatedText,
   type InlineSkillPickerHandle,
 } from '../../ui'
+import { CheckIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
@@ -435,7 +438,7 @@ export default function NewAgentPanel({
 
   if (composer.noAgentCliInstalled) {
     return (
-      <div className="flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 py-10">
+      <div className="flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 py-8">
         <div className="mx-auto w-full max-w-[620px]">
           <h1 className="text-center text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
             No agent CLI is installed on this machine.
@@ -452,7 +455,7 @@ export default function NewAgentPanel({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-10 pt-8">
+    <div className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8">
       {showCloseButton ? (
         <div className="absolute right-3 top-3">
           <CloseIconButton onClick={onClose} aria-label="Cancel" />
@@ -496,7 +499,12 @@ export default function NewAgentPanel({
         </div>
 
         <div
-          className={`relative mt-5 rounded-md border bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 focus-within:border-[color:var(--accent-primary)] ${
+          // The box owns the visible border while the textarea inside it is the
+          // tab stop, so the product's one focus ring lands on the box keyed to
+          // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
+          // an accent border swap on `focus-within`, which lit the box for the
+          // footer's buttons too and was a second focus idiom.
+          className={`relative mt-5 rounded-md border bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -554,9 +562,17 @@ export default function NewAgentPanel({
           />
 
           <div className="flex items-start gap-2">
-            <span aria-hidden="true" className="mt-0.5 select-none font-mono text-body text-[color:var(--accent-primary)]">
-              ❯
-            </span>
+            {/* The prompt caret as an SVG glyph, not a text character: a
+                character picks up the font's rendering and the guard's
+                emoji-as-icon rule for a reason. */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              fill="none"
+              className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
+            >
+              <path d="M5.5 3.5 10 8l-4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
             {/* Grows with its content (field-sizing: content) from the two-row
                 floor to a ceiling, then scrolls — a box that showed two lines
                 of a six-line prompt was hiding what the person was about to
@@ -742,14 +758,11 @@ export default function NewAgentPanel({
                   aria-label="Worktree name — leave empty to derive from the agent’s name"
                   className="max-w-[160px] bg-transparent text-meta outline-none placeholder:text-[color:var(--text-disabled)]"
                 />
-                <button
-                  type="button"
+                <CloseIconButton
                   onClick={() => composer.setWorktreeName(null)}
                   aria-label="Remove worktree"
-                  className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
-                >
-                  ×
-                </button>
+                  className="-mr-1"
+                />
               </span>
             ) : null}
             {debugMode ? (
@@ -832,16 +845,20 @@ export default function NewAgentPanel({
                   idiom for posting a message into a thread. The glyph names the
                   keyboard path, so the shortcut stops being invisible, and the
                   accessible name carries the verb for anyone who cannot see it. */}
-              <button
-                type="button"
+              {/* The composer's one primary, built from the kit (ruling 9):
+                  `PrimaryButton` squared to the `xs` control step, so the
+                  send carries the accent fill, the canon disabled treatment
+                  and the shared ring rather than a private 28px recipe. */}
+              <PrimaryButton
+                size="xs"
                 onClick={() => launch(prompt)}
                 disabled={!canLaunch}
                 aria-label="Start agent"
                 aria-keyshortcuts="Enter"
-                className={`interactive grid h-7 w-7 shrink-0 place-items-center rounded bg-[color:var(--accent-primary)] font-mono text-meta text-[color:var(--text-on-accent)] disabled:cursor-not-allowed disabled:bg-[color:var(--bg-active)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+                className="aspect-square shrink-0 font-mono"
               >
                 <span aria-hidden="true">⏎</span>
-              </button>
+              </PrimaryButton>
             </Tooltip>
           </div>
         </div>
@@ -1081,7 +1098,7 @@ function MoreMenu({
                 aria-label="Worktree branch name"
                 aria-hidden={worktreeName === null}
                 tabIndex={worktreeName === null ? -1 : 0}
-                className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+                className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
               />
             </div>
           </div>
@@ -1153,14 +1170,7 @@ function AttachmentChip({
     <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
       {glyph}
       <TruncatedText as="span" text={label} className="max-w-[140px]" />
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={removeLabel}
-        className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
-      >
-        ×
-      </button>
+      <CloseIconButton onClick={onRemove} aria-label={removeLabel} className="-mr-1" />
     </span>
   )
 }
@@ -1205,7 +1215,7 @@ function MenuRow({
         ) : null}
       </span>
       {selected && !disabled ? (
-        <span className="shrink-0 text-[color:var(--accent-primary)]">✓</span>
+        <CheckIcon className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       ) : null}
     </button>
   )

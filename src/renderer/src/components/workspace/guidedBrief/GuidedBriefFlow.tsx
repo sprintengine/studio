@@ -1740,7 +1740,7 @@ function HandoffBody({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-7 px-8 pt-10 pb-14">
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-8 px-8 pt-8 pb-8">
         <header className="flex flex-col gap-1.5">
           <h3 className="text-[22px] font-semibold leading-7 tracking-tight text-[color:var(--text-strong)]">
             Ready to build

@@ -559,19 +559,19 @@ run('paint order: selection outranks the identity tint on a lit row', () => {
     !selected.includes(purple.bg) && !selected.includes(purple.dimBg),
     'no identity tint survives over the selection fill',
   )
-  assert.ok(selected.includes(purple.border), 'the 3px identity bar still renders on the selected row')
+  assert.ok(!selected.includes(purple.border), 'no identity bar: the epic dot carries identity (ruled 2026-09-02)')
 })
 
 run('paint order: an unselected lit row keeps the full identity tint', () => {
   const resting = backlogRowPaintClass({ color: 'purple', litFill: true, selected: false })
   assert.ok(resting.includes(purple.dimBg), 'the epic/highlight tint reads across an unpicked row')
-  assert.ok(resting.includes(purple.border), 'the identity bar is drawn in both states')
+  assert.ok(!resting.includes(purple.border), 'no identity bar in either state (ruled 2026-09-02)')
   assert.ok(!resting.includes('var(--bg-selected)'), 'an unselected row is never selection-painted')
 })
 
-run('paint order: derived risk heat tints the stripe alone, never the row', () => {
+run('paint order: derived risk heat never tints the row, and has no stripe to tint', () => {
   const heat = backlogRowPaintClass({ color: 'red', litFill: false, selected: false })
-  assert.ok(heat.includes(getHighlightSwatch('red').border), 'the derived heat reaches the stripe')
+  assert.ok(!heat.includes(getHighlightSwatch('red').border), 'derived heat paints no stripe; the priority glyph carries it')
   assert.ok(!heat.includes('highlight-bg'), 'an unearned fill never lights the row')
 })
 
@@ -582,10 +582,10 @@ run('paint order: a plain row and a lit row select to the same fill', () => {
     fills(backlogRowPaintClass({ color: 'green', litFill: true, selected: true })),
     'the selected step is the same magnitude whatever colour the row carries',
   )
-  assert.match(
+  assert.doesNotMatch(
     backlogRowPaintClass({ color: null, litFill: false, selected: true }),
-    /border-l-transparent/,
-    'a colourless row still reserves the bar width, so rows do not shift as colour comes and goes',
+    /border-l/,
+    'no row reserves a bar width any more',
   )
 })
 

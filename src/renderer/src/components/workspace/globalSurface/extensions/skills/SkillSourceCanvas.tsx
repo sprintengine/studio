@@ -13,7 +13,15 @@
 import React from 'react'
 
 import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
-import { EmptyState as KitEmptyState, GhostButton, InboxSearchInput, InlineNotice, OutlineButton, PrimaryButton } from '../../../../ui'
+import {
+  EmptyState as KitEmptyState,
+  GhostButton,
+  InboxSearchInput,
+  InlineNotice,
+  OutlineButton,
+  PrimaryButton,
+  Section,
+} from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { formatRelativeTime } from '../../../../../utils/time'
 import { SkillRow } from './SkillRow'
@@ -122,14 +130,7 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
         <EmptyState
           title={`These ${view.count} skills are paired with their MCP connectors.`}
           body="Browse them from MCP servers, where the server each one belongs to is visible."
-          action={
-            <GhostButton
-              onClick={props.onBrowseMcpServers}
-              className="border border-[color:var(--border-default)]"
-            >
-              Browse MCP servers
-            </GhostButton>
-          }
+          action={<OutlineButton onClick={props.onBrowseMcpServers}>Browse MCP servers</OutlineButton>}
         />
       ) : view.kind === 'empty' ? (
         <EmptyState
@@ -139,47 +140,49 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
       ) : view.kind === 'solo' ? (
         <div className="mt-5">{props.renderSkillPage(view.skill.skillId, { embedded: true })}</div>
       ) : view.kind === 'flat' ? (
-        <>
-          <SectionHead
-            label="Skills"
-            count={view.items.length}
-            action={
-              <GhostButton size="xs" onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}>
-                Select all
-              </GhostButton>
-            }
-          />
+        <Section
+          inset={false}
+          level={4}
+          title="Skills"
+          count={view.items.length}
+          action={
+            <GhostButton size="xs" onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}>
+              Select all
+            </GhostButton>
+          }
+        >
           <SkillRows items={view.items} {...rowProps} />
           <BatchBar {...batchProps} />
-        </>
+        </Section>
       ) : view.kind === 'grouped' ? (
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[196px_minmax(0,1fr)]">
-          <div className="min-w-0">
-            <SectionHead label="Groups" count={view.groups.length} />
+          <Section inset={false} level={4} title="Groups" count={view.groups.length} className="min-w-0">
             <GroupTree
               groups={view.groups}
               activeGroup={view.activeGroup}
               onSelect={props.onActiveGroupChange}
             />
-          </div>
-          <div className="min-w-0">
-            <SectionHead
-              label={groupLabelOf(view.groups, view.activeGroup)}
-              count={view.items.length}
-              action={
-                view.items.length > 0 ? (
-                  <GhostButton
-                    size="xs"
-                    onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
-                  >
-                    Select all
-                  </GhostButton>
-                ) : null
-              }
-            />
+          </Section>
+          <Section
+            inset={false}
+            level={4}
+            className="min-w-0"
+            title={groupLabelOf(view.groups, view.activeGroup)}
+            count={view.items.length}
+            action={
+              view.items.length > 0 ? (
+                <GhostButton
+                  size="xs"
+                  onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
+                >
+                  Select all
+                </GhostButton>
+              ) : null
+            }
+          >
             <SkillRows items={view.items} {...rowProps} />
             <BatchBar {...batchProps} />
-          </div>
+          </Section>
         </div>
       ) : (
         <>
@@ -206,22 +209,23 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
           {view.prompt ? (
             <EmptyState title={view.prompt} />
           ) : (
-            <>
-              <SectionHead
-                label={view.query.trim() ? 'Results' : groupLabelOf(view.groups, view.activeGroup ?? '')}
-                count={view.items.length}
-                action={
-                  <GhostButton
-                    size="xs"
-                    onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
-                  >
-                    Select all
-                  </GhostButton>
-                }
-              />
+            <Section
+              inset={false}
+              level={4}
+              title={view.query.trim() ? 'Results' : groupLabelOf(view.groups, view.activeGroup ?? '')}
+              count={view.items.length}
+              action={
+                <GhostButton
+                  size="xs"
+                  onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
+                >
+                  Select all
+                </GhostButton>
+              }
+            >
               <SkillRows items={view.items} showGroup={Boolean(view.query.trim())} {...rowProps} />
               <BatchBar {...batchProps} />
-            </>
+            </Section>
           )}
         </>
       )}
@@ -393,7 +397,7 @@ function GroupChips({
             type="button"
             aria-pressed={pressed}
             onClick={() => onSelect(pressed ? null : group.name)}
-            className={`inline-flex h-control-xs items-center gap-1.5 rounded-[5px] border px-2 text-meta transition-colors ${FOCUS_RING_CLASS} ${
+            className={`inline-flex h-control-xs items-center gap-1.5 rounded-sm border px-2 text-meta transition-colors ${FOCUS_RING_CLASS} ${
               pressed
                 ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -408,25 +412,11 @@ function GroupChips({
   )
 }
 
-/** The one list header on this surface: what the list is, how many, and one
- *  trailing slot. Discover renders its result lists under the same head. */
-export function SectionHead({
-  label,
-  count,
-  action,
-}: {
-  label: string
-  count: number
-  action?: React.ReactNode
-}): JSX.Element {
-  return (
-    <div className="mt-4 flex items-baseline gap-2 border-b border-[color:var(--border-subtle)] pb-1.5">
-      <h4 className="text-body font-medium text-[color:var(--text-default)]">{label}</h4>
-      <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">{count}</span>
-      {action ? <span className="ml-auto">{action}</span> : null}
-    </div>
-  )
-}
+// The list heads on this surface are the kit's `Section` (title, count, one
+// action) at `level={4}` with `inset={false}`, since each list brings its own
+// row inset. A local `SectionHead` used to draw the same three things a size and
+// an ink apart from every other door's heading; Discover renders its result
+// lists under the same kit head.
 
 /**
  * The one "there is nothing to list, and here is why" block on this surface.

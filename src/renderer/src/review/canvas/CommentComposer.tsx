@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { PrimaryButton, GhostButton } from '../../components/ui/Buttons'
+import { Textarea } from '../../components/ui/Input'
 import { KbdChord } from '../../components/ui/KbdChord'
-import { FOCUS_RING_CLASS } from '../../components/ui/tokens'
 import { ZONE_CONTENT_INSET } from './annotationZones'
 
 interface CommentComposerProps {
@@ -56,8 +56,10 @@ export function CommentComposer({
   }
 
   return (
-    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}>
-      <textarea
+    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-4`}>
+      {/* The kit's Textarea — the same field chrome as the change form's patch
+          box and the ask drawer, rather than a third private inset in one door. */}
+      <Textarea
         ref={ref}
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -72,7 +74,9 @@ export function CommentComposer({
         }}
         placeholder={placeholder}
         rows={3}
-        className={`w-full max-w-[560px] resize-y rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2 text-body leading-5 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        size="sm"
+        resize="y"
+        className="max-w-[560px]"
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <PrimaryButton onClick={submit} disabled={!trimmed}>

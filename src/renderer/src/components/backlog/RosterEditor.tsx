@@ -10,7 +10,7 @@
 // useRosterEditor was drawn wrong.
 import { useId, useState } from 'react'
 
-import { PrimaryButton } from '../ui'
+import { EmptyState, FOCUS_RING_CLASS, InlineNotice, Input, PrimaryButton } from '../ui'
 import { SprintEngineRosterPanel } from '../workspace/newWorkspace/SprintEngineRosterPanel'
 import type { useRosterEditor } from '../workspace/newWorkspace/useRosterEditor'
 import { NO_ROLES_ROSTER_NAME, sprintEngineRosterNameTaken } from '../workspace/newWorkspace/savedRosters'
@@ -37,9 +37,7 @@ export function RosterEditor({
       <div className="flex w-[220px] shrink-0 flex-col border-r border-[color:var(--border-default)]">
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {editor.rosters.length === 0 ? (
-            <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
-              No saved rosters yet.
-            </p>
+            <EmptyState density="list" title="No saved rosters yet." />
           ) : (
             editor.rosters.map((entry) => {
               const staffed = Object.values(entry.roleCounts).filter((count) => (count ?? 0) > 0).length
@@ -49,9 +47,11 @@ export function RosterEditor({
                   type="button"
                   aria-pressed={entry.id === editor.selectedRosterId}
                   onClick={() => editor.onSelectRoster(entry.id)}
-                  className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta ${
+                  // Selection is neutral: the selected fill and a title lift, never
+                  // the accent — that is spent on "New roster" below.
+                  className={`interactive flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-meta ${FOCUS_RING_CLASS} ${
                     entry.id === editor.selectedRosterId
-                      ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                       : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
                   }`}
                 >
@@ -64,21 +64,24 @@ export function RosterEditor({
             })
           )}
         </div>
-        <div className="shrink-0 border-t border-[color:var(--border-default)] p-1.5">
+        {/* Padding separates the create box from the list above — no hairline
+            inside a dialog-hosted surface. */}
+        <div className="shrink-0 p-1.5 pt-2">
           <label className="sr-only" htmlFor={newNameId}>New roster name</label>
-          <input
+          <Input
             id={newNameId}
+            size="sm"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
             placeholder="New roster name"
-            className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-meta text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:focus-ring"
+            aria-invalid={nameCollides || undefined}
           />
           {nameCollides ? (
-            <p className="mt-1 px-0.5 text-micro text-[color:var(--tone-error)]">
+            <InlineNotice tone="error" className="mt-1.5">
               {trimmedNewName.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
                 ? `“${NO_ROLES_ROSTER_NAME}” is the built-in default and cannot be reused.`
                 : `A roster named “${trimmedNewName}” already exists.`}
-            </p>
+            </InlineNotice>
           ) : null}
           <PrimaryButton
             className="mt-1.5 w-full"

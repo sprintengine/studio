@@ -10,7 +10,7 @@ import type {
   DesignSystemComponentView,
   DesignSystemGroupView,
 } from '../../../../../../shared/design-system/bundle-view'
-import { GhostButton } from '../../../ui'
+import { GhostButton, TruncatedText } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import { PreviewFrame } from './PreviewFrame'
 
@@ -26,7 +26,11 @@ import { PreviewFrame } from './PreviewFrame'
 //     thing it frames, and components carry their own edges. Whitespace groups;
 //     the name sits beneath; a quiet hover background is the hit target.
 //  2. **The specimen has no container and the name appears exactly once** — here,
-//     in the system's own display face. The folder path lives in the chrome bar.
+//     in the system's own display face. The folder path is a quiet provenance
+//     line under the specimen — never a second chrome bar: the app strip is the
+//     door's one title bar, and nothing stacks between it and the content
+//     (`principles.md` → The door surface). Reveal and Reload ride that strip's
+//     `bar.actions`, the way Automations' controls do.
 //  3. **Sections come from the manifest, not from us.** One per declared group,
 //     in manifest order, with its count. No hard-coded taxonomy.
 //
@@ -46,8 +50,6 @@ export function DesignCanvas({
   openComponent,
   onOpenComponent,
   onCloseComponent,
-  onReload,
-  reloading,
 }: {
   view: DesignSystemBundleView
   mode: PreviewMode
@@ -55,60 +57,29 @@ export function DesignCanvas({
   openComponent: string | null
   onOpenComponent: (name: string) => void
   onCloseComponent: () => void
-  onReload: () => void
-  reloading: boolean
 }): JSX.Element {
   const component = openComponent
     ? (view.components.find((entry) => entry.name === openComponent) ?? null)
     : null
 
+  // No chrome bar of its own: the door bar carries Reveal / Reload (see
+  // `DesignGlobalSurface`'s `bar.actions`), and the folder path is a provenance
+  // line in the overview. Deliberately NOT anywhere here: Release, version
+  // history, an upstream-behind count, a lint or regenerate affordance. The
+  // system is a folder in a repo the user manages with git, and linting is the
+  // author's gate, not a viewer's.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <CanvasBar path={view.identity.path} onReload={onReload} reloading={reloading} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {component ? (
-          <ComponentDetail
-            component={component}
-            specimenCss={view.specimen.tokensCss}
-            mode={mode}
-            onBack={onCloseComponent}
-          />
-        ) : (
-          <BundleOverview view={view} mode={mode} onOpenComponent={onOpenComponent} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * The canvas chrome bar: the folder, and the two actions that are about it.
- *
- * Deliberately NOT here: Release, version history, an upstream-behind count, a
- * lint or regenerate affordance. The system is a folder in a repo the user
- * manages with git, and linting is the author's gate, not a viewer's.
- */
-function CanvasBar({
-  path,
-  onReload,
-  reloading,
-}: {
-  path: string
-  onReload: () => void
-  reloading: boolean
-}): JSX.Element {
-  return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-6 py-2">
-      <span
-        title={path}
-        className="min-w-0 flex-1 truncate font-mono text-meta text-[color:var(--text-subtle)]"
-      >
-        {path}
-      </span>
-      <GhostButton onClick={() => void window.api.showItemInFolder(path)}>Reveal</GhostButton>
-      <GhostButton onClick={onReload} disabled={reloading}>
-        {reloading ? 'Reloading…' : 'Reload'}
-      </GhostButton>
+    <div className="h-full min-h-0 overflow-y-auto">
+      {component ? (
+        <ComponentDetail
+          component={component}
+          specimenCss={view.specimen.tokensCss}
+          mode={mode}
+          onBack={onCloseComponent}
+        />
+      ) : (
+        <BundleOverview view={view} mode={mode} onOpenComponent={onOpenComponent} />
+      )}
     </div>
   )
 }
@@ -123,8 +94,15 @@ function BundleOverview({
   onOpenComponent: (name: string) => void
 }): JSX.Element {
   return (
-    <div className="px-6 pb-10 pt-6">
+    <div className="px-6 pb-8 pt-6">
       <Specimen view={view} mode={mode} />
+      {/* Where this system lives: a quiet provenance line, clipped from the
+          left-hand end with the full path one hover/focus away. */}
+      <TruncatedText
+        as="p"
+        text={view.identity.path}
+        className="mt-3 font-mono text-meta text-[color:var(--text-muted)]"
+      />
       {view.specimen.problems.length > 0 ? (
         <QuietNote>
           {view.specimen.problems.length} token{view.specimen.problems.length === 1 ? '' : 's'} could
@@ -171,7 +149,6 @@ function Specimen({ view, mode }: { view: DesignSystemBundleView; mode: PreviewM
           {specimen.ramp.map((swatch) => (
             <span
               key={swatch.path}
-              title={`${swatch.path} · ${mode === 'dark' ? swatch.dark : swatch.light}`}
               className="flex-1"
               // The previewed system's own colours, validated as colours by the
               // token resolver before they reach a style attribute.
@@ -197,7 +174,7 @@ function Section({
   onOpenComponent: (name: string) => void
 }): JSX.Element {
   return (
-    <section aria-labelledby={`design-group-${group.key}`} className="mt-9">
+    <section aria-labelledby={`design-group-${group.key}`} className="mt-8">
       <div className="mb-3 flex items-baseline gap-2">
         {/* Sentence case, derived from the manifest key. */}
         <h3
@@ -206,7 +183,7 @@ function Section({
         >
           {group.label}
         </h3>
-        <span className="font-mono text-meta tabular-nums text-[color:var(--text-disabled)]">
+        <span className="font-mono text-meta tabular-nums text-[color:var(--text-muted)]">
           {group.count}
         </span>
       </div>
@@ -229,7 +206,7 @@ function GroupBody({
   if (group.key === 'components') {
     const rendered = view.components.filter((component) => group.entries.includes(component.name))
     return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5 gap-y-7">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5 gap-y-8">
         {rendered.map((component) => (
           <ComponentTile
             key={component.name}
@@ -247,7 +224,7 @@ function GroupBody({
   if (group.key === 'patterns') {
     const rendered = view.patterns.filter((pattern) => matchesEntry(group.entries, pattern.name))
     return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-x-5 gap-y-7">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-x-5 gap-y-8">
         {rendered.map((pattern) => (
           <figure key={pattern.name} className="m-0">
             <PreviewFrame
@@ -448,7 +425,7 @@ function ComponentDetail({
 }): JSX.Element {
   const count = countLabel(component)
   return (
-    <div className="px-6 pb-10 pt-4">
+    <div className="px-6 pb-8 pt-4">
       <div className="mb-4 flex items-baseline gap-3">
         <GhostButton onClick={onBack}>← All components</GhostButton>
         <h2 className="truncate text-title font-semibold text-[color:var(--text-strong)]">
@@ -489,7 +466,7 @@ function ComponentDetail({
       )}
 
       {component.doc ? (
-        <div className="mt-9 flex max-w-[80ch] flex-col gap-5">
+        <div className="mt-8 flex max-w-[80ch] flex-col gap-5">
           {(
             [
               ['Anatomy', component.doc.anatomy],

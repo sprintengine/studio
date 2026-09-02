@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { GhostButton, InlineNotice, PrimaryButton, SidePaneHeader, Spinner } from '../ui'
+import {
+  FOCUS_RING_CLASS,
+  GhostButton,
+  InlineNotice,
+  PrimaryButton,
+  SegmentedControl,
+  SidePaneHeader,
+  Spinner,
+  TruncatedText,
+} from '../ui'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename, joinFilePath } from '../../utils/paths'
 
@@ -159,9 +168,12 @@ export function AutomationReportViewer({
   )
 }
 
-// A compact path switcher for runs that produced more than one report. The
-// active path carries the single accent; the rest are quiet until hovered —
-// mirroring the Automations view-tab idiom.
+// A compact path switcher for runs that produced more than one report: the kit
+// `SegmentedControl` (one always-selected value, arrow keys move the choice, a
+// single tab stop) rather than an `aria-pressed` chip pair with no keyboard
+// model. The segments show basenames; the active report's full path reads as a
+// quiet provenance line under the control, so it is on screen for everyone
+// rather than hidden in a native `title=` tooltip a keyboard cannot reach.
 export function ReportPathPicker({
   paths,
   activePath,
@@ -171,28 +183,20 @@ export function ReportPathPicker({
   activePath: string | null
   onSelect: (path: string) => void
 }): JSX.Element {
+  const value = activePath ?? paths[0] ?? ''
   return (
-    <div role="group" aria-label="Reports" className="flex flex-wrap gap-1">
-      {paths.map((path) => {
-        const active = path === activePath
-        return (
-          <button
-            key={path}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onSelect(path)}
-            title={path}
-            className={[
-              'h-6 rounded px-2 text-micro font-medium outline-none transition-colors focus-visible:focus-ring',
-              active
-                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
-            ].join(' ')}
-          >
-            {basename(path)}
-          </button>
-        )
-      })}
+    <div className="flex min-w-0 flex-col gap-1">
+      <SegmentedControl
+        ariaLabel="Reports"
+        size="sm"
+        items={paths.map((path) => ({ value: path, label: basename(path) }))}
+        value={value}
+        onChange={onSelect}
+        className="self-start"
+      />
+      {value ? (
+        <TruncatedText as="p" text={value} className="font-mono text-micro text-[color:var(--text-muted)]" />
+      ) : null}
     </div>
   )
 }
@@ -269,7 +273,9 @@ export function ReportViewBody({
           href={pullRequestUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-flex h-6 items-center rounded px-1.5 text-meta font-medium text-[color:var(--accent-primary)] hover:underline"
+          // A link is strong ink and an underline, never the accent (that is the
+          // primary action's), and it carries the one focus ring like any control.
+          className={`mt-1 inline-flex h-6 items-center rounded-sm px-1.5 text-meta font-medium text-[color:var(--text-strong)] underline ${FOCUS_RING_CLASS}`}
         >
           Pull request
         </a>

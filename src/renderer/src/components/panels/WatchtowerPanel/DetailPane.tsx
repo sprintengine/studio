@@ -1,8 +1,8 @@
 import { ActionStatusChip, type ActionStatus } from '../../ui/ActionFeedback'
-import { DefinitionList, GhostButton, Input, OverflowMenu, PanelHeader, PrimaryButton, Select, StatusDot, Textarea, type Tone } from '../../ui'
+import { Badge, DefinitionList, GhostButton, Input, OverflowMenu, PanelHeader, PrimaryButton, Select, StatusDot, Textarea, type Tone } from '../../ui'
 import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../../AppIcons'
 import type { SwitchboardTaskRecord } from '../../../../../shared/switchboard'
-import { confidenceLabel, confidenceToneClass, formatRelativeTime, priorityLabel, shortIdentifier, sourceLabel } from '../../../utils/switchboardBoard'
+import { confidenceLabel, confidenceTone, formatRelativeTime, priorityLabel, shortIdentifier, sourceLabel } from '../../../utils/switchboardBoard'
 import type { DraftTask } from './types'
 import { latestTriageComment, parseTriageImportance } from './types'
 
@@ -200,7 +200,7 @@ export function DetailPane({
                 />
               ) : (
                 <span className="flex items-center gap-2">
-                  <PriorityIcon priority={task.priority} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
+                  <PriorityIcon priority={task.priority} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
                   {priorityLabel(task.priority)}
                 </span>
               ),
@@ -242,7 +242,7 @@ export function DetailPane({
           <div className="mt-4 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-[color:var(--text-strong)]">
-                <SpecialistActionIcon icon="architecture" className="h-3.5 w-3.5 text-[color:var(--text-muted)]" />
+                <SpecialistActionIcon icon="architecture" className="size-icon-sm text-[color:var(--text-muted)]" />
                 Architect triage
               </span>
               <span className="inline-flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
@@ -332,20 +332,15 @@ export function DetailPane({
   )
 }
 
+// The kit's label badge in the confidence tone. No bullet inside it — a dot
+// beside a tinted pill said the same thing twice — and no native `title`: the
+// full label is the badge's accessible name.
 function ConfidenceChip({ value, compact = false, title }: { value: number; compact?: boolean; title?: string }) {
   const label = confidenceLabel(value)
   return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded-[5px] border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
-        compact ? 'text-micro' : 'text-micro'
-      }`}
-      title={title ? `${title}: ${label}` : label}
-      aria-label={title ? `${title}: ${label}` : label}
-    >
-      {/* design-tokens-allow: decorative bullet inheriting the chip text color; not a status dot. */}
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+    <Badge tone={confidenceTone(value)} ariaLabel={title ? `${title}: ${label}` : label} className="shrink-0 tabular-nums">
       {compact ? `${value}%` : label}
-    </span>
+    </Badge>
   )
 }
 

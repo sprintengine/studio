@@ -331,7 +331,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
         </div>
       ) : null}
 
-      {message ? <p className="text-meta leading-5 text-[color:var(--tone-error)]">{message}</p> : null}
+      {message ? <InlineNotice tone="error">{message}</InlineNotice> : null}
     </div>
   )
 }

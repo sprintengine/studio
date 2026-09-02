@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal, ModalButton } from '../ui/Modal'
-import { Checkbox, CloseIconButton, StatusDot } from '../ui'
+import { Checkbox, CloseIconButton, IconButton, StatusDot } from '../ui'
 import { Tooltip } from '../ui/Tooltip'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { LEARNING_CATEGORY_LABELS } from '../../content/learning/types'
@@ -145,7 +145,8 @@ export function TipStartupModal({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-5 py-3">
+      {/* No rule above the footer: inside an overlay, space separates. */}
+      <div className="flex items-center justify-between gap-3 px-5 pb-5 pt-2">
         <Checkbox
           checked={showTipsOnStartup}
           onChange={setLearningShowTipsOnStartup}
@@ -179,21 +180,13 @@ export function TipStartupModal({
   )
 }
 
-type TipPagerButtonProps = {
-  direction: 'prev' | 'next'
-  onClick: () => void
-  label: string
-}
-
-function TipPagerButton({ direction, onClick, label }: TipPagerButtonProps) {
+// The pager is the kit's IconButton with a direction glyph — no size, radius
+// or hover of its own (it used to be a 28px hand-rolled button beside the 26px
+// kit one).
+function TipPagerButton({ direction, onClick, label }: { direction: 'prev' | 'next'; onClick: () => void; label: string }) {
   return (
     <Tooltip content={label}>
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={label}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-      >
+      <IconButton onClick={onClick} aria-label={label}>
         <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           {direction === 'prev' ? (
             <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -201,7 +194,7 @@ function TipPagerButton({ direction, onClick, label }: TipPagerButtonProps) {
             <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           )}
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }

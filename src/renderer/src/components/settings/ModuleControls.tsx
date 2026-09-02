@@ -1,5 +1,6 @@
 import type { CapabilityCategory, CapabilityManifest, ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS, selectModuleEnabled } from '../../modules'
+import { Badge } from '../ui'
 import { SettingToggle } from './SettingsAtoms'
 
 // Capability-module controls: the category grouping/labels shared by the
@@ -103,9 +104,9 @@ function ComingSoonModuleRow({ manifest }: { manifest: CapabilityManifest }) {
           </div>
         ) : null}
       </div>
-      <span className="mt-0.5 shrink-0 whitespace-nowrap rounded-full border border-[color:var(--border-default)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-subtle)]">
+      <Badge decorative className="mt-0.5 shrink-0 whitespace-nowrap">
         Coming soon
-      </span>
+      </Badge>
     </div>
   )
 }

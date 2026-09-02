@@ -3723,9 +3723,9 @@ export default function WorkspaceManager() {
           its right edge, reading as a card floating between two pieces of
           app-level chrome (sidebar left, column right). */}
       <div
-        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-[10px] bg-[color:var(--bg-surface)] ${
+        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-lg bg-[color:var(--bg-surface)] ${
           workspaceAsideTenant
-            ? 'rounded-br-[10px] shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]'
+            ? 'rounded-br-lg border-r border-[color:var(--border-subtle)]'
             : ''
         }`}
       >
@@ -3868,7 +3868,7 @@ export default function WorkspaceManager() {
             // makes a click on the door's own empty canvas land here instead of on
             // `<body>`, which is what keeps Escape armed for the whole visit.
             tabIndex={-1}
-            className="absolute inset-0 z-20 bg-[color:var(--bg-surface)] outline-none"
+            className="absolute inset-0 z-[var(--z-pane)] bg-[color:var(--bg-surface)] outline-none"
           >
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
               {/* The rail lifts into the app sidebar's column; the surface just
@@ -3975,7 +3975,7 @@ export default function WorkspaceManager() {
           (above whatever column owns that edge — content or the aside column),
           since the split chrome has no full-width bar to host them. */}
       {window.api.platform !== 'darwin' ? (
-        <div className="app-no-drag absolute right-0 top-0 z-30 flex h-[36px] items-center">
+        <div className="app-no-drag absolute right-0 top-0 z-[var(--z-float)] flex h-[36px] items-center">
           <WindowControls isMaximized={windowState.isMaximized} />
         </div>
       ) : null}

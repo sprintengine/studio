@@ -151,7 +151,7 @@ export function PanelSwitches({
     // Active is the neutral selection fill, not an accent underline: the accent
     // is reserved for the one primary action per view (design-system
     // foundations/principles.md § Restraint).
-    const buttonClass = `app-no-drag interactive inline-flex h-7 w-7 items-center justify-center rounded-[5px] focus-visible:focus-ring ${
+    const buttonClass = `app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-sm focus-visible:focus-ring ${
       active
         ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
         : 'bg-transparent text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'

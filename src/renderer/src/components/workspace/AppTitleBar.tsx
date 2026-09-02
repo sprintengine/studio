@@ -13,7 +13,7 @@
 // Git / Backlog) that sit on the left with the window nav.
 
 import React from 'react'
-import { Popover, Tooltip } from '../ui'
+import { FOCUS_RING_CLASS, IconButton, Popover, Tooltip } from '../ui'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
@@ -32,10 +32,10 @@ export const TITLE_BAR_HEIGHT = 'h-[36px]'
 // window is fullscreen on macOS, where the lights are hidden.
 export const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
 
-// Square icon buttons in the strip: transparent chrome that brightens on hover,
-// opts out of the drag region, and carries a visible focus ring.
-const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] focus-visible:focus-ring'
+// The strip's icon buttons are the kit's `IconButton` (26px on the control ramp,
+// radius, hover fill and the shared focus ring) with `app-no-drag` so they opt
+// out of the title strip's drag region. The private 28px `STRIP_BUTTON` was
+// the drift MC-2119 named and this retires (audit, icon-buttons-off-the-ramp).
 
 type AppTitleBarProps<MenuItem extends string> = {
   isMac: boolean
@@ -81,14 +81,14 @@ function SidebarCollapseButton({ collapsed, onToggle }: { collapsed: boolean; on
   const label = collapsed ? 'Open sidebar' : 'Collapse sidebar'
   return (
     <Tooltip content={label} placement="bottom">
-      <button type="button" onClick={onToggle} aria-label={label} className={STRIP_BUTTON}>
+      <IconButton onClick={onToggle} aria-label={label} className="app-no-drag">
         {/* Standard `panel-left` sidebar glyph — the sole collapse toggle now
             that the rail's second one is gone; one glyph for both states. */}
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -97,7 +97,7 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
   const label = direction === 'back' ? 'Back' : 'Forward'
   return (
     <Tooltip content={label} placement="bottom">
-      <button type="button" onClick={onClick} aria-label={label} className={STRIP_BUTTON}>
+      <IconButton onClick={onClick} aria-label={label} className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
             d={direction === 'back' ? 'M10 3.5L5.5 8L10 12.5' : 'M6 3.5L10.5 8L6 12.5'}
@@ -107,7 +107,7 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -115,13 +115,13 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
 function GlobalSearchButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Search" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Search" className={STRIP_BUTTON}>
+      <IconButton onClick={onOpen} aria-label="Search" className="app-no-drag">
         {/* Magnifier glyph. */}
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -129,7 +129,7 @@ function GlobalSearchButton({ onOpen }: { onOpen: () => void }) {
 function DiagnosticsTitleBarButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Performance diagnostics" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Open performance diagnostics" className={STRIP_BUTTON}>
+      <IconButton onClick={onOpen} aria-label="Open performance diagnostics" className="app-no-drag">
         {/* Activity / pulse glyph. */}
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
@@ -140,7 +140,7 @@ function DiagnosticsTitleBarButton({ onOpen }: { onOpen: () => void }) {
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -168,7 +168,7 @@ function WindowsMenuBar<MenuItem extends string>({
             key={label}
             type="button"
             onClick={(event) => onShowMenu(event, label)}
-            className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className={`app-no-drag interactive inline-flex h-control-xs items-center rounded-sm px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             {label}
           </button>
@@ -184,18 +184,17 @@ function WindowsMenuBar<MenuItem extends string>({
           surfaceClassName={`w-44 ${MENU_LIST_CLASS}`}
           renderTrigger={({ ref, triggerProps, togglePopover }) => (
             <Tooltip content="Menu" placement="bottom">
-              <button
+              <IconButton
                 ref={ref}
-                type="button"
                 onClick={togglePopover}
                 aria-label="Application menu"
-                className="app-no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="app-no-drag"
                 {...triggerProps}
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
                   <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
-              </button>
+              </IconButton>
             </Tooltip>
           )}
         >

@@ -1,5 +1,6 @@
 import React from 'react'
 import { LifecycleGlyph } from './LifecycleGlyph'
+import { FOCUS_RING_CLASS } from './tokens'
 
 export type InlineNoticeTone = 'error' | 'warn'
 
@@ -73,7 +74,9 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
 
   const details = detail ? (
     <details className="mt-1.5">
-      <summary className="cursor-pointer select-none text-meta text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+      <summary
+        className={`cursor-pointer select-none text-meta text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+      >
         Show details
       </summary>
       <pre className="font-mono mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-[3px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-micro leading-[1.5] text-[color:var(--text-muted)]">

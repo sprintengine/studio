@@ -68,12 +68,15 @@ import {
   InboxSearchInput,
   INLINE_TITLE_EDIT_CLASS,
   InlineNotice,
+  MENU_LIST_CLASS,
+  MenuItem,
   OverflowMenu,
   PanelHeader,
   Popover,
   PrimaryButton,
   RefreshIcon,
   RoleAvatar,
+  roveMenuFocus,
   Tooltip,
   type SelectItem,
 } from '../../ui'
@@ -996,7 +999,7 @@ export default function NewSprintDialog({
                     className="shrink-0"
                   />
                 </div>
-                <p className="shrink-0 px-3 pt-1.5 text-micro text-[color:var(--text-disabled)]">
+                <p className="shrink-0 px-3 pt-1.5 text-micro text-[color:var(--text-muted)]">
                   Click to pick · shift for a range · an epic brings its open items
                 </p>
                 <div
@@ -1134,7 +1137,7 @@ export default function NewSprintDialog({
 
                 <div className="flex flex-col gap-1">
                   {sourceCount === 0 ? (
-                    <p className="text-meta text-[color:var(--text-disabled)]">
+                    <p className="text-meta text-[color:var(--text-muted)]">
                       Pick from the backlog on the left, or choose a file below.
                     </p>
                   ) : (
@@ -1253,7 +1256,7 @@ export default function NewSprintDialog({
                     </div>
                     <div className="flex flex-col gap-1.5 px-3 py-2">
                       {staffedRoles.length === 0 ? (
-                        <span className="text-micro text-[color:var(--text-disabled)]">
+                        <span className="text-micro text-[color:var(--text-muted)]">
                           This roster staffs nothing.
                         </span>
                       ) : (
@@ -1399,6 +1402,10 @@ function ProjectChip({
   onSelect: (path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  // The menu surface, so the rows rove with the arrow keys like every other
+  // menu (menu/component.md → Accessibility); focus lands on the first row on
+  // open, as ContextMenu does, so the keys work immediately.
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
   return (
     <Popover
       open={open}
@@ -1407,7 +1414,11 @@ function ProjectChip({
       popupRole="menu"
       placement="bottom-start"
       className="min-w-0"
-      surfaceClassName="w-[300px] p-1"
+      surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={(surface) => {
+        surfaceRef.current = surface
+        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+      }}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -1428,22 +1439,22 @@ function ProjectChip({
         </button>
       )}
     >
-      {options.map((option) => (
-        <button
-          key={option.path}
-          type="button"
-          role="menuitemradio"
-          aria-checked={option.path === currentPath}
-          onClick={() => {
-            onSelect(option.path)
-            setOpen(false)
-          }}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-        >
-          <span className="min-w-0 flex-1 truncate">{option.label}</span>
-          {option.path === currentPath ? <CheckIcon className="icon-xs shrink-0" /> : null}
-        </button>
-      ))}
+      <div onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}>
+        {options.map((option) => (
+          <MenuItem
+            key={option.path}
+            checked={option.path === currentPath}
+            selection="one-of"
+            onClick={() => {
+              onSelect(option.path)
+              setOpen(false)
+            }}
+            trailing={option.path === currentPath ? <CheckIcon className="icon-xs shrink-0" /> : null}
+          >
+            {option.label}
+          </MenuItem>
+        ))}
+      </div>
     </Popover>
   )
 }
@@ -1481,7 +1492,14 @@ function PickRow({
   // as eight separate picks.
   // design-tokens-allow: implied-child accent rule from the approved mockup — not selection paint
   const impliedClass = implied && !picked ? 'border-l-[color:var(--accent-primary)]' : ''
-  const cursorClass = cursored ? 'outline outline-1 -outline-offset-1 outline-[color:var(--border-focus)]' : 'outline-none'
+  // Cursor ≠ focus. DOM focus stays on the listbox (`aria-activedescendant`),
+  // so the walked row is `--bg-hover` — what `Combobox` does — and the picked
+  // row keeps `--bg-selected` from the paint seam. It used to draw a 1px
+  // zero-offset outline in the focus hue, the exact collision the product's
+  // offset ring exists to avoid (audit, second-focus-idioms). A picked row that
+  // is also the cursor keeps the selection fill: two `bg-*` utilities on one
+  // element would be resolved by stylesheet order.
+  const cursorClass = cursored && !picked ? 'bg-[color:var(--bg-hover)]' : ''
   // A child that will NOT be imported reads as excluded: struck, and without the
   // implied rule its open siblings carry (MC-2129). The count on the source chip
   // and this styling answer the same question — what actually goes in — so they
@@ -1493,7 +1511,7 @@ function PickRow({
       role="option"
       aria-selected={picked}
       onClick={onClick}
-      className={`flex cursor-pointer items-start gap-2 rounded border-l-[3px] py-1 pl-2 pr-2 text-micro text-[color:var(--text-muted)] ${paint} ${impliedClass} ${cursorClass}`}
+      className={`flex cursor-pointer items-start gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-2 pr-2 text-micro text-[color:var(--text-muted)] ${paint} ${impliedClass} ${cursorClass}`}
     >
       <span
         className={`min-w-0 flex-1 ${closed && !picked ? 'line-through decoration-[color:var(--border-strong)]' : ''}`}
@@ -1533,10 +1551,10 @@ function EpicGroupRows({
     litFill: false,
     selected: epicPicked,
   })
+  // Same cursor idiom as PickRow: the walked header is `--bg-hover`, never a
+  // second focus outline; a picked header keeps its selection fill.
   const headerCursorClass =
-    epicKey && cursorKey === epicKey
-      ? 'outline outline-1 -outline-offset-1 outline-[color:var(--border-focus)]'
-      : 'outline-none'
+    epicKey && cursorKey === epicKey && !epicPicked ? 'bg-[color:var(--bg-hover)]' : ''
   return (
     <>
       {group.kind === 'epic' ? (
@@ -1545,7 +1563,7 @@ function EpicGroupRows({
           role="option"
           aria-selected={epicPicked}
           onClick={onTogglePickEpic}
-          className={`mt-1 flex cursor-pointer items-center gap-2 rounded border-l-[3px] py-1 pl-1.5 pr-2 ${headerPaint} ${headerCursorClass}`}
+          className={`mt-1 flex cursor-pointer items-center gap-2 rounded border-l-[3px] border-l-transparent py-1 pl-1.5 pr-2 ${headerPaint} ${headerCursorClass}`}
         >
           <span className="min-w-0 flex-1">
             <BacklogEpicHeaderContent

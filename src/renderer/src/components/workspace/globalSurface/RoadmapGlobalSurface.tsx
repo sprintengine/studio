@@ -30,6 +30,7 @@ import { buildRoadmapRail } from '../../../../../shared/sprintengine/roadmap-sur
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   GhostButton,
+  IconButton,
   InlineNotice,
   Popover,
   PrimaryButton,
@@ -37,7 +38,6 @@ import {
   Tooltip,
   useConfirmDialog,
 } from '../../ui'
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
@@ -1020,6 +1020,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
             ) : (
               <SurfaceCanvasState
                 kind="empty"
+                firstRun
                 glyph={<RoadmapDoorGlyph />}
                 title="No horizon yet"
                 body={
@@ -1271,21 +1272,22 @@ function HorizonPolicyMenu({
       placement="bottom-end"
       surfaceClassName="w-[320px] p-3"
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        // The kit's icon button (26px), not a hand 22px box: this opens a
+        // policy DIALOG rather than a menu, so it is an `IconButton` trigger
+        // rather than an `OverflowMenu`.
         <Tooltip content="Horizon options" placement="bottom">
-          <button
+          <IconButton
             ref={ref}
-            type="button"
             {...triggerProps}
             onClick={togglePopover}
             aria-label="Horizon options"
-            className={`interactive inline-flex h-[22px] w-[22px] items-center justify-center rounded-md text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
               <circle cx="4" cy="8" r="1.2" fill="currentColor" />
               <circle cx="8" cy="8" r="1.2" fill="currentColor" />
               <circle cx="12" cy="8" r="1.2" fill="currentColor" />
             </svg>
-          </button>
+          </IconButton>
         </Tooltip>
       )}
     >

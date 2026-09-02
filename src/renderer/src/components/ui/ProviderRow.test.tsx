@@ -137,7 +137,7 @@ const BASE = {
   )
   const face = host.querySelector('button[aria-label="Show details for Claude"]') as HTMLButtonElement
   assert.ok(face, 'the mark and text become one button, so the pane opens by keyboard as well as by mouse')
-  assert.equal(face.getAttribute('aria-expanded'), 'false', 'the face states whether its pane is open')
+  assert.equal(face.getAttribute('aria-pressed'), 'false', 'the face states whether it is the selected row — pressed, not "expanded", which belongs to the chevron')
 
   act(() => face.click())
   assert.equal(selected, 1, 'clicking the face selects the row')
@@ -160,7 +160,7 @@ const BASE = {
     <ProviderRow {...BASE} health="good" selected onSelect={() => {}} stateLine="Added — Daily at 02:00" />,
   )
   const selectedFace = host.querySelector('button[aria-label="Show details for Claude"]') as HTMLButtonElement
-  assert.equal(selectedFace.getAttribute('aria-expanded'), 'true', 'selection is announced, not only painted')
+  assert.equal(selectedFace.getAttribute('aria-pressed'), 'true', 'selection is announced, not only painted')
   assert.match(
     (host.firstElementChild?.firstElementChild as HTMLElement).className,
     /bg-\[color:var\(--bg-selected\)\]/,

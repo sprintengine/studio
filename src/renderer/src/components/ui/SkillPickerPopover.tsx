@@ -500,7 +500,7 @@ export function SkillPickerPopover({
                 onOpenChange(false)
                 onManageSkills()
               }}
-              className="text-micro font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
+              className={`text-micro font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               Manage skills →
             </button>
@@ -584,7 +584,7 @@ export const InlineSkillPicker = forwardRef<
       aria-label="Use a skill"
       className={[
         // Positioning (bottom-full / left offset) belongs to the caller's anchor.
-        'absolute z-30 mb-2 flex max-h-[340px] w-[380px] flex-col overflow-hidden',
+        'absolute z-[var(--z-float)] mb-2 flex max-h-[340px] w-[380px] flex-col overflow-hidden',
         'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]',
         'shadow-[var(--shadow-popover)]', // the shared Popover elevation, for an input-anchored surface
         className ?? '',

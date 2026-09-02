@@ -9,7 +9,7 @@
 
 import React from 'react'
 
-import { GhostButton, PrimaryButton, TruncatedText } from '../../ui'
+import { Badge, GhostButton, PrimaryButton, TruncatedText } from '../../ui'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import type { ConnectorEntry } from './connectorsFacets'
@@ -28,13 +28,14 @@ export function ConnectorSectionHeading({ label, count }: { label: string; count
   )
 }
 
-// Small neutral text chip ("MCP server", "Skill pack", "Bundled", "http", …) —
-// plain text on the active-background token, never a mono string.
+// Small neutral text chip ("MCP server", "Skill pack", "Bundled", "http", …):
+// the kit's label badge, decorative because the row's name and summary already
+// say what it is.
 export function ConnectorChip({ label }: { label: string }) {
   return (
-    <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
+    <Badge decorative className="shrink-0">
       {label}
-    </span>
+    </Badge>
   )
 }
 

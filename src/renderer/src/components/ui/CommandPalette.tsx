@@ -792,7 +792,7 @@ export default function CommandPalette({
               // "No results" is only true once the search that would have
               // produced them has finished, and only meaningful when there was a
               // folder to search in the first place.
-              <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">
+              <p className="px-4 py-3 text-meta text-[color:var(--text-muted)]">
                 {diskSearchError
                   ? diskSearchError
                   : diskSearching

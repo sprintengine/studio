@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+  EmptyState,
   FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
@@ -1818,13 +1819,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           <InlineNotice
             tone="error"
             action={
-              <button
-                type="button"
-                onClick={() => setActionError(null)}
-                className="interactive text-meta font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
-              >
+              <GhostButton size="xs" onClick={() => setActionError(null)}>
                 Dismiss
-              </button>
+              </GhostButton>
             }
           >
             {actionError}
@@ -1941,7 +1938,7 @@ function BacklogListSkeleton(): JSX.Element {
       </span>
       <div aria-hidden="true">
         {BACKLOG_SKELETON_ROWS.map((row, index) => (
-          <div key={index} className="border-l-[3px] border-l-transparent px-3 py-1.5">
+          <div key={index} className="px-3 py-1.5">
             <div className="flex items-center gap-2">
               <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
               <Skeleton
@@ -2025,11 +2022,7 @@ function BacklogList({
   }
 
   if (emptyHint) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-6 text-center">
-        <p className="max-w-[32ch] text-meta leading-relaxed text-[color:var(--text-disabled)]">{emptyHint}</p>
-      </div>
-    )
+    return <EmptyState title={emptyHint} className="flex-1" />
   }
 
   // The option index is the row's position in the flattened nav order; it equals
@@ -2159,6 +2152,8 @@ function BacklogOptionRow({
   // Option C: the epic identity colour fills the whole member row (below a
   // hand-set highlight, above the ambient risk heat — see resolveBacklogRowColor)
   // on every row the user has not picked. Selection outranks it — backlogRowPaint.
+  // No left bar (ruled 2026-09-02): the row reserves no `border-l-[3px]`, so the
+  // helper's bar colour has no width to paint; `EpicColorDot` carries the epic.
   const { color: stripeColor, litFill } = resolveBacklogRowColor(item, epicMeta?.color ?? null)
   return (
     <li
@@ -2175,7 +2170,7 @@ function BacklogOptionRow({
       onMouseDown={(event) => {
         if (event.shiftKey) event.preventDefault()
       }}
-      className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
+      className={`cursor-pointer ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
         backlogRowPaintClass({ color: stripeColor, litFill, selected })
       } ${archived ? 'opacity-70' : ''}`}
     >
@@ -2220,8 +2215,9 @@ function BacklogOptionRow({
 // j/k can reach it and Enter can collapse it. An epic header borrows the epic
 // item's identity — clicking it (away from the chevron) selects the epic and can
 // be dragged / right-clicked like any item; unknown and no-epic headers carry no
-// item, so the whole row toggles collapse. The left stripe uses the epic's
-// `color:` frontmatter when set.
+// item, so the whole row toggles collapse. The epic's `color:` frontmatter
+// tints the row through `backlogRowPaintClass`; there is no left bar (ruled
+// 2026-09-02).
 function BacklogGroupHeaderRow({
   row,
   optionIndex,
@@ -2262,22 +2258,46 @@ function BacklogGroupHeaderRow({
       // Clicking an epic header selects the epic (its detail); a header with no
       // item has nothing to select, so the row click collapses it instead.
       onClick={() => (epic ? onSelect(epic.id) : onToggleCollapse(group))}
-      title={epic ? epic.relativePath : group.title}
-      className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${backlogRowPaintClass({
+      className={`cursor-pointer px-3 py-1.5 transition-colors ${backlogRowPaintClass({
         color: group.color,
         litFill: false,
         selected,
       })}`}
     >
-      <BacklogEpicHeaderContent
-        group={group}
-        collapsed={row.collapsed}
-        selected={selected}
-        onToggleCollapse={() => onToggleCollapse(group)}
-        progress={progress}
-        dependencyState={dependencyState}
-        blockedRollup={blockedRollup}
-      />
+      {/* The epic's path rides the product tooltip (same shape as the item row's
+          hover card), not a native `title`; a plain group header's title is
+          already the visible label, so it gets no tooltip at all. */}
+      {epic ? (
+        <Tooltip
+          content={epic.relativePath}
+          placement="top"
+          openDelayMs={600}
+          wrapperClassName="block"
+          wrapperRole="presentation"
+        >
+          <div>
+            <BacklogEpicHeaderContent
+              group={group}
+              collapsed={row.collapsed}
+              selected={selected}
+              onToggleCollapse={() => onToggleCollapse(group)}
+              progress={progress}
+              dependencyState={dependencyState}
+              blockedRollup={blockedRollup}
+            />
+          </div>
+        </Tooltip>
+      ) : (
+        <BacklogEpicHeaderContent
+          group={group}
+          collapsed={row.collapsed}
+          selected={selected}
+          onToggleCollapse={() => onToggleCollapse(group)}
+          progress={progress}
+          dependencyState={dependencyState}
+          blockedRollup={blockedRollup}
+        />
+      )}
     </li>
   )
 }
@@ -2534,16 +2554,11 @@ export function BacklogDetail({
       <header className="shrink-0 px-3 py-2">
         <div className="flex min-w-0 items-start gap-2">
           {showBack ? (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="Back to list"
-              className="interactive -ml-1 mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            >
+            <IconButton onClick={onBack} aria-label="Back to list" className="-ml-1.5 -mt-0.5 shrink-0">
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-            </button>
+            </IconButton>
           ) : null}
           <Tooltip
             content={
@@ -2923,15 +2938,7 @@ function DetailState({
   body: string
   cta?: React.ReactNode
 }): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <div className="flex flex-col items-center gap-1">
-        {heading ? <p className="text-body font-medium text-[color:var(--text-default)]">{heading}</p> : null}
-        <p className="max-w-[40ch] text-meta leading-relaxed text-[color:var(--text-disabled)]">{body}</p>
-      </div>
-      {cta}
-    </div>
-  )
+  return <EmptyState title={heading ?? body} body={heading ? body : undefined} action={cta} />
 }
 
 // An epic has no Sprint Engine run link of its own, so its detail header would
@@ -3039,11 +3046,13 @@ function BacklogEpicChildren({
               const childBlocked = !glyph && dependencyStateById?.get(child.id) === 'blocked'
               return (
               <li key={child.id}>
+                {/* The member's path rides the product tooltip on the row button
+                    (its own focusable trigger), not a native `title`. */}
+                <Tooltip content={child.relativePath} placement="top" openDelayMs={600} wrapperClassName="block">
                 <button
                   type="button"
                   onClick={() => onNavigate(child.id)}
-                  title={child.relativePath}
-                  className={`interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+                  className={`interactive flex w-full items-center gap-2 rounded-sm px-1.5 py-1.5 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                 >
                   <Tooltip
                     content={
@@ -3078,6 +3087,7 @@ function BacklogEpicChildren({
                   <DifficultyIndicator difficulty={child.difficulty} />
                   <CriticalityIndicator criticality={child.criticality} />
                 </button>
+                </Tooltip>
               </li>
               )
             })}
@@ -3150,7 +3160,7 @@ function BacklogEpicSearchEditor({
           aria-controls={triggerProps['aria-controls']}
           aria-label="Move to epic"
           onClick={togglePopover}
-          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+          className="interactive inline-flex h-control-sm w-full min-w-[140px] items-center justify-between gap-2 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">
@@ -3184,7 +3194,7 @@ function BacklogEpicSearchEditor({
             setOpen(false)
             actions.createEpic(item)
           }}
-          className="interactive w-full rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className={`interactive w-full rounded-sm px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
         >
           New epic…
         </button>
@@ -3195,7 +3205,7 @@ function BacklogEpicSearchEditor({
               setOpen(false)
               actions.setEpic(item, null)
             }}
-            className="interactive w-full rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className={`interactive w-full rounded-sm px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             Remove from epic
           </button>
@@ -3216,7 +3226,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     // title-stripped excerpt).
     const body = backlogPreviewMarkdown(item.sourceContent)
     if (!body) {
-      return <p className="text-meta text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
+      return <p className="text-meta text-[color:var(--text-muted)]">No description beyond the title yet.</p>
     }
     // `compact` is the dense-surface ramp (the skill reader's), not the document
     // one: at `document` the body's own h2 renders at 24px inside a pane whose

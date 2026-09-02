@@ -3,10 +3,14 @@
 // (MC-2119). This comment used to declare a second one, and the two disagreed
 // about the top of the stack:
 //
-//   in-flow depth       z-10 in-canvas HUD / in-card raise, z-20 docked panes,
-//                       z-30 panel-internal popovers, z-[35] canvas overlays
-//                       — app utilities; these describe depth within a pane,
-//                       not overlay layers, and stay as they are.
+//   in-flow depth       --z-sticky 10 (sticky headers, in-card raise),
+//                       --z-pane 20 (docked panes, in-canvas floating chrome),
+//                       --z-float 30 (panel-internal popovers and HUDs) —
+//                       `sem.z.sticky` / `sem.z.pane` / `sem.z.float` in
+//                       design-system/foundations/tokens.tokens.json. These
+//                       describe depth within a pane, not overlay layers; they
+//                       used to exist only in this comment, as Tailwind's
+//                       `z-20` / `z-30`, until 2026-09-02 put them in the source.
 //   overlay layers      --z-drawer 40, --z-modal 70, --z-popover 80,
 //                       --z-menu 90, --z-toast 100.
 //
@@ -21,7 +25,7 @@ import React, { useEffect, useRef } from 'react'
 import { CloseIconButton, DangerButton, GhostButton, PrimaryButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
-import { OVERLAY_SHELL_CLASS, overlayWidthStyle, type OverlayWidth } from './tokens'
+import { FOCUS_RING_INSET_CLASS, OVERLAY_SHELL_CLASS, overlayWidthStyle, type OverlayWidth } from './tokens'
 
 type ModalProps = {
   open: boolean
@@ -137,7 +141,12 @@ export function Modal({
           // (MC-2110). This primitive used to spell its own `rounded-[8px]` and
           // cast NO shadow at all, so the surface every dialog is supposed to
           // converge on was the shabbiest one in the product.
-          className={`${OVERLAY_SHELL_CLASS} ${layout === 'panel' ? PANEL_LAYOUT_CLASS : SCROLL_LAYOUT_CLASS} outline-none`}
+          // The shell takes focus on open (above) and is therefore a tab stop:
+          // it wears the ring like everything focusable, inset as `TabPanel`
+          // does because the indicator sits at the edge of the surface. The
+          // `outline-none` this replaced left a keyboard user with no sign of
+          // where focus was until the first Tab.
+          className={`${OVERLAY_SHELL_CLASS} ${layout === 'panel' ? PANEL_LAYOUT_CLASS : SCROLL_LAYOUT_CLASS} ${FOCUS_RING_INSET_CLASS}`}
         >
           {children}
         </div>

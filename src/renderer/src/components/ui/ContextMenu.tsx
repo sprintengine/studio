@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
+import { FOCUS_RING_CLASS } from './tokens'
 import {
   MENU_DIVIDER_CLASS,
   MENU_GROUP_LABEL_CLASS,
@@ -310,6 +311,14 @@ type MenuSwatchRowProps = {
 // One-tap color choice row: a clear control followed by the seven canonical
 // highlight swatches. Swatches behave as a radio group within the menu —
 // each is a menuitemradio carrying aria-checked for the applied color.
+//
+// Each swatch is a 20px circle inside a 24px button: `size.hit-target-min` is
+// the floor for anything interactive, and a small glyph pads out to it with a
+// transparent hit area rather than shrinking its target (principles.md → Space
+// and size). `h-6` is that floor; the hover is the neutral fill.
+const SWATCH_TARGET_CLASS =
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[color:var(--bg-hover)]'
+
 export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: MenuSwatchRowProps) {
   return (
     <>
@@ -331,13 +340,22 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
             onClick={onClear}
             onKeyDown={onItemKeyDown}
             aria-label="Clear color"
-            className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] text-[color:var(--text-disabled)] transition-colors hover:border-[color:var(--text-disabled)] hover:text-[color:var(--text-default)] ${
-              value === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
-            }`}
+            // A 20px circle padded out to the 24px hit-target floor: the box is
+            // the target, the inner ring is the mark. Hover is the background
+            // change every control gets — no scale, no glow (principles.md →
+            // Selection and focus).
+            className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS} text-[color:var(--text-disabled)] hover:text-[color:var(--text-default)]`}
           >
-            <svg viewBox="0 0 12 12" fill="none" className="icon-xs">
-              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
+            <span
+              aria-hidden="true"
+              className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] ${
+                value === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
+              }`}
+            >
+              <svg viewBox="0 0 12 12" fill="none" className="icon-xs">
+                <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </span>
           </button>
         </Tooltip>
         {HIGHLIGHT_COLORS.map((color) => {
@@ -356,15 +374,22 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
                 onClick={() => onPick(color)}
                 onKeyDown={onItemKeyDown}
                 aria-label={`Highlight ${swatch.label}`}
-                className={`h-5 w-5 rounded-full transition-transform hover:scale-110 ${
-                  selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
-                }`}
-                style={{
-                  backgroundColor: swatch.hex,
-                  boxShadow: selected ? `0 0 8px ${swatch.ringRgba(0.6)}` : undefined,
-                  ['--tw-ring-color' as never]: swatch.hex,
-                }}
-              />
+                className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS}`}
+              >
+                {/* The selected mark is the ring and only the ring — the glow
+                    and the hover scale this used to carry are the two hover
+                    treatments the principles rule out. */}
+                <span
+                  aria-hidden="true"
+                  className={`block h-5 w-5 rounded-full ${
+                    selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
+                  }`}
+                  style={{
+                    backgroundColor: swatch.hex,
+                    ['--tw-ring-color' as never]: swatch.hex,
+                  }}
+                />
+              </button>
             </Tooltip>
           )
         })}

@@ -405,7 +405,8 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     return found
   }
   const buttonLabelled = (label: string): HTMLButtonElement => {
-    const found = container.querySelector(`button[aria-label="${label}"]`)
+    // The skill pick target is a native checkbox `<input>` since the kit `Checkbox` adoption (2026-09-02).
+    const found = container.querySelector(`[aria-label="${label}"]`)
     assert.ok(found, `no button labelled "${label}" is on screen`)
     return found as unknown as HTMLButtonElement
   }

@@ -73,8 +73,8 @@ type MarkdownScale = {
 
 const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
   document: {
-    h1: 'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
-    h2: 'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
+    h1: 'mt-8 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
+    h2: 'mt-8 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
     h3: 'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
     h4: 'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[color:var(--text-strong)]',
     h5: 'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[color:var(--text-strong)]',
@@ -84,30 +84,30 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-body leading-6 text-[color:var(--terminal-fg)]',
     // A long path wraps instead of pushing the line box wider than the column;
     // `break-words` keeps a short token whole and moves it down instead.
-    code: 'rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
+    code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
     blockquote:
       'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
     hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
     table: 'w-full border-collapse text-left text-body text-[color:var(--text-default)]',
   },
   compact: {
-    h1: 'mt-6 first:mt-0 mb-3.5 text-title font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
+    h1: 'mt-6 first:mt-0 mb-4 text-title font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
     h2: 'mt-[30px] first:mt-0 mb-2.5 text-body font-semibold leading-tight text-[color:var(--text-strong)]',
     h3: 'mt-[22px] first:mt-0 mb-2 text-meta font-semibold leading-snug text-[color:var(--text-strong)]',
-    h4: 'mt-[18px] first:mt-0 mb-1.5 text-meta font-semibold leading-snug text-[color:var(--text-default)]',
-    h5: 'mt-[18px] first:mt-0 mb-1.5 text-meta font-medium leading-snug text-[color:var(--text-default)]',
+    h4: 'mt-5 first:mt-0 mb-1.5 text-meta font-semibold leading-snug text-[color:var(--text-default)]',
+    h5: 'mt-5 first:mt-0 mb-1.5 text-meta font-medium leading-snug text-[color:var(--text-default)]',
     // The last rung of the compact ladder: 11px is under the 13px floor for
     // `tracking.tight`, so it holds normal tracking and takes its step down
     // from ink, not from a transform.
-    h6: 'mt-[18px] first:mt-0 mb-1.5 text-micro font-semibold leading-snug tracking-normal text-[color:var(--text-muted)]',
+    h6: 'mt-5 first:mt-0 mb-1.5 text-micro font-semibold leading-snug tracking-normal text-[color:var(--text-muted)]',
     p: `${compactTextClass} mb-3`,
     list: `mb-3 ml-[18px] space-y-1.5 ${compactTextClass}`,
-    pre: 'my-3.5 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-micro leading-[1.7] text-[color:var(--text-default)]',
+    pre: 'my-4 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-micro leading-[1.7] text-[color:var(--text-default)]',
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
     code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
     blockquote:
-      'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-3.5 text-[color:var(--text-muted)]',
+      'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
     hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
     table: 'w-full border-collapse text-left text-micro text-[color:var(--text-default)]',
   },

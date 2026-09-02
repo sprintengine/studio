@@ -3,7 +3,7 @@ import type { AgentCli } from '../../types/workspace'
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import CliIcon from '../CliIcon'
 import { SprintEngineWorkspaceTypeIcon } from '../AppIcons'
-import { Popover } from '../ui'
+import { FOCUS_RING_CLASS, Popover } from '../ui'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { CliInstallCta } from './cliInstallRoute'
 
@@ -95,7 +95,7 @@ export default function WorkspaceLauncher({
   return (
     <div className="absolute inset-0 z-10 isolate flex items-start justify-center overflow-auto bg-[color:var(--bg-app)]">
       <CreationBackdrop surface="workspace" />
-      <div className="w-full max-w-[520px] px-6 pb-16 pt-[14vh]">
+      <div className="w-full max-w-[520px] px-6 pb-8 pt-[14vh]">
         <h1 className="text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           Start something here
         </h1>
@@ -129,7 +129,7 @@ export default function WorkspaceLauncher({
           <CliInstallCta />
         )}
 
-        <div className="mt-3.5 flex flex-col gap-2 border-t border-[color:var(--border-subtle)] pt-3.5">
+        <div className="mt-4 flex flex-col gap-2 border-t border-[color:var(--border-subtle)] pt-4">
           {/* Both rows spawn a CLI agent, so with none installed they cannot
               run — they say so where their description was, rather than
               looking live and failing on click. */}
@@ -197,7 +197,7 @@ export default function WorkspaceLauncher({
               <button
                 type="button"
                 onClick={onNewWorkspace}
-                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
+                className={`rounded-xs text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
               >
                 New workspace
               </button>
@@ -211,7 +211,7 @@ export default function WorkspaceLauncher({
               <button
                 type="button"
                 onClick={onClose}
-                className="text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--tone-warn)]"
+                className={`rounded-xs text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--tone-warn)] ${FOCUS_RING_CLASS}`}
               >
                 Close workspace
               </button>

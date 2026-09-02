@@ -202,8 +202,8 @@ export default function FleetPanel({ workspaceId }: Props) {
 
         {connections.length === 0 ? (
           <EmptyState
-            title="No machines paired"
-            body="Pair another Multicode Studio on your tailnet to browse its workspaces and open its terminals here."
+            title="No machines on this account"
+            body="Sign in on another desktop and its workspaces and terminals appear here."
           />
         ) : (
           <div className="space-y-1">

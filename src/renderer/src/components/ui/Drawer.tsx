@@ -15,6 +15,7 @@ import React, { useEffect, useId, useRef, useState } from 'react'
 import { CloseIconButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
+import { FOCUS_RING_INSET_CLASS } from './tokens'
 
 type DrawerLifecycle = 'closed' | 'entering' | 'open' | 'closing'
 
@@ -32,12 +33,16 @@ type DrawerProps = {
   title: string
   /** Accessible name for the dialog. Use a sentence that matches the drawer purpose. */
   ariaLabel: string
+  /** Accessible name of the close control. Defaults to `Close <title>` — the
+   *  spec wants the name to say WHAT it closes, because several surfaces can
+   *  be dismissible at once. Override when the title is not the right noun. */
+  closeLabel?: string
   /** Drawer width in pixels. Defaults to 360, the shared panel-aside width. */
   width?: number
   children: React.ReactNode
 }
 
-function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: DrawerProps) {
+function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, children }: DrawerProps) {
   const [lifecycle, setLifecycle] = useState<DrawerLifecycle>('closed')
   const panelRef = useRef<HTMLDivElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
@@ -132,13 +137,21 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
   // true (knowledge/brand/primitives.md): a transient child (popover, menu)
   // that already handled Escape marks the event, and a Modal stacked above
   // this drawer must win even though the drawer's window listener registered
-  // first — the drawer yields by state when any aria-modal surface is open.
+  // first — the drawer yields by state when any OTHER aria-modal surface is
+  // open. The drawer is itself `aria-modal="true"` (it scrims, traps focus and
+  // locks scroll, so the claim is honest), which is why the query excludes its
+  // own panel and anything mounted inside it: a dialog hosted in the drawer
+  // still wins, the drawer never yields to itself.
   useEffect(() => {
     if (lifecycle === 'closed') return undefined
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (event.defaultPrevented) return
-        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+        const panel = panelRef.current
+        const otherModal = Array.from(
+          document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
+        ).some((node) => node !== panel && !(panel?.contains(node) ?? false))
+        if (otherModal) return
         event.preventDefault()
         event.stopPropagation()
         onClose()
@@ -165,13 +178,18 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
         <div
           ref={panelRef}
           role="dialog"
-          aria-modal="false"
+          aria-modal="true"
           aria-label={ariaLabel}
           aria-labelledby={titleId}
           tabIndex={-1}
           data-state={lifecycle}
           style={{ width }}
-          className="drawer-panel absolute inset-y-0 right-0 flex h-full max-w-full flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] outline-none"
+          // The shell is the tab stop focus lands on when the drawer opens
+          // (above), so it wears the ring like every other focusable — inset,
+          // as `TabPanel` does, because the indicator sits at the edge of a
+          // full-height surface. `outline-none` here was the one suppressed
+          // ring in the kit.
+          className={`drawer-panel absolute inset-y-0 right-0 flex h-full max-w-full flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] ${FOCUS_RING_INSET_CLASS}`}
         >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2">
             <TruncatedText
@@ -180,7 +198,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
               text={title}
               className="text-[length:var(--text-size-md)] font-semibold tracking-tight text-[color:var(--text-strong)]"
             />
-            <CloseIconButton aria-label="Close" onClick={onClose} />
+            <CloseIconButton aria-label={closeLabel ?? `Close ${title}`} onClick={onClose} />
           </header>
 
           {children}

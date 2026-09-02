@@ -267,7 +267,7 @@ function AttachChoiceRow({
         focus-visible:focus-ring
         ${active
           ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
-          : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)]'}
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)]'}
       `}
     >
       <span

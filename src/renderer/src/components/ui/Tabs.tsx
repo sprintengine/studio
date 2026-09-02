@@ -122,7 +122,7 @@ export function Tabs<T extends string = string>({
         const panelId = `${prefix}-panel-${item.id}`
         const iconNode =
           typeof item.icon === 'function'
-            ? item.icon({ className: 'h-3.5 w-3.5 shrink-0' })
+            ? item.icon({ className: 'size-icon-xs shrink-0' })
             : item.icon
         return (
           <button
@@ -139,8 +139,8 @@ export function Tabs<T extends string = string>({
               if (!item.disabled) onChange(item.id)
             }}
             className={[
-              'relative -mb-px inline-flex h-8 items-center gap-1.5 px-3 text-meta',
-              'transition-colors disabled:cursor-not-allowed disabled:opacity-45',
+              'relative -mb-px inline-flex h-control-sm items-center gap-1.5 px-3 text-meta',
+              'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               selected
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]',

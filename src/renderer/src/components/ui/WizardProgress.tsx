@@ -69,45 +69,46 @@ export function WizardProgress({
   })
 
   if (variant === 'labeled' && stepLabels?.length) {
+    // Same two-layer shape as the dashes below: the stations are painted by a
+    // progressbar-role element (the spec's contract for the strip, whatever it
+    // is drawn as), and the back-jump buttons live in a sibling group laid over
+    // it. A progressbar's children are presentational to assistive tech, so a
+    // button inside one would vanish from the accessibility tree — which is
+    // why the two layers cannot be one element. Both layers render every
+    // station with identical content and gap, so they measure the same and
+    // each button sits exactly under its label; the painted layer is
+    // pointer-transparent so the buttons beneath take the hover and the click,
+    // and it sits above them so a hover fill never covers the text.
+    const stationClass = 'inline-flex items-center gap-1.5 px-1 py-0.5 text-micro font-medium'
+    const stationBody = (isCurrent: boolean, isDone: boolean, label: string) => (
+      <>
+        {/* The step's own name carries the meaning, so the tick is a silent
+            mark that inherits the station's ink. */}
+        {isDone ? <CheckIcon className="icon-xs shrink-0" /> : null}
+        {isCurrent ? (
+          <span aria-hidden="true" className="h-[5px] w-[5px] rounded-full bg-[color:var(--accent-primary)]" />
+        ) : null}
+        {label}
+      </>
+    )
+    const stationLabel = (idx: number) => stepLabels[idx] ?? `Step ${idx + 1}`
     return (
-      <nav aria-label={fullLabel} className="flex min-w-0 flex-1 items-center justify-center gap-4">
-        {stepStates.map(({ idx, isCurrent, isDone }) => {
-          const label = stepLabels[idx] ?? `Step ${idx + 1}`
-          const body = (
-            <>
-              {/* The step's own name carries the meaning, so the tick is a
-                  silent mark that inherits the station's ink. */}
-              {isDone ? <CheckIcon className="icon-xs shrink-0" /> : null}
-              {isCurrent ? (
-                <span aria-hidden="true" className="h-[5px] w-[5px] rounded-full bg-[color:var(--accent-primary)]" />
-              ) : null}
-              {label}
-            </>
-          )
-          // Only completed steps are interactive (back-jump); the current and
-          // upcoming steps stay inert status text.
-          if (isDone && onStepSelect) {
-            return (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => onStepSelect(idx)}
-                aria-label={`Go back to step ${idx + 1}: ${label}`}
-                className="
-                  inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-micro font-medium text-[color:var(--text-muted)]
-                  transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-                  focus-visible:focus-ring
-                "
-              >
-                {body}
-              </button>
-            )
-          }
-          return (
+      <nav aria-label={fullLabel} className="relative isolate flex min-w-0 flex-1 items-center justify-center">
+        <div
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={total}
+          aria-valuenow={step}
+          aria-label={fullLabel}
+          // `--z-sticky` is the in-card raise step: the painted text rides
+          // above the hover fill of the jump buttons beneath it.
+          className="pointer-events-none relative z-[var(--z-sticky)] flex items-center gap-4"
+        >
+          {stepStates.map(({ idx, isCurrent, isDone }) => (
             <span
               key={idx}
               aria-current={isCurrent ? 'step' : undefined}
-              className={`inline-flex items-center gap-1.5 px-1 py-0.5 text-micro font-medium ${
+              className={`${stationClass} ${
                 isCurrent
                   ? 'text-[color:var(--text-strong)]'
                   : isDone
@@ -115,10 +116,45 @@ export function WizardProgress({
                     : 'text-[color:var(--text-subtle)]'
               }`}
             >
-              {body}
+              {stationBody(isCurrent, isDone, stationLabel(idx))}
             </span>
-          )
-        })}
+          ))}
+        </div>
+        {onStepSelect ? (
+          <div
+            role="group"
+            aria-label="Jump to a completed step"
+            className="absolute inset-0 flex items-center justify-center gap-4"
+          >
+            {stepStates.map(({ idx, isCurrent, isDone }) => {
+              const label = stationLabel(idx)
+              // Only completed steps are interactive (back-jump); the current
+              // and upcoming stations are layout-only twins so the row
+              // measures the same as the painted one.
+              if (!(isDone && onStepSelect)) {
+                return (
+                  <span key={idx} aria-hidden="true" className={`invisible ${stationClass}`}>
+                    {stationBody(isCurrent, isDone, label)}
+                  </span>
+                )
+              }
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => onStepSelect(idx)}
+                  aria-label={`Go back to step ${idx + 1}: ${label}`}
+                  className={`${stationClass} rounded-xs transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring`}
+                >
+                  {/* Layout-only: the painted layer above draws this text. */}
+                  <span aria-hidden="true" className="invisible inline-flex items-center gap-1.5">
+                    {stationBody(isCurrent, isDone, label)}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
       </nav>
     )
   }
@@ -136,12 +172,16 @@ export function WizardProgress({
         <span
           key={idx}
           aria-hidden="true"
-          className={`h-[3px] flex-1 rounded-full transition-colors duration-300 ${
-            isCurrent
-              ? 'bg-[color:var(--text-strong)]'
-              : isDone
-                ? 'bg-[color:var(--text-disabled)]'
-                : 'bg-[color:var(--border-default)]'
+          // Done and current fill `accent.primary` — the accent as a hairline
+          // marking real progress, the panel-header precedent — and upcoming
+          // is the `border.default` hairline (spec States; ruled 2026-09-02).
+          // This used to paint done in `text.disabled` and current in
+          // `text.strong`, a private grey ramp the spec never described.
+          className={`h-[3px] flex-1 rounded-full transition-colors duration-[var(--motion-normal)] ${
+            // design-tokens-allow: the accent as a hairline marking real progress (wizard-progress spec States, ruled 2026-09-02) — a progressbar fill, not a selection mark
+            isCurrent || isDone
+              ? 'bg-[color:var(--accent-primary)]'
+              : 'bg-[color:var(--border-default)]'
           }`}
         />
       ))}

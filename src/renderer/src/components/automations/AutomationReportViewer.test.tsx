@@ -175,9 +175,13 @@ run('the picker lists every report and marks the active one', () => {
   )
   assert.match(markup, />a\.md</, 'first report listed by basename')
   assert.match(markup, />b\.html</, 'second report listed by basename')
-  // Exactly one button is pressed — the single accent lands on the active report.
-  const pressed = markup.match(/aria-pressed="true"/g) ?? []
-  assert.equal(pressed.length, 1, 'exactly one active report button')
+  // Exactly one segment is checked — the picker is the kit's radiogroup, so the
+  // neutral selected fill lands on the active report and nowhere else.
+  const checked = markup.match(/aria-checked="true"/g) ?? []
+  assert.equal(checked.length, 1, 'exactly one active report segment')
+  assert.match(markup, /role="radiogroup"[^>]*aria-label="Reports"/, 'a single-choice group named for AT')
+  assert.match(markup, />reports\/a\.md</, 'the active report’s full path reads as a visible provenance line')
+  assert.doesNotMatch(markup, /title="reports\//, 'never a native title tooltip')
 })
 
 run('clicking a picker tab selects that path', () => {
@@ -190,10 +194,14 @@ run('clicking a picker tab selects that path', () => {
       picked = path
     },
   })
-  const tabs = (tree.props.children as Array<{ props: { onClick: () => void } }>).filter(Boolean)
-  const second = tabs[1]
-  second.props.onClick()
-  assert.equal(picked, 'reports/b.html', 'selecting the second tab reports its path upward')
+  // The segmented control is the first child; its `onChange` is the one seam
+  // through which a pick travels, whether it came from a click or an arrow key.
+  const control = (tree.props.children as Array<{ props: { onChange?: (path: string) => void } }>)
+    .filter(Boolean)
+    .find((child) => typeof child.props.onChange === 'function')
+  assert.ok(control, 'the picker renders the segmented control')
+  control!.props.onChange!('reports/b.html')
+  assert.equal(picked, 'reports/b.html', 'selecting the second segment reports its path upward')
 })
 
 // ---- Component wiring the static render cannot reach ------------------------

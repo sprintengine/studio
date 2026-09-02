@@ -9,6 +9,9 @@ export type BannerProps = {
   tone: BannerTone
   message: string
   onRetry?: () => void
+  /** Label of the retry control. Defaults to "Retry"; name the context where
+   *  that alone is ambiguous ("Retry loading sessions"), per the spec. */
+  retryLabel?: string
   /**
    * The recovery slot, for a condition whose recovery is not spelled "Retry" —
    * a "Relink" beside the retry on a missing folder, or the progress line while
@@ -27,7 +30,7 @@ export type BannerProps = {
  * leads with a status dot, and offers an optional Retry. For inline-scoped
  * advisories inside a section, use InlineNotice instead.
  */
-export function Banner({ tone, message, onRetry, action }: BannerProps) {
+export function Banner({ tone, message, onRetry, retryLabel = 'Retry', action }: BannerProps) {
   const softVar = tone === 'error' ? 'var(--tone-error-soft)' : 'var(--tone-warn-soft)'
   return (
     <div
@@ -41,7 +44,7 @@ export function Banner({ tone, message, onRetry, action }: BannerProps) {
       </span>
       {onRetry || action ? (
         <span className="flex shrink-0 items-center gap-2">
-          {onRetry ? <GhostButton onClick={onRetry}>Retry</GhostButton> : null}
+          {onRetry ? <GhostButton onClick={onRetry}>{retryLabel}</GhostButton> : null}
           {action}
         </span>
       ) : null}

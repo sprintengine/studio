@@ -201,7 +201,13 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
 
 function RunLine({ run }: { run: ReviewRunProgress }) {
   if (run.error) {
-    return <p className="mt-3 max-w-2xl text-meta leading-5 text-[color:var(--tone-error)]">{run.error}</p>
+    // The shared error card, never red ink alone. The retry is the guide
+    // controls rendered right above this line.
+    return (
+      <InlineNotice tone="error" className="mt-3 max-w-2xl">
+        {run.error}
+      </InlineNotice>
+    )
   }
   if (!run.running || !run.phase) return null
   return (

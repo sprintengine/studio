@@ -264,7 +264,9 @@ export function Tooltip({
                 visibility: coords ? 'visible' : 'hidden',
               }}
               className={[
-                'popover-enter pointer-events-none z-[var(--z-popover)]',
+                // No entrance animation (tooltip spec → States): the surface
+                // is neither alive nor arriving, it is the label made visible.
+                'pointer-events-none z-[var(--z-popover)]',
                 multiline
                   ? 'max-w-[420px] whitespace-pre-wrap break-words'
                   : 'whitespace-nowrap',

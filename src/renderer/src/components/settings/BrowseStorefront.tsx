@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
+import { Badge, CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { mcpMonogram } from './McpCatalog'
 import { iconHasOwnPlate } from '../ui/iconPlate'
 import { PermissionChips } from './ThirdPartyModuleList'
@@ -202,9 +202,9 @@ export function PluginDetailPanel({
             ? inlineServers.map((server) => (
                 <li key={server.id} className="flex min-w-0 items-center gap-1.5">
                   <TruncatedText as="span" text={server.name} className="min-w-0" />
-                  <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
+                  <Badge decorative className="shrink-0">
                     {server.transport}
-                  </span>
+                  </Badge>
                 </li>
               ))
             : components.map((label) => (
@@ -542,7 +542,7 @@ export function PluginIcon({ iconUrl, name, size = 36 }: { iconUrl: string | nul
           loading="lazy"
           decoding="async"
           onError={() => setFailed(true)}
-          className="pointer-events-none select-none rounded-[4px]"
+          className="pointer-events-none select-none rounded-xs"
         />
       )}
     </span>

@@ -10,7 +10,7 @@
 import React, { useState } from 'react'
 
 import type { ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
-import { PrimaryButton } from '../../../../ui'
+import { Badge, GhostButton, PrimaryButton } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SkillReader } from './SkillReader'
 import { SourceMonogram } from './SourceMonogram'
@@ -49,16 +49,14 @@ export function SkillPage({
   return (
     <div className="min-w-0">
       {onBack ? (
-        <button
-          type="button"
-          onClick={onBack}
-          className={`mb-2.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-        >
+        // The back crumb is the kit's dense ghost (26px on the control ramp),
+        // not a hand-rolled 22px lookalike with its own radius and hover.
+        <GhostButton size="xs" onClick={onBack} className="mb-2.5 -ml-2">
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           {sourceDisplayName(source)}
-        </button>
+        </GhostButton>
       ) : null}
 
       <div className="flex items-start gap-3">
@@ -102,7 +100,7 @@ export function SkillPage({
             <button
               type="button"
               onClick={() => setDescriptionOpen((open) => !open)}
-              className={`mt-1 rounded text-meta text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              className={`mt-1 rounded-sm text-meta text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             >
               {descriptionOpen ? 'Less' : 'More'}
             </button>
@@ -120,11 +118,12 @@ export function SkillPage({
           {skill.allowedTools.length > 0 ? (
             <ul role="list" className="mt-1.5 flex flex-wrap gap-1">
               {skill.allowedTools.map((tool) => (
-                <li
-                  key={tool}
-                  className="rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 font-mono text-meta text-[color:var(--text-default)]"
-                >
-                  {tool}
+                <li key={tool}>
+                  {/* The kit's label badge, in the mono the tool names are
+                      written in — not a third chip shape of this door's own. */}
+                  <Badge tone="neutral" className="font-mono">
+                    {tool}
+                  </Badge>
                 </li>
               ))}
             </ul>

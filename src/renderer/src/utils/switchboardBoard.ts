@@ -177,11 +177,13 @@ export function confidenceLabel(value: number | null | undefined): string {
   return `${level.charAt(0).toUpperCase()}${level.slice(1)} confidence · ${value}%`
 }
 
-export function confidenceToneClass(value: number): string {
+// The tone a confidence reads in, for the kit's `Badge` — a tone name rather
+// than a class recipe, so the chip cannot drift from the token source.
+export function confidenceTone(value: number): 'good' | 'warn' | 'error' {
   const level = confidenceLevel(value)
-  if (level === 'high') return 'chip-border-good chip-bg-good chip-text-good'
-  if (level === 'medium') return 'chip-border-warn chip-bg-warn chip-text-warn'
-  return 'chip-border-error chip-bg-error chip-text-error'
+  if (level === 'high') return 'good'
+  if (level === 'medium') return 'warn'
+  return 'error'
 }
 
 export { formatRelativeTime } from './time'

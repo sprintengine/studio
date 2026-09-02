@@ -181,7 +181,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
             </GhostButton>
           }
         />
-        <main className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-10">
+        <main className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-8">
           <div className="flex w-full max-w-[560px] flex-col gap-4">
             <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
               <p className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">

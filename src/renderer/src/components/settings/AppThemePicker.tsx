@@ -103,10 +103,12 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             onKeyDown={(event) => handleKeyDown(event, index)}
             className={[
               'interactive group flex flex-col gap-2.5 rounded-md border p-3 text-left',
-              'bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]',
+              // Selection is neutral: the selected fill and the strong edge,
+              // never the accent — an accent ring on an unfocused card read
+              // as focus, and spent the one solid hue on a resting state.
               isSelected
-                ? 'border-[color:var(--accent-primary)] ring-1 ring-[color:var(--accent-primary)]'
-                : 'border-[color:var(--border-default)]',
+                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
+                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]',
               FOCUS_RING_CLASS,
             ].join(' ')}
           >
@@ -269,7 +271,7 @@ function SelectedCheckmark() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="icon-sm shrink-0 text-[color:var(--accent-primary)]"
+      className="icon-sm shrink-0 text-[color:var(--text-strong)]"
     >
       <path d="M3.5 8.5l3 3 6-6.5" />
     </svg>

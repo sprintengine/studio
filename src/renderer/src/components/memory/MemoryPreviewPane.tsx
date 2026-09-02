@@ -97,7 +97,7 @@ export default function MemoryPreviewPane({
       ref={paneRef}
       role="complementary"
       aria-label="Knowledge node preview"
-      className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-strong)] shadow-[var(--shadow-drawer)]"
+      className="absolute inset-y-0 right-0 z-[var(--z-pane)] flex w-[min(560px,90%)] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-strong)] shadow-[var(--shadow-drawer)]"
     >
       {/* The identity row is `ui/PanelHeader` (2112). It was a three-line band
           at `px-5 py-4` with a `text-title` heading, so a drawer over the graph
@@ -124,14 +124,11 @@ export default function MemoryPreviewPane({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <div className="mb-4 flex flex-wrap items-center gap-1.5">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-micro font-medium"
-            style={{
-              borderColor: hexWithAlpha(color, 0.35),
-              background: hexWithAlpha(color, 0.10),
-              color,
-            }}
-          >
+          {/* One idiom: the category dot carries the bucket's colour, the word
+              sits in readable ink. The chip used to tint its border, ground
+              AND ink from the same hex (a raw rgba written into style) while
+              also drawing the dot — the same fact said twice. */}
+          <span className="inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro font-medium text-[color:var(--text-default)]">
             <span
               className="h-[6px] w-[6px] rounded-full"
               style={{ background: color }}
@@ -176,7 +173,7 @@ export default function MemoryPreviewPane({
 
       {related.length > 0 ? (
         <footer className="shrink-0 border-t border-[color:var(--border-default)] px-5 py-4">
-          <div className="mb-2 text-micro font-semibold text-[color:var(--text-disabled)]">
+          <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
             Related
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -213,19 +210,4 @@ function PaneNotice({ message }: { message: string }) {
       {message}
     </div>
   )
-}
-
-function hexWithAlpha(hex: string, alpha: number): string {
-  if (!hex.startsWith('#') || (hex.length !== 7 && hex.length !== 4)) return hex
-  let r: number, g: number, b: number
-  if (hex.length === 7) {
-    r = parseInt(hex.slice(1, 3), 16)
-    g = parseInt(hex.slice(3, 5), 16)
-    b = parseInt(hex.slice(5, 7), 16)
-  } else {
-    r = parseInt(hex[1] + hex[1], 16)
-    g = parseInt(hex[2] + hex[2], 16)
-    b = parseInt(hex[3] + hex[3], 16)
-  }
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }

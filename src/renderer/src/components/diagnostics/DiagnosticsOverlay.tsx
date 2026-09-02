@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import DiagnosticsContent from './DiagnosticsContent'
+import { GhostButton } from '../ui'
 import { Modal } from '../ui/Modal'
 
 type Props = {
@@ -42,20 +43,12 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
       <DiagnosticsContent
         headerActions={
           <>
-            <button
-              onClick={handlePopOut}
-              className="rounded px-2 py-1 font-mono text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-              aria-label="Open diagnostics in a separate window"
-            >
+            <GhostButton size="xs" onClick={handlePopOut} className="font-mono" aria-label="Open diagnostics in a separate window">
               Pop out ⧉
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded px-2 py-1 font-mono text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-              aria-label="Close diagnostics"
-            >
+            </GhostButton>
+            <GhostButton size="xs" onClick={onClose} className="font-mono" aria-label="Close diagnostics">
               Close
-            </button>
+            </GhostButton>
           </>
         }
       />

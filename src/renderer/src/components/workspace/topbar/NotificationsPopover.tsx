@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { GhostButton, LifecycleGlyph, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
+import { EmptyState, FOCUS_RING_CLASS, GhostButton, LifecycleGlyph, OutlineButton, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -195,7 +195,7 @@ export function NotificationsPopover({
                       aria-pressed={active}
                       aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
                       onClick={() => toggleLevel(level)}
-                      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-micro font-semibold transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-micro font-semibold transition-colors ${FOCUS_RING_CLASS} ${
                         active
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -227,7 +227,7 @@ export function NotificationsPopover({
       />
 
       {visibleNotifications.length === 0 ? (
-        <div className="px-3 py-4 text-body text-[color:var(--text-disabled)]">{emptyMessage}</div>
+        <EmptyState density="list" title={emptyMessage} />
       ) : (
         <div className="max-h-[440px] overflow-y-auto p-1">
           {groups.map((group) => (
@@ -276,26 +276,24 @@ export function NotificationsPopover({
                         />
                       ) : null}
                       <div className="mt-2 flex items-center gap-1.5">
+                        {/* The row's actions are the kit's outline button at the
+                            dense step: same radius, hover, disabled and focus
+                            treatment as every other secondary action. */}
                         {rowActions.map((action) => (
-                          <button
+                          <OutlineButton
                             key={action.id}
-                            type="button"
+                            size="xs"
                             onClick={() => {
                               onMarkRead(notification.id)
                               void action.run()
                             }}
-                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                           >
                             {action.label}
-                          </button>
+                          </OutlineButton>
                         ))}
-                        <button
-                          type="button"
-                          onClick={() => void copyNotification(notification)}
-                          className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                        >
+                        <OutlineButton size="xs" onClick={() => void copyNotification(notification)}>
                           Copy
-                        </button>
+                        </OutlineButton>
                         {copyErrorId === notification.id ? (
                           <span
                             role="status"
@@ -306,13 +304,9 @@ export function NotificationsPopover({
                           </span>
                         ) : null}
                         {notification.logPath ? (
-                          <button
-                            type="button"
-                            onClick={() => openLogsForNotification(notification)}
-                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                          >
+                          <OutlineButton size="xs" onClick={() => openLogsForNotification(notification)}>
                             Open logs
-                          </button>
+                          </OutlineButton>
                         ) : null}
                       </div>
                     </div>

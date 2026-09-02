@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { ReviewComment } from '../../../../shared/review'
 import { GhostButton } from '../../components/ui/Buttons'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import { StatusDot } from '../../components/ui/StatusDot'
 import { ZONE_CONTENT_INSET } from './annotationZones'
 import { commentSyncChip, isCommentEditable } from './commentModel'
@@ -52,7 +53,7 @@ export function CommentThread({ comment, onEdit, onDelete }: CommentThreadProps)
   }
 
   return (
-    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}>
+    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-4`}>
       <div className="mb-1 flex items-center gap-2">
         {/* No avatar: it said "You" beside a label that already says "You". */}
         <span className="text-micro font-medium text-[color:var(--text-strong)]">You</span>
@@ -61,8 +62,13 @@ export function CommentThread({ comment, onEdit, onDelete }: CommentThreadProps)
       <p className="max-w-[72ch] whitespace-pre-wrap text-body leading-5 text-[color:var(--text-default)]">
         {comment.body}
       </p>
+      {/* A failed post is the shared error card, never red ink alone: the glyph
+          and the role carry the failure, and the recovery — Edit, Delete, or
+          posting the review again from the tray — is right here. */}
       {comment.sync.state === 'failed' ? (
-        <p className="mt-1 text-micro text-[color:var(--tone-error)]">{comment.sync.error}</p>
+        <InlineNotice tone="error" className="mt-1.5 max-w-[72ch]">
+          {comment.sync.error}
+        </InlineNotice>
       ) : null}
       {editable ? (
         <div className="mt-1.5 flex gap-1">

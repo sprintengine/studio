@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 
 import { GhostButton } from '../../components/ui/Buttons'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import type { ReviewSession } from '../canvas/useReviewSession'
 
 // Stop the guide (MC-1804). `review:stop-brief-run` kills the guide's terminal and
@@ -39,10 +40,12 @@ export function StopGuideRunButton({ session }: { session: ReviewSession }): JSX
   if (!reviewId || !workspaceRoot) return null
   return (
     <>
+      {/* A stop that itself failed is the shared error card, never red ink
+          alone; Stop beside it is the retry. */}
       {error ? (
-        <span className="text-micro leading-4 text-[color:var(--tone-error)]">
+        <InlineNotice tone="error" className="shrink-0">
           The guide couldn’t be stopped: {error}
-        </span>
+        </InlineNotice>
       ) : null}
       <GhostButton onClick={() => void stop()} disabled={stopping} className="shrink-0">
         <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">

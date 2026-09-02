@@ -10,9 +10,26 @@
 // inventory in lockstep.
 
 import React from 'react'
-import { SpecialistActionIcon, SprintEngineRoleIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { CheckIcon, SpecialistActionIcon, SprintEngineRoleIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
-import { Badge, ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
+import {
+  Badge,
+  ChangePulse,
+  EmptyState,
+  FOCUS_RING_CLASS,
+  IconButton,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_LIST_CLASS,
+  MenuItem,
+  OutlineButton,
+  PanelHeader,
+  Popover,
+  roveMenuFocus,
+  StarGlyph,
+  StatusDot,
+  Tooltip,
+  TruncatedText,
+} from '../ui'
 import {
   groupSessionItems,
   sessionsAttentionTone,
@@ -188,45 +205,31 @@ function SessionsPopover({
   const groups = groupSessionItems(items, workspaceOrder)
 
   return (
-    <div className="w-[420px] overflow-hidden p-1">
-      <div className="flex h-9 items-center justify-between border-b border-[color:var(--border-default)] px-2.5">
-        <span className="text-meta font-semibold text-[color:var(--text-strong)]">
-          Sessions
-        </span>
-        {items.length > 0 ? (
-          <span className="rounded bg-[color:var(--bg-hover)] px-1.5 py-0.5 text-micro font-semibold text-[color:var(--text-muted)]">
-            {items.length}
-          </span>
-        ) : null}
-      </div>
+    <div className="w-[420px] overflow-hidden">
+      <PanelHeader title="Sessions" count={items.length > 0 ? items.length : undefined} />
 
       {groups.length === 0 ? (
-        <div className="px-2.5 py-3 text-body text-[color:var(--text-disabled)]">No sessions</div>
+        <EmptyState density="list" title="No sessions" />
       ) : (
-        <div className="max-h-[420px] overflow-y-auto py-1">
+        <div className="max-h-[420px] overflow-y-auto p-1">
           {groups.map((group) => {
-            // A detached bucket has no workspace identity to wear: no accent
-            // rail, no type icon, no star — the bare label is what distinguishes
-            // it from the workspace groups above it.
+            // A detached bucket has no workspace identity to wear: no type
+            // icon, no star — the bare label is what distinguishes it from the
+            // workspace groups above it. The group label carries the grouping
+            // on its own; the per-group accent bar it used to sit beside was a
+            // second left-bar idiom in the app (audit ruling 10).
             const workspace = group.group.kind === 'workspace' ? group.group.workspace : null
             const accent = workspace ? getWorkspaceAccentHex(workspace) : null
             const starred = workspace ? isStarred(workspace.highlight) : false
             const headerColor = accent ?? 'var(--text-subtle)'
             return (
-              <div key={group.group.id} className="relative py-1 pl-2">
-                {accent ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-y-2 left-0 w-[2px] rounded-full"
-                    style={{ background: accent }}
-                  />
-                ) : null}
+              <div key={group.group.id} className="py-1">
                 <div
                   className="flex items-center gap-2 px-2.5 py-1.5 text-meta font-semibold"
                   style={{ color: headerColor }}
                 >
                   {workspace ? (
-                    <WorkspaceIdentityIcon workspace={workspace} className="h-3.5 w-3.5 shrink-0" />
+                    <WorkspaceIdentityIcon workspace={workspace} className="size-icon-xs shrink-0" />
                   ) : null}
                   <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                   {starred ? (
@@ -237,25 +240,28 @@ function SessionsPopover({
                     />
                   ) : null}
                   {group.items.length > 1 ? (
-                    <button
-                      type="button"
+                    // Destructive stays ink: the outline's danger tone recolours
+                    // the label on hover and never fills the button with the
+                    // error hue (button/component.md).
+                    <OutlineButton
+                      size="xs"
+                      tone="danger"
                       onClick={() => void onStopGroup(group.group, group.items)}
-                      className="ml-auto flex h-6 shrink-0 items-center gap-1 rounded border border-transparent px-1.5 text-micro font-medium text-[color:var(--text-subtle)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
+                      className="ml-auto shrink-0"
                       aria-label={`Stop all ${group.items.length} sessions in ${group.group.label}`}
                     >
                       <StopIcon className="icon-xs" />
                       Stop all
-                    </button>
+                    </OutlineButton>
                   ) : null}
                 </div>
                 <div className="space-y-1">
                   {group.items.map((item) => {
+                    // The role hue is identity ink on the glyph only — no tinted
+                    // fill behind it (the fill was a hex-alpha written into
+                    // `style`, invisible to the token guard).
                     const chipStyle = item.role
-                      ? {
-                          borderColor: getSprintEngineRoleAccent(item.role),
-                          color: getSprintEngineRoleAccent(item.role),
-                          backgroundColor: `${getSprintEngineRoleAccent(item.role)}14`,
-                        }
+                      ? { color: getSprintEngineRoleAccent(item.role) }
                       : undefined
                     const typeLabel = sessionAgentTypeLabel(item)
                     const identityParts = item.kind === 'terminal'
@@ -269,11 +275,11 @@ function SessionsPopover({
                     return (
                       <div
                         key={`${item.group.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
-                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-body text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2.5 py-2 text-body text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <span
-                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
+                            className="flex size-control-xs shrink-0 items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
                             style={chipStyle}
                           >
                             <SessionAgentIcon item={item} className="size-icon-md" />
@@ -303,13 +309,9 @@ function SessionsPopover({
                             so the button is absent rather than present-and-inert;
                             Pause and Stop act on the process and still work. */}
                         {item.group.kind === 'workspace' ? (
-                          <button
-                            type="button"
-                            onClick={() => void onOpen(item)}
-                            className="h-7 rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
-                          >
+                          <OutlineButton size="xs" onClick={() => void onOpen(item)}>
                             Open
-                          </button>
+                          </OutlineButton>
                         ) : null}
 
                         {/* Pause suspends a PTY. A conversation agent has none,
@@ -319,28 +321,24 @@ function SessionsPopover({
                         && item.transport === 'terminal'
                         && item.status !== 'failed' ? (
                           <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
-                            <button
-                              type="button"
-                              onClick={() => onPause(item)}
-                              className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
-                              aria-label={`Pause ${item.label}`}
-                            >
+                            <IconButton onClick={() => onPause(item)} aria-label={`Pause ${item.label}`}>
                               <PauseIcon className="icon-sm" />
-                            </button>
+                            </IconButton>
                           </Tooltip>
                         ) : null}
 
                         {/* A failed session has no process to stop — the action
-                            disposes the retained crash row, so it reads as "Dismiss". */}
+                            disposes the retained crash row, so it reads as "Dismiss".
+                            Neutral ink at rest: the tooltip and name say what it
+                            does, and a status hue as a button ground is not a
+                            button variant the system has. */}
                         <Tooltip content={item.status === 'failed' ? 'Dismiss' : 'Stop'}>
-                          <button
-                            type="button"
+                          <IconButton
                             onClick={() => onStop(item)}
-                            className="flex h-7 w-7 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
                             aria-label={`${item.status === 'failed' ? 'Dismiss' : 'Stop'} ${item.label}`}
                           >
                             <StopIcon className="icon-sm" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                         </div>
                       </div>
@@ -457,6 +455,9 @@ export function WorkspaceActions({
     () => (activeWorkspace ? resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null : null),
     [activeWorkspace, moduleOverrides],
   )
+  // The view-panels menu surface, so its rows rove with the arrow keys the way
+  // every other menu in the app does (menu/component.md → Accessibility).
+  const viewMenuSurfaceRef = React.useRef<HTMLElement | null>(null)
   return (
       <div className="app-no-drag flex shrink-0 items-center gap-1.5">
         {/*
@@ -489,15 +490,15 @@ export function WorkspaceActions({
                 const sessionsTone = sessionsAttentionTone(sessions)
                 return (
                 <Tooltip content="Sessions" placement="bottom">
-                  <button
+                  {/* The kit's icon button at its `md` step: the open state is the
+                      neutral selection fill, not a border lift (the lift read
+                      `--color-5`, a flexlayout-private alias that resolved to
+                      currentColor out here). */}
+                  <IconButton
                     ref={ref}
-                    type="button"
+                    size="md"
                     onClick={togglePopover}
-                    className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-                      sessionsOpen
-                        ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                        : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                    }`}
+                    className={`relative ${sessionsOpen ? 'bg-[color:var(--bg-selected)]' : ''}`}
                     aria-label="Sessions"
                     {...triggerProps}
                   >
@@ -507,7 +508,7 @@ export function WorkspaceActions({
                     {sessions.length > 0 ? (
                       <Badge corner decorative tone={sessionsTone} count={sessions.length} max={99} />
                     ) : null}
-                  </button>
+                  </IconButton>
                 </Tooltip>
                 )
               }}
@@ -539,6 +540,11 @@ export function WorkspaceActions({
               ariaLabel={`${activeWorkspaceViews?.label ?? 'View'} panels`}
               popupRole="menu"
               placement="bottom-end"
+              surfaceClassName={`w-60 ${MENU_LIST_CLASS}`}
+              onOpenAutoFocus={(surface) => {
+                viewMenuSurfaceRef.current = surface
+                surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+              }}
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
                 <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
                   <button
@@ -552,10 +558,10 @@ export function WorkspaceActions({
                      * at >= 1000px). The tooltip + aria-label carry the meaning, so
                      * the icon-only state stays accessible.
                      */
-                    className={`inline-flex h-8 w-8 items-center justify-center gap-1.5 rounded-md border transition-colors min-[1000px]:w-auto min-[1000px]:justify-start min-[1000px]:px-2.5 ${
+                    className={`interactive inline-flex size-control-sm items-center justify-center gap-1.5 rounded-sm border transition-colors min-[1000px]:w-auto min-[1000px]:justify-start min-[1000px]:px-2.5 ${FOCUS_RING_CLASS} ${
                       viewMenuOpen
-                        ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                        : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                        ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                        : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
                     }`}
                     aria-label="Toggle workspace panels"
                     {...triggerProps}
@@ -573,43 +579,32 @@ export function WorkspaceActions({
                 </Tooltip>
               )}
             >
-              <div className="w-60 overflow-hidden p-1">
-                <div className="px-2.5 pb-1 pt-1 text-micro font-medium text-[color:var(--text-muted)]">
+              {/* The shared menu rows: `MenuItem` carries the `menuitemcheckbox`
+                  role, `aria-checked`, the inset ring and the hover fill, and
+                  the surface roves the arrow keys. The tick is a neutral glyph
+                  in a fixed leading slot — selection in a menu is the checked
+                  state, never an accent-filled box per row. */}
+              <div onKeyDown={(event) => roveMenuFocus(event, viewMenuSurfaceRef.current)}>
+                <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1`}>
                   {activeWorkspaceViews?.label ?? 'View'} panels
                 </div>
                 {(activeWorkspaceViews?.views ?? []).map((view) => {
                   void viewMenuTick
                   const checked = hasComponentTab(activeWorkspace.id, view.component)
                   return (
-                    <button
+                    <MenuItem
                       key={view.component}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={checked}
+                      checked={checked}
                       onClick={() => {
                         toggleComponentTab(activeWorkspace.id, view.component, view.name)
                         setViewMenuTick((tick) => tick + 1)
                       }}
-                      className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                      icon={
+                        <CheckIcon className={`icon-xs shrink-0 ${checked ? '' : 'invisible'}`} />
+                      }
                     >
-                      <span
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                          checked
-                            // On-accent ink, not the app canvas: the two are the
-                            // same colour on the dark default and diverge
-                            // everywhere else, which is where the tick vanished
-                            // inside its own fill (MC-2113).
-                            ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                            : 'border-[color:var(--color-6)] bg-transparent text-transparent'
-                        }`}
-                        aria-hidden="true"
-                      >
-                        <svg className="icon-xs" viewBox="0 0 20 20" fill="none">
-                          <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </span>
-                      <TruncatedText as="span" text={view.name} className="min-w-0 flex-1" />
-                    </button>
+                      {view.name}
+                    </MenuItem>
                   )
                 })}
               </div>
@@ -635,15 +630,11 @@ export function WorkspaceActions({
             placement="bottom-end"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <Tooltip content="Notifications" placement="bottom">
-                <button
+                <IconButton
                   ref={ref}
-                  type="button"
+                  size="md"
                   onClick={togglePopover}
-                  className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-                    notificationsOpen
-                      ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-                      : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                  }`}
+                  className={`relative ${notificationsOpen ? 'bg-[color:var(--bg-selected)]' : ''}`}
                   aria-label="Notifications"
                   {...triggerProps}
                 >
@@ -653,7 +644,7 @@ export function WorkspaceActions({
                   {unreadErrorCount > 0 ? (
                     <Badge corner decorative tone="error" count={unreadErrorCount} max={99} />
                   ) : null}
-                </button>
+                </IconButton>
               </Tooltip>
             )}
           >

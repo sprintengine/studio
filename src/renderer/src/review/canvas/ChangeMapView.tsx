@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react'
 
 import type { ChangeMap } from '../../../../shared/review'
+import { FOCUS_RING_CLASS } from '../../components/ui/tokens'
 import {
   computeChangeMapLayout,
   type ChangeMapLayoutNode,
@@ -28,7 +29,11 @@ export function ChangeMapView({ changeMap, orderedStepIds, onNavigate }: ChangeM
 
   return (
     <section className="mb-5 mt-0.5 max-w-[680px]">
-      <span className="mb-2 block text-micro font-medium text-[color:var(--text-subtle)]">Change map</span>
+      {/* `ui/Section`'s heading treatment, not the component: the head would
+          carry its own inset and indent the label against the diagram's edge.
+          The size and ink are the section heading's, so this reads as one
+          heading family with the "In this step" column beside it. */}
+      <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Change map</h3>
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -115,7 +120,11 @@ function ChangeMapNodeGlyph({
       aria-label={label}
       onClick={() => onNavigate(node.stepId)}
       onKeyDown={onKeyDown}
-      className="group cursor-pointer outline-none"
+      // The product's one focus indicator, on the node itself. The accent
+      // stroke used to double as the focus treatment (with the UA outline
+      // suppressed), which was a second focus idiom in accent ink; the stroke
+      // now answers hover only.
+      className={`group cursor-pointer ${FOCUS_RING_CLASS}`}
     >
       <rect
         x={node.x}
@@ -124,7 +133,7 @@ function ChangeMapNodeGlyph({
         height={node.height}
         rx={7}
         strokeWidth={1}
-        className="[fill:var(--bg-hover)] [stroke:var(--border-default)] transition-[fill,stroke] duration-[var(--motion-fast)] ease-[var(--motion-ease)] group-hover:[fill:var(--accent-primary-soft)] group-hover:[stroke:var(--accent-primary)] group-focus-visible:[fill:var(--accent-primary-soft)] group-focus-visible:[stroke:var(--accent-primary)] motion-reduce:transition-none"
+        className="[fill:var(--bg-hover)] [stroke:var(--border-default)] transition-[fill,stroke] duration-[var(--motion-fast)] ease-[var(--motion-ease)] group-hover:[fill:var(--accent-primary-soft)] group-hover:[stroke:var(--accent-primary)] motion-reduce:transition-none"
       />
       <text
         x={node.x + 16}

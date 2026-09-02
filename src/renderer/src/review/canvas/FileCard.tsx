@@ -1,6 +1,8 @@
 import React, { Suspense } from 'react'
 
 import type { ChangeSetFile, DiffView, ReviewAnchor, ReviewAnnotation, ReviewComment } from '../../../../shared/review'
+import { FOCUS_RING_CLASS } from '../../components/ui/tokens'
+import { TruncatedText } from '../../components/ui/TruncatedText'
 import { fileWhyLine } from './reviewSelectors'
 
 // Monaco lives behind a lazy boundary: it stays out of the eager boot chunk
@@ -43,9 +45,13 @@ function MarkReadButton({ read, onClick }: { read: boolean; onClick: () => void 
       type="button"
       onClick={onClick}
       aria-pressed={read}
-      className={`interactive inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[5px] border px-2.5 text-meta font-medium focus-visible:focus-ring ${
+      // Pressed is a selection, and selection is neutral: `bg-selected` with the
+      // ink lifted to strong and a neutral tick — never the accent, which is the
+      // view's one action (Post review). Sized on the control ramp (xs, 26px)
+      // and the control radius, like the row actions beside it.
+      className={`interactive inline-flex h-control-xs shrink-0 items-center gap-1.5 rounded-sm border px-2.5 text-meta font-medium ${FOCUS_RING_CLASS} ${
         read
-          ? 'border-transparent bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+          ? 'border-[color:var(--border-default)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : 'border-[color:var(--border-default)] bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >
@@ -88,9 +94,10 @@ export function FileCard({
     >
       <div className="flex min-h-[38px] items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-meta text-[color:var(--text-strong)]" title={displayPath}>
-            {displayPath}
-          </span>
+          {/* The full path surfaces through the product tooltip only when the
+              span actually clips it — never a native `title`, which is a second
+              tooltip dialect and unreachable from the keyboard. */}
+          <TruncatedText as="span" text={displayPath} className="block font-mono text-meta text-[color:var(--text-strong)]" />
           <span className="mt-0.5 block truncate text-meta text-[color:var(--text-subtle)]">
             <span className="font-medium text-[color:var(--text-muted)]">Why:</span> {fileWhyLine(why, readingNote)}
           </span>

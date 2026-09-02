@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import {
   ContextMenu,
+  EmptyState,
   GhostButton,
   InlineNotice,
   MenuItem,
@@ -770,9 +771,9 @@ export default function BacklogGlobalSurface(): JSX.Element {
       onNavigate={(itemId) => navigateWithinProject(detailRow.feed, itemId)}
     />
   ) : (
-    <div className="flex h-full items-center justify-center px-6 text-meta text-[color:var(--text-muted)]">
-      Select an item to preview.
-    </div>
+    // Nothing selected, not nothing there: the quiet kit state (MC-2117's
+    // empty-state ruling), never a bare line of copy in a dialect of its own.
+    <EmptyState density="pane" glyph={<BacklogListGlyph />} title="Select an item to preview." />
   )
 
   return (
@@ -901,7 +902,7 @@ function renderCanvas({
     return (
       <SurfaceCanvasState
         kind="empty"
-        glyph="≡"
+        glyph={<BacklogListGlyph />}
         title="No projects open"
         body="The Backlog collects work from every project you have open. Open a project and its items appear here."
       />
@@ -915,7 +916,7 @@ function renderCanvas({
     return (
       <SurfaceCanvasState
         kind="empty"
-        glyph="≡"
+        glyph={<BacklogListGlyph />}
         title="This backlog couldn’t be read"
         body="Nothing can be listed until the folder above is readable again. Your items are untouched."
       />
@@ -927,7 +928,7 @@ function renderCanvas({
     return (
       <SurfaceCanvasState
         kind="empty"
-        glyph="≡"
+        glyph={<BacklogListGlyph />}
         title="Nothing matches this view"
         body="No items in the selected projects match the current lens and search."
       />
@@ -1066,7 +1067,7 @@ function BacklogDoorList({
               className="px-3 pb-1 pt-2.5 text-micro font-semibold text-[color:var(--text-subtle)]"
             >
               {row.project.name}
-              <span className="pl-1.5 font-normal tabular-nums text-[color:var(--text-disabled)]">{row.count}</span>
+              <span className="pl-1.5 font-normal tabular-nums text-[color:var(--text-muted)]">{row.count}</span>
             </li>
           )
         }
@@ -1079,10 +1080,11 @@ function BacklogDoorList({
               role="option"
               aria-selected={row.key === selectedKey}
               // A group header is a Backlog row like any other: selection is the
-              // neutral fill, and the epic's hue stays in the bar. It used to
+              // neutral fill, and the epic's hue stays on its dot (the 3px bar was
+              // retired 2026-09-02). It used to
               // paint --accent-primary-soft, which spent the brand accent on
               // being chosen — the violation T4 removed everywhere else.
-              className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${backlogRowPaintClass({
+              className={`cursor-pointer px-3 py-1.5 transition-colors ${backlogRowPaintClass({
                 color: row.group.color,
                 litFill: false,
                 selected: row.key === selectedKey,
@@ -1132,7 +1134,7 @@ function BacklogDoorList({
               if (event.shiftKey) event.preventDefault()
             }}
             onContextMenu={(event) => onContextMenu(event, row.key)}
-            className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
+            className={`cursor-pointer ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
               backlogRowPaintClass({ color, litFill, selected })
             } ${item.status === 'archived' ? 'opacity-70' : ''}`}
           >
@@ -1190,6 +1192,17 @@ function todayPrefix(): string {
   const date = new Date()
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+// The door's empty-state mark: a list, in the icon family's 16-box round-stroke
+// idiom. An svg, never the "≡" character it replaced — the glyph spec forbids
+// text characters as icons.
+function BacklogListGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="size-icon-md" aria-hidden="true">
+      <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 // Collision-safe new-item filename within the target project's backlog/.

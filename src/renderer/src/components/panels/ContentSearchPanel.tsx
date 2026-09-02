@@ -3,7 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { InboxRow, Input, PanelHeader, Skeleton } from '../ui'
+import { EmptyState, InboxRow, InlineNotice, Input, PanelHeader, Skeleton } from '../ui'
 
 // The panel names itself the same way in every state, including the one where
 // the folder is still being verified and there is nothing to count yet.
@@ -164,14 +164,18 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
         </span>
         <PanelHeader title={SEARCH_TITLE} divider={false} />
         <div aria-hidden="true" className="border-b border-[color:var(--border-default)] px-3 py-2">
-          <Skeleton className="h-8 w-full rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+          <Skeleton className="h-control-sm w-full rounded-sm bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
       </div>
     )
   }
 
   if (folderMissing || !folderReadyPath) {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-meta text-[color:var(--text-disabled)]">Open a folder to search file contents.</div>
+    return (
+      <div className="h-full bg-[color:var(--bg-app)]">
+        <EmptyState title="Open a folder to search file contents." />
+      </div>
+    )
   }
 
   return (
@@ -197,18 +201,24 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
           placeholder="Search file contents..."
           aria-label="Search file contents"
         />
-        {statusText && (
-          <div className={`mt-2 text-micro ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>
+        {/* A failed search is the error card, never red ink alone; a status
+            line is readable muted ink (2026-09-02 audit). */}
+        {statusText && error ? (
+          <InlineNotice tone="error" className="mt-2">
+            {statusText}
+          </InlineNotice>
+        ) : statusText ? (
+          <div role="status" className="mt-2 text-micro text-[color:var(--text-muted)]">
             {statusText}
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {!trimmedQuery ? (
-          <div className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">Enter text to search this workspace.</div>
+          <EmptyState density="list" title="Enter text to search this workspace." />
         ) : !searching && !error && results.length === 0 ? (
-          <div className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No content matches.</div>
+          <EmptyState density="list" title="No content matches." />
         ) : (
           <div className="divide-y divide-[color:var(--border-default)]">
             {results.map((entry, index) => {

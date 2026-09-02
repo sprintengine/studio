@@ -4,7 +4,9 @@ import type { NormalizedIssue, RedactedTrackerConnection } from '../../../../sha
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
+  Checkbox,
   Drawer,
+  GhostButton,
   InboxSearchInput,
   InlineNotice,
   OutlineButton,
@@ -277,7 +279,9 @@ export function BacklogTrackerPicker({
   return (
     <Drawer open={open} onClose={onClose} title="Add from a tracker" ariaLabel="Add issues from a tracker" width={520}>
       {/* Tools: which connection to search, and the query. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      {/* No hairlines inside the drawer: padding separates the search head and
+          the footer from the results between them. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
         {connections.length > 1 ? (
           <Select
             ariaLabel="Tracker connection"
@@ -313,13 +317,9 @@ export function BacklogTrackerPicker({
             <InlineNotice
               tone="error"
               action={
-                <button
-                  type="button"
-                  onClick={() => void runSearch(connectionId, query.trim())}
-                  className="interactive text-meta font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
-                >
+                <GhostButton size="xs" onClick={() => void runSearch(connectionId, query.trim())}>
                   Try again
-                </button>
+                </GhostButton>
               }
             >
               Couldn’t reach {connection?.label ?? 'this tracker'}: {search.error}
@@ -369,16 +369,18 @@ export function BacklogTrackerPicker({
       </div>
 
       {/* Footer: result report + the add action. */}
-      <div className="flex shrink-0 items-center gap-3 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-        <span
-          role="status"
-          aria-live="polite"
-          className={`min-w-0 flex-1 text-meta leading-[1.4] ${
-            reportIsError ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
-          }`}
-        >
-          {reportText}
-        </span>
+      <div className="flex shrink-0 items-center gap-3 bg-[color:var(--bg-surface-raised)] px-3 py-2">
+        {/* A failed add / start / page is a failure with a glyph and a role, never
+            amber ink alone; the ambient report stays a quiet status line. */}
+        {reportIsError ? (
+          <InlineNotice tone="error" className="min-w-0 flex-1">
+            {reportText}
+          </InlineNotice>
+        ) : (
+          <span role="status" aria-live="polite" className="min-w-0 flex-1 text-meta leading-[1.4] text-[color:var(--text-muted)]">
+            {reportText}
+          </span>
+        )}
         <PrimaryButton
           size="md"
           onClick={() => void addToBacklog()}
@@ -399,20 +401,21 @@ function Monogram({ provider }: { provider: RedactedTrackerConnection['provider'
   return (
     <span
       aria-hidden="true"
-      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-micro font-semibold text-[color:var(--text-muted)]"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-micro font-semibold text-[color:var(--text-muted)]"
     >
       {trackerProviderMonogram(provider)}
     </span>
   )
 }
 
-// One issue row. The row is a role=checkbox button (one tab stop, Space/Enter
-// toggles, aria-checked announced); an already-tracked issue is dimmed and
-// disabled, reading its locked label in place of the updated-ago meta so a locked
-// row never looks like an empty state. A hover/focus-revealed "Start sprint"
-// action sits alongside the row button (a sibling, never nested) for the one-step
-// flow (mockup §2); once its sprint is running the row locks and shows a running
-// indicator in the action's place.
+// One issue row. The row is the kit `Checkbox` with the issue as its label (one
+// tab stop on the native input, Space toggles, native form semantics — no more
+// hand-drawn box); an already-tracked issue is dimmed and disabled, reading its
+// locked label in place of the updated-ago meta so a locked row never looks like
+// an empty state. A hover/focus-revealed "Start sprint" action sits alongside the
+// row (a sibling, never nested) for the one-step flow (mockup §2); once its
+// sprint is running the row locks and shows a running indicator in the action's
+// place.
 function IssueRow({
   issue,
   checked,
@@ -443,62 +446,52 @@ function IssueRow({
   return (
     <li>
       <div className="group relative flex items-stretch">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={checked}
-          aria-disabled={locked || undefined}
+        <Checkbox
+          checked={checked}
           disabled={locked}
-          onClick={locked ? undefined : onToggle}
-          className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors ${
-            locked ? 'cursor-default opacity-55' : 'hover:bg-[color:var(--bg-hover)]'
+          onChange={() => {
+            if (!locked) onToggle()
+          }}
+          // A locked row dims to the row canon (0.5), and the whole label is the
+          // hit target, so the row stays one click and one tab stop.
+          className={`min-w-0 flex-1 px-3 py-2 transition-colors ${
+            locked ? 'opacity-50' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
-        >
-          <span
-            aria-hidden="true"
-            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border ${
-              checked
-                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                : 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface)]'
-            }`}
-          >
-            {checked ? (
-              <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5">
-                <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : null}
-          </span>
-          <span className="w-[76px] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
-            {issue.nativeKey}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-default)]">{issue.title}</span>
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
-            <StatusDot tone={chip.tone} />
-            {chip.label}
-          </span>
-          <span className="w-[112px] shrink-0 text-right text-micro text-[color:var(--text-disabled)]">
-            {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
-          </span>
-        </button>
+          label={
+            <>
+              <span className="w-[76px] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+                {issue.nativeKey}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-default)]">{issue.title}</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
+                <StatusDot tone={chip.tone} />
+                {chip.label}
+              </span>
+              <span className="w-[112px] shrink-0 text-right text-micro text-[color:var(--text-muted)]">
+                {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
+              </span>
+            </>
+          }
+        />
         {sprint === 'running' ? (
           <span className="flex shrink-0 items-center gap-1.5 self-center pl-2 pr-3 text-micro text-[color:var(--text-muted)]">
             <StatusDot tone="accent" pulse />
             Sprint running
           </span>
         ) : showStartAction || sprint === 'starting' ? (
-          <button
-            type="button"
+          <GhostButton
+            size="xs"
             onClick={onStartSprint}
             disabled={sprint === 'starting'}
             aria-label={`Start a sprint from ${issue.nativeKey}`}
-            className={`interactive shrink-0 self-center rounded px-2 py-1 text-micro font-medium text-[color:var(--text-muted)] transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring ${
+            className={`shrink-0 self-center transition-opacity focus-visible:opacity-100 ${
               sprint === 'starting'
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
           >
             {sprint === 'starting' ? 'Starting…' : 'Start sprint'}
-          </button>
+          </GhostButton>
         ) : null}
       </div>
     </li>

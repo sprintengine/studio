@@ -652,9 +652,9 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
 // promise true, so the two travel together or the claim is a lie.
 //
 // A surface that genuinely must not trap (a non-modal aside, an in-canvas
-// panel) says so by not claiming `aria-modal="true"` — `Drawer` traps anyway
-// because it draws a scrim, but it declares `aria-modal="false"` and is exempt
-// from this rule by construction.
+// panel) says so by not claiming `aria-modal="true"`. `Drawer` scrims, traps
+// and locks scroll, and since 2026-09-02 says so — `aria-modal="true"` — so it
+// is covered by this rule like every other dialog rather than exempt from it.
 {
   const CLAIMS_MODALITY = /aria-modal=(?:"true"|\{true\})/
   const modalityHosts = collectSources(join(root, 'src/renderer/src')).filter((path) => {

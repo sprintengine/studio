@@ -134,7 +134,7 @@ export function RemoteTailnetSettingsTab() {
 
   return (
     <div role="tabpanel" id="settings-panel-remote" aria-labelledby="settings-tab-remote" className="space-y-5">
-      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-3.5">
+      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-4">
         <div className="flex items-center gap-1.5">
           {/* No `label`: the dot sits beside text saying the same thing, which
               is exactly when the primitive asks to stay decorative. */}

@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, Skeleton, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -442,7 +442,7 @@ function GitGraphCommitRow({
               }`}
             />
           </span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-micro tabular-nums text-[color:var(--text-disabled)]">
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-micro tabular-nums text-[color:var(--text-muted)]">
             <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
             <span aria-hidden="true" className="shrink-0">·</span>
             <span className="shrink-0 whitespace-nowrap">{commit.date}</span>
@@ -484,12 +484,13 @@ function GitRefPill({
     : `git-ref-pill-${colorIndex % LANE_PALETTE_SIZE}`
   return (
     <span
-      className={`inline-flex h-[17px] max-w-[150px] items-center rounded border px-1.5 text-micro ${
+      className={`inline-flex h-[17px] max-w-[150px] items-center rounded-xs border px-1.5 text-micro ${
         isCurrent ? 'font-semibold' : 'font-medium'
       } ${surface}`}
-      title={label}
     >
-      <span className="truncate font-mono">{label}</span>
+      {/* The full ref name is a tooltip only when the pill actually clips it —
+          never a native `title` on a span nobody can reach by keyboard. */}
+      <TruncatedText as="span" text={label} className="font-mono" />
     </span>
   )
 }
@@ -502,6 +503,7 @@ export function GitGraphView({
   onReturnToBranch,
   onLoadMore,
   loadingMore,
+  onRetry,
 }: {
   state: GitGraphState
   currentBranch: string | null
@@ -510,6 +512,8 @@ export function GitGraphView({
   onReturnToBranch: (branch: string) => void
   onLoadMore: () => void
   loadingMore: boolean
+  /** Reloads the graph after a failed read; the error notice offers it. */
+  onRetry?: () => void
 }) {
   const [hoveredHash, setHoveredHash] = useState<string | null>(null)
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
@@ -546,26 +550,50 @@ export function GitGraphView({
     [commitsByHash, snapshot?.headHash]
   )
 
+  // The three non-populated states each wear their own idiom, so a failed
+  // `git log` can never read as "no commits yet": loading is the shimmer,
+  // failure is the error card with its retry, and empty is the kit empty state.
   if (state.status === 'loading') {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-disabled)]">
-        Loading commit graph…
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <span role="status" className="sr-only">
+          Loading commit graph…
+        </span>
+        <div aria-hidden="true">
+          {[68, 52, 80, 44, 60].map((width, index) => (
+            <div key={index} className="flex items-center gap-2 py-1.5">
+              <Skeleton className="h-3 w-3 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
+              <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: `${width}%` }} />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   if (state.status === 'error') {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-muted)]">
-        {state.message}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <InlineNotice
+          tone="error"
+          title="Couldn't load the commit graph."
+          detail={state.message}
+          action={
+            onRetry ? (
+              <OutlineButton size="xs" onClick={onRetry}>
+                Try again
+              </OutlineButton>
+            ) : undefined
+          }
+        />
       </div>
     )
   }
 
   if (!snapshot || snapshot.commits.length === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-disabled)]">
-        No commits yet
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <EmptyState density="list" title="No commits yet" />
       </div>
     )
   }

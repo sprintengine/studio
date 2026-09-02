@@ -5,7 +5,22 @@ import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
 import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
-import { Checkbox, Field, FOCUS_RING_CLASS, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
+import {
+  Checkbox,
+  EmptyState,
+  Field,
+  FOCUS_RING_CLASS,
+  GhostButton,
+  InlineNotice,
+  Input,
+  LifecycleGlyph,
+  OverflowMenu,
+  PrimaryButton,
+  Select,
+  Spinner,
+  type LifecycleState,
+  type SelectItem,
+} from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type WorktreeMessage = {
@@ -395,15 +410,14 @@ export default function WorktreeManager({
         )}
         {contentOpen ? (
           <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
+            <GhostButton
+              size="xs"
               onClick={() => setCreating((current) => !current)}
               disabled={formDisabled}
               aria-expanded={creating}
-              className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
             >
               {creating ? 'Cancel' : '+ New worktree'}
-            </button>
+            </GhostButton>
             <OverflowMenu
               ariaLabel="Worktree list actions"
               items={[
@@ -420,21 +434,23 @@ export default function WorktreeManager({
           {creating ? (
             <div className="mb-3 space-y-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
               <Field label="Name" htmlFor="worktree-name" help="Folder name under the worktree container.">
-                <input
+                <Input
+                  variant="well"
                   value={worktreeName}
                   onChange={(event) => setWorktreeName(event.target.value)}
                   disabled={formDisabled}
                   placeholder="feature-login"
-                  className={`h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-50 ${FOCUS_RING_CLASS}`}
+                  className="min-w-0"
                 />
               </Field>
               <Field label="Branch" htmlFor="worktree-branch">
-                <input
+                <Input
+                  variant="well"
                   value={branchName}
                   onChange={(event) => setBranchName(event.target.value)}
                   disabled={formDisabled}
                   placeholder="multicode/feature-login"
-                  className={`h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-50 ${FOCUS_RING_CLASS}`}
+                  className="min-w-0 font-mono"
                 />
               </Field>
               <div className="flex flex-col gap-1.5">
@@ -459,22 +475,12 @@ export default function WorktreeManager({
                 className="w-fit"
               />
               <div className="flex items-center justify-end gap-1.5 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => setCreating(false)}
-                  disabled={formDisabled}
-                  className={`h-8 rounded-md px-3 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
-                >
+                <GhostButton onClick={() => setCreating(false)} disabled={formDisabled}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleCreate()}
-                  disabled={!canCreate}
-                  className={`h-8 rounded-md bg-[color:var(--accent-primary)] px-3 text-micro font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
-                >
+                </GhostButton>
+                <PrimaryButton onClick={() => void handleCreate()} disabled={!canCreate}>
                   Create worktree
-                </button>
+                </PrimaryButton>
               </div>
             </div>
           ) : null}
@@ -485,7 +491,7 @@ export default function WorktreeManager({
               Loading worktrees…
             </div>
           ) : rows.length === 0 ? (
-            <div className="px-1 py-3 text-micro text-[color:var(--text-subtle)]">No worktrees reported by Git.</div>
+            <EmptyState density="list" title="No worktrees reported by Git." />
           ) : (
             <ul role="list" className="-mx-1 space-y-0.5">
               {rows.map((row) => {
@@ -507,7 +513,7 @@ export default function WorktreeManager({
                       <div
                         className={`truncate font-mono text-meta ${
                           row.missing
-                            ? 'text-[color:var(--text-subtle)] line-through decoration-[rgba(255,255,255,0.18)]'
+                            ? 'text-[color:var(--text-subtle)] line-through decoration-[color:var(--text-subtle)]'
                             : 'text-[color:var(--text-default)]'
                         }`}
                         title={row.path}
@@ -545,18 +551,17 @@ export default function WorktreeManager({
           ) : null}
 
           {message ? (
-            <div
-              role={message.tone === 'error' ? 'alert' : 'status'}
-              className={`mt-2 rounded-md px-2 py-1.5 text-micro [overflow-wrap:anywhere] ${
-                message.tone === 'error'
-                  ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
-                  : message.tone === 'success'
-                    ? 'text-[color:var(--text-muted)]'
-                    : 'bg-[color:var(--bg-hover)] text-[color:var(--text-muted)]'
-              }`}
-            >
-              {message.text}
-            </div>
+            message.tone === 'error' ? (
+              <InlineNotice tone="error" className="mt-2 [overflow-wrap:anywhere]">
+                {message.text}
+              </InlineNotice>
+            ) : (
+              // Success and neutral outcomes are copy, not notices: the notice
+              // vocabulary has no info or success tone (ui/InlineNotice).
+              <p role="status" className="mt-2 px-1 text-meta text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+                {message.text}
+              </p>
+            )
           ) : null}
         </>
       ) : null}

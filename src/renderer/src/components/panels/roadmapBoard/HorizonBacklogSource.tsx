@@ -15,7 +15,7 @@
 
 import { useMemo, useState } from 'react'
 
-import { InboxSearchInput, TruncatedText, type SelectItem } from '../../ui'
+import { IconButton, InboxSearchInput, TruncatedText, type SelectItem } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { BacklogEpicHeaderContent, BacklogRowContent } from '../../backlog/BacklogRow'
 import { BacklogFilterMenu } from '../../backlog/BacklogFilterMenu'
@@ -159,16 +159,11 @@ export function HorizonBacklogSource({
   return (
     <section aria-label="Backlog" className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--bg-surface)]">
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Back to the step"
-          className={`interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-        >
+        <IconButton onClick={onClose} aria-label="Back to the step" className="-ml-1 shrink-0">
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
             <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </button>
+        </IconButton>
         <h3 className="text-body font-semibold text-[color:var(--text-strong)]">Backlog</h3>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 px-4 py-2.5">
@@ -385,7 +380,7 @@ function SourceEpicHeader({
         }
       }}
       className={`px-4 py-1 transition-colors ${
-        model.headerPlanned ? 'opacity-40' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
+        model.headerPlanned ? 'opacity-50' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
       }`}
     >
       <BacklogEpicHeaderContent
@@ -437,8 +432,9 @@ function SourceItemRow({
         disabled={!addable}
         onClick={() => onAdd(itemRef)}
         aria-label={planned ? `${item.title} — already in the plan` : `Add ${item.title} to the plan`}
+        // design-tokens-allow: alignment — an item under its epic header sits on the header title's text edge, past the epic's chevron slot
         className={`interactive block w-full text-left ${indented ? 'pl-7 pr-4' : 'px-4'} py-1 outline-none focus-visible:focus-ring-inset ${
-          planned ? 'opacity-40' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
+          planned ? 'opacity-50 disabled:cursor-not-allowed' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
         }`}
       >
         <BacklogRowContent item={item} now={now} plainTitle />

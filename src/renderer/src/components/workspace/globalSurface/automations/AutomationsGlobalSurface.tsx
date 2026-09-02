@@ -5,9 +5,19 @@ import { revealAgentTerminalTab } from '../../../../utils/agentTabReveal'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
-import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, useConfirmDialog } from '../../../ui'
+import {
+  ContextMenu,
+  EmptyState,
+  GhostButton,
+  InlineNotice,
+  MENU_GROUP_LABEL_CLASS,
+  MenuItem,
+  OverflowMenu,
+  PrimaryButton,
+  SidePane,
+  useConfirmDialog,
+} from '../../../ui'
 import type { FilterMenuGroup, OverflowMenuItem } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import { AutomationReportViewer } from '../../../automations/AutomationReportViewer'
 import { extractReportPaths } from '../../../automations/reportPaths'
 import { automationsDoorTarget } from '../../../automations/runTarget'
@@ -415,27 +425,30 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       </div>
 
       {chooser ? (
-        <PointerPopover x={chooser.x} y={chooser.y} ariaLabel="Choose a project for the new automation" onClose={() => setChooser(null)}>
-          <div className="min-w-[240px] max-w-[340px] py-1">
-            <div className="px-3 pb-1 pt-1.5 text-micro text-[color:var(--text-subtle)]">New automation in…</div>
-            {projectFolders.length === 0 ? (
-              <p className="px-3 py-2 text-meta leading-5 text-[color:var(--text-muted)]">
-                Open a project first — an automation runs against a project.
-              </p>
-            ) : (
-              projectFolders.map((folder) => (
-                <button
-                  key={folder.folderPath}
-                  type="button"
-                  onClick={() => startCreate(folder.folderPath)}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-                >
-                  <span className="min-w-0 flex-1 truncate">{folder.displayName}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </PointerPopover>
+        // The same chooser the Backlog door opens for a new item: a real menu
+        // (`ContextMenu` + `MenuItem`), so it announces as one and the arrow
+        // keys walk it — not a popover of bare buttons promising a role it
+        // never implemented (design-system/components/menu).
+        <ContextMenu
+          x={chooser.x}
+          y={chooser.y}
+          ariaLabel="Choose a project for the new automation"
+          onClose={() => setChooser(null)}
+          surfaceClassName="min-w-[240px] max-w-[340px]"
+        >
+          <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1`}>New automation in…</div>
+          {projectFolders.length === 0 ? (
+            <p className="px-2.5 py-2 text-meta leading-5 text-[color:var(--text-muted)]">
+              Open a project first — an automation runs against a project.
+            </p>
+          ) : (
+            projectFolders.map((folder) => (
+              <MenuItem key={folder.folderPath} onClick={() => startCreate(folder.folderPath)}>
+                {folder.displayName}
+              </MenuItem>
+            ))
+          )}
+        </ContextMenu>
       ) : null}
     </GlobalSurfaceShell>
   )
@@ -498,6 +511,7 @@ function SurfaceBody({
     return (
       <SurfaceCanvasState
         kind="empty"
+        firstRun
         glyph={<AutomationsGlyph />}
         title="No automations yet"
         body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while the app is open."
@@ -527,11 +541,14 @@ function SurfaceBody({
     )
   }
   // Entries exist but none selected — a one-render gap before the auto-select
-  // effect fires. A calm prompt, never a blank canvas.
+  // effect fires. The quiet kit state, never a blank canvas and never a bare
+  // line of copy in a dialect of its own.
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-meta text-[color:var(--text-muted)]">
-      Select an automation to see its runs and setup.
-    </div>
+    <EmptyState
+      density="pane"
+      glyph={<AutomationsGlyph />}
+      title="Select an automation to see its runs and setup."
+    />
   )
 }
 

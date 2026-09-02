@@ -90,7 +90,7 @@ export function CanvasStudio({ nav, agent, children }: Props) {
 
       {/* Canvas: the reviewed artifact fills the surface, inset to clear the
           floating pill above and give the bubble a resting corner. */}
-      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-14">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-8">{children}</div>
 
       <AgentBubble
         expanded={bubbleExpanded}

@@ -8,7 +8,7 @@ import {
 } from '../../utils/gitConflictMarkers'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import { GhostButton, PanelHeader, PrimaryButton, Section } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, PanelHeader, PrimaryButton, Section, Spinner } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type ResolverState =
@@ -147,11 +147,19 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
   }
 
   if (state.status === 'loading') {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-meta text-[color:var(--text-disabled)]">Loading conflict...</div>
+    return (
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)]">
+        <Spinner label="Loading conflict" />
+      </div>
+    )
   }
 
   if (state.status === 'error') {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-meta text-[color:var(--tone-error)]">{state.message}</div>
+    return (
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6">
+        <InlineNotice tone="error" title="Could not load the conflict" detail={state.message} />
+      </div>
+    )
   }
 
   return (
@@ -200,12 +208,12 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
               ) : (
                 <div className="space-y-2">
                   {blocks.map((block) => (
-                    <div key={`${block.index}:${block.startOffset}`} className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] p-2">
+                    <div key={`${block.index}:${block.startOffset}`} className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-2">
                       <div className="mb-2 text-micro font-semibold text-[color:var(--text-default)]">Conflict {block.index + 1}</div>
                       <div className="grid gap-1">
-                        <ConflictActionButton label="Use Pulled" onClick={() => applyBlock(block.index, block.ours)} />
-                        <ConflictActionButton label="Use Stashed" onClick={() => applyBlock(block.index, block.theirs)} />
-                        <ConflictActionButton label="Use Both" onClick={() => applyBlock(block.index, combineConflictSides(block))} />
+                        <ConflictActionButton label="Use pulled" onClick={() => applyBlock(block.index, block.ours)} />
+                        <ConflictActionButton label="Use stashed" onClick={() => applyBlock(block.index, block.theirs)} />
+                        <ConflictActionButton label="Use both" onClick={() => applyBlock(block.index, combineConflictSides(block))} />
                       </div>
                     </div>
                   ))}
@@ -271,8 +279,8 @@ function ConflictReadOnlyPane({
           }}
         />
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-micro text-[color:var(--text-disabled)]">
-          {empty}
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <EmptyState density="list" title={empty} />
         </div>
       )}
     </section>

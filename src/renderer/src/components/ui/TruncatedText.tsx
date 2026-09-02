@@ -71,11 +71,14 @@ export function TruncatedText({
       )
     }
     check()
-    const observer = new ResizeObserver(check)
-    observer.observe(el)
+    // jsdom (the renderer test harness) has no ResizeObserver; the window
+    // resize listener still re-measures there, and the first measurement above
+    // already ran.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(check)
+    observer?.observe(el)
     window.addEventListener('resize', check)
     return () => {
-      observer.disconnect()
+      observer?.disconnect()
       window.removeEventListener('resize', check)
     }
     // `overflowing` is deliberately a dep: after the wrap/unwrap remount the

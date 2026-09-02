@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckIcon, CloseIcon, CopyIcon } from '../AppIcons'
+import { CheckIcon, CopyIcon } from '../AppIcons'
+import { CloseIconButton, IconButton } from './Buttons'
 import { LifecycleGlyph } from './LifecycleGlyph'
 
 /** Viewport coordinates of the click/cursor the error belongs to. */
@@ -215,45 +216,40 @@ export function CursorErrorPopover({
           >
             {message}
           </div>
+          {/* The kit's icon buttons (26px, the control ramp's `xs`) where two
+              20px hand-rolled ones sat under the hit-target floor. The
+              negative block margin pulls the taller box back into the
+              single-line row so the collapsed strip keeps its height. */}
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
+            <IconButton
               onClick={(event) => {
                 event.stopPropagation()
                 void handleCopy()
               }}
               aria-label={copied ? 'Copied' : 'Copy error'}
               className={[
-                'interactive -my-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px]',
-                'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-                'focus-visible:focus-ring',
+                '-my-1',
                 // Copy stays hidden until the box is hovered or expanded so the
-                // resting state is just the message.
-                expanded || paused ? 'opacity-100' : 'opacity-0',
+                // resting state is just the message; the keyboard reveals it
+                // too, so it is never a target only a pointer can find.
+                expanded || paused ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100',
               ].join(' ')}
             >
               {copied ? (
-                <CheckIcon className="h-3 w-3 text-[color:var(--tone-good)]" />
+                <CheckIcon className="size-icon-xs text-[color:var(--tone-good)]" />
               ) : (
-                <CopyIcon className="h-3 w-3" />
+                <CopyIcon className="size-icon-xs" />
               )}
-            </button>
+            </IconButton>
             {expanded ? (
-              <button
-                type="button"
+              <CloseIconButton
                 onClick={(event) => {
                   event.stopPropagation()
                   onDismiss()
                 }}
                 aria-label="Dismiss"
-                className={[
-                  'interactive -my-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px]',
-                  'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-                  'focus-visible:focus-ring',
-                ].join(' ')}
-              >
-                <CloseIcon className="h-3 w-3" />
-              </button>
+                className="-my-1"
+              />
             ) : null}
           </div>
         </div>

@@ -21,7 +21,7 @@ import { getRendererHost } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
-import { type ActionResult, ActionResultMessage, EmptyState, GhostButton, InlineNotice, StatusDot, Switch } from '../ui'
+import { type ActionResult, ActionResultMessage, Badge, EmptyState, GhostButton, InlineNotice, StatusDot, Switch } from '../ui'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
 // installs, validates, trust-classifies modules, and reports startup readiness;
@@ -142,15 +142,16 @@ export function PermissionChips({ permissions }: { permissions: string[] }) {
       {permissions.map((permission) => {
         const flagged = isBroadCapabilityPermission(permission) || !isKnownCapabilityPermission(permission)
         return (
-          <span
+          // The raw permission id rides the accessible name; the visible word
+          // is the description. A broad or unknown permission is a degraded
+          // grant, so it wears the warn tone rather than warn ink alone.
+          <Badge
             key={permission}
-            title={permission}
-            className={`inline-flex items-center rounded-md bg-[color:var(--bg-active)] px-2 py-0.5 text-meta ${
-              flagged ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-default)]'
-            }`}
+            tone={flagged ? 'warn' : 'neutral'}
+            ariaLabel={`${describeCapabilityPermission(permission)} (${permission})`}
           >
             {describeCapabilityPermission(permission)}
-          </span>
+          </Badge>
         )
       })}
     </div>

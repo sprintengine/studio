@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckIcon, CloseIcon } from '../AppIcons'
 import { StatusDot } from './StatusDot'
-import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
+import { FOCUS_RING_CLASS, TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
 export type ActionTone = 'success' | 'error' | 'info'
 
@@ -66,7 +66,7 @@ export function ActionStatusChip({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="interactive ml-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-current opacity-70 hover:opacity-100"
+          className={`interactive ml-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-xs text-current opacity-70 hover:opacity-100 ${FOCUS_RING_CLASS}`}
         >
           <CloseIcon className="h-2.5 w-2.5" />
         </button>

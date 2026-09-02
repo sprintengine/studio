@@ -93,7 +93,7 @@ export function bubbleStatusLine(liveStatus: StageLiveStatus | undefined, ready:
 // header chip: warn while waiting on the user, good when ready, error on
 // failure, accent while working, muted at rest.
 const BUBBLE_DOT_TONE: Record<StageChipState, string> = {
-  working: 'var(--accent-primary)',
+  working: 'var(--tone-accent)',
   'needs-input': 'var(--tone-warn)',
   ready: 'var(--tone-good)',
   failed: 'var(--tone-error)',
@@ -105,7 +105,7 @@ export function bubbleDotTone(liveStatus: StageLiveStatus | undefined, ready: bo
 }
 
 // Whether the collapsed bubble should pull the user's eye — a live pending
-// question is the one state that does. Drives the attention ring, matching
+// question is the one state that does. Drives the auto-expand, matching
 // ConversationPane's `needs-input` treatment.
 export function bubbleNeedsAttention(liveStatus: StageLiveStatus | undefined): boolean {
   return liveStatus === 'needs-input'

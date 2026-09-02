@@ -23,7 +23,22 @@ import type { CapabilityPermission } from '../../../../../shared/modules/permiss
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
-import { CloseIconButton, EmptyState, GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot, Tooltip } from '../../ui'
+import {
+  CloseIconButton,
+  EmptyState,
+  GhostButton,
+  InlineNotice,
+  MENU_LIST_CLASS,
+  MenuDivider,
+  MenuItem,
+  OutlineButton,
+  Popover,
+  PrimaryButton,
+  roveMenuFocus,
+  Spinner,
+  StatusDot,
+  Tooltip,
+} from '../../ui'
 import { bracketedPaste } from '../../../utils/terminalDrop'
 import {
   ensureSkillForAgent,
@@ -814,22 +829,23 @@ function UseSkillMenu({
       ariaLabel={`Use ${name} in an agent`}
       popupRole="menu"
       placement="bottom-end"
+      // The kit's list layer on the Popover's own `role="menu"` surface; the
+      // rows are `MenuItem`, so arrow keys rove and a divider is the menu's own.
+      surfaceClassName={`w-[240px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          className="interactive inline-flex h-control-sm items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-body font-medium text-[color:var(--accent-primary)] hover:bg-[color:var(--bg-hover)]"
-          {...triggerProps}
-        >
+        <OutlineButton ref={ref} size="sm" onClick={togglePopover} {...triggerProps}>
           Use in agent
-        </button>
+        </OutlineButton>
       )}
     >
-      <div className="flex w-[240px] flex-col p-1">
+      <div
+        className="flex flex-col"
+        onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}
+      >
         {error ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]" role="status">
-            {error}
+          <div className="px-2 pb-1">
+            <InlineNotice tone="error">{error}</InlineNotice>
           </div>
         ) : null}
         {sessions === null ? (
@@ -840,40 +856,29 @@ function UseSkillMenu({
         ) : (
           <>
             {sessions.length === 0 ? (
-              <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-subtle)]">
-                No running agents
-              </div>
+              <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No running agents</div>
             ) : (
               sessions.map((session) => (
-                <button
+                <MenuItem
                   key={session.sessionId}
-                  type="button"
-                  role="menuitem"
                   disabled={busy}
                   onClick={() => void insertIntoSession(session)}
-                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
+                  trailing={
+                    session.cli ? (
+                      <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{session.cli}</span>
+                    ) : undefined
+                  }
                 >
-                  <span className="min-w-0 flex-1 truncate">
-                    {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
-                  </span>
-                  {session.cli ? (
-                    <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">{session.cli}</span>
-                  ) : null}
-                </button>
+                  {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
+                </MenuItem>
               ))
             )}
             {onNewAgent ? (
               <>
-                <div className="mx-2 my-1 border-t border-[color:var(--border-subtle)]" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={busy}
-                  onClick={() => void startNewAgent()}
-                  className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
-                >
+                <MenuDivider />
+                <MenuItem disabled={busy} onClick={() => void startNewAgent()}>
                   New agent…
-                </button>
+                </MenuItem>
               </>
             ) : null}
           </>
@@ -881,6 +886,15 @@ function UseSkillMenu({
       </div>
     </Popover>
   )
+}
+
+// Focus enters the menu on open, on the first row that can take it — the
+// menu-button contract `OverflowMenu` and `SplitButton` keep. Next frame, so
+// the Popover has positioned (and un-hidden) its surface.
+function focusFirstMenuItem(surface: HTMLElement): void {
+  requestAnimationFrame(() => {
+    surface.querySelector<HTMLButtonElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+  })
 }
 
 function errorMessage(error: unknown, fallback: string): string {

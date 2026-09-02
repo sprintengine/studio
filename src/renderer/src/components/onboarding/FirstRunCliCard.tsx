@@ -76,9 +76,10 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
   }, [])
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center p-8">
+    <div className="pointer-events-none absolute inset-0 z-[var(--z-float)] grid place-items-center p-8">
       <div className="pointer-events-auto flex max-h-full w-full max-w-[480px] flex-col overflow-hidden rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-        <div className="border-b border-[color:var(--border-subtle)] px-5 py-4">
+        {/* No rules between header, list and footer: inside an overlay, space separates. */}
+        <div className="px-5 pb-2 pt-4">
           <h2 className="text-title font-semibold text-[color:var(--text-strong)]">Set up an agent CLI</h2>
           {/* Not helper copy: this states what the probe found on THIS machine,
               which is the only reason the card is on screen at all. */}
@@ -210,10 +211,7 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-5 py-3">
-          <span className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
-            Change this anytime in Settings → Agents.
-          </span>
+        <div className="flex items-center justify-end gap-3 px-5 pb-4 pt-2">
           <GhostButton size="sm" onClick={onDismiss} className="shrink-0 text-[color:var(--text-muted)]">
             Not now
           </GhostButton>

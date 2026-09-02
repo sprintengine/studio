@@ -19,8 +19,11 @@ import {
  LifecycleGlyph,
  FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,
+ EmptyState,
  Input,
  Popover,
+ SegmentedControl,
+ Textarea,
  SidePane,
  Spinner,
  StatusDot,
@@ -264,7 +267,7 @@ function SprintEngineModelField({
  const currentLabel = model ? knownLabel ?? model : 'Default'
  return (
  <div>
- <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">
  Model
  </div>
  <Popover
@@ -321,7 +324,7 @@ function SprintEngineModelField({
  // painted in `--bg-hover` it was the same picture as whichever option
  // the pointer happened to be over
  // (design-system/patterns/selection.html).
- className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm interactive ${
+ className={`flex w-full items-center gap-3 rounded-sm px-3 py-2 text-left text-body interactive ${FOCUS_RING_INSET_CLASS} ${
  selected
  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -344,7 +347,7 @@ function SprintEngineModelField({
  onClick={() => setOpen(false)}
  // The custom id in force is the selected option of this listbox, so it
  // carries the same selection fill as the catalog rows above it.
- className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-selected)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)]"
+ className={`flex w-full items-center gap-3 rounded-sm bg-[color:var(--bg-selected)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
  >
  <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -595,8 +598,8 @@ export default function SprintEngineBoardPanel(props: Props) {
 
  if (!handle) {
  return (
- <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] text-sm text-[color:var(--text-disabled)]">
- Sprint workspace data is missing.
+ <div className="h-full bg-[color:var(--bg-surface)]">
+ <EmptyState title="Sprint workspace data is missing." />
  </div>
  )
  }
@@ -2537,32 +2540,21 @@ export function SprintRunBoard({
  }
  }, [])
 
+ // The kit's segmented control (one tab stop, arrow keys, `bg.selected` on the
+ // chosen segment) — not an `aria-pressed` pair in a bordered group with no
+ // keyboard model (2026-09-02 audit).
  const tasksLayoutToggle = effectiveView === 'tasks' && !fixedTasksLayout ? (
- <div
- role="group"
- aria-label="Tasks layout"
- className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-0.5"
- >
- {(['graph', 'kanban'] as SprintEngineTasksLayout[]).map((layout) => {
- const active = effectiveTasksLayout === layout
- const label = layout === 'graph' ? 'Graph' : 'Board'
- return (
- <button
- key={layout}
- type="button"
- aria-pressed={active}
- onClick={() => setActiveTasksLayout(layout)}
- className={`interactive rounded px-2 py-0.5 text-micro font-medium focus-visible:focus-ring ${
- active
- ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
- }`}
- >
- {label}
- </button>
- )
- })}
- </div>
+ <SegmentedControl<SprintEngineTasksLayout>
+ ariaLabel="Tasks layout"
+ size="sm"
+ className="shrink-0"
+ items={[
+ { value: 'graph', label: 'Graph' },
+ { value: 'kanban', label: 'Board' },
+ ]}
+ value={effectiveTasksLayout}
+ onChange={(layout) => setActiveTasksLayout(layout)}
+ />
  ) : null
 
  // Unified board chrome: the app shell already names the workspace immediately
@@ -2679,7 +2671,8 @@ export function SprintRunBoard({
  </span>
  </span>
  {projectionErrorMessage ? (
- <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
+ // The StatusDot above carries the tone; the message reads in neutral ink.
+ <span className="text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
  {projectionErrorMessage}
  </span>
  ) : null}
@@ -2760,11 +2753,8 @@ export function SprintRunBoard({
  </span>
  {detail ? (
  <span
- className={
- isError
- ? 'text-[color:var(--tone-error)] [overflow-wrap:anywhere]'
- : 'text-[color:var(--text-muted)]'
- }
+ // The StatusDot beside the heading carries the tone; the detail stays neutral ink.
+ className="text-[color:var(--text-muted)] [overflow-wrap:anywhere]"
  >
  {detail}
  </span>
@@ -3027,8 +3017,8 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div className="min-w-0">
- <div className="mb-1 text-micro font-semibold text-[color:var(--text-disabled)]">
- Verify Progress
+ <div className="mb-1 text-micro font-medium text-[color:var(--text-muted)]">
+ Verify progress
  </div>
  <h3 id="recovery-dialog-title" className="truncate text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
  Architect Audit
@@ -3058,7 +3048,7 @@ export function SprintRunBoard({
  />
 
  <div>
- <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">
  Architect CLI
  </div>
  <Popover
@@ -3087,7 +3077,7 @@ export function SprintRunBoard({
  <TruncatedText
  as="span"
  text={selectedRecoveryCliOption.description}
- className="mt-0.5 block text-meta text-[color:var(--text-disabled)]"
+ className="mt-0.5 block text-meta text-[color:var(--text-muted)]"
  />
  </span>
  <svg
@@ -3138,7 +3128,7 @@ export function SprintRunBoard({
  <TruncatedText
  as="span"
  text={option.description}
- className="mt-0.5 block text-meta text-[color:var(--text-disabled)]"
+ className="mt-0.5 block text-meta text-[color:var(--text-muted)]"
  />
  </span>
  {selected ? (
@@ -3195,8 +3185,8 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div className="min-w-0">
- <div className="mb-1 text-micro font-semibold text-[color:var(--text-disabled)]">
- Request Changes
+ <div className="mb-1 text-micro font-medium text-[color:var(--text-muted)]">
+ Request changes
  </div>
  <h3
  id="request-changes-dialog-title"
@@ -3217,10 +3207,11 @@ export function SprintRunBoard({
 
  <ModalBody className="space-y-3">
  <label className="block">
- <span className="mb-2 block text-micro font-bold text-[color:var(--text-disabled)]">
+ <span className="mb-2 block text-meta font-semibold text-[color:var(--text-strong)]">
  Feedback
  </span>
- <textarea
+ <Textarea
+ size="md"
  value={requestChangesDialog.feedback}
  onChange={(event) => {
  const value = event.target.value
@@ -3231,13 +3222,10 @@ export function SprintRunBoard({
  disabled={requestChangesDialog.submitting}
  placeholder="Describe what needs to change before this artifact can be approved."
  rows={5}
- className="block w-full resize-y rounded-md bg-[color:var(--bg-surface-raised)] px-3 py-2 text-sm leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
  />
  </label>
  {requestChangesDialog.error ? (
- <p className="text-meta leading-5 text-[color:var(--tone-error)]">
- {requestChangesDialog.error}
- </p>
+ <InlineNotice tone="error" title={requestChangesDialog.error} />
  ) : null}
  </ModalBody>
 
@@ -3301,7 +3289,7 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div>
- <div className="mb-1 text-micro font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-1 text-meta font-semibold text-[color:var(--text-strong)]">
  SprintEngine agents
  </div>
  <h3 id="add-member-dialog-title" className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
@@ -3325,9 +3313,10 @@ export function SprintRunBoard({
  return (
  <button
  key={role}
+ type="button"
  onClick={() => selectAddMemberRole(role as SprintEngineRole)}
  aria-pressed={selected}
- className={`w-full rounded-md px-3 py-3 text-left interactive ${
+ className={`w-full rounded-sm px-3 py-3 text-left interactive ${FOCUS_RING_CLASS} ${
  selected
  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
@@ -3335,7 +3324,7 @@ export function SprintRunBoard({
  >
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
  <span
- className="hidden h-8 w-8 shrink-0 items-center justify-center rounded border bg-[color:var(--bg-surface-raised)] sm:flex"
+ className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-sm border bg-[color:var(--bg-surface-raised)] sm:flex"
  style={{
  borderColor: selected ? getSprintEngineRoleAccent(role) : 'var(--border-strong)',
  color: 'var(--text-muted)',
@@ -3365,7 +3354,7 @@ export function SprintRunBoard({
      name nor an immediate start. */}
  {hasResidentWorkspace ? (
  <label className="block">
- <span className="mb-2 block text-micro font-bold text-[color:var(--text-disabled)]">
+ <span className="mb-2 block text-meta font-semibold text-[color:var(--text-strong)]">
  Name (optional)
  </span>
  {/* The kit field (MC-2114). It was a raw `h-10` box — 40px, off the
@@ -3380,7 +3369,7 @@ export function SprintRunBoard({
  ) : null}
 
  <div className="flex items-center justify-between gap-3">
- <span className="text-micro font-bold text-[color:var(--text-disabled)]">
+ <span className="text-meta font-semibold text-[color:var(--text-strong)]">
  Agent runtime
  </span>
  <CliModelPickerButton

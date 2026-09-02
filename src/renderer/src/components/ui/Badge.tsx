@@ -68,7 +68,7 @@ export function Badge({
           // `min-w-4` with `px-1`: a single digit stays a circle, two or more
           // grow it into a pill rather than clipping.
           'inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1',
-          'text-micro font-bold leading-none tabular-nums text-[color:var(--text-on-accent)]',
+          'text-micro font-semibold leading-none tabular-nums text-[color:var(--text-on-accent)]',
           corner
             ? // A border in the app ground, so the badge reads as sitting ON the
               // trigger rather than inside it. A `shadow-[0_0_0_2px_…]` ring

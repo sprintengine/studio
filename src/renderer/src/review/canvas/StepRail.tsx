@@ -1,6 +1,6 @@
 import type { RailModel, StepView } from './reviewSelectors'
 import { OVERVIEW_PANE_ID } from './reviewSelectors'
-import { PrimaryButton } from '../../components/ui/Buttons'
+import { OutlineButton } from '../../components/ui/Buttons'
 import { FOCUS_RING_INSET_CLASS } from '../../components/ui/tokens'
 
 interface StepRailProps {
@@ -33,7 +33,11 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
   return (
     <div className="flex h-full flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] py-4">
       <div className="px-4 pb-2.5">
-        <span className="text-micro font-medium text-[color:var(--text-subtle)]">Walkthrough</span>
+        {/* `ui/Section`'s heading treatment rather than the component: a
+            progress meter sits under this label inside the rail's own head,
+            which `Section` cannot host. Same size and ink as every other
+            section heading on the canvas. */}
+        <h3 className="text-meta font-semibold text-[color:var(--text-strong)]">Walkthrough</h3>
         <div
           className="mt-2 h-[3px] overflow-hidden rounded-full bg-[color:var(--bg-active)]"
           role="progressbar"
@@ -59,15 +63,20 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
             : 'hover:bg-[color:var(--bg-hover)]'
         }`}
       >
+        {/* Selection is neutral: the row's `bg-selected` fill and the ink lift
+            carry "active", never an accent ring — the accent here marks read
+            progress (StepRing) and nothing else. The mark is an svg, not a
+            text character. */}
         <span
-          className={`relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border bg-[color:var(--bg-surface)] text-micro ${
-            activePaneId === OVERVIEW_PANE_ID
-              ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
-              : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
+          className={`relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] ${
+            activePaneId === OVERVIEW_PANE_ID ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
           }`}
           aria-hidden="true"
         >
-          ◈
+          <svg viewBox="0 0 16 16" className="icon-xs" fill="none" aria-hidden="true">
+            <path d="M8 2.5l5.5 5.5L8 13.5 2.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            <path d="M8 5.5L10.5 8 8 10.5 5.5 8z" fill="currentColor" />
+          </svg>
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-body font-medium leading-tight text-[color:var(--text-strong)]">Overview</span>
@@ -78,6 +87,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
       {/* The connector line is this element's ::before, so the step rings mask
           it by tree order alone — they are siblings on the same layer, not a
           raise above it, and take no z-index. */}
+      {/* design-tokens-allow: alignment — the connector line's 14px end insets centre it on the 19px step rings at the first and last row; geometry, not rhythm */}
       <div className="relative before:absolute before:bottom-3.5 before:left-[26px] before:top-3.5 before:w-px before:bg-[color:var(--border-subtle)] before:content-['']">
         {rail.steps.map((view) => {
           const active = activePaneId === view.step.id
@@ -105,12 +115,14 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         })}
       </div>
 
-      <div className="mt-auto border-t border-[color:var(--border-subtle)] px-4 pt-3.5">
+      <div className="mt-auto border-t border-[color:var(--border-subtle)] px-4 pt-3">
         <div className="mb-2.5 text-micro tabular-nums text-[color:var(--text-subtle)]">{rail.progressLabel}</div>
+        {/* Outline, not primary: the door bar's "Post review" is the view's one
+            solid accent (ruling 9), and this rail sits under it. */}
         {rail.continueStepId && rail.continueLabel ? (
-          <PrimaryButton className="w-full justify-center" onClick={() => onSelectPane(rail.continueStepId as string)}>
+          <OutlineButton className="w-full justify-center" onClick={() => onSelectPane(rail.continueStepId as string)}>
             {rail.continueLabel}
-          </PrimaryButton>
+          </OutlineButton>
         ) : (
           <div className="text-micro text-[color:var(--text-muted)]">All files read.</div>
         )}

@@ -12,7 +12,7 @@ import React from 'react'
 
 import type { SprintEngineVcs, SprintEngineVcsRepo } from '../../../../../shared/sprintengine/run-types'
 import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/roadmap-surface'
-import { InlineNotice, StatusDot } from '../../ui'
+import { FOCUS_RING_CLASS, InlineNotice, StatusDot } from '../../ui'
 import {
   formatProjectList,
   repoDisplayName,
@@ -116,6 +116,7 @@ function RoadmapPullRequestRow({
           />
         )}
       </div>
+      {/* design-tokens-allow: alignment — the branch line sits on the repo name's text edge, past the 6px status dot and its gap */}
       <div className="flex min-w-0 items-center gap-1 pl-3.5 text-micro text-[color:var(--text-subtle)]">
         <span className="truncate font-mono" title={repo.branchName}>
           {repo.branchName}
@@ -129,18 +130,20 @@ function RoadmapPullRequestRow({
             href={repo.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="interactive ml-1 shrink-0 text-[color:var(--accent-primary)] hover:underline"
+            className={`interactive ml-1 shrink-0 rounded-xs text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
           >
             View
           </a>
         ) : null}
       </div>
       {blocked ? (
+        // design-tokens-allow: alignment — the blocked line sits on the repo name's text edge, past the 6px status dot and its gap
         <p className="pl-3.5 text-micro leading-4 text-[color:var(--text-muted)]">
           Merges after {formatProjectList(blockedByNames)}.
         </p>
       ) : null}
       {error ? (
+        // design-tokens-allow: alignment — the notice sits on the repo name's text edge, past the 6px status dot and its gap
         <div className="pl-3.5">
           <InlineNotice tone="error">{error}</InlineNotice>
         </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { normalizeStatePathKey } from '../../../../store/sprintRunStoreSlice'
-import { PrimaryButton } from '../../../ui'
+import { EmptyState, PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
@@ -238,6 +238,7 @@ function SurfaceBody({
     return (
       <SurfaceCanvasState
         kind="empty"
+        firstRun
         glyph={<SprintsGlyph />}
         title="Run your first sprint"
         body="A sprint puts a team of agents on a goal — planning it, working it in a branch, and reviewing the result. Runs from every project list here."
@@ -247,13 +248,18 @@ function SurfaceBody({
   }
   if (canvas) return <SprintsCanvas model={canvas} />
   // Runs exist but none is showing. Name which of the two reasons it is, so the
-  // canvas never asks for a selection the rail cannot offer.
+  // canvas never asks for a selection the rail cannot offer — in the quiet kit
+  // state, never a bare line of copy in a dialect of its own.
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-meta text-[color:var(--text-muted)]">
-      {filteredOut
-        ? 'No sprints match. Clear the search or pick All projects to see the rest.'
-        : 'Select a sprint to see where it stands.'}
-    </div>
+    <EmptyState
+      density="pane"
+      glyph={<SprintsGlyph />}
+      title={
+        filteredOut
+          ? 'No sprints match. Clear the search or pick All projects to see the rest.'
+          : 'Select a sprint to see where it stands.'
+      }
+    />
   )
 }
 

@@ -8,7 +8,7 @@ import type {
   DesignSystemBundleReadFailure,
 } from '../../../../../../shared/design-system/bundle-view'
 import type { DesignSystemBundleView } from '../../../../../../shared/design-system/bundle-view'
-import { GhostButton, PrimaryButton } from '../../../ui'
+import { EmptyState, GhostButton, PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
@@ -392,12 +392,34 @@ export default function DesignGlobalSurface(): JSX.Element {
     />
   )
 
-  // The door bar is the app's ONE top bar: a name, and no more. The folder path
-  // and the actions that act on it live in the canvas toolbar beside the content
-  // they belong to (the shared door rule — tool clusters live with their content).
+  // The door bar is the app's ONE top bar — the name, and the controls that act
+  // on what the canvas shows, exactly as Automations puts Run now / Edit in its
+  // `bar.actions`. Nothing stacks between the bar and the content
+  // (`principles.md` → The door surface): the canvas used to carry a second
+  // title-height band (folder path + Reveal + Reload) and the create screen a
+  // third holding only its primary. The folder path is now a provenance line in
+  // the canvas body, and the actions ride the strip.
+  const canvasShowing =
+    !newSelected && !pointError && loadState === 'ready' && selectedEntry !== null && !selectedEntry.failure
   const bar = useMemo(
-    () => ({ title: selectedEntry?.identity?.name ?? 'Design' }),
-    [selectedEntry],
+    () => ({
+      title: selectedEntry?.identity?.name ?? 'Design',
+      actions: newSelected ? (
+        // The one accent-filled control on the create screen (owner ruling
+        // 2026-07-30: "it will always just be pointing at a folder").
+        <PrimaryButton onClick={() => void pointAtFolder()} disabled={creatingFrom !== null}>
+          Point at a folder
+        </PrimaryButton>
+      ) : canvasShowing && selectedEntry ? (
+        <>
+          <GhostButton onClick={() => void window.api.showItemInFolder(selectedEntry.path)}>Reveal</GhostButton>
+          <GhostButton onClick={() => void reloadBundle(selectedEntry.path)} disabled={reloadingPath !== null}>
+            {reloadingPath !== null ? 'Reloading…' : 'Reload'}
+          </GhostButton>
+        </>
+      ) : undefined,
+    }),
+    [selectedEntry, newSelected, canvasShowing, creatingFrom, reloadingPath, pointAtFolder, reloadBundle],
   )
 
   return (
@@ -433,8 +455,6 @@ export default function DesignGlobalSurface(): JSX.Element {
         openComponent={openComponent}
         onOpenComponent={setOpenComponent}
         onCloseComponent={() => setOpenComponent(null)}
-        onReloadBundle={() => selectedEntry && void reloadBundle(selectedEntry.path)}
-        reloadingBundle={reloadingPath !== null}
         onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
         onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
         pointError={pointError}
@@ -460,8 +480,6 @@ function DesignSurfaceBody({
   openComponent,
   onOpenComponent,
   onCloseComponent,
-  onReloadBundle,
-  reloadingBundle,
   onRepoint,
   onForget,
   pointError,
@@ -477,8 +495,6 @@ function DesignSurfaceBody({
   openComponent: string | null
   onOpenComponent: (name: string) => void
   onCloseComponent: () => void
-  onReloadBundle: () => void
-  reloadingBundle: boolean
   onRepoint: () => void
   onForget: () => void
   pointError: string | null
@@ -514,6 +530,7 @@ function DesignSurfaceBody({
     return (
       <SurfaceCanvasState
         kind="empty"
+        firstRun
         glyph={<DesignGlyph />}
         title="No design systems yet"
         body="A design system lives in a Git repo you clone. Point at its folder and it renders here, where the agents that consume it live."
@@ -522,11 +539,9 @@ function DesignSurfaceBody({
     )
   }
   if (!selectedEntry) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-meta text-[color:var(--text-muted)]">
-        Select a design system to see it.
-      </div>
-    )
+    // Nothing selected, not nothing there: the quiet kit state, never a bare
+    // line of copy in a third dialect (MC-2117's empty-state ruling).
+    return <EmptyState density="pane" glyph={<DesignGlyph />} title="Select a design system to see it." />
   }
   if (selectedEntry.failure) {
     // A broken row keeps its place in the rail and says which way it is broken,
@@ -564,8 +579,6 @@ function DesignSurfaceBody({
       openComponent={openComponent}
       onOpenComponent={onOpenComponent}
       onCloseComponent={onCloseComponent}
-      onReload={onReloadBundle}
-      reloading={reloadingBundle}
     />
   )
 }

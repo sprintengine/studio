@@ -54,8 +54,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
-import { ContextMenu, FOCUS_RING_CLASS, LifecycleGlyph, type LifecycleState, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
-import MulticodeSpinner from '../brand/MulticodeSpinner'
+import { ContextMenu, FOCUS_RING_CLASS, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
 import AgentPanel from '../panels/AgentPanel'
 
 interface Props {
@@ -218,15 +217,12 @@ function sprintEngineTabLifecycle(
 }
 
 
+// The kit's loading state at panel scale (spinner/component.md): the UI face,
+// a sentence with a real ellipsis, and the pulsed dot. The brand mark it used
+// to render was a dark-tuned hex gradient that washed out on the light themes
+// (audit, suspense-loader-is-a-dark-tuned-brand-mark; ruling 6).
 function PanelLoadingFallback() {
-  return (
-    <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-meta font-mono text-[color:var(--text-subtle)]">
-      <span className="flex items-center gap-3">
-        <MulticodeSpinner className="h-8 w-8" />
-        <span>Loading panel...</span>
-      </span>
-    </div>
-  )
+  return <LoadingOverlay label="Loading panel…" className="bg-[color:var(--bg-app)]" />
 }
 
 function TimedPanelLoad({
@@ -1161,7 +1157,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           // module is disabled, matching the workspace tab/row contract (AC4).
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-xs ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
             >
@@ -1171,7 +1167,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         } else if (componentId?.startsWith('sprintengine')) {
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-xs ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
               title='Sprint panel'
               aria-label='Sprint panel'
             >
@@ -1219,7 +1215,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       if (specialist) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[color:var(--text-muted)]"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
             title={`${specialist.shortLabel} specialist`}
             aria-label={`${specialist.shortLabel} specialist`}
           >
@@ -1229,7 +1225,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       } else if (sprintEngineRole) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs"
             title={`${sprintEngineRole} sprint agent`}
             aria-label={`${sprintEngineRole} sprint agent`}
           >
@@ -1244,7 +1240,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         const runtimeLabel = `${labelForCliRuntime(agent.cli)} runtime`
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[color:var(--text-muted)]"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
             title={runtimeLabel}
             aria-label={runtimeLabel}
           >

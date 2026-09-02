@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
+import { IconButton, LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
 import { BacklogTypeGlyph } from './BacklogTypeGlyph'
 import type {
   BacklogCriticality,
@@ -684,8 +684,10 @@ export function BacklogEpicHeaderContent({
   const blocked = dependencyState === 'blocked'
   return (
     <div className="flex items-center gap-1.5">
-      <button
-        type="button"
+      {/* The kit's icon button (26px, the one control-xs square): this was a 16px
+          square under the 24px hit-target floor. Pulled back by its own padding
+          so the chevron's glyph still sits where the 16px one did. */}
+      <IconButton
         // The listbox owns roving focus via aria-activedescendant, so the chevron
         // stays out of the tab order; keyboard collapse runs through the list's
         // Enter/Arrow handler. stopPropagation keeps a click here from also
@@ -697,10 +699,10 @@ export function BacklogEpicHeaderContent({
           event.stopPropagation()
           onToggleCollapse()
         }}
-        className="interactive -ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[color:var(--text-subtle)] hover:text-[color:var(--text-strong)]"
+        className="-my-1 -ml-1.5 shrink-0"
       >
         <DisclosureChevron expanded={!collapsed} />
-      </button>
+      </IconButton>
       {group.kind === 'epic' && group.epic ? (
         <Tooltip
           content={blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[group.epic.status]}
@@ -720,7 +722,7 @@ export function BacklogEpicHeaderContent({
         <TruncatedText
           as="span"
           text={group.slug}
-          className="max-w-[10rem] shrink-0 font-mono text-micro text-[color:var(--text-disabled)]"
+          className="max-w-[10rem] shrink-0 font-mono text-micro text-[color:var(--text-muted)]"
         />
       ) : null}
       {group.kind === 'epic' ? (

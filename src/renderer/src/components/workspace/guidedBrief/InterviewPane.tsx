@@ -15,7 +15,7 @@ export function ResolvedDecisionsList({
 }) {
   if (decisions.length === 0) return null
   return (
-    <div className="flex flex-col px-3.5 pt-2.5 pb-1.5">
+    <div className="flex flex-col px-4 pt-2.5 pb-1.5">
       <span className="pb-1 text-micro font-medium text-[color:var(--text-muted)]">Resolved</span>
       {decisions.map((decision) => (
         <div
@@ -97,7 +97,7 @@ export function InterviewQuestionCard({
   }
 
   return (
-    <div className="border-t border-[color:var(--border-subtle)] px-3.5 py-3">
+    <div className="border-t border-[color:var(--border-subtle)] px-4 py-3">
       <div className="text-body font-medium leading-5 text-[color:var(--text-strong)]">
         {question.question}
       </div>

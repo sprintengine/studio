@@ -30,8 +30,8 @@ type SegmentedControlProps<V extends string = string> = {
 }
 
 const SEGMENT_SIZE: Record<'sm' | 'md', string> = {
-  sm: 'h-[26px] px-2.5 text-micro',
-  md: 'h-control-sm px-3.5 text-meta',
+  sm: 'h-control-xs px-2.5 text-micro',
+  md: 'h-control-sm px-3 text-meta',
 }
 
 export function SegmentedControl<V extends string = string>({
@@ -79,7 +79,7 @@ export function SegmentedControl<V extends string = string>({
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
       onKeyDown={handleKeyDown}
-      className={`inline-flex overflow-hidden rounded-md border border-[color:var(--border-default)] ${className ?? ''}`}
+      className={`inline-flex overflow-hidden rounded-sm border border-[color:var(--border-default)] ${className ?? ''}`}
     >
       {items.map((item, index) => {
         const checked = item.value === value

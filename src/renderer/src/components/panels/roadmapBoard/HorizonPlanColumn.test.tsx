@@ -303,7 +303,12 @@ run('a pending approval is a Ready chip in the accent — never a warn card with
     ],
   })
   assert.match(markup, />Ready</, 'the row says which step the horizon would start')
-  assert.match(markup, /accent-primary-soft-strong/, 'in the accent — this is good news')
+  // The kit's label badge in the accent tone (`--tone-accent-soft` fill, the
+  // lifecycle vocabulary's own "ready" hue), with no dot inside it — the pill
+  // and a dot said the same thing twice (2026-09-02 audit).
+  assert.match(markup, /tone-accent-soft/, 'in the accent — this is good news')
+  assert.doesNotMatch(markup, /accent-primary-soft-strong/, 'the accent as a tone, not as a hand-mixed fill')
+  assert.doesNotMatch(markup, /size-\[5px\]/, 'no dot beside the word that already carries the state')
   assert.doesNotMatch(markup, /tone-warn/, 'never the warn tone')
   assert.doesNotMatch(markup, /This step is ready/, 'no advisory card for a healthy state')
   assert.doesNotMatch(markup, /Start next|Start sprint/, 'the start action is the detail header’s, not the rail’s')
@@ -453,9 +458,14 @@ run('a cursor on a step that has left the plan falls back to the selection', () 
   assert.equal(nextCursorRef(ORDER, 'gone', 'b', 1), 'b')
 })
 
-run('the cursor is a focus ring, drawn distinct from selection', () => {
+// Cursor ≠ focus (2026-09-02 audit): the walked row wears the hover fill, the
+// picked row the selected fill, and the product's one focus ring marks DOM
+// focus alone. The private inset ring it used to draw put two rings on a row.
+run('the cursor is the hover fill, drawn distinct from selection and from focus', () => {
   const markup = render({ lanes: SIMPLE, cursorRef: 'backlog/one.md' })
-  assert.match(markup, /ring-2 ring-inset/)
+  assert.match(markup, /data-step-row="true"[^>]*bg-\[color:var\(--bg-hover\)\]/)
+  assert.doesNotMatch(markup, /ring-2|ring-inset/, 'no second focus idiom beside the shared ring')
+  assert.match(markup, /data-step-row="true"[^>]*focus-visible:focus-ring/, 'the shared ring stays on the row')
 })
 
 run('rows are focusable targets the cursor can land on', () => {

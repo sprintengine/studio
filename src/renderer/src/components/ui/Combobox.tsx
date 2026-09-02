@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import { MENU_GROUP_LABEL_CLASS, MENU_ROW_CLASS } from './menuClasses'
 import { Popover } from './Popover'
 import { FOCUS_RING_CLASS } from './tokens'
 
@@ -206,10 +207,10 @@ export function Combobox<T>({
           return (
             <React.Fragment key={`${String(option.value)}-${index}`}>
               {heading ? (
-                <div
-                  aria-hidden="true"
-                  className="px-2 pb-1 pt-2 text-micro font-semibold text-[color:var(--text-subtle)]"
-                >
+                // The menu's group label: never bolder than the rows it heads
+                // (menu spec). Vertical rhythm stays here, as the class's
+                // own comment says it should.
+                <div aria-hidden="true" className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-2`}>
                   {heading}
                 </div>
               ) : null}
@@ -227,13 +228,21 @@ export function Combobox<T>({
                   commit(option)
                 }}
                 onPointerEnter={() => !option.disabled && setActive(index)}
+                // The shared menu row (`Select` takes the same one): full-bleed
+                // fill, same inset and gap as an action row, so a value list
+                // and an action list do not drift apart. The moving highlight
+                // is `--bg-hover` — what `Select` gives its active option and
+                // what the combobox ruling names; `--bg-selected` is for a
+                // persisted value, which this list does not show. A disabled
+                // row dims the way every disabled control does rather than by
+                // ink alone.
                 className={[
-                  'flex cursor-pointer items-center gap-2 rounded-[5px] px-2 py-1 text-meta',
-                  option.disabled
-                    ? 'cursor-not-allowed text-[color:var(--text-disabled)]'
-                    : selected
-                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                      : 'text-[color:var(--text-default)]',
+                  MENU_ROW_CLASS,
+                  'cursor-pointer text-meta',
+                  option.disabled ? 'cursor-not-allowed opacity-45' : '',
+                  index === active
+                    ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-default)]',
                 ].join(' ')}
               >
                 {option.icon ? <span className="flex size-icon-sm shrink-0 items-center justify-center">{option.icon}</span> : null}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { FOCUS_RING_CLASS, InlineNotice, Section, Tooltip } from '../ui'
+import { FOCUS_RING_CLASS, IconButton, InlineNotice, Section, Tooltip } from '../ui'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../../utils/backlog'
 import {
   backlogLinkControlModel,
@@ -175,7 +175,7 @@ function BacklogLinkControl({
           <button
             type="button"
             onClick={() => onOpen(link)}
-            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <span className="min-w-0 truncate">{model.label}</span>
             <OpenLinkGlyph />
@@ -187,7 +187,9 @@ function BacklogLinkControl({
             tabIndex={0}
             role="note"
             aria-label={`${model.label}: ${model.statusText}. ${model.detail}`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            // Readable ink: the label is what a person reads to act on the row,
+            // so it is never disabled ink — the status word beside it carries state.
+            className="min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)] outline-none focus-visible:focus-ring"
           >
             {model.label}
           </span>
@@ -195,14 +197,9 @@ function BacklogLinkControl({
       )}
       <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">{model.statusText}</span>
       <Tooltip content={`Unlink ${model.label}`} placement="top">
-        <button
-          type="button"
-          aria-label={`Unlink ${model.label}`}
-          onClick={() => onRemove(link)}
-          className="interactive inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-        >
+        <IconButton aria-label={`Unlink ${model.label}`} onClick={() => onRemove(link)} className="shrink-0">
           <UnlinkGlyph />
-        </button>
+        </IconButton>
       </Tooltip>
     </li>
   )

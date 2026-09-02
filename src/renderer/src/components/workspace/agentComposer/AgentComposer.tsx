@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, CloseIconButton, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, PanelHeader, Popover, PrimaryButton, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, MENU_ITEM_STACKED_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, PanelHeader, Popover, PrimaryButton, roveMenuFocus, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -252,7 +252,7 @@ export default function AgentComposer({
 
             {visibleRows.length === 0 ? (
               composer.noAgentCliInstalled ? null : (
-                <div className="px-2 py-6 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
+                <EmptyState density="list" title="No matches" />
               )
             ) : (
               <>
@@ -467,6 +467,10 @@ function ProjectScopeChip({
 }) {
   const [open, setOpen] = React.useState(false)
   const currentKey = folderPath ? normalizeProjectPath(folderPath) : null
+  // The menu surface, so the rows rove with the arrow keys like every other
+  // menu (menu/component.md → Accessibility); focus lands on the first row on
+  // open, as ContextMenu does, so the keys work immediately.
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
   return (
     <Popover
       open={open}
@@ -475,7 +479,11 @@ function ProjectScopeChip({
       popupRole="menu"
       placement="bottom-start"
       className="min-w-0"
-      surfaceClassName="w-[300px] p-1"
+      surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={(surface) => {
+        surfaceRef.current = surface
+        surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+      }}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -490,50 +498,55 @@ function ProjectScopeChip({
         </button>
       )}
     >
-      {options.map((option) => {
-        const current = currentKey !== null && normalizeProjectPath(option.path) === currentKey
-        return (
-          <button
-            key={option.path}
-            type="button"
-            role="menuitemradio"
-            aria-checked={current}
-            onClick={() => {
-              onSelectProject(option.path)
-              setOpen(false)
-            }}
-            className={`grid w-full grid-cols-[16px_1fr_auto] items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-          >
-            <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-            <span className="min-w-0">
-              <span className="block truncate text-meta text-[color:var(--text-default)]">{option.label}</span>
-              <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
-            </span>
-            {current ? (
-              <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : (
-              <span aria-hidden="true" />
-            )}
-          </button>
-        )
-      })}
-      {options.length > 0 ? <div className="my-1 h-px bg-[color:var(--border-subtle)]" role="separator" /> : null}
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          setOpen(false)
-          onBrowseProject()
-        }}
-        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-      >
-        <svg className="icon-xs shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-        Browse…
-      </button>
+      <div onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}>
+        {options.map((option) => {
+          const current = currentKey !== null && normalizeProjectPath(option.path) === currentKey
+          return (
+            // The kit's stacked row shape (name over path): the one sanctioned
+            // two-line menu row, with the item's ring, hover and disabled
+            // treatment. `data-menu-item` + `tabIndex={-1}` make it a stop for
+            // the surface's roving focus, as `MenuItem` is.
+            <button
+              key={option.path}
+              type="button"
+              role="menuitemradio"
+              aria-checked={current}
+              data-menu-item="true"
+              tabIndex={-1}
+              onClick={() => {
+                onSelectProject(option.path)
+                setOpen(false)
+              }}
+              className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+            >
+              <FolderGlyph className="icon-xs mt-0.5 shrink-0 text-[color:var(--text-muted)]" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-meta">{option.label}</span>
+                <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
+              </span>
+              {current ? (
+                <svg className="icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
+                  <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : null}
+            </button>
+          )
+        })}
+        {options.length > 0 ? <MenuDivider /> : null}
+        <MenuItem
+          onClick={() => {
+            setOpen(false)
+            onBrowseProject()
+          }}
+          icon={
+            <svg className="icon-xs shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          }
+        >
+          Browse…
+        </MenuItem>
+      </div>
     </Popover>
   )
 }

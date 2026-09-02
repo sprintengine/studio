@@ -1,7 +1,17 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BackGlyph, CheckboxGlyph, ChevronGlyph, CrossGlyph, FilterGlyph, RadioGlyph } from './glyphs'
-import { FOCUS_RING_CLASS, GhostButton, InboxSearchInput, Popover, Tooltip } from '../../ui'
-import { MENU_ITEM_CLASS } from '../../ui/menuClasses'
+import {
+  FOCUS_RING_CLASS,
+  GhostButton,
+  IconButton,
+  InboxSearchInput,
+  MENU_LIST_CLASS,
+  MenuDivider,
+  MenuItem,
+  Popover,
+  roveMenuFocus,
+  Tooltip,
+} from '../../ui'
 import { WATCHTOWER_REVIEW_SECTORS, getWatchtowerReviewSector } from '../../../utils/watchtowerReview'
 import { EMPTY_INBOX_FILTERS, INBOX_CREATED_RANGES, getInboxCreatedRange, hasActiveInboxFilters, type InboxCreatedRangeId, type InboxFilters } from '../../../utils/watchtower'
 import type { WatchtowerReviewSectorId } from '../../../types/workspace'
@@ -83,7 +93,7 @@ export function InboxFilterBar({
           ariaLabel="Add inbox filter"
           popupRole="menu"
           placement="bottom-end"
-          surfaceClassName="min-w-[200px] py-1"
+          surfaceClassName={`min-w-[200px] ${MENU_LIST_CLASS}`}
           renderTrigger={({ ref, triggerProps }) => (
             <Tooltip content="Filter">
               <button
@@ -192,6 +202,31 @@ export function InboxFilterBar({
   )
 }
 
+// Every picker below is a list of the kit's menu rows on the Popover's own
+// `role="menu"` surface. Arrow keys, Home and End rove through `roveMenuFocus`;
+// focus lands on the first row when a step mounts (the root step, or a drill-in
+// that replaced the row just pressed); and space — never a rule — separates the
+// header, the rows and the clear action inside the overlay.
+function useMenuStep(): {
+  ref: RefObject<HTMLDivElement>
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+} {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    // Next frame: the Popover positions its surface in a layout effect and
+    // keeps it `visibility: hidden` until then, and a hidden node cannot take
+    // focus.
+    const frame = requestAnimationFrame(() => {
+      ref.current?.querySelector<HTMLButtonElement>('[data-menu-item="true"]:not([disabled])')?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))
+  }, [])
+  return { ref, onKeyDown }
+}
+
 function FilterRootMenu({
   hasSectors,
   onPickSectors,
@@ -201,38 +236,16 @@ function FilterRootMenu({
   onPickSectors: () => void
   onPickCreated: () => void
 }) {
+  const step = useMenuStep()
   return (
-    <ul role="none" className="text-meta">
-      <li role="none">
-        <button
-          type="button"
-          role="menuitem"
-          onClick={onPickSectors}
-          disabled={!hasSectors}
-          // The shared menu row (MC-2103) — a verbatim re-type of its content
-          // drifts the moment the canon moves (ripple review, 2026-08-05).
-          className={[
-            MENU_ITEM_CLASS,
-            'justify-between',
-            'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
-          ].join(' ')}
-        >
-          <span>Review type</span>
-          <ChevronGlyph />
-        </button>
-      </li>
-      <li role="none">
-        <button
-          type="button"
-          role="menuitem"
-          onClick={onPickCreated}
-          className={`${MENU_ITEM_CLASS} justify-between text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
-        >
-          <span>Created</span>
-          <ChevronGlyph />
-        </button>
-      </li>
-    </ul>
+    <div ref={step.ref} onKeyDown={step.onKeyDown}>
+      <MenuItem onClick={onPickSectors} disabled={!hasSectors} trailing={<ChevronGlyph />}>
+        Review type
+      </MenuItem>
+      <MenuItem onClick={onPickCreated} trailing={<ChevronGlyph />}>
+        Created
+      </MenuItem>
+    </div>
   )
 }
 
@@ -250,39 +263,31 @@ function SectorPicker({
   onClear: () => void
 }) {
   const selectedSet = useMemo(() => new Set(selected), [selected])
+  const step = useMenuStep()
   return (
-    <div className="min-w-[220px] py-1 text-meta">
+    <div ref={step.ref} onKeyDown={step.onKeyDown} className="min-w-[220px]">
       {onBack ? <PickerHeader title="Review type" onBack={onBack} /> : null}
-      <ul role="menu" className="max-h-[260px] overflow-y-auto">
+      <div className="max-h-[260px] overflow-y-auto">
         {sectors.map(({ sector, count }) => {
           const checked = selectedSet.has(sector.id)
           return (
-            <li key={sector.id} role="none">
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={checked}
-                onClick={() => onToggle(sector.id)}
-                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
-              >
-                <CheckboxGlyph checked={checked} />
-                <span className="min-w-0 flex-1 truncate">{sector.label}</span>
-                <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">{count}</span>
-              </button>
-            </li>
+            <MenuItem
+              key={sector.id}
+              checked={checked}
+              onClick={() => onToggle(sector.id)}
+              icon={<CheckboxGlyph checked={checked} />}
+              trailing={<span className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">{count}</span>}
+            >
+              {sector.label}
+            </MenuItem>
           )
         })}
-      </ul>
+      </div>
       {selected.length > 0 ? (
-        <div className="border-t border-[color:var(--border-default)] px-1 pt-1">
-          <button
-            type="button"
-            onClick={onClear}
-            className="w-full rounded-[5px] px-2 py-1.5 text-left text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            Clear selection
-          </button>
-        </div>
+        <>
+          <MenuDivider />
+          <MenuItem onClick={onClear}>Clear selection</MenuItem>
+        </>
       ) : null}
     </div>
   )
@@ -299,38 +304,29 @@ function CreatedPicker({
   onBack?: () => void
   onClear: () => void
 }) {
+  const step = useMenuStep()
   return (
-    <div className="min-w-[180px] py-1 text-meta">
+    <div ref={step.ref} onKeyDown={step.onKeyDown} className="min-w-[180px]">
       {onBack ? <PickerHeader title="Created" onBack={onBack} /> : null}
-      <ul role="menu">
-        {INBOX_CREATED_RANGES.map((range) => {
-          const active = value === range.id
-          return (
-            <li key={range.id} role="none">
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                onClick={() => onChange(range.id)}
-                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
-              >
-                <RadioGlyph active={active} />
-                <span className="min-w-0 flex-1 truncate">{range.label}</span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-      {value ? (
-        <div className="border-t border-[color:var(--border-default)] px-1 pt-1">
-          <button
-            type="button"
-            onClick={onClear}
-            className="w-full rounded-[5px] px-2 py-1.5 text-left text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+      {INBOX_CREATED_RANGES.map((range) => {
+        const active = value === range.id
+        return (
+          <MenuItem
+            key={range.id}
+            selection="one-of"
+            checked={active}
+            onClick={() => onChange(range.id)}
+            icon={<RadioGlyph active={active} />}
           >
-            Clear selection
-          </button>
-        </div>
+            {range.label}
+          </MenuItem>
+        )
+      })}
+      {value ? (
+        <>
+          <MenuDivider />
+          <MenuItem onClick={onClear}>Clear selection</MenuItem>
+        </>
       ) : null}
     </div>
   )
@@ -338,15 +334,10 @@ function CreatedPicker({
 
 function PickerHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <div className="flex items-center gap-1.5 border-b border-[color:var(--border-default)] px-2 py-1.5">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label="Back to filters"
-        className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
-      >
+    <div className="flex items-center gap-1 px-1 pb-1">
+      <IconButton aria-label="Back to filters" onClick={onBack}>
         <BackGlyph />
-      </button>
+      </IconButton>
       <span className="text-meta font-medium text-[color:var(--text-strong)]">{title}</span>
     </div>
   )
@@ -376,7 +367,7 @@ function FilterChip({
         onOpenChange={onOpenChange}
         ariaLabel={`Edit ${label.toLowerCase()} filter`}
         popupRole="menu"
-        surfaceClassName="py-0"
+        surfaceClassName={MENU_LIST_CLASS}
         renderTrigger={({ ref, triggerProps }) => (
           <button
             ref={ref}

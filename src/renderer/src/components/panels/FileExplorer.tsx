@@ -13,8 +13,10 @@ import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
 import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
-import { IconButton } from '../ui/Buttons'
+import { IconButton, OutlineButton, PrimaryButton } from '../ui/Buttons'
+import { EmptyState } from '../ui/EmptyState'
 import { PanelHeader } from '../ui/PanelHeader'
+import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -188,70 +190,56 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   return rows
 }
 
-// File-type chip — language identity carried by an accent hue plus a two-letter
-// label. Background and border are derived from the accent at render time via
-// color-mix(), so the chip tints the current --bg-surface toward the language
-// color. On dark surfaces the chip lands as a dark wash of the hue; on light
-// surfaces as a soft pastel. Chrome around the chip (row hover, selection)
-// uses semantic tokens elsewhere in this file.
-// design-tokens-allow-block: language-identity accent palette (TS blue, PY green, etc.)
-function fileAppearance(name: string): { accent: string; label: string } {
-  if (name === 'package.json') return { accent: '#f2c45f', label: '{}' }
+// File-type chip — language identity carried by a mono label on a neutral chip.
+// It used to carry sixteen hard-coded hex hues written into `style` (a palette
+// no theme could reach, doubled hairline, `rounded-[4px]`, weight 900). Ruled
+// 2026-09-02: the chip is a label species — `--bg-active` ground, one
+// `--border-subtle` hairline, chip radius, muted mono ink — and category colour
+// is not a status channel (principles.md → Tokens or nothing).
+function fileTypeLabel(name: string): string {
+  if (name === 'package.json') return '{}'
   const ext = name.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'ts':
     case 'tsx':
-      return { accent: '#7db3ff', label: 'TS' }
+      return 'TS'
     case 'js':
     case 'jsx':
-      return { accent: '#f2d36b', label: 'JS' }
+      return 'JS'
     case 'java':
-      return { accent: '#f19974', label: 'JV' }
+      return 'JV'
     case 'py':
-      return { accent: '#84d69b', label: 'PY' }
+      return 'PY'
     case 'rs':
-      return { accent: '#f19974', label: 'RS' }
+      return 'RS'
     case 'go':
-      return { accent: '#7bd7ea', label: 'GO' }
+      return 'GO'
     case 'json':
-      return { accent: '#f2c45f', label: '{}' }
+      return '{}'
     case 'yaml':
     case 'yml':
-      return { accent: '#f2c45f', label: 'YML' }
+      return 'YML'
     case 'md':
-      return { accent: '#cfd2dd', label: 'MD' }
+      return 'MD'
     case 'txt':
-      return { accent: '#b9bcc8', label: 'TXT' }
+      return 'TXT'
     case 'html':
-      return { accent: '#ff9f75', label: '<>' }
+      return '<>'
     case 'css':
     case 'scss':
-      return { accent: '#7db3ff', label: '#' }
+      return '#'
     case 'sh':
     case 'bash':
-      return { accent: '#84d69b', label: 'SH' }
+      return 'SH'
     default:
-      return { accent: '#a6abb8', label: '.' }
+      return '.'
   }
 }
-// design-tokens-allow-end
 
 function FileIcon({ name }: { name: string }) {
-  const { accent, label } = fileAppearance(name)
-  // color-mix tints the current theme surface toward the language hue, so the
-  // chip lands native on every theme without a per-theme palette table.
-  const bg = `color-mix(in oklab, var(--bg-surface) 84%, ${accent})`
-  const border = `color-mix(in oklab, var(--bg-surface) 55%, ${accent})`
-  // On dark --file-badge-ink-mix is 0% so the label is the pure language hue;
-  // on Light it rises to ~50% so the hue is pulled toward ink and stays legible
-  // on the near-white chip instead of washing out (amber was ~1.6:1).
-  const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix, 0%))`
   return (
-    <span
-      className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-micro font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
-      style={{ color: ink, backgroundColor: bg, borderColor: border }}
-    >
-      {label}
+    <span className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] font-mono text-micro font-semibold leading-none text-[color:var(--text-muted)]">
+      {fileTypeLabel(name)}
     </span>
   )
 }
@@ -284,33 +272,22 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
   )
 }
 
-// design-tokens-allow: folder-glyph identity palette — the yellow folder icon
-// is a brand-recognisable folder mark, not chrome. Chrome around it (row hover,
-// selection) uses semantic tokens.
+// The folder mark draws in `currentColor` at two strengths — the back flap held
+// back, the body full — so it reads as a folder by shape on every theme and
+// takes its ink from the row (muted at rest, default on hover, strong when
+// selected) rather than from a private yellow palette (ruled 2026-09-02).
 function FolderIcon({ expanded }: { expanded: boolean }) {
   return (
-    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center">
-      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6">
+    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center text-[color:var(--text-muted)]">
+      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6" fill="currentColor">
         <path
           d="M2.5 5.8c0-1.1.9-2 2-2h5.1l1.9 2.1h8c1.1 0 2 .9 2 2v.95h-19V5.8Z"
-          // design-tokens-allow: folder-glyph palette
-          fill={expanded ? '#ffe18a' : '#f2c45f'}
-          // design-tokens-allow: folder-glyph palette
-          stroke="#7a5b18"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
+          fillOpacity={expanded ? 0.55 : 0.45}
         />
         <path
           d="M2.25 8.4h19.5l-1.45 7.25c-.22 1.06-1.15 1.85-2.23 1.85H5.93c-1.08 0-2.01-.79-2.23-1.85L2.25 8.4Z"
-          // design-tokens-allow: folder-glyph palette
-          fill={expanded ? '#f4b94f' : '#d9992f'}
-          // design-tokens-allow: folder-glyph palette
-          stroke="#7a5b18"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
+          fillOpacity={expanded ? 0.95 : 0.8}
         />
-        {/* design-tokens-allow: folder-glyph palette */}
-        <path d="M5.5 10.35h13" stroke="#ffe7a5" strokeWidth="1.15" strokeLinecap="round" opacity="0.7" />
       </svg>
     </span>
   )
@@ -2090,21 +2067,30 @@ function ExplorerTree({
         // field would push every sibling row down while one is being renamed,
         // which is the one thing an in-place edit must not do. Everything else
         // — the border token, the ground, the focus ring — is the kit's.
-        className={`h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--border-strong)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS} ${className}`}
+        className={`h-5 min-w-0 flex-1 rounded-xs border border-[color:var(--border-strong)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS} ${className}`}
       />
     )
   }
 
+  // Three data states, three idioms (principles.md → Accessibility): loading is
+  // the skeleton the panel already owns, a live search is the spinner with its
+  // word, and an exhausted search is the kit's empty state — never a sentence in
+  // disabled ink that reads the same whichever of the three it is.
   if (loading) {
-    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">Loading...</div>
+    return <FileExplorerSkeleton />
   }
 
   if (isSearching && searching) {
-    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">Searching...</div>
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 text-micro text-[color:var(--text-muted)]">
+        <Spinner size={12} />
+        <span role="status">Searching…</span>
+      </div>
+    )
   }
 
   if (isSearching && activeRows.length === 0) {
-    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">No matching files</div>
+    return <EmptyState density="list" title="No matching files" />
   }
 
   return (
@@ -2218,7 +2204,7 @@ function ExplorerTree({
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">{gitAppearance.badge}</span>
                   )}
                 </>
               ) : (
@@ -2231,7 +2217,7 @@ function ExplorerTree({
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">{gitAppearance.badge}</span>
                   )}
                 </>
               )}
@@ -2554,34 +2540,25 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
         ) : checkingFolder ? (
           <FileExplorerSkeleton />
         ) : folderMissing && folderPath ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[color:var(--text-disabled)]">
-            <p className="text-meta">Saved folder is missing.</p>
-            <p className="max-w-full truncate font-mono text-micro text-[color:var(--text-muted)]">{folderPath}</p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void recheckFolder()}
-                className={`rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-              >
-                Retry
-              </button>
-              <button
-                onClick={handleOpen}
-                className={`rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-micro font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)] ${FOCUS_RING_CLASS}`}
-              >
-                Relink
-              </button>
-            </div>
-          </div>
+          // The kit's empty state, with the view's one primary on Relink and the
+          // retry as its outline sibling — not two hand-rolled buttons, one of
+          // them an accent-tinted fourth variant and the other bordered in a
+          // fill token (2026-09-02 audit).
+          <EmptyState
+            title="Saved folder is missing"
+            body={<span className="block max-w-full truncate font-mono">{folderPath}</span>}
+            action={
+              <>
+                <OutlineButton onClick={() => void recheckFolder()}>Retry</OutlineButton>
+                <PrimaryButton onClick={handleOpen}>Relink</PrimaryButton>
+              </>
+            }
+          />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--text-disabled)]">
-            <p className="px-4 text-center text-meta">No folder open</p>
-            <button
-              onClick={handleOpen}
-              className={`rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-            >
-              Open Folder
-            </button>
-          </div>
+          <EmptyState
+            title="No folder open"
+            action={<PrimaryButton onClick={handleOpen}>Open folder</PrimaryButton>}
+          />
         )}
       </div>
     </div>

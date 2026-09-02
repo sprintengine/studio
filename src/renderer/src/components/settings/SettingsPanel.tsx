@@ -28,7 +28,6 @@ import {
   CliProviderStateLine,
   EmptyState,
   Field,
-  FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InlineNotice,
@@ -39,6 +38,7 @@ import {
   ProviderStateId,
   RefreshIcon,
   resolveCliProviderState,
+  SegmentedControl,
   Spinner,
   StatusDot,
   Switch,
@@ -456,18 +456,18 @@ function PluginModelSettings({
       <div className="text-body font-medium text-[color:var(--text-strong)]">Custom model ids</div>
       <div className="mt-2 space-y-1">
         {userModels.map((model) => (
-          <div key={model} className="group -mx-1 flex h-control-md items-center gap-2 rounded px-1">
+          <div key={model} className="group -mx-1 flex h-control-md items-center gap-2 rounded-sm px-1">
             <span className="min-w-0 flex-1 truncate font-mono text-body text-[color:var(--text-default)]">
               {model}
             </span>
-            <button
-              type="button"
+            <GhostButton
+              size="xs"
               onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
-              className="invisible rounded px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+              className="invisible focus-visible:visible group-focus-within:visible group-hover:visible"
             >
               Remove
               <span className="sr-only"> {model} from {displayName} models</span>
-            </button>
+            </GhostButton>
           </div>
         ))}
         <Input
@@ -1885,27 +1885,18 @@ export default function SettingsPanel({
           {window.api.platform === 'darwin' ? (
             <div className="space-y-2">
               <SettingsSectionTitle>Window material</SettingsSectionTitle>
-              <div
-                role="group"
-                aria-label="Window material"
-                className="inline-flex gap-0.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5"
-              >
-                {(['solid', 'glass'] as const).map((material) => (
-                  <button
-                    key={material}
-                    type="button"
-                    aria-pressed={appearanceWindowMaterial === material}
-                    onClick={() => setAppearanceWindowMaterial(material)}
-                    className={`interactive rounded px-3.5 py-1 text-body font-medium focus-visible:focus-ring ${
-                      appearanceWindowMaterial === material
-                        ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-                        : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                    }`}
-                  >
-                    {material === 'solid' ? 'Solid' : 'Glass'}
-                  </button>
-                ))}
-              </div>
+              {/* A value choice, so the kit's segmented control: one tab stop,
+                  arrow keys, and a neutral selected segment — not an
+                  aria-pressed pair painted with the accent. */}
+              <SegmentedControl<'solid' | 'glass'>
+                ariaLabel="Window material"
+                items={[
+                  { value: 'solid', label: 'Solid' },
+                  { value: 'glass', label: 'Glass' },
+                ]}
+                value={appearanceWindowMaterial}
+                onChange={setAppearanceWindowMaterial}
+              />
             </div>
           ) : null}
         </div>
@@ -1942,7 +1933,7 @@ export default function SettingsPanel({
             {/* Identity row with one state-driven action: the update flow is a
                 line (check → download → restart), so only the current step's
                 action renders instead of three buttons with two disabled. */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-4">
               <div className="flex min-w-0 items-center gap-2.5">
                 <SprintEngineFrond tone="current" className="icon-md shrink-0" />
                 <div className="min-w-0">
@@ -1955,13 +1946,9 @@ export default function SettingsPanel({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void window.api.updateOpenReleaseNotes()}
-                  className={`text-body font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-                >
+                <GhostButton size="md" onClick={() => void window.api.updateOpenReleaseNotes()}>
                   Release notes
-                </button>
+                </GhostButton>
                 {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
                   <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
                     Restart to install
@@ -2486,12 +2473,11 @@ export default function SettingsPanel({
                           </p>
                         ) : null}
                         {warnings.map((warning) => (
-                          <p
-                            key={`${role.id}:${warning.code}:${warning.message}`}
-                            className="mt-1 text-body leading-5 text-[color:var(--tone-warn)]"
-                          >
+                          // Degraded, not failed: the role still runs. The glyph
+                          // and the role carry the tone; the copy stays readable.
+                          <InlineNotice key={`${role.id}:${warning.code}:${warning.message}`} tone="warn" className="mt-1">
                             Warning: {warning.message}
-                          </p>
+                          </InlineNotice>
                         ))}
                       </div>
                       <Switch
@@ -2586,25 +2572,28 @@ export default function SettingsPanel({
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
                         {userRoleAuthoringSupported ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
+                          // The reveal lives on the wrapper, not the buttons: a
+                          // button's own `disabled:opacity-45` would otherwise
+                          // fight the `opacity-0` rest state and lift a dead
+                          // control into view on its own.
+                          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                            <GhostButton
+                              size="xs"
                               onClick={() => void openEditRole(role.id)}
                               disabled={editLoading || deletePending}
-                              className={`rounded px-1.5 py-0.5 text-meta font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {editLoading ? 'Opening' : 'Edit'}
                               <span className="sr-only"> {role.label}</span>
-                            </button>
-                            <button
-                              type="button"
+                            </GhostButton>
+                            <GhostButton
+                              size="xs"
+                              tone="danger"
                               onClick={() => void deleteUserRole(role.id, role.label)}
                               disabled={editLoading || deletePending}
-                              className={`rounded px-1.5 py-0.5 text-meta font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {deletePending ? 'Deleting' : 'Delete'}
                               <span className="sr-only"> {role.label}</span>
-                            </button>
+                            </GhostButton>
                           </div>
                         ) : null}
                         <span className="font-mono text-meta text-[color:var(--text-subtle)]">{role.id}</span>

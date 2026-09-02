@@ -208,7 +208,10 @@ export function ProviderRow({
           only focusable control for it, so there is exactly one tab stop and
           one aria-expanded per row rather than a row-button wrapping a
           button. A selectable row spends that one tab stop on its face button
-          instead, and its trailing action keeps its own. */}
+          instead, and its trailing action keeps its own. The face announces
+          `aria-pressed`, not `aria-expanded`: selection is a toggled state of
+          the row, and "expanded" belongs to the chevron's disclosure only —
+          a reader hearing "expanded" on a face with no pane is being lied to. */}
       <div
         {...(disclosable ? { onClick: toggleExpanded } : {})}
         className={[
@@ -232,7 +235,7 @@ export function ProviderRow({
           <button
             type="button"
             onClick={onSelect}
-            aria-expanded={selected}
+            aria-pressed={selected}
             aria-label={`Show details for ${name}`}
             className={`flex min-w-0 flex-1 items-start gap-3 rounded-[var(--radius-xs)] text-left ${FOCUS_RING_CLASS}`}
           >
@@ -287,7 +290,8 @@ export function ProviderRow({
           expansion would have every row probing at once.
 
           pl-11 = the row's own 10px inset + the 22px mark + the 12px gap, so
-          the detail starts on the same left edge as the name above it. */}
+          the detail starts on the same left edge as the name above it.
+          design-tokens-allow: alignment — the detail's left edge is the name's (10px inset + 22px mark + 12px gap), structure not rhythm */}
       {open ? (
         <div id={detailId} className="pb-3 pl-11 pr-2.5">
           {children}

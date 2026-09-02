@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react'
+import { Input } from './Input'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from './Modal'
-import { FOCUS_RING_CLASS } from './tokens'
 
 type ConfirmTone = 'default' | 'danger'
 
@@ -217,8 +217,13 @@ function PromptDialog({
               label above it restates the title in smaller type. `inputLabel`
               becomes the accessible name instead — the label still exists for
               a screen reader, it just stops being redundant on screen. */}
-          <input
+          {/* The kit's field, at the overlay step: `md` (34px) is the ramp's
+              size for a control inside a dialog, and `Input` brings the
+              `--bg-field` ground, the hover edge, the `aria-invalid` edge and
+              the disabled state the bare input here used to lack. */}
+          <Input
             id={inputId}
+            size="md"
             value={value}
             autoFocus
             placeholder={options.placeholder}
@@ -230,12 +235,6 @@ function PromptDialog({
               setTouched(true)
               setValue(event.currentTarget.value)
             }}
-            className={[
-              'block h-8 w-full rounded-[5px] border border-[color:var(--border-default)]',
-              'bg-[color:var(--bg-surface-raised)] px-2 text-body text-[color:var(--text-strong)]',
-              'placeholder:text-[color:var(--text-disabled)]',
-              FOCUS_RING_CLASS,
-            ].join(' ')}
           />
           {shownError ? (
             <p id={`${inputId}-error`} className="text-micro text-[color:var(--tone-error)]">

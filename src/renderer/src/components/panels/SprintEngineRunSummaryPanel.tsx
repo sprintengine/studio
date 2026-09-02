@@ -745,7 +745,7 @@ function ImplementationTable({
         </Table>
       </div>
       {anySelfReported ? (
-        <p className="mt-1.5 text-micro text-[color:var(--text-disabled)]">
+        <p className="mt-1.5 text-micro text-[color:var(--text-muted)]">
           ° Self-reported — found by the agent reviewing its own work; no independent review.
         </p>
       ) : null}
@@ -901,11 +901,11 @@ function PlanningTable({
         <div className="mt-4">
           <div className="mb-1.5 flex items-baseline gap-1.5 text-meta text-[color:var(--text-muted)]">
             Plan quality
-            <span className="text-micro text-[color:var(--text-disabled)]">
+            <span className="text-micro text-[color:var(--text-muted)]">
               self-reported on {qualitySamples} of {totalTasks} task{totalTasks === 1 ? '' : 's'}
             </span>
           </div>
-          <div className="grid gap-x-10 sm:grid-cols-2">
+          <div className="grid gap-x-8 sm:grid-cols-2">
             {planQuality.map((stat) => (
               <div
                 key={stat.key}
@@ -941,16 +941,22 @@ function WorkTypeHeading({ label, count }: { label: string; count?: number }) {
 }
 
 // Marks a value the agent reported reviewing its OWN work (no independent
-// review). Rendered as a superscript ° with the explanation on hover.
+// review). Rendered as a superscript ° whose explanation rides the product
+// tooltip on a focusable trigger — not a native `title` on a span no keyboard
+// could reach (tooltip/component.md; 2026-09-02 audit). The table's footnote
+// repeats the sentence for anyone who never lands on the mark.
 function SelfReportedMark() {
   return (
-    <span
-      title="Self-reported — found by the agent reviewing its own work; no independent review."
-      aria-label="self-reported"
-      className="ml-0.5 align-super text-micro leading-none text-[color:var(--text-disabled)]"
-    >
-      °
-    </span>
+    <Tooltip content="Self-reported — found by the agent reviewing its own work; no independent review." placement="top">
+      <span
+        role="img"
+        aria-label="self-reported"
+        tabIndex={0}
+        className={`ml-0.5 rounded-xs align-super text-micro leading-none text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+      >
+        °
+      </span>
+    </Tooltip>
   )
 }
 
@@ -1231,7 +1237,7 @@ function FindingItem({
               </p>
             ) : null}
             {finding.file ? (
-              <p className="mt-1 font-mono text-micro text-[color:var(--text-disabled)] [overflow-wrap:anywhere]">
+              <p className="mt-1 font-mono text-micro text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
                 {finding.file}
               </p>
             ) : null}
@@ -1253,7 +1259,7 @@ function IssuesCaughtSection({
         title="Issues caught in review"
         count={issueTotals.total > 0 ? issueTotals.total : undefined}
         action={
-          <span className="text-meta text-[color:var(--text-disabled)]">
+          <span className="text-meta text-[color:var(--text-muted)]">
             {issueTotals.includesSelfReported
               ? issueTotals.hasMeasured
                 ? 'flagged by reviewers and self-review during the run'
@@ -1266,9 +1272,7 @@ function IssuesCaughtSection({
         {issueTotals.hasMeasured || issueTotals.includesSelfReported ? (
           <IssueBars items={issueTotals.items} />
         ) : (
-          <p className="text-meta text-[color:var(--text-disabled)]">
-            No issues were flagged by reviewers this run.
-          </p>
+          <EmptyState density="list" title="No issues were flagged by reviewers this run." />
         )}
       </Section>
     </SectionDivider>
@@ -1436,7 +1440,7 @@ function RunOverviewSection({
   return (
     <Section title="Run overview" level={3}>
       <div className="flex flex-wrap items-center gap-x-8 gap-y-5">
-        <div className="flex items-center gap-7">
+        <div className="flex items-center gap-8">
           <ProgressRing
             valuePct={completionPct}
             primaryLabel={`${completionPct}%`}
@@ -1559,7 +1563,7 @@ function AgentTypeSummarySection({ summary }: { summary: SprintEngineAgentTypeSu
   const comparison = compareCliDeliveryScores(summary.clis)
   return (
     <SectionDivider>
-      <Section title="Delivery Score" count={summary.roles.length} level={3}>
+      <Section title="Delivery score" count={summary.roles.length} level={3}>
         <div className="mb-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-meta leading-5 text-[color:var(--text-muted)]">
           {comparison ? (
             <span>

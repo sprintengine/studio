@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { ReviewChangeSet, ReviewComment } from '../../../../shared/review'
 import { PrimaryButton, GhostButton } from '../../components/ui/Buttons'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import {
   commentLocationLabel,
   commentsToMarkdown,
@@ -55,7 +56,7 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
   if (comments.length === 0) {
     return (
       <p className="px-1 py-2 text-meta leading-5 text-[color:var(--text-subtle)]">
-        No comments yet. Hover any line in the walkthrough — added or removed — and click <span className="font-medium text-[color:var(--accent-primary)]">+</span> to leave one; they collect here as one review.
+        No comments yet. Hover any line in the walkthrough — added or removed — and click <span className="font-medium text-[color:var(--text-strong)]">+</span> to leave one; they collect here as one review.
       </p>
     )
   }
@@ -105,8 +106,13 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
             )
           ) : null}
         </div>
+        {/* The whole-batch failure is the shared error card — glyph, role, and
+            the tint — with the Post button above as its retry; never red ink
+            on its own. */}
         {postError ? (
-          <p className="mt-1.5 text-micro leading-4 text-[color:var(--tone-error)]">{postError}</p>
+          <InlineNotice tone="error" className="mt-2">
+            {postError}
+          </InlineNotice>
         ) : null}
       </div>
     </div>

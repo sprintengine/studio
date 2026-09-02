@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
-import { SprintsRail } from './SprintsRail'
+import { buildSprintRailGroups } from './railState'
+import { SprintsRail, sprintRowTooltip } from './SprintsRail'
 
 function run(name: string, body: () => void): void {
   try {
@@ -85,14 +86,21 @@ run('renders each run with its name, plain state line, and the New sprint afford
   assert.ok(html.includes('aria-current="true"'), 'marks the selected row')
 })
 
-// Every row carries a hover tooltip with the untruncated title AND state, so a
-// clipped name or a terse glyph is always readable in place.
+// Every row carries a whole-row tooltip with the untruncated title AND state, so
+// a clipped name or a terse glyph is always readable in place. It is the
+// product `Tooltip` on the row button — opened on hover or focus, so it is not
+// in static markup — never a native `title`, which the keyboard cannot reach.
 run('rows carry a tooltip naming the run, its lifecycle state, and its state line', () => {
-  const html = render()
-  assert.ok(
-    html.includes('title="wake-filter-sprint — Running · multicode · running · 4 of 9 tasks"'),
+  const rows = buildSprintRailGroups(runs, null, 'recent').flatMap((group) => group.rows)
+  const row = rows.find((candidate) => candidate.title === 'wake-filter-sprint')
+  assert.ok(row, 'the running sprint is a rail row')
+  assert.equal(
+    sprintRowTooltip(row),
+    'wake-filter-sprint — Running · multicode · running · 4 of 9 tasks',
     'the tooltip joins name, glyph state, and state line',
   )
+  const html = render()
+  assert.ok(!html.includes('title="wake-filter-sprint'), 'and it is never a native title attribute')
 })
 
 run('a run whose workspace is long gone still lists — the rail reads the index, not the rail', () => {

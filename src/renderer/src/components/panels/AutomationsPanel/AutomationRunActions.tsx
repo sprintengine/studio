@@ -1,4 +1,4 @@
-import { GhostButton, Tooltip } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, Tooltip } from '../../ui'
 import type { AutomationRun } from '../../../../../shared/automations/contracts'
 import { extractReportPaths } from '../../automations/reportPaths'
 
@@ -44,7 +44,7 @@ export function AutomationRunActions({
             href={run.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:underline"
+            className={`inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
           >
             Pull request
           </a>

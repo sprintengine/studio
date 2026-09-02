@@ -55,12 +55,15 @@ import {
 import { dispatchRevealTarget } from '../../../../utils/revealTarget'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import {
+  DefinitionList,
   GhostButton,
   OverflowMenu,
   Popover,
   PrimaryButton,
   Spinner,
+  TruncatedText,
   useConfirmDialog,
+  type DefinitionItem,
   type OverflowMenuItem,
 } from '../../../ui'
 import { SuspenseFallback } from '../../../ui/SuspenseFallback'
@@ -307,64 +310,65 @@ function RunRollupPanel({ model }: { model: SprintRunCanvasModel }): JSX.Element
   }).length
   const started = sprintRunShortDate(model.run.startedAt)
 
+  // One chip in the panel, on the row whose state is not already obvious from
+  // its own words: landing. The task counts, the roster, and the seed each read
+  // their state in the line itself — a second dot beside them would only invite
+  // the two to look like they disagree.
+  const landed = landedChip(model)
+  const items: DefinitionItem[] = [
+    {
+      term: 'Tasks',
+      description:
+        tasks.length === 0
+          ? 'No tasks planned yet'
+          : `${done} done · ${inProgress} in progress · ${waiting} waiting`,
+    },
+    {
+      term: 'Agents',
+      description: rosterLine(
+        // A role names the agent when it has one; an agent with none is named
+        // by its own row label, which is its id (MC-2055). Never "Unknown
+        // role", which is what the accessor says about an id it cannot
+        // resolve — absence is known.
+        roster.map((member) => (member.role ? getSprintEngineRoleLabel(member.role) : member.label)),
+        working,
+        // Why "Open agents" is disabled, in plain sight rather than on hover:
+        // the run's terminals live in its workspace, and that workspace is gone.
+        model.residentWorkspaceId === null,
+      ),
+    },
+    {
+      term: 'Landed',
+      description: landed ? (
+        <span className="flex items-baseline gap-3">
+          <span className="min-w-0 flex-1">{landedLine(model)}</span>
+          <span className="shrink-0">{landed}</span>
+        </span>
+      ) : (
+        landedLine(model)
+      ),
+    },
+    ...(model.run.sourceLabel
+      ? [
+          {
+            term: 'Started from',
+            description: [model.run.sourceLabel, sourceLine(model)].filter(Boolean).join(' · '),
+          },
+        ]
+      : []),
+    ...(started ? [{ term: 'Started', description: started }] : []),
+  ]
+
+  // The kit's label / value rows, so this frame and Automations' definition
+  // facts align on one term column and one type step rather than a private
+  // `w-[92px]` column and hairline rows of their own.
   return (
     <section
-      className="flex flex-col rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-1"
+      className="flex flex-col rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
       aria-label="Run"
     >
-      {/* One chip in the panel, on the row whose state is not already obvious from
-          its own words: landing. The task counts, the roster, and the seed each
-          read their state in the line itself — a second dot beside them would only
-          invite the two to look like they disagree. */}
-      <RollupRow
-        label="Tasks"
-        value={
-          tasks.length === 0
-            ? 'No tasks planned yet'
-            : `${done} done · ${inProgress} in progress · ${waiting} waiting`
-        }
-      />
-      <RollupRow
-        label="Agents"
-        value={rosterLine(
-          // A role names the agent when it has one; an agent with none is named
-          // by its own row label, which is its id (MC-2055). Never "Unknown
-          // role", which is what the accessor says about an id it cannot
-          // resolve — absence is known.
-          roster.map((member) => (member.role ? getSprintEngineRoleLabel(member.role) : member.label)),
-          working,
-          // Why "Open agents" is disabled, in plain sight rather than on hover:
-          // the run's terminals live in its workspace, and that workspace is gone.
-          model.residentWorkspaceId === null,
-        )}
-      />
-      <RollupRow label="Landed" value={landedLine(model)} chip={landedChip(model)} />
-      {model.run.sourceLabel ? (
-        <RollupRow
-          label="Started from"
-          value={[model.run.sourceLabel, sourceLine(model)].filter(Boolean).join(' · ')}
-        />
-      ) : null}
-      {started ? <RollupRow label="Started" value={started} /> : null}
+      <DefinitionList items={items} />
     </section>
-  )
-}
-
-function RollupRow({
-  label,
-  value,
-  chip,
-}: {
-  label: string
-  value: string
-  chip?: React.ReactNode
-}): JSX.Element {
-  return (
-    <div className="flex items-baseline gap-3 border-b border-[color:var(--border-subtle)] py-1.5 last:border-b-0">
-      <span className="w-[92px] shrink-0 text-micro text-[color:var(--text-subtle)]">{label}</span>
-      <span className="min-w-0 flex-1 text-meta text-[color:var(--text-default)]">{value}</span>
-      {chip ? <span className="shrink-0">{chip}</span> : null}
-    </div>
   )
 }
 
@@ -688,9 +692,11 @@ function TokenUsageAction({ model }: { model: SprintRunCanvasModel }): JSX.Eleme
           </div>
           {report.run.perModel.map((row) => (
             <div key={row.model} className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-micro text-[color:var(--text-muted)]" title={row.model}>
-                {row.model}
-              </span>
+              <TruncatedText
+                as="span"
+                text={row.model}
+                className="min-w-0 text-micro text-[color:var(--text-muted)]"
+              />
               <span className="tabular-nums text-micro text-[color:var(--text-default)]">
                 {formatTokenCount(row.total)}
               </span>

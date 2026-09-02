@@ -650,7 +650,7 @@ export function HtmlArtifactFrame({
                 <>
                   <span
                     aria-hidden="true"
-                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-micro font-bold leading-none"
+                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-micro font-semibold leading-none"
                   >
                     !
                   </span>
@@ -780,7 +780,7 @@ export function HtmlArtifactFrame({
       ) : annotateActive && composer.kind === 'closed' ? (
         <span
           role="status"
-          className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-micro text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
+          className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-pane)] -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-micro text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
         >
           Click any element in the preview to pin a note
         </span>

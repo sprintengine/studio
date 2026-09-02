@@ -52,7 +52,7 @@ export function TopBar({
     //
     // NOT the primitive itself, deliberately. PanelHeader carries one action
     // plus an overflow menu; this bar carries a view toggle and four controls,
-    // and one of them — "Your review" with its pending count in the accent — is
+    // and one of them — "Your review" with its pending count — is
     // discoverable-without-opening-the-drawer by design (see below). Moving
     // that set into a kebab is a product decision about the review loop, not a
     // consequence of standardising a header, so the row keeps its control set
@@ -60,7 +60,10 @@ export function TopBar({
     <div className="flex shrink-0 items-center gap-2.5 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
       <span className="shrink-0 text-body font-semibold text-[color:var(--text-strong)]">{title}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-meta text-[color:var(--text-subtle)]">{source}</span>
-      <span className="shrink-0 rounded-[5px] border border-[color:var(--border-default)] px-2 py-0.5 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
+      {/* The stats are a fact about the change, not a label about a row, so
+          they are plain copy — the same line the prepare shell prints — rather
+          than an ad-hoc bordered pill beside the kit's `Badge`. */}
+      <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
         {stats.files} {stats.files === 1 ? 'file' : 'files'} · <span className="text-[color:var(--tone-good)]">+{stats.additions}</span>{' '}
         <span className="text-[color:var(--tone-error)]">−{stats.deletions}</span>
       </span>
@@ -78,7 +81,7 @@ export function TopBar({
       />
       {onOpenChat ? (
         <GhostButton onClick={onOpenChat} className="shrink-0">
-          <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
+          <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
             <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
           </svg>
           Ask the guide
@@ -86,19 +89,16 @@ export function TopBar({
       ) : null}
       {onOpenReview ? (
         (() => {
-          // Pending comments give "Your review" an accent affordance so the loop's
+          // Pending comments show as a count on "Your review" so the loop's
           // payoff — post these to the PR — is discoverable without opening the
-          // drawer: a soft accent fill plus the count in accent. Zero pending: the
-          // plain ghost button, no competing accent.
+          // drawer. The count is neutral ink: a resting count must not outrank
+          // the view's one solid action, and the accent is that action's alone.
           const pending = typeof reviewCount === 'number' && reviewCount > 0
           return (
-            <GhostButton
-              onClick={onOpenReview}
-              className={`shrink-0${pending ? ' bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]' : ''}`}
-            >
+            <GhostButton onClick={onOpenReview} className="shrink-0">
               Your review
               {pending ? (
-                <span className="font-medium tabular-nums text-[color:var(--accent-primary)]"> · {reviewCount}</span>
+                <span className="font-medium tabular-nums text-[color:var(--text-strong)]"> · {reviewCount}</span>
               ) : null}
             </GhostButton>
           )

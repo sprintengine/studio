@@ -11,7 +11,7 @@ import {
   type DiffFileItem,
 } from './diffFileList'
 import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
-import { EmptyState, InlineNotice } from '../ui'
+import { EmptyState, IconButton, InlineNotice } from '../ui'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 
 type Props = {
@@ -101,12 +101,11 @@ function ChevronButton({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
+    <IconButton
       onClick={onClick}
       disabled={disabled}
       aria-label={direction === 'down' ? 'Next change' : 'Previous change'}
-      className="app-no-drag inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:text-[color:var(--text-subtle)] focus-visible:focus-ring"
+      className="app-no-drag"
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
         <path
@@ -117,7 +116,7 @@ function ChevronButton({
           strokeLinejoin="round"
         />
       </svg>
-    </button>
+    </IconButton>
   )
 }
 

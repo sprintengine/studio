@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { FOCUS_RING_CLASS, InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, IconButton, InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'
 import type {
   BacklogDependencyNode,
@@ -185,7 +185,9 @@ function PrerequisiteRow({
             tabIndex={0}
             role="note"
             aria-label={`${prerequisite.slug}: unknown prerequisite, no matching item`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            // Readable ink: the slug is what a person reads to clear the row, so
+            // it is never disabled ink — the "Unknown" word beside it carries state.
+            className="min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 font-mono text-meta text-[color:var(--text-muted)] outline-none focus-visible:focus-ring"
           >
             {prerequisite.slug}
           </span>
@@ -216,7 +218,7 @@ function NavigateButton({
     <button
       type="button"
       onClick={onNavigate}
-      className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+      className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
     >
       {displayId ? (
         <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
@@ -228,19 +230,16 @@ function NavigateButton({
   )
 }
 
+// The kit's icon button (26px, the one control-xs square) — this was a 20px
+// hand-rolled square under the 24px hit-target floor, with no focus ring.
 function RemoveButton({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
   return (
     <Tooltip content="Remove" placement="top">
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onClick}
-        className="interactive inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-      >
+      <IconButton aria-label={label} onClick={onClick} className="shrink-0">
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -271,19 +270,17 @@ function DependsOnEditor({
       placement="bottom-end"
       surfaceClassName="min-w-[19rem] p-1"
       renderTrigger={({ ref, togglePopover, open: opened, triggerProps }) => (
-        <button
+        <GhostButton
           ref={ref}
-          type="button"
+          size="xs"
           aria-haspopup="dialog"
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-micro font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
-            opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-          }`}
+          className={opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : ''}
         >
           Depends on…
-        </button>
+        </GhostButton>
       )}
     >
       <BacklogItemSearchPicker

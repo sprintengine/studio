@@ -5,6 +5,10 @@
 // utils/imageFileTransfer already makes for the DataTransfer plumbing.
 
 import type { ConversationImageAttachment } from '../../../../shared/conversation-runtime'
+// The token module directly, not the `../ui` barrel: this strip is on the
+// lazily-loaded launch surface's path and should pull in one constant, not the
+// whole kit.
+import { FOCUS_RING_CLASS } from '../ui/tokens'
 
 // A `data:` URL for rendering an attachment thumbnail. The base64 is already in
 // memory, so this avoids an object-URL lifecycle with nothing to revoke.
@@ -41,13 +45,13 @@ export function ComposerAttachmentStrip({
           <img
             src={attachmentPreviewUrl(attachment)}
             alt={attachment.name ?? 'Attached image'}
-            className="h-12 w-12 rounded-md border border-[color:var(--border-subtle)] object-cover"
+            className="h-12 w-12 rounded-sm border border-[color:var(--border-subtle)] object-cover"
           />
           <button
             type="button"
             aria-label={`Remove ${attachment.name ?? 'attached image'}`}
             onClick={() => onRemove(attachment.id)}
-            className="interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-md bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className={`interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-xs bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
