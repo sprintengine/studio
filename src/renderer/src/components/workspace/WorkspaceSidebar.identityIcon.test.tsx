@@ -2,12 +2,12 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// MC-2135, owner ruling C (2026-08-06): every project row in the sidebar tree
-// carries an identity slot again — the project's own logo when its repo has
-// one, the workspace-type glyph when it does not. This suite mounts the real
-// sidebar and asserts the rendered row, because the thing the ruling decided is
-// what the row renders and at what indent, and nothing below the component can
-// prove that.
+// Owner, 2026-09-02: the identity slot belongs to the FOLDER header — the
+// project's own logo when its repo has one, the folder glyph when it does not —
+// and the chat rows beneath it carry no icon at all (they briefly carried the
+// logo, once per chat, under MC-2135's ruling C). This suite mounts the real
+// sidebar and asserts what each level renders, because that split is the thing
+// the ruling decided and nothing below the component can prove it.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -45,7 +45,7 @@ anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
 // Only `/projA` has a logo, so one mount renders both halves of the ruling:
-// logo rows and glyph rows adjacent, which is the case the ruling was about.
+// a logo header and a glyph header adjacent, which is the case it was about.
 const LOGO_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4='
 // A deliberately minimal bridge, the same shape the sibling sidebar suites
 // use: unrelated nav entries touch methods that are not here, throw inside
@@ -62,9 +62,11 @@ domWindow.api = {
   },
 }
 
-// The generic standard glyph's distinctive path, so "the glyph rendered" is
-// pinned to the real mark rather than to "some svg is present".
+// Each mark's distinctive path, so "the glyph rendered" is pinned to the real
+// mark rather than to "some svg is present". The standard glyph is the terminal
+// mark the chat rows used to wear; it must not come back.
 const STANDARD_GLYPH_PATH = 'M7.25 10L10 12.5L7.25 15'
+const FOLDER_GLYPH_PATH = 'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -142,29 +144,40 @@ async function main(): Promise<void> {
     return row!
   }
 
-  // The ruling: EVERY row carries the slot. That is exactly what separates C
-  // from the logo-only variant, so it is asserted on the glyph row too.
+  // The chat rows: no icon slot, on either half. Not the folder's logo repeated
+  // per row, and not the terminal glyph the logo-less rows used to fall back to.
   for (const name of ['Alpha', 'Bravo']) {
-    const first = rowFor(name).firstElementChild
+    const row = rowFor(name)
+    assert.equal(row.querySelector('img'), null, `${name}'s row carries no logo`)
+    assert.ok(!row.innerHTML.includes(STANDARD_GLYPH_PATH), `${name}'s row carries no terminal glyph`)
+    // The row opens on its title, not on an icon slot. (The trailing action
+    // cluster still holds glyphs — close, activity — so this pins the LEADING
+    // edge rather than asserting the row is svg-free.)
     assert.ok(
-      first?.classList.contains('icon-sm'),
-      `${name}'s row opens with the 16px identity slot`,
+      row.firstElementChild?.textContent?.includes(name),
+      `${name}'s row opens on its title, not an icon slot`,
     )
   }
 
-  const alpha = rowFor('Alpha')
-  const alphaImage = alpha.querySelector('img')
-  assert.ok(alphaImage, 'a project whose repo has a logo renders it in the slot')
-  assert.equal(alphaImage!.getAttribute('src'), LOGO_DATA_URL, 'the slot shows that project own logo')
-  assert.equal(alphaImage!.getAttribute('aria-hidden'), 'true', 'the logo is decorative, like the glyph')
-  assert.ok(!alpha.innerHTML.includes(STANDARD_GLYPH_PATH), 'the glyph steps aside for the logo')
+  // The folder headers: the slot, both halves of it.
+  const headerFor = (name: string) => {
+    const header = [...container.querySelectorAll('button[aria-expanded]')].find((candidate) =>
+      candidate.textContent?.includes(name),
+    )
+    assert.ok(header, `folder header for ${name} rendered`)
+    return header!
+  }
 
-  const bravo = rowFor('Bravo')
-  assert.equal(bravo.querySelector('img'), null, 'a project with no logo renders no image')
-  assert.ok(
-    bravo.innerHTML.includes(STANDARD_GLYPH_PATH),
-    'a project with no logo keeps the workspace-type glyph — the ruling C half',
-  )
+  const projA = headerFor('projA')
+  const projAImage = projA.querySelector('img')
+  assert.ok(projAImage, 'a folder whose repo has a logo renders it in the slot')
+  assert.equal(projAImage!.getAttribute('src'), LOGO_DATA_URL, 'the slot shows that project own logo')
+  assert.equal(projAImage!.getAttribute('aria-hidden'), 'true', 'the logo is decorative, like the glyph')
+  assert.ok(!projA.innerHTML.includes(FOLDER_GLYPH_PATH), 'the folder glyph steps aside for the logo')
+
+  const projB = headerFor('projB')
+  assert.equal(projB.querySelector('img'), null, 'a folder with no logo renders no image')
+  assert.ok(projB.innerHTML.includes(FOLDER_GLYPH_PATH), 'a folder with no logo keeps the folder glyph')
 
   assert.ok(detected.includes('/projA') && detected.includes('/projB'), 'each project folder is scanned once')
 

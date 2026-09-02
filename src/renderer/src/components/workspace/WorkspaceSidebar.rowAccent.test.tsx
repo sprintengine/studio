@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 
-import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import type { Workspace } from '../../types/workspace'
 import { rowAccent } from './WorkspaceSidebar'
 
@@ -8,35 +7,27 @@ function ws(mode: Workspace['mode'], highlight?: Workspace['highlight']): Worksp
   return { id: 'w', name: 'w', mode, folderPath: null, highlight } as Workspace
 }
 
-const allEnabled: ModuleEnablementOverrides = {}
-
-// Tool identity now rides the glyph alone: selection is a neutral fill, so the
-// row carries no identity border for the accent to live on.
-assert.ok(rowAccent(ws('sprintengine'), allEnabled).glyph.includes('--tool-sprintengine'), 'enabled sprintengine row keeps its glyph accent')
-assert.ok(rowAccent(ws('switchboard'), allEnabled).glyph.includes('--tool-switchboard'), 'enabled switchboard row keeps its glyph accent')
+// Selection is a neutral fill: no identity border for an accent to live on, and
+// — since the row lost its icon on 2026-09-02 — nothing per-mode left to tint.
+// Every mode reads the same, which is the thing this suite now pins.
+const sprint = rowAccent(ws('sprintengine'))
+assert.deepEqual(sprint, rowAccent(ws('standard')), 'a tool row and a chat row wear the same accent')
+assert.deepEqual(sprint, rowAccent(ws('switchboard')), 'switchboard is no exception')
+assert.deepEqual(
+  sprint,
+  rowAccent(ws('future-plugin-mode' as Workspace['mode'])),
+  'an unknown mode id resolves without throwing',
+)
+assert.ok(sprint.bg.includes('--bg-selected'), 'the selected row wears the canonical selection fill')
 assert.ok(
-  !Object.values(rowAccent(ws('sprintengine'), allEnabled)).some((value) => value.includes('border-l-')),
+  !Object.values(sprint).some((value) => value.includes('border-l-')),
   'no row accent field carries a left bar'
 )
 
-// AC4: a disabled module degrades the row to the generic standard accent
-// (muted glyph) instead of the tool accent.
-const seOff = rowAccent(ws('sprintengine'), { 'sprint-engine': false })
-assert.ok(seOff.glyph.includes('--text-muted'), 'disabled sprint-engine row uses the muted glyph')
-assert.ok(!seOff.glyph.includes('--tool-sprintengine'), 'disabled sprint-engine row drops the tool glyph accent')
-
-const sbOff = rowAccent(ws('switchboard'), { switchboard: false })
-assert.ok(sbOff.glyph.includes('--text-muted'), 'disabled switchboard row uses the muted glyph')
-
-// guided-brief is owned by the design-wizard module (MC-1860), which declares
-// dependsOn ['sprint-engine'] — disabling sprint-engine cascades through the
-// enablement resolver and still degrades a guided-brief row.
-const gbOff = rowAccent(ws('guided-brief'), { 'sprint-engine': false })
-assert.ok(gbOff.glyph.includes('--text-muted'), 'disabling sprint-engine degrades the guided-brief row')
-
-// A highlight color still overrides the row accent regardless of enablement:
-// the glyph becomes the highlight hex, not the muted degraded token.
-const highlighted = rowAccent(ws('sprintengine', { color: 'blue', starred: false }), { 'sprint-engine': false })
-assert.ok(!highlighted.glyph.includes('--text-muted'), 'highlight override is preserved over disabled-module degradation')
+// A highlight color still overrides the row accent: user-set identity, not
+// selection, so it replaces both the fill and the ink.
+const highlighted = rowAccent(ws('sprintengine', { color: 'blue', starred: false }))
+assert.ok(!highlighted.bg.includes('--bg-selected'), 'a highlighted row swaps the neutral fill for its hue')
+assert.notDeepEqual(highlighted, sprint, 'the highlight override still reaches the accent')
 
 console.log('workspace sidebar row accent tests passed')

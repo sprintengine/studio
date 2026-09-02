@@ -10,8 +10,7 @@
 // inventory in lockstep.
 
 import React from 'react'
-import { CheckIcon, SpecialistActionIcon, SprintEngineRoleIcon, resolveEnabledWorkspaceType } from '../AppIcons'
-import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
+import { CheckIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import {
   Badge,
   ChangePulse,
@@ -229,7 +228,7 @@ function SessionsPopover({
                   style={{ color: headerColor }}
                 >
                   {workspace ? (
-                    <WorkspaceIdentityIcon workspace={workspace} className="size-icon-xs shrink-0" />
+                    <WorkspaceTypeIcon mode={workspace.mode} className="size-icon-xs shrink-0" />
                   ) : null}
                   <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                   {starred ? (

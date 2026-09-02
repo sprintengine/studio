@@ -42,26 +42,50 @@ export function resolveEnabledWorkspaceType(
 // universally-imported leaf icon module never pulls the store (and flexlayout-react)
 // into utility/test bundles.
 //
-// `logoSrc` (MC-2135) is the project's own logo, detected off the top level of
-// its repo. When present it takes the slot the glyph would have had — same
-// className, so every call site keeps its geometry — and every path back out of
-// it lands on today's exact glyph: no logo, an empty string, or an image that
-// fails to decode. A broken data URI must never leave an empty box behind.
+// A project's own logo never lands here: it belongs to the FOLDER the chats sit
+// under, not to each chat (owner, 2026-09-02) — see `FolderTypeIcon` below.
 export function WorkspaceTypeIcon({
   mode,
   className,
   moduleOverrides,
-  logoSrc,
 }: IconProps & {
   mode: Workspace['mode']
   moduleOverrides?: ModuleEnablementOverrides
-  logoSrc?: string | null
 }) {
-  const [brokenLogoSrc, setBrokenLogoSrc] = useState<string | null>(null)
   const definition = moduleOverrides
     ? resolveEnabledWorkspaceType(mode, moduleOverrides)
     : getRendererHost().getWorkspaceType(mode)
   const Icon = definition?.icon ?? StandardWorkspaceTypeIcon
+  return <Icon className={className} />
+}
+
+// The folder glyph a sidebar folder header wears when its project has no logo
+// of its own. Drawn on the 16px grid, unlike the 24px workspace-type glyphs
+// above it, because the header slot is where it renders.
+export function FolderGlyphIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path
+        d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+    </svg>
+  )
+}
+
+// A folder's identity in an icon slot: `logoSrc` (MC-2135) is the project's own
+// logo, detected off the top level of the repo at that folder. When present it
+// takes the slot the folder glyph would have had — same className, so the call
+// site keeps its geometry — and every path back out of it lands on the plain
+// folder glyph: no logo, an empty string, or an image that fails to decode. A
+// broken data URI must never leave an empty box behind.
+//
+// The logo was briefly worn by every workspace row instead (MC-2135 ruling C);
+// the owner reversed that on 2026-09-02 — one project, one mark, on the header
+// that names the project — and the chat rows lost their icon slot with it.
+export function FolderTypeIcon({ className, logoSrc }: IconProps & { logoSrc?: string | null }) {
+  const [brokenLogoSrc, setBrokenLogoSrc] = useState<string | null>(null)
 
   if (logoSrc && logoSrc !== brokenLogoSrc) {
     return (
@@ -80,7 +104,7 @@ export function WorkspaceTypeIcon({
     )
   }
 
-  return <Icon className={className} />
+  return <FolderGlyphIcon className={className} />
 }
 
 export function SwitchboardWorkspaceTypeIcon({ className }: IconProps) {

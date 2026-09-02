@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
 import { Badge, IconButton, InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Tooltip, TruncatedText } from '../ui'
+import { WorkspaceTypeIcon } from '../AppIcons'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AttentionQueueBadge } from '../../utils/attentionQueue'
@@ -156,7 +156,7 @@ export function AttentionQueuePopover({
               <div key={group.group.id} className="py-0.5">
                 <div className="flex items-center gap-2 px-3 pb-1 pt-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
                   {group.group.kind === 'workspace' ? (
-                    <WorkspaceIdentityIcon workspace={group.group.workspace} className="h-3.5 w-3.5 shrink-0" />
+                    <WorkspaceTypeIcon mode={group.group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
                   ) : null}
                   <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                 </div>

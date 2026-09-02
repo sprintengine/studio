@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  NewChatIcon,
-  SprintEngineMarkIcon,
-  resolveEnabledWorkspaceType,
-} from '../AppIcons'
-import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
+import { NewChatIcon, SprintEngineMarkIcon } from '../AppIcons'
+import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { buildModeModels } from './newWorkspace/modeModels'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -15,7 +11,6 @@ import {
   clampSidebarWidth,
   resolveSidebarResize,
 } from './sidebarWidth'
-import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import {
   ContextMenu,
   Field,
@@ -200,14 +195,18 @@ function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
 type RowAccent = {
   bg: string
   text: string
-  glyph: string
 }
 
-// Mode identity reads through the canonical tool tokens on the icon glyph
-// alone. The active row body sits on the brighter `--bg-selected` surface —
-// the same canonical selection fill used elsewhere (notifications,
-// file/artifact selection) — so the selected row clears the hover
-// `--bg-surface-raised` fill by a full step.
+// No `glyph` member either, and no per-mode entry left to hold one: the row
+// carries no icon since 2026-09-02 (the logo moved to the folder header, the
+// type glyph went), and the glyph ink was the ONLY thing the mode accents ever
+// differed by — every mode's fill and ink were already identical. So one
+// accent stands for every mode.
+//
+// The active row body sits on the brighter `--bg-selected` surface — the same
+// canonical selection fill used elsewhere (notifications, file/artifact
+// selection) — so the selected row clears the hover `--bg-surface-raised` fill
+// by a full step.
 //
 // The colored 4px left rail is gone: selection is a neutral fill and carries no
 // left bar (`design-system/patterns/selection.html`). A collapsed icon rail is
@@ -215,57 +214,23 @@ type RowAccent = {
 // narrow for a fill to read — but this sidebar has no such rail to except:
 // collapsing hides the whole aside rather than narrowing it to icons (the
 // `hidden` class on the <aside> below), so no stripe survives here.
-const modeAccents: Record<Workspace['mode'], RowAccent> = {
-  sprintengine: {
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    glyph: 'text-[color:var(--tool-sprintengine)]',
-  },
-  switchboard: {
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    glyph: 'text-[color:var(--tool-switchboard)]',
-  },
-  'guided-brief': {
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    glyph: 'text-[color:var(--accent-primary)]',
-  },
-  // Automations host carries the same primary-accent identity as its registered
-  // accentToken (--accent-primary) so its rows read distinctly from the muted
-  // `standard` rows that dominate the list, instead of falling through to it.
-  'automations-host': {
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    glyph: 'text-[color:var(--accent-primary)]',
-  },
-  standard: {
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    glyph: 'text-[color:var(--text-muted)]',
-  },
+const SELECTED_ROW_ACCENT: RowAccent = {
+  bg: 'bg-[color:var(--bg-selected)]',
+  text: 'text-[color:var(--text-strong)]',
 }
 
-// Effective accent for a workspace row. When the workspace has a highlight
-// color, it overrides the mode accent everywhere except the icon glyph
-// shape (which still tells the user which mode the workspace is in). A workspace
-// whose type module is disabled (or an unknown/standard mode) degrades to the
-// generic standard accent, matching the generic icon WorkspaceTypeIcon renders
-// for the same row (AC4 disabled-module contract).
-export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): RowAccent {
+// Effective accent for a workspace row: a user-set highlight colour when the
+// workspace has one, the neutral selection accent otherwise. Mode no longer
+// enters into it — with the row's icon gone there is nothing per-mode left to
+// tint, so the enablement gating this used to do (degrade a disabled module's
+// row to the generic accent) has nothing to degrade.
+export function rowAccent(workspace: Workspace): RowAccent {
   const highlight = workspace.highlight?.color
   if (highlight) {
     const swatch = getHighlightSwatch(highlight)
-    return {
-      bg: swatch.bg,
-      text: swatch.text,
-      glyph: `text-[${swatch.hex}]`,
-    }
+    return { bg: swatch.bg, text: swatch.text }
   }
-  const effectiveMode: Workspace['mode'] = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
-    ? workspace.mode
-    : 'standard'
-  return modeAccents[effectiveMode] ?? modeAccents.standard
+  return SELECTED_ROW_ACCENT
 }
 
 // A user-set highlight colour is workspace identity, not selection, so its rail
@@ -276,26 +241,11 @@ function highlightRailClass(workspace: Workspace): string {
   return `border-l-[4px] ${getHighlightSwatch(workspace.highlight!.color!).border}`
 }
 
-// Ink for the row's identity glyph (MC-2135). Deliberately the MODE accent even
-// on a highlighted row, unlike the rest of `rowAccent`: that function's
-// highlight branch builds `text-[${hex}]` at runtime, and Tailwind only emits
-// utilities it can see in source, so the class would resolve to nothing and the
-// glyph would render colourless. The branch was harmless while the row rendered
-// no glyph at all; it is not once the slot is back. Highlight identity is
-// already carried by the 4px rail and the full-width tint, so the glyph keeps
-// saying which MODE the workspace is — which is what the shape says too.
-function rowGlyphClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
-  const effectiveMode: Workspace['mode'] = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
-    ? workspace.mode
-    : 'standard'
-  return modeAccents[effectiveMode]?.glyph ?? modeAccents.standard.glyph
-}
-
 // The selected row is its fill and its ink lift — no left bar of its own. The
 // base row keeps `border-l-[4px] border-l-transparent`, so a highlight rail
 // appears and disappears without shifting the row's content sideways.
-function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
-  const accent = rowAccent(workspace, moduleOverrides)
+function activeRowClass(workspace: Workspace): string {
+  const accent = rowAccent(workspace)
   return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text}`
 }
 
@@ -1268,10 +1218,10 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row glyph on the sidebar's 36px glyph column (see the layout note below)
+        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below)
         className={`interactive group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
           active
-            ? activeRowClass(workspace, moduleOverrides)
+            ? activeRowClass(workspace)
             : highlighted
               ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
               : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
@@ -1292,27 +1242,14 @@ export default function WorkspaceSidebar({
           />
         ) : null}
 
-        {/* The row's identity slot. Owner ruling 2026-08-06 (MC-2135, option C
-            of `backlog/2026-08-05-project-logo-in-sidebar.md`): every project
-            row carries an icon again — the project's own logo when its repo has
-            one at its top level, the workspace-type glyph when it does not.
-            This deliberately reverses e92db65a6 (2026-07-22), which dropped the
-            chip so the name got the width; the owner took the width cost to get
-            a list of projects that reads as a list of products, and ruled
-            against the logo-only variant precisely so the left edge stays even.
-            The slot sits ON the 36px content grid and the title moves in behind
-            it — see the alignment-grid comment on the tree below, which this
-            change re-measured. `rowAccent().glyph` colours the fallback glyph
-            (its consumer was orphaned by the 2026-07-22 removal and is restored
-            here — see `rowGlyphClass` for why the glyph keeps the MODE ink
-            even on a highlighted row); a logo is never recoloured. Mode
-            identity also still shows in the accent, the trailing run glyph,
-            and the inline sprint mark. */}
-        <WorkspaceIdentityIcon
-          workspace={workspace}
-          moduleOverrides={moduleOverrides}
-          className={`icon-sm shrink-0 ${rowGlyphClass(workspace, moduleOverrides)}`}
-        />
+        {/* No identity slot on the row. Owner, 2026-09-02: the project's
+            discovered logo belongs to the FOLDER header that names the project,
+            not repeated once per chat beneath it, and the terminal glyph the
+            logo-less rows fell back to said nothing a row of chats needs said.
+            So the row opens on its title again, as it did before MC-2135's
+            ruling C, and the whole slot — logo and glyph — moved up to the
+            header (`FolderIdentityIcon`). Mode identity still reads from the
+            row accent, the trailing run glyph, and the inline sprint mark. */}
         {renamingId === workspace.id ? (
           <input
             ref={renameInputRef}
@@ -1695,15 +1632,12 @@ export default function WorkspaceSidebar({
           Keep these in step when touching any one, and re-measure rather than
           trusting the arithmetic above — that is exactly how it went stale.
 
-          Re-measured 2026-08-06 (MC-2135, owner ruling C). The workspace row
-          now opens with a 16px identity slot, so what sits on the 36px grid is
-          its ICON and the row's TITLE starts at 36 + 16 + gap-2 = 60px. The
-          grid itself is unmoved and the icon families still meet at it — the
-          workspace row simply joined the section-header/top-nav shape of
-          "icon on the grid, label behind it". The owner took that title inset
-          knowingly: it is the cost the ruling weighed against an uneven left
-          edge. Row text no longer aligns with the fold-row chevron's 36px;
-          the icon does. */}
+          MC-2135's ruling C briefly opened each workspace row with a 16px
+          identity slot, pushing row TITLES to 36 + 16 + gap-2 = 60px. The owner
+          reversed that on 2026-09-02: the row has no icon, so its title is back
+          on the 36px grid and aligns with the fold-row chevron again. The
+          identity slot survives one level up, on the folder header, where it
+          sits in the section-header family's 38px column. */}
       <nav
         ref={treeRef}
         className={`flex-1 overflow-y-auto pb-2 ${contextRailActive ? 'hidden' : ''}`}
@@ -1829,21 +1763,16 @@ export default function WorkspaceSidebar({
                     group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
                   } ${FOCUS_RING_CLASS}`}
                 >
-                  {/* One icon slot, Cursor-style: the folder glyph at rest, the
-                      collapse chevron swapped in on hover. */}
+                  {/* One icon slot, Cursor-style: the folder's identity at
+                      rest — the project's own logo when its repo has one, the
+                      folder glyph when it does not (MC-2135, re-sited here by
+                      the owner on 2026-09-02) — and the collapse chevron
+                      swapped in on hover. */}
                   <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      aria-hidden="true"
+                    <FolderIdentityIcon
+                      folderPath={group.fullPath}
                       className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
-                    >
-                      <path
-                        d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                      />
-                    </svg>
+                    />
                     <svg
                       viewBox="0 0 16 16"
                       fill="none"

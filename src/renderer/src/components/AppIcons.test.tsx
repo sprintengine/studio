@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import type { Workspace } from '../types/workspace'
-import { WorkspaceTypeIcon, resolveEnabledWorkspaceType } from './AppIcons'
+import { FolderTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from './AppIcons'
 
 // Distinctive path fragment per bundled mode's canonical glyph, so the test pins
 // icon identity rather than just "an svg renders".
@@ -71,26 +71,25 @@ assert.equal(
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.topBarViews, undefined, 'sprintengine has no top-bar views')
 assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.topBarViews, undefined, 'switchboard has no top-bar views')
 
-// MC-2135: the icon slot carries the project's own logo when the repo has one,
-// and every way out of that lands back on today's exact glyph.
+// MC-2135, re-sited by the owner on 2026-09-02: the FOLDER header's icon slot
+// carries the project's own logo when its repo has one, and every way out of
+// that lands back on the plain folder glyph. Workspace rows carry no logo — and
+// since that change, no icon at all.
 const LOGO_SRC = 'data:image/svg+xml;base64,PHN2Zy8+'
-const withLogo = renderToStaticMarkup(
-  <WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc={LOGO_SRC} />,
-)
-assert.ok(withLogo.includes(`src="${LOGO_SRC}"`), 'a detected logo renders in the icon slot')
+const FOLDER_GLYPH_PATH = 'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
+const withLogo = renderToStaticMarkup(<FolderTypeIcon className="icon-sm" logoSrc={LOGO_SRC} />)
+assert.ok(withLogo.includes(`src="${LOGO_SRC}"`), 'a detected logo renders in the folder icon slot')
 assert.ok(withLogo.includes('icon-sm'), 'the logo keeps the slot geometry the glyph would have had')
 assert.ok(withLogo.includes('rounded-[var(--radius-xs)]'), 'the logo carries the chip radius')
 assert.ok(withLogo.includes('aria-hidden="true"'), 'the logo is decorative, like the glyph it replaces')
-assert.ok(!withLogo.includes(EXPECTED_ICON_PATH.standard), 'the glyph steps aside for the logo')
+assert.ok(!withLogo.includes(FOLDER_GLYPH_PATH), 'the folder glyph steps aside for the logo')
 assert.ok(
-  renderToStaticMarkup(<WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc={null} />)
-    .includes(EXPECTED_ICON_PATH.standard),
-  'no logo renders exactly the glyph',
+  renderToStaticMarkup(<FolderTypeIcon className="icon-sm" logoSrc={null} />).includes(FOLDER_GLYPH_PATH),
+  'no logo renders exactly the folder glyph',
 )
 assert.ok(
-  renderToStaticMarkup(<WorkspaceTypeIcon mode="sprintengine" className="icon-sm" logoSrc={LOGO_SRC} />)
-    .includes(`src="${LOGO_SRC}"`),
-  'the logo replaces a type glyph too, not just the generic one',
+  renderToStaticMarkup(<FolderTypeIcon className="icon-sm" />).includes(FOLDER_GLYPH_PATH),
+  'an undetected folder renders exactly the folder glyph',
 )
 
 // The load-failure fallback is behaviour, not markup: a data URI that will not
@@ -117,7 +116,7 @@ async function main(): Promise<void> {
   const container = dom.window.document.getElementById('root')!
   const root = createRoot(container)
   await act(async () => {
-    root.render(<WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc="data:image/png;base64,not-an-image" />)
+    root.render(<FolderTypeIcon className="icon-sm" logoSrc="data:image/png;base64,not-an-image" />)
   })
 
   const image = container.querySelector('img')
@@ -128,8 +127,8 @@ async function main(): Promise<void> {
 
   assert.equal(container.querySelector('img'), null, 'a logo that fails to load leaves no broken-image box')
   assert.ok(
-    container.innerHTML.includes(EXPECTED_ICON_PATH.standard),
-    'a logo that fails to load degrades to today exact glyph',
+    container.innerHTML.includes(FOLDER_GLYPH_PATH),
+    'a logo that fails to load degrades to the plain folder glyph',
   )
 
   await act(async () => {
