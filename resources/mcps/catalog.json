@@ -219,7 +219,7 @@
     },
     {
       "id": "com-gitlab-mcp",
-      "name": "mcp",
+      "name": "GitLab",
       "category": "Code Hosting",
       "ticketTracker": true,
       "description": "Official GitLab MCP Server",

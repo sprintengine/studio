@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
-import { GhostButton, InlineNotice, OutlineButton, StatusDot } from '../ui'
+import { GhostButton, InlineNotice, OutlineButton, OverflowMenu, StatusDot } from '../ui'
+import type { OverflowMenuItem } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useConnectorSources } from '../panels/ConnectorsPanel/useConnectorSources'
@@ -10,14 +11,12 @@ import {
   type TicketTrackerEntry,
 } from './ticketTrackerConnectors'
 
-// Settings → Ticket trackers, the "for your agents" half (MC-2362).
+// Settings → Ticket trackers (MC-2362, narrowed by MC-2363).
 //
 // Installing a tracker here installs its MCP, so an agent can read and update
-// tickets during a run. It is deliberately separate from the Connections list
-// below it, which is the "for Multicode" half — an API credential the app uses
-// with no agent running, for browsing issues and posting run lifecycle comments.
-// The two are complements, not alternatives, and the copy says which is which
-// because that distinction is the thing users get wrong.
+// tickets during a run. That is the whole integration now: Multicode itself does
+// not talk to trackers, because browsing tickets in an IDE competes with the
+// tracker's own UI and loses.
 //
 // Everything here composes machinery that already exists: `useConnectorSources`
 // reads the MCP catalogue, owns the installed set, and keeps the workspace
@@ -71,7 +70,7 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
 
   return (
     <section className="space-y-3">
-      <SettingsSectionTitle count={total || undefined}>For your agents</SettingsSectionTitle>
+      <SettingsSectionTitle count={total || undefined}>Trackers</SettingsSectionTitle>
       <p className="max-w-[68ch] text-body leading-5 text-[color:var(--text-muted)]">
         Install a tracker to give your agents its tools — reading a ticket, leaving a comment, moving a status,
         during a run. Each one signs you in the first time an agent uses it; Multicode never holds the credential.
@@ -169,6 +168,12 @@ function TrackerRow({
   onStartTerminal?: () => void
   onUseInAutomation?: () => void
 }): JSX.Element {
+  const overflowItems: OverflowMenuItem[] = [
+    ...(onUseInAutomation
+      ? [{ id: 'use-in-automation', label: 'Use in an automation', onSelect: onUseInAutomation }]
+      : []),
+    { id: 'remove', label: 'Remove', onSelect: onToggle, disabled: busy, destructive: true },
+  ]
   return (
     <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] py-3 last:border-b-0">
       <span className="relative flex h-[22px] w-[22px] shrink-0 items-center justify-center" aria-hidden="true">
@@ -191,20 +196,23 @@ function TrackerRow({
         <div className="truncate text-meta text-[color:var(--text-subtle)]">{ticketTrackerStateLine(entry)}</div>
       </div>
 
+      {/* One visible action, the rest in the overflow — three buttons plus a
+          state line does not fit the row, and the state line is the part that
+          loses. Same shape as the Backlog panel's header: the action the row
+          exists for stays, everything else is one click away. */}
       <div className="flex shrink-0 items-center gap-2">
         {entry.installed && onStartTerminal ? (
           <GhostButton size="xs" onClick={onStartTerminal}>
             Start a terminal
           </GhostButton>
         ) : null}
-        {entry.installed && onUseInAutomation ? (
-          <GhostButton size="xs" onClick={onUseInAutomation}>
-            Use in an automation
-          </GhostButton>
-        ) : null}
-        <OutlineButton size="xs" disabled={busy} onClick={onToggle}>
-          {entry.installed ? 'Remove' : 'Install'}
-        </OutlineButton>
+        {entry.installed ? (
+          <OverflowMenu ariaLabel={`${entry.name} actions`} items={overflowItems} />
+        ) : (
+          <OutlineButton size="xs" disabled={busy} onClick={onToggle}>
+            Install
+          </OutlineButton>
+        )}
       </div>
     </div>
   )
