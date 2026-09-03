@@ -69,9 +69,17 @@ export function RemotePopover({
               <span className="font-medium text-[color:var(--text-default)]">{device.deviceName}</span>
               <span className="text-[color:var(--text-subtle)]">
                 {device.attachedTerminalSessions.length > 0
-                  ? ` — driving ${device.attachedTerminalSessions.length === 1 ? 'a terminal' : `${device.attachedTerminalSessions.length} terminals`}`
+                  ? ' — driving '
                   : ' — connected'}
               </span>
+              {device.attachedTerminalSessions.length > 0 ? (
+                // Named, not counted (the child's acceptance): the session ids
+                // are the fact a person acts on — which terminal is being typed
+                // into from another machine.
+                <span className="font-mono text-micro text-[color:var(--text-default)]">
+                  {device.attachedTerminalSessions.join(', ')}
+                </span>
+              ) : null}
             </span>
             <GhostButton
               size="xs"
@@ -229,18 +237,6 @@ function PairRequestCard({ request, now }: { request: TailnetPairRequest; now: n
         </PrimaryButton>
       </div>
     </div>
-  )
-}
-
-/** The stacked-server mark at title-bar scale, matching its neighbour icons. */
-export function RemoteMachinesIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor" />
-      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor" />
-    </svg>
   )
 }
 

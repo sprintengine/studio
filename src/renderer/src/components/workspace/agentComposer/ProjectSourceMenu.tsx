@@ -5,7 +5,6 @@ import {
   FOCUS_RING_CLASS,
   Input,
   MENU_DIVIDER_CLASS,
-  MENU_ITEM_CLASS,
   MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
   PrimaryButton,
@@ -202,6 +201,8 @@ export function ProjectSourceMenu({
         <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No matching projects.</div>
       ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
+      {/* The mockup's stacked source rows: glyph + name + what it does.
+          All-or-nothing leading slot, per the menu spec. */}
       {onBrowse ? (
         <button
           type="button"
@@ -210,9 +211,16 @@ export function ProjectSourceMenu({
             onBrowse()
             onClose()
           }}
-          className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)]`}
+          className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)]`}
         >
-          Browse…
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
+            <path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M8 7.5v3M6.5 9h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-medium">Browse…</span>
+            <span className="mt-0.5 block text-meta text-[color:var(--text-subtle)]">Pick a folder on disk.</span>
+          </span>
         </button>
       ) : null}
       <button
@@ -220,10 +228,17 @@ export function ProjectSourceMenu({
         role="menuitem"
         aria-haspopup="true"
         onClick={openGitStep}
-        className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)]`}
+        className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)]`}
       >
-        <span className="min-w-0 flex-1">Import from Git</span>
-        <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
+          <path d="M6.5 9.5a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 1 0-3.7-3.7l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M9.5 6.5a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 1 0 3.7 3.7l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+        <span className="min-w-0 flex-1">
+          <span className="block text-body font-medium">Import from Git</span>
+          <span className="mt-0.5 block text-meta text-[color:var(--text-subtle)]">Clone a repository and open it here.</span>
+        </span>
+        <span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
       </button>
     </div>
   )

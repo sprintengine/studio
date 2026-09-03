@@ -10,7 +10,7 @@
 // inventory in lockstep.
 
 import React from 'react'
-import { CheckIcon, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { CheckIcon, RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import {
   Badge,
   ChangePulse,
@@ -48,7 +48,7 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
-import { RemoteMachinesIcon, RemotePopover, remoteGlyphState, useOpenRemoteSettings } from './topbar/RemotePopover'
+import { RemotePopover, remoteGlyphState, useOpenRemoteSettings } from './topbar/RemotePopover'
 import { useTailnetPresence } from './topbar/useTailnetPresence'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -663,7 +663,7 @@ export function WorkspaceActions({
                       tint="var(--tone-warn)"
                       className="inline-flex"
                     >
-                      <RemoteMachinesIcon
+                      <RemoteMachineGlyph
                         className={`size-icon-md ${
                           remoteState.driving ? 'animate-pulse text-[color:var(--tone-warn)] motion-reduce:animate-none' : ''
                         }`}

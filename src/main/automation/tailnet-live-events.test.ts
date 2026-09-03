@@ -9,10 +9,11 @@ import { join } from 'node:path'
 
 import { hashSecret } from '../mobile/bridge/crypto'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
-import { TAILNET_PAIR_PATH, TAILNET_PAIR_REQUEST_PATH, TAILNET_STREAM_PATH, TAILNET_WS_TICKET_PATH } from './tailnet/tailnet-routes'
+import { TAILNET_PAIR_PATH, TAILNET_PAIR_REQUEST_PATH, TAILNET_STREAM_PATH, TAILNET_TERMINAL_PATH, TAILNET_WS_TICKET_PATH } from './tailnet/tailnet-routes'
 import { createTailnetRemoteService } from './tailnet/tailnet-service'
 import { writeTailnetSettings } from './tailnet/tailnet-settings'
 import type { TailnetPushPayload } from '../../shared/tailnet'
+import type { TerminalRemoteHost } from '../terminal-remote-attach'
 
 // The live-state push (remote-sessions-ux / tailnet-live-state-push).
 //
@@ -139,8 +140,8 @@ function eventCollector(): {
   }
 }
 
-/** Upgrade a raw socket onto the RPC stream and resolve once the 101 lands. */
-async function openStreamSocket(port: number, ticket: string): Promise<Socket> {
+/** Upgrade a raw socket onto a WS route and resolve once the 101 lands. */
+async function openStreamSocket(port: number, ticket: string, path = TAILNET_STREAM_PATH, extraQuery = ''): Promise<Socket> {
   const key = randomBytes(16).toString('base64')
   const socket = connect({ host: '127.0.0.1', port })
   await new Promise<void>((resolve, reject) => {
@@ -149,7 +150,7 @@ async function openStreamSocket(port: number, ticket: string): Promise<Socket> {
   })
   socket.write(
     [
-      `GET ${TAILNET_STREAM_PATH}?ticket=${encodeURIComponent(ticket)} HTTP/1.1`,
+      `GET ${path}?ticket=${encodeURIComponent(ticket)}${extraQuery} HTTP/1.1`,
       'Host: 127.0.0.1',
       'Upgrade: websocket',
       'Connection: Upgrade',
@@ -174,6 +175,125 @@ async function openStreamSocket(port: number, ticket: string): Promise<Socket> {
   assert.ok(head.startsWith('HTTP/1.1 101'), `the upgrade was accepted: ${head.split('\r\n')[0]}`)
   return socket
 }
+
+/** The smallest honest TerminalRemoteHost: one session, attach always works. */
+function stubTerminalHost(sessionId: string): TerminalRemoteHost {
+  const session = {
+    sessionId,
+    processAlive: true,
+    kind: 'agent',
+    activity: { kind: 'idle', since: 0 },
+  } as unknown as ReturnType<TerminalRemoteHost['listSessions']>[number]
+  return {
+    listSessions: () => [session],
+    attach: ({ scope }) => ({
+      ok: true,
+      attachment: {
+        sessionId,
+        scope,
+        session,
+        write: () => ({ ok: true }),
+        resize: () => ({ ok: true }),
+        detach: () => {},
+      },
+    }),
+  }
+}
+
+check('a disabled service initializes silently: no listener, no events, nothing running', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-off-'))
+  const port = await freePort()
+  // enabled: false — every build's resting state.
+  writeTailnetSettings(userDataDir, { enabled: false, port })
+  const events = eventCollector()
+  const service = createTailnetRemoteService({
+    resolveUserDataDir: () => userDataDir,
+    serverName: 'sprintengine-studio',
+    serverVersion: '9.9.9',
+    resolveTools: testTools,
+    isMutation: () => false,
+    resolveBindAddress: () => '127.0.0.1',
+    onEvent: events.onEvent,
+  })
+  try {
+    const status = await service.initialize()
+    assert.equal(status.enabled, false)
+    assert.equal(status.running, false)
+    assert.equal(events.payloads.length, 0, 'a disabled startup emits nothing at all')
+  } finally {
+    await service.shutdown()
+    rmSync(userDataDir, { recursive: true, force: true })
+    assert.equal(events.payloads.length, 0, 'shutdown of a never-started listener stays silent too')
+  }
+})
+
+check('a terminal attach narrates drive begin and end, named by device and session', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-drive-'))
+  const port = await freePort()
+  writeTailnetSettings(userDataDir, { enabled: true, port })
+  const events = eventCollector()
+  const service = createTailnetRemoteService({
+    resolveUserDataDir: () => userDataDir,
+    serverName: 'sprintengine-studio',
+    serverVersion: '9.9.9',
+    resolveTools: testTools,
+    isMutation: () => false,
+    resolveBindAddress: () => '127.0.0.1',
+    terminals: stubTerminalHost('agent-standup'),
+    onEvent: events.onEvent,
+  })
+  try {
+    await service.initialize()
+    const offer = service.offerPairing({ scopes: ['workspace:read', 'terminal:control'] })
+    const paired = await call(port, TAILNET_PAIR_PATH, {
+      body: { pairingToken: offer.token, deviceName: 'air' },
+    })
+    assert.equal(paired.status, 200)
+    const deviceToken = paired.body.deviceToken as string
+    const ticketed = await call(port, TAILNET_WS_TICKET_PATH, { token: deviceToken })
+    const socket = await openStreamSocket(
+      port,
+      ticketed.body.ticket as string,
+      TAILNET_TERMINAL_PATH,
+      `&sessionId=${encodeURIComponent('agent-standup')}`
+    )
+    const begin = await events.waitFor(
+      (p) => p.event.kind === 'terminal-drive' && p.event.phase === 'begin',
+      'drive begin'
+    )
+    assert.equal(begin.event.kind === 'terminal-drive' && begin.event.deviceName, 'air')
+    assert.equal(
+      begin.event.kind === 'terminal-drive' && begin.event.terminalSessionId,
+      'agent-standup',
+      'the driven session is named'
+    )
+    // The device connects BEFORE it drives — the narrated order.
+    const kinds = events.payloads.map((p) => p.event.kind)
+    assert.ok(
+      kinds.indexOf('device-connection') < kinds.indexOf('terminal-drive'),
+      'connection precedes drive in the story'
+    )
+    assert.deepEqual(
+      begin.live.devices[0]?.attachedTerminalSessions,
+      ['agent-standup'],
+      'the live snapshot carries the attachment'
+    )
+
+    socket.destroy()
+    const end = await events.waitFor(
+      (p) => p.event.kind === 'terminal-drive' && p.event.phase === 'end',
+      'drive end'
+    )
+    assert.equal(end.event.kind === 'terminal-drive' && end.event.terminalSessionId, 'agent-standup')
+    await events.waitFor(
+      (p) => p.event.kind === 'device-connection' && !p.event.connected,
+      'disconnect follows drive end'
+    )
+  } finally {
+    await service.shutdown()
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
 
 check('the push channel narrates listener, pairing, connection, and pair-request changes', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-'))

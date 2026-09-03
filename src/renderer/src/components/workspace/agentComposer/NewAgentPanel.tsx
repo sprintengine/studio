@@ -29,6 +29,7 @@ import {
   MENU_ITEM_CLASS,
   MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
+  Input,
   InlineSkillPicker,
   Popover,
   PrimaryButton,
@@ -1186,6 +1187,18 @@ function RemoteProjectPicker({
   onPick: (workspace: FleetWorkspace) => void
 }) {
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState('')
+  const needle = query.trim().toLowerCase()
+  const visibleWorkspaces =
+    target.workspaces === null
+      ? null
+      : needle
+        ? target.workspaces.filter(
+            (workspace) =>
+              workspace.name.toLowerCase().includes(needle)
+              || (workspace.folderPath ?? '').toLowerCase().includes(needle)
+          )
+        : target.workspaces
   const label = target.error
     ? 'Unavailable'
     : target.workspaces === null
@@ -1212,14 +1225,30 @@ function RemoteProjectPicker({
       )}
     >
       <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label={`Projects on ${target.connection.machineName}`}>
+        {target.workspaces !== null && target.workspaces.length > 0 && !target.error ? (
+          // The same search-first shape the local selector opens on.
+          <div className="px-1.5 pb-1">
+            <Input
+              type="text"
+              size="sm"
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${target.connection.machineName}…`}
+              aria-label={`Search projects on ${target.connection.machineName}`}
+            />
+          </div>
+        ) : null}
         {target.error ? (
           <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]">{target.error}</div>
-        ) : target.workspaces === null ? (
+        ) : visibleWorkspaces === null ? (
           <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">Loading projects…</div>
-        ) : target.workspaces.length === 0 ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No workspaces on that machine.</div>
+        ) : visibleWorkspaces.length === 0 ? (
+          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
+            {needle ? 'No matching projects.' : 'No workspaces on that machine.'}
+          </div>
         ) : (
-          target.workspaces.map((workspace) => (
+          visibleWorkspaces.map((workspace) => (
             <button
               key={workspace.id}
               type="button"

@@ -1508,4 +1508,34 @@ const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels
   assert.deepEqual(filterModelGroups(groups, 'nothing-matches-this', 'all'), [])
 }
 
+// The model picker's provider headers are the menu spec's GROUP LABEL — never
+// bolder than the rows they head (remote-sessions-ux / selector-menus-premium;
+// the reasoning selector is the conforming reference). A source pin, in this
+// repo's literal-reading style: the header line consumes the shared class and
+// carries no weight of its own, so a font-semibold regression cannot pass.
+{
+  // From the repo root (how every source-reading suite here runs), not from
+  // import.meta.url — the bundle lives in node_modules/.cache.
+  const source = readFileSync('src/renderer/src/components/panels/AgentChatView.tsx', 'utf8')
+  const headerLine = source
+    .split('\n')
+    .find((line) => line.includes('{group.providerLabel}'))
+  assert.ok(headerLine, 'the provider header still renders providerLabel')
+  const mapStart = source.indexOf('filtered.map((group)')
+  assert.ok(mapStart !== -1, 'the provider group map still exists')
+  // The FIRST providerLabel after the map is the header line (an earlier
+  // occurrence lives in the filter menu's label template).
+  const headerAt = source.indexOf('{group.providerLabel}', mapStart)
+  assert.ok(headerAt !== -1, 'the header renders providerLabel inside the map')
+  const headerRegion = source.slice(mapStart, headerAt)
+  assert.ok(
+    headerRegion.includes('MENU_GROUP_LABEL_CLASS'),
+    'the provider header row consumes MENU_GROUP_LABEL_CLASS'
+  )
+  assert.ok(
+    !headerRegion.includes('font-semibold'),
+    'the provider header carries no weight of its own — group labels never out-weigh their rows'
+  )
+}
+
 console.log('AgentChatView.test.ts (model picker 1772): ok')
