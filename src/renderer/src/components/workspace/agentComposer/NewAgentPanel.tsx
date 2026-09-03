@@ -20,6 +20,7 @@ import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
   CliModelPopoverSurface,
   CloseIconButton,
+  COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   InlineSkillPicker,
@@ -504,7 +505,7 @@ export default function NewAgentPanel({
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // footer's buttons too and was a second focus idiom.
-          className={`relative mt-5 rounded-md border bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative mt-5 px-3 pb-2 pt-2.5 ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {

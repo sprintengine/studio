@@ -36,7 +36,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -1150,8 +1150,10 @@ type Props = {
 // piece with the footer control row beneath it. The container wears
 // FOCUS_RING_WITHIN_TEXTAREA_CLASS, so the indicator here is the product's one
 // ring — it used to be an accent border swap, a second idiom (MC-2107).
+// `text-body`, not the raw Tailwind `text-sm` it shipped with — the one type
+// scale is the token's (remote-sessions-ux / composer-surface-premium).
 const COMPOSER_CLASS =
-  'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
+  'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -2135,7 +2137,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * placeholder says why the composer is waiting.
          */}
         <div
-          className={`relative rounded-lg border bg-[color:var(--bg-surface)] transition-colors ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {

@@ -190,6 +190,29 @@ export const LIST_CURSOR_MARK_CLASS =
 export const OVERLAY_SURFACE_CLASS =
   'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]'
 
+/**
+ * The chat composer's material (MC: remote-sessions-ux /
+ * composer-surface-premium), shared by the launch composer and the session
+ * composer so the most-looked-at surface in the product is ONE surface:
+ *
+ * - `rounded-lg` — the shell radius (9px) via the app's radius alias; the two
+ *   composers had shipped `rounded-md` on `bg-app` and `rounded-lg` on
+ *   `bg-surface`, two materials for one thing.
+ * - a raised-to-surface wash — both stops are tokens; flat white in light
+ *   mode (the raise there is the hairline + shadow), a quiet top-lit
+ *   gradient in dark.
+ * - `shadow.control-raised` — its inset top highlight IS the dark-mode "lit
+ *   edge"; deliberately the raw token, not `.control-raised`, whose
+ *   `:active` press-invert belongs to buttons, not to a field being clicked
+ *   into.
+ *
+ * Border COLOR is the host's: both composers swap it to the accent while a
+ * file drag is over them, and a color baked in here would fight that swap on
+ * stylesheet order. No blur anywhere on this — terminals render beneath.
+ */
+export const COMPOSER_SURFACE_CLASS =
+  'rounded-lg border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+
 /* ------------------------------------------------------------------ *
  * Overlay geometry — one scale for every floating surface (MC-2110)
  * ------------------------------------------------------------------ */

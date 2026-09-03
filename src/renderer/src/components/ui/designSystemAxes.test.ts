@@ -182,13 +182,17 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // inside a pane, not overlay layering.
   z: {
     'components/workspace': 6,
-    'components/panels': 10,
+    // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
+    // app's one toast region (remote-sessions-ux / toast-host-region).
+    'components/panels': 9,
     'components/ui': 1,
     'components/memory': 1,
     'components/auxWindows': 1,
   },
   type: {
-    'components/panels': 10,
+    // 10 → 9: the session composer's raw `text-sm` became the `text-body`
+    // token step (remote-sessions-ux / composer-surface-premium).
+    'components/panels': 9,
     utils: 6,
     'components/diagnostics': 2,
   },
