@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import {
   AUTOMATION_GET_STATUS_CHANNEL,
   AUTOMATION_SET_ENABLED_CHANNEL,
@@ -6,6 +6,8 @@ import {
 } from '../../shared/automation'
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
+  TAILNET_EVENT_CHANNEL,
+  TAILNET_GET_LIVE_STATE_CHANNEL,
   TAILNET_GET_STATUS_CHANNEL,
   TAILNET_APPROVE_PAIR_REQUEST_CHANNEL,
   TAILNET_DENY_PAIR_REQUEST_CHANNEL,
@@ -13,7 +15,9 @@ import {
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
   type TailnetApprovePairRequestView,
+  type TailnetLiveState,
   type TailnetPairingOfferView,
+  type TailnetPushPayload,
   type TailnetRemoteStatus,
   type TailnetScope,
 } from '../../shared/tailnet'
@@ -49,6 +53,16 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_DENY_PAIR_REQUEST_CHANNEL, id) as Promise<TailnetRemoteStatus>,
   tailnetListPeers: (): Promise<TailnetPeerScan> =>
     ipcRenderer.invoke(TAILNET_LIST_PEERS_CHANNEL) as Promise<TailnetPeerScan>,
+  tailnetGetLiveState: (): Promise<TailnetLiveState> =>
+    ipcRenderer.invoke(TAILNET_GET_LIVE_STATE_CHANNEL) as Promise<TailnetLiveState>,
+  // The push half (remote-sessions-ux): main broadcasts every tailnet change;
+  // each payload carries fresh status + live state, so a subscriber stores the
+  // latest and never re-fetches.
+  onTailnetEvent: (cb: (payload: TailnetPushPayload) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, payload: TailnetPushPayload) => cb(payload)
+    ipcRenderer.on(TAILNET_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(TAILNET_EVENT_CHANNEL, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'automationGetStatus'
@@ -61,4 +75,6 @@ export const automationApi = {
   | 'tailnetApprovePairRequest'
   | 'tailnetDenyPairRequest'
   | 'tailnetListPeers'
+  | 'tailnetGetLiveState'
+  | 'onTailnetEvent'
 >

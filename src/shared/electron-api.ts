@@ -64,7 +64,9 @@ import type {
 import type { AutomationServerStatus } from './automation'
 import type {
   TailnetApprovePairRequestView,
+  TailnetLiveState,
   TailnetPairingOfferView,
+  TailnetPushPayload,
   TailnetRemoteStatus,
   TailnetScope,
 } from './tailnet'
@@ -74,6 +76,7 @@ import type {
   FleetBrowse,
   FleetConnection,
   FleetCreateTerminalResult,
+  FleetEvent,
   FleetPairResult,
   FleetRun,
   FleetTerminalEvent,
@@ -2995,6 +2998,19 @@ export type ElectronApi = {
    * somewhere to connect to is independent of being connectable.
    */
   tailnetListPeers: () => Promise<TailnetPeerScan>
+  /**
+   * Live connections behind the push channel (remote-sessions-ux): which
+   * devices hold a socket right now and which terminals they are attached to.
+   * Read once as the initial snapshot; every `onTailnetEvent` payload carries
+   * a fresher one.
+   */
+  tailnetGetLiveState: () => Promise<TailnetLiveState>
+  /**
+   * Subscribe to tailnet changes pushed from main — listener up/down, pair
+   * requests arriving or resolving, devices connecting, terminal drive
+   * begin/end. Returns the unsubscribe.
+   */
+  onTailnetEvent: (cb: (payload: TailnetPushPayload) => void) => () => void
   // The Fleet (MC-2167): the machines this Studio is paired WITH, and the panes
   // it mounts from them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer
@@ -3037,6 +3053,12 @@ export type ElectronApi = {
   fleetTerminalInput: (attachId: string, data: string) => void
   fleetTerminalResize: (attachId: string, cols: number, rows: number) => void
   onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void) => () => void
+  /**
+   * Whole-app fleet lifecycle (remote-sessions-ux): a machine paired or
+   * forgotten, an attachment's link state changing — broadcast to every
+   * window, credential-free. Returns the unsubscribe.
+   */
+  onFleetEvent: (cb: (event: FleetEvent) => void) => () => void
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>

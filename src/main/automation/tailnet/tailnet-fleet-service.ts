@@ -10,6 +10,7 @@ import {
   type FleetAttachResult,
   type FleetBrowse,
   type FleetConnection,
+  type FleetEvent,
   type FleetCreateTerminalResult,
   type FleetGap,
   type FleetPairResult,
@@ -105,6 +106,14 @@ export type TailnetFleetServiceOptions = {
   resolveDeviceName?: () => string
   /** Tailscale node name for an address, so a machine is listed by name rather than by IP. */
   resolvePeerName?: (address: string) => Promise<string | null>
+  /**
+   * Whole-app fleet lifecycle for the live-state push (remote-sessions-ux):
+   * a machine paired or forgotten, an attachment's link state changing. The
+   * per-attachment pty stream stays on its own channel to the owning window;
+   * these are the facts chrome in every window may show. Payloads never carry
+   * a credential — connections cross this boundary as the store's public view.
+   */
+  onEvent?: (event: FleetEvent) => void
   createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetFleetStore
   log?: (message: string) => void
 }
@@ -176,6 +185,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         deviceToken: paired.value.deviceToken,
         scopes: paired.value.scopes,
       })
+      options.onEvent?.({ kind: 'machine-paired', connection })
       return { ok: true, connection }
     } catch (error) {
       // The device now exists on the other machine. Saying "paired" over a token
@@ -267,6 +277,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         deviceToken: collected.value.deviceToken,
         scopes: collected.value.scopes,
       })
+      options.onEvent?.({ kind: 'machine-paired', connection })
       return { ok: true, status: 'approved', connection }
     } catch (error) {
       // Same failure the carried-code path has, and the same honesty about it:
@@ -489,14 +500,35 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       return { ok: false, code: 'invalid_arguments', message: 'Name the terminal session to attach to.' }
     }
     // Re-attaching the same pane replaces the old attachment rather than
-    // stacking a second socket on the same session id.
-    detachTerminal(input.attachId)
+    // stacking a second socket on the same session id — silently: a remount
+    // broadcasting `closed` for a session that is `connecting` again a
+    // millisecond later would make chrome flicker.
+    detachTerminal(input.attachId, { silent: true })
+
+    // Every link-state transition — connecting, live, reconnecting, offline,
+    // closed — flows through the pane's status frames, so mirroring them here
+    // is the one interception that keeps the broadcast and the pane agreeing.
+    const machineName = connection.machineName
+    const sessionId = input.sessionId
+    const emitAndBroadcast = (event: FleetTerminalEvent): void => {
+      if (event.type === 'status') {
+        options.onEvent?.({
+          kind: 'attachment',
+          connectionId: connection.id,
+          machineName,
+          sessionId,
+          state: event.state,
+          detail: event.detail,
+        })
+      }
+      input.emit(event)
+    }
 
     const attachment: Attachment = {
       attachId: input.attachId,
       connectionId: connection.id,
       sessionId: input.sessionId,
-      emit: input.emit,
+      emit: emitAndBroadcast,
       socket: null,
       released: false,
       attachedThisDial: false,
@@ -666,7 +698,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     attachment.emit({ type: 'status', state: 'closed', detail: reason })
   }
 
-  function detachTerminal(attachId: unknown): void {
+  function detachTerminal(attachId: unknown, replace?: { silent: boolean }): void {
     const attachment = typeof attachId === 'string' ? attachments.get(attachId) : undefined
     if (!attachment) return
     attachment.released = true
@@ -675,6 +707,18 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     attachment.socket?.close('The pane was closed.')
     attachment.socket = null
     attachments.delete(attachment.attachId)
+    if (replace?.silent) return
+    // A detach sends no status frame (the pane is already gone), so the
+    // broadcast half is announced directly or chrome would count this
+    // attachment as live forever.
+    options.onEvent?.({
+      kind: 'attachment',
+      connectionId: attachment.connectionId,
+      machineName: store.find(attachment.connectionId)?.machineName ?? attachment.connectionId,
+      sessionId: attachment.sessionId,
+      state: 'closed',
+      detail: 'The pane was closed.',
+    })
   }
 
   return {
@@ -685,12 +729,16 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     cancelPairing,
     forget(connectionId): FleetConnection[] {
       if (typeof connectionId === 'string') {
+        const forgotten = store.find(connectionId)
         // Panes attached to a machine we just forgot have no credential left to
         // reconnect with; end them rather than leaving them retrying forever.
         for (const attachment of [...attachments.values()]) {
           if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
         }
         store.forget(connectionId)
+        if (forgotten) {
+          options.onEvent?.({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
+        }
       }
       return store.list()
     },

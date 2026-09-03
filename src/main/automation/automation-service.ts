@@ -5,7 +5,8 @@ import { join } from 'path'
 import type { AutomationServerStatus } from '../../shared/automation'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
-import type { TailnetPairingOfferView, TailnetRemoteStatus } from '../../shared/tailnet'
+import type { TailnetLiveState, TailnetPairingOfferView, TailnetPushPayload, TailnetRemoteStatus } from '../../shared/tailnet'
+import type { FleetEvent } from '../../shared/tailnet-fleet'
 import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
@@ -53,6 +54,13 @@ type AutomationServiceOptions = {
   resolveTerminalHost?: () => TerminalRemoteHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
+  /**
+   * The live-state push (remote-sessions-ux): tailnet listener/pairing/socket
+   * changes and fleet lifecycle, for broadcast to every window. Wired by the
+   * app shell; absent in tests and headless embeddings, where nothing listens.
+   */
+  onTailnetEvent?: (payload: TailnetPushPayload) => void
+  onFleetEvent?: (event: FleetEvent) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
@@ -143,6 +151,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
         if (!isStudioGatewayMutation(tool)) return
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
+      onEvent: options.onTailnetEvent,
       log: (text) => warn('Tailnet remote control', text),
     })
     return tailnet
@@ -152,6 +161,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     fleet ??= createTailnetFleetService({
       resolveUserDataDir: options.resolveUserDataDir,
       resolvePeerName: (address) => tailnetService().resolvePeerName(address),
+      onEvent: options.onFleetEvent,
       log: (text) => warn('Tailnet fleet', text),
     })
     return fleet
@@ -229,6 +239,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     shutdown,
     notifyToolsListChanged,
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
+    getTailnetLiveState: (): TailnetLiveState => tailnetService().getLiveState(),
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),
     offerTailnetPairing: (input?: { scopes?: unknown }): TailnetPairingOfferView => tailnetService().offerPairing(input),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),

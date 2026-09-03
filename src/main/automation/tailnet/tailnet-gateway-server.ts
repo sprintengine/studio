@@ -115,6 +115,17 @@ export type TailnetGatewayServerOptions = {
    * go and read the requests, not to be told about one it has not authorised.
    */
   onPairRequested?: () => void
+  /**
+   * Socket lifecycle, for the live-state push (remote-sessions-ux): a device's
+   * RPC stream or terminal attachment opening or closing. Fired exactly once
+   * per transition — the service above derives "connected" and "driving
+   * terminal X" from these without holding a socket reference of its own.
+   */
+  onActivity?: (
+    event:
+      | { kind: 'stream'; device: TailnetDevice; open: boolean }
+      | { kind: 'terminal'; device: TailnetDevice; sessionId: string; open: boolean }
+  ) => void
   onToolCall?: (event: {
     context: McpConnectionContext
     tool: string
@@ -143,6 +154,8 @@ export type TailnetGatewayServer = {
 type StreamSession = {
   socket: Duplex
   deviceId: string
+  /** The device as authenticated at upgrade, for the close announcement. */
+  device: TailnetDevice
   context: McpConnectionContext
 }
 
@@ -525,7 +538,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         scopes: device.scopes,
         terminals: options.terminals,
         onClosed: () => {
-          if (registration.stream) terminalStreams.delete(registration.stream)
+          // Emit only when the stream was actually tracked: a stream that
+          // refused its own attach closes before it is added and never
+          // announced an open, so it must not announce a close.
+          if (registration.stream && terminalStreams.delete(registration.stream)) {
+            options.onActivity?.({ kind: 'terminal', device, sessionId, open: false })
+          }
         },
         log: options.log,
       })
@@ -534,6 +552,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // `onClosed` before this line, so only a live one is tracked.
       if (stream.isClosed()) return
       terminalStreams.add(stream)
+      options.onActivity?.({ kind: 'terminal', device, sessionId, open: true })
       if (head?.length) socket.emit('data', head)
       return
     }
@@ -542,8 +561,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     options.devices.recordSeen(device.id, peerNode)
     acceptUpgrade(socket, key)
 
-    const session: StreamSession = { socket, deviceId: device.id, context: contextFor(device, peerNode) }
+    const session: StreamSession = { socket, deviceId: device.id, device, context: contextFor(device, peerNode) }
     streams.add(session)
+    options.onActivity?.({ kind: 'stream', device, open: true })
     const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
     // Serialize per connection so a client's messages are answered in order.
     let pending = Promise.resolve()
@@ -576,14 +596,25 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // dropped client stays in `streams` for the life of the process and every
     // tool-list notification writes into a socket nobody is reading.
     socket.on('end', () => {
-      streams.delete(session)
+      dropStream(session)
       socket.destroy()
     })
-    socket.on('close', () => streams.delete(session))
+    socket.on('close', () => dropStream(session))
     socket.on('error', () => {
-      streams.delete(session)
+      dropStream(session)
       socket.destroy()
     })
+  }
+
+  /**
+   * Untrack a stream and announce the close exactly once, whichever of the
+   * teardown paths (peer end/close/error, revocation, server stop) runs first —
+   * `streams.delete` returning false is what dedupes.
+   */
+  function dropStream(session: StreamSession): void {
+    if (streams.delete(session)) {
+      options.onActivity?.({ kind: 'stream', device: session.device, open: false })
+    }
   }
 
   async function handleStreamMessage(session: StreamSession, text: string): Promise<void> {
@@ -649,7 +680,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   }
 
   function closeStream(session: StreamSession, code: number, reason: string): void {
-    streams.delete(session)
+    dropStream(session)
     if (session.socket.destroyed) return
     try {
       session.socket.write(encodeCloseFrame(code, reason))

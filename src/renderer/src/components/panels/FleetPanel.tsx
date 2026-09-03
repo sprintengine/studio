@@ -66,6 +66,18 @@ export default function FleetPanel({ workspaceId }: Props) {
     setConnections(await window.api.fleetListConnections())
   }, [])
 
+  // Live updates (remote-sessions-ux): a machine paired or forgotten from any
+  // other surface (another window, the Remote popover) re-reads the list here
+  // without anyone pressing anything. Attachment link-state events are the
+  // panes' own; the list they would change is re-read on browse.
+  useEffect(() => {
+    return window.api.onFleetEvent((event) => {
+      if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') {
+        void refreshConnections().catch(() => {})
+      }
+    })
+  }, [refreshConnections])
+
   useEffect(() => {
     void refreshConnections().catch((error: unknown) => {
       setAction({ tone: 'error', message: describe(error, 'Could not read your paired machines.') })

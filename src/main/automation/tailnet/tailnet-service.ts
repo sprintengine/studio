@@ -3,8 +3,10 @@ import {
   normalizeTailnetScopes,
   TAILNET_STRUCTURED_SCOPES,
   type TailnetApprovePairRequestView,
+  type TailnetLiveState,
   type TailnetPairRequest,
   type TailnetPairingOfferView,
+  type TailnetPushPayload,
   type TailnetRemoteStatus,
   type TailnetScope,
 } from '../../../shared/tailnet'
@@ -76,6 +78,12 @@ export type TailnetRemoteService = {
    * one question.
    */
   resolvePeerName(address: string): Promise<string | null>
+  /**
+   * Live connections, derived from the listener's open sockets — which devices
+   * hold a stream right now and which terminals they are attached to. Nothing
+   * here is persisted; it is exactly what the sockets say.
+   */
+  getLiveState(): TailnetLiveState
   notifyToolsListChanged(): void
   shutdown(): Promise<void>
 }
@@ -100,6 +108,14 @@ export type TailnetRemoteServiceOptions = {
    * route refusing with a stated reason; nothing else about the listener changes.
    */
   terminals?: TerminalRemoteHost
+  /**
+   * The live-state push (remote-sessions-ux): fired on every observable change
+   * — listener up/down, a pair request arriving or resolving, a device's
+   * socket opening or closing, a terminal attach beginning or ending. Each
+   * payload carries a fresh status + live snapshot beside the event, so a
+   * consumer that stores the latest can never drift by missing one.
+   */
+  onEvent?: (payload: TailnetPushPayload) => void
   /** Injected in tests. Production reads this machine's real interfaces. */
   resolveBindAddress?: () => string | null
   createPeerScanner?: () => TailnetPeerScanner
@@ -120,6 +136,127 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   let settings: TailnetSettings | null = null
   let lastError: string | null = null
   let server: TailnetGatewayServer | null = null
+
+  // ── live-connection accounting (remote-sessions-ux) ────────────────────────
+  // Counts, not booleans: one device may hold several sockets (an RPC stream
+  // plus terminal attaches, or two clients under one pairing), and "connected"
+  // must only fall when the LAST one closes.
+  type LiveEntry = {
+    deviceName: string
+    streamCount: number
+    terminals: Map<string, number>
+    lastActivityAt: number | null
+  }
+  const live = new Map<string, LiveEntry>()
+  // Requests already announced, so the gateway's detail-free "a request
+  // arrived" callback can be diffed into per-request received events, and each
+  // gets one expiry timer that announces the resolution nobody typed.
+  const announcedRequests = new Map<string, { timer: ReturnType<typeof setTimeout>; deviceName: string }>()
+
+  function emit(event: TailnetPushPayload['event']): void {
+    options.onEvent?.({ event, status: getStatus(), live: getLiveState() })
+  }
+
+  function getLiveState(): TailnetLiveState {
+    return {
+      devices: [...live.entries()]
+        .filter(([, entry]) => entry.streamCount > 0 || entry.terminals.size > 0)
+        .map(([deviceId, entry]) => ({
+          deviceId,
+          deviceName: entry.deviceName,
+          connected: true,
+          attachedTerminalSessions: [...entry.terminals.keys()],
+          lastActivityAt: entry.lastActivityAt,
+        })),
+    }
+  }
+
+  function liveEntryFor(deviceId: string, deviceName: string): LiveEntry {
+    const existing = live.get(deviceId)
+    if (existing) {
+      existing.deviceName = deviceName
+      return existing
+    }
+    const created: LiveEntry = { deviceName, streamCount: 0, terminals: new Map(), lastActivityAt: null }
+    live.set(deviceId, created)
+    return created
+  }
+
+  function isLiveConnected(entry: LiveEntry): boolean {
+    return entry.streamCount > 0 || entry.terminals.size > 0
+  }
+
+  function handleActivity(
+    event:
+      | { kind: 'stream'; device: { id: string; name: string }; open: boolean }
+      | { kind: 'terminal'; device: { id: string; name: string }; sessionId: string; open: boolean }
+  ): void {
+    const entry = liveEntryFor(event.device.id, event.device.name)
+    const wasConnected = isLiveConnected(entry)
+    entry.lastActivityAt = Date.now()
+    let drive: 'begin' | 'end' | null = null
+    if (event.kind === 'stream') {
+      entry.streamCount = Math.max(0, entry.streamCount + (event.open ? 1 : -1))
+    } else {
+      const count = entry.terminals.get(event.sessionId) ?? 0
+      const next = count + (event.open ? 1 : -1)
+      if (next > 0) entry.terminals.set(event.sessionId, next)
+      else entry.terminals.delete(event.sessionId)
+      // Drive begin/end is per (device, terminal): announced on the first
+      // attach and the last detach, not on every extra viewer socket.
+      if (event.open && count === 0) drive = 'begin'
+      else if (!event.open && count === 1) drive = 'end'
+    }
+    const connected = isLiveConnected(entry)
+    if (!connected) live.delete(event.device.id)
+    // Narrated in the order the story reads: a device connects BEFORE it
+    // drives a terminal, and stops driving BEFORE it disconnects. Snapshot
+    // consumers never cared; per-event UI (a toast sequence) does.
+    if (connected && connected !== wasConnected) {
+      emit({ kind: 'device-connection', deviceId: event.device.id, deviceName: event.device.name, connected })
+    }
+    if (drive) {
+      emit({
+        kind: 'terminal-drive',
+        phase: drive,
+        deviceId: event.device.id,
+        deviceName: event.device.name,
+        terminalSessionId: event.kind === 'terminal' ? event.sessionId : '',
+      })
+    }
+    if (!connected && connected !== wasConnected) {
+      emit({ kind: 'device-connection', deviceId: event.device.id, deviceName: event.device.name, connected })
+    }
+  }
+
+  /**
+   * Diff the store's outstanding requests against what has been announced.
+   * New ones get a received event and an expiry timer; ones the store no
+   * longer lists (answered, cancelled, or lazily pruned as expired) get a
+   * resolved event. Every mutation path and every expiry timer funnels through
+   * this one diff, so received/resolved pair up no matter which door the
+   * change came through — and a request nobody answers still resolves visibly
+   * instead of vanishing between reads.
+   */
+  function announcePairRequests(): void {
+    const outstanding = devices.listPairRequests()
+    const outstandingIds = new Set(outstanding.map((request) => request.id))
+    for (const request of outstanding) {
+      if (announcedRequests.has(request.id)) continue
+      const untilExpiry = Math.max(250, Date.parse(request.expiresAt) - Date.now() + 250)
+      const timer = setTimeout(() => announcePairRequests(), untilExpiry)
+      timer.unref?.()
+      announcedRequests.set(request.id, { timer, deviceName: request.deviceName })
+      emit({ kind: 'pair-request', phase: 'received', requestId: request.id, deviceName: request.deviceName })
+    }
+    for (const [id, entry] of [...announcedRequests]) {
+      if (!outstandingIds.has(id)) {
+        clearTimeout(entry.timer)
+        announcedRequests.delete(id)
+        emit({ kind: 'pair-request', phase: 'resolved', requestId: id, deviceName: entry.deviceName })
+      }
+    }
+  }
 
   function loadSettings(): TailnetSettings {
     if (settings) return settings
@@ -198,12 +335,15 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       peers,
       terminals: options.terminals,
       onToolCall: options.onToolCall,
+      onPairRequested: () => announcePairRequests(),
+      onActivity: (event) => handleActivity(event),
       log: options.log,
     })
     try {
       await next.start()
       server = next
       lastError = null
+      emit({ kind: 'listener', running: true })
     } catch (error) {
       await next.stop().catch(() => {})
       lastError = `Tailnet remote control failed to start: ${message(error)}`
@@ -221,6 +361,10 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       lastError = `Tailnet remote control failed to stop cleanly: ${message(error)}`
       options.log?.(lastError)
     }
+    // The gateway's close path announced every socket teardown; whatever is
+    // left is bookkeeping for a listener that no longer exists.
+    live.clear()
+    emit({ kind: 'listener', running: false })
   }
 
   return {
@@ -248,6 +392,12 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
         devices.cancelPairing()
         await stopServer()
       }
+      // Unconditional, beyond the transition emits inside start/stop: a start
+      // that FAILED (port taken, interface gone) or a stop of a server that
+      // never ran emits nothing above, and every other window would keep a
+      // state this call just falsified. A duplicate is harmless — payloads
+      // are snapshots — a silence is the drift the channel exists to prevent.
+      emit({ kind: 'listener', running: server?.isRunning() ?? false })
       return getStatus()
     },
 
@@ -257,6 +407,8 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       // is never granted by default — it has to be asked for by name.
       const scopes = requested.length > 0 ? requested : [...TAILNET_STRUCTURED_SCOPES]
       const offer = devices.offerPairing({ scopes })
+      // The offer's existence (never its token) is status other windows show.
+      emit({ kind: 'devices-changed' })
       const bound = server?.address() ?? null
       return {
         token: offer.token,
@@ -278,6 +430,9 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       })
       if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message, status: getStatus() }
       if (input.via !== 'tool') auditAnswer('tailnet.approve_pair_request', answered, outcome.device.scopes)
+      // Resolved from whichever surface answered; every other one hears it.
+      announcePairRequests()
+      emit({ kind: 'devices-changed' })
       // A new device changes what `tools/list` answers for it, and the panel
       // needs the device to appear in the same read that reports success.
       return { ok: true, device: outcome.device, status: getStatus() }
@@ -287,16 +442,19 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       const requestId = typeof id === 'string' ? id : ''
       const answered = devices.listPairRequests().find((request) => request.id === requestId)
       if (devices.denyPairRequest(requestId) && via !== 'tool') auditAnswer('tailnet.deny_pair_request', answered)
+      announcePairRequests()
       return getStatus()
     },
 
     cancelPairing(): TailnetRemoteStatus {
       devices.cancelPairing()
+      emit({ kind: 'devices-changed' })
       return getStatus()
     },
 
     revokeDevice(deviceId): TailnetRemoteStatus {
       devices.revokeDevice(deviceId)
+      emit({ kind: 'devices-changed' })
       return getStatus()
     },
 
@@ -312,11 +470,15 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       return peers.resolve(address)
     },
 
+    getLiveState,
+
     notifyToolsListChanged(): void {
       server?.notifyToolsListChanged()
     },
 
     async shutdown(): Promise<void> {
+      for (const [, entry] of announcedRequests) clearTimeout(entry.timer)
+      announcedRequests.clear()
       await stopServer()
     },
   }

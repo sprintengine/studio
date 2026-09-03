@@ -5,6 +5,7 @@ import {
 } from '../../shared/automation'
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
+  TAILNET_GET_LIVE_STATE_CHANNEL,
   TAILNET_GET_STATUS_CHANNEL,
   TAILNET_APPROVE_PAIR_REQUEST_CHANNEL,
   TAILNET_DENY_PAIR_REQUEST_CHANNEL,
@@ -30,6 +31,9 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
     service.setEnabled(enabled === true)
   )
   ipcMain.handle(TAILNET_GET_STATUS_CHANNEL, () => service.getTailnetStatus())
+  // The initial read behind the push channel: a subscriber takes this snapshot
+  // once, then stores each pushed payload's fresher copy.
+  ipcMain.handle(TAILNET_GET_LIVE_STATE_CHANNEL, () => service.getTailnetLiveState())
   ipcMain.handle(TAILNET_SET_ENABLED_CHANNEL, (_event, enabled: unknown) =>
     service.setTailnetEnabled(enabled === true)
   )

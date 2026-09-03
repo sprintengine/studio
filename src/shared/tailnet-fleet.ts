@@ -182,6 +182,31 @@ export type FleetCollectPairingResult =
   | { ok: true; status: 'expired' }
   | { ok: false; code: string; message: string }
 
+/**
+ * Broadcast fleet lifecycle (MC: remote-sessions-ux / tailnet-live-state-push).
+ *
+ * Distinct from the per-attachment `fleetTerminalEventChannel` stream, which
+ * carries pty bytes to the one window that owns the pane. These are the
+ * whole-app facts every window may care about — a machine paired or forgotten,
+ * an attachment's link state changing — pushed on one channel so chrome (the
+ * Remote glyph, toasts) never polls. The fleet has no per-machine supervisor:
+ * "connected" is a property of its live attachments, and these events say
+ * exactly that rather than inventing a machine phase main does not hold.
+ */
+export type FleetEvent =
+  | { kind: 'machine-paired'; connection: FleetConnection }
+  | { kind: 'machine-forgotten'; connectionId: string; machineName: string }
+  | {
+      kind: 'attachment'
+      connectionId: string
+      machineName: string
+      sessionId: string
+      state: FleetLinkState
+      detail: string
+    }
+
+export const FLEET_EVENT_CHANNEL = 'fleet:event'
+
 export const FLEET_REQUEST_PAIRING_CHANNEL = 'fleet:request-pairing'
 export const FLEET_COLLECT_PAIRING_CHANNEL = 'fleet:collect-pairing'
 export const FLEET_CANCEL_PAIRING_CHANNEL = 'fleet:cancel-pairing'

@@ -7,6 +7,8 @@ import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
+import { TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
@@ -679,6 +681,21 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Dev runs serve the script straight from the repo; packaged builds ship
     // it via the electron-builder extraResources entry (resources/automation).
     resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
+    // The live-state push (remote-sessions-ux): every window hears listener,
+    // pairing, and connection changes the moment main does — the fix for pair
+    // requests that could expire while only Settings, if open, would show them.
+    onTailnetEvent: (payload) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(TAILNET_EVENT_CHANNEL, payload)
+      }
+    },
+    onFleetEvent: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(FLEET_EVENT_CHANNEL, event)
+      }
+    },
     // Terminal streaming for the tailnet listener (MC-2165): the runtime's own
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.

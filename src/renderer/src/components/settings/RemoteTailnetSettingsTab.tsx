@@ -65,6 +65,22 @@ export function RemoteTailnetSettingsTab() {
     })
   }, [refresh])
 
+  // Live updates (remote-sessions-ux): every pushed payload carries fresh
+  // status, so a pair request arriving — or being answered from any other
+  // surface — lands here without a refetch. The fetch-on-mount above stays the
+  // initial read; this keeps it true afterwards.
+  useEffect(() => {
+    return window.api.onTailnetEvent((payload) => {
+      setStatus(payload.status)
+      // The local offer holds the one-time CODE (main never re-serves it),
+      // but the pairing's existence is main's fact: cancelled or replaced
+      // from any other surface, a dead QR must not stay on screen.
+      setOffer((current) =>
+        current && payload.status.pairing?.expiresAt === current.expiresAt ? current : null
+      )
+    })
+  }, [])
+
   const outstandingPairing = status?.pairing ?? null
 
   // Only ticks while a countdown is on screen: an idle panel should not wake

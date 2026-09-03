@@ -13,6 +13,7 @@ import {
   FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
   FLEET_REQUEST_PAIRING_CHANNEL,
+  FLEET_EVENT_CHANNEL,
   FLEET_TERMINAL_INPUT_CHANNEL,
   FLEET_TERMINAL_RESIZE_CHANNEL,
   type FleetAttachResult,
@@ -20,6 +21,7 @@ import {
   type FleetConnection,
   type FleetCreateTerminalResult,
   type FleetCollectPairingResult,
+  type FleetEvent,
   type FleetPairResult,
   type FleetRequestPairingResult,
   type FleetRun,
@@ -83,6 +85,13 @@ export const fleetApi = {
     ipcRenderer.on(channel, handler)
     return () => ipcRenderer.removeListener(channel, handler)
   },
+  // Whole-app fleet lifecycle (remote-sessions-ux): machine paired/forgotten
+  // and attachment link-state changes, broadcast to every window.
+  onFleetEvent: (cb: (event: FleetEvent) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, event: FleetEvent) => cb(event)
+    ipcRenderer.on(FLEET_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(FLEET_EVENT_CHANNEL, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'fleetListConnections'
@@ -99,4 +108,5 @@ export const fleetApi = {
   | 'fleetTerminalInput'
   | 'fleetTerminalResize'
   | 'onFleetTerminalEvent'
+  | 'onFleetEvent'
 >

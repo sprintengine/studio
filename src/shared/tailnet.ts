@@ -191,3 +191,50 @@ export type TailnetApprovePairRequestView =
 export const TAILNET_LIST_PAIR_REQUESTS_CHANNEL = 'tailnet:list-pair-requests'
 export const TAILNET_APPROVE_PAIR_REQUEST_CHANNEL = 'tailnet:approve-pair-request'
 export const TAILNET_DENY_PAIR_REQUEST_CHANNEL = 'tailnet:deny-pair-request'
+
+// ── Live state, pushed (MC: remote-sessions-ux / tailnet-live-state-push) ────
+//
+// Everything above is request/response. These types are the push half: main
+// broadcasts a `TailnetPushPayload` to every window whenever the listener,
+// a pairing request, or a device's live connection changes, so the renderer
+// never polls for a fact main already holds. The payload always carries a
+// fresh status + live snapshot beside the event that caused it — a consumer
+// stores the latest and can never drift from main by missing one event.
+
+/** One inbound device's live connections, derived from open sockets — never persisted. */
+export type TailnetLiveDevice = {
+  deviceId: string
+  deviceName: string
+  /** An RPC stream or terminal socket is open right now. */
+  connected: boolean
+  /** Terminal session ids this device is currently attached to (observe or control). */
+  attachedTerminalSessions: string[]
+  /** Epoch ms of the last observed activity on this channel set, or null. */
+  lastActivityAt: number | null
+}
+
+export type TailnetLiveState = {
+  devices: TailnetLiveDevice[]
+}
+
+export type TailnetLiveEvent =
+  | { kind: 'listener'; running: boolean }
+  | { kind: 'pair-request'; phase: 'received' | 'resolved'; requestId: string; deviceName: string }
+  | { kind: 'device-connection'; deviceId: string; deviceName: string; connected: boolean }
+  | {
+      kind: 'terminal-drive'
+      phase: 'begin' | 'end'
+      deviceId: string
+      deviceName: string
+      terminalSessionId: string
+    }
+  | { kind: 'devices-changed' }
+
+export type TailnetPushPayload = {
+  event: TailnetLiveEvent
+  status: TailnetRemoteStatus
+  live: TailnetLiveState
+}
+
+export const TAILNET_EVENT_CHANNEL = 'tailnet:event'
+export const TAILNET_GET_LIVE_STATE_CHANNEL = 'tailnet:get-live-state'
