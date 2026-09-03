@@ -6,6 +6,7 @@ import type {
   GitStatusSnapshot,
 } from './git'
 import { pathExists, runGit, toAbsolutePath } from './git-utils'
+import type { GitRowSummary } from '../shared/electron-api'
 
 type GitStatusCode = {
   index: string
@@ -103,11 +104,7 @@ export async function getGitOperationInProgress(repoRoot: string): Promise<GitRe
  * HEAD yet, git missing) reports the quiet shape rather than throwing: a row
  * simply shows no git facts.
  */
-export type GitRowSummary = {
-  branch: string | null
-  additions: number
-  deletions: number
-}
+export type { GitRowSummary } from '../shared/electron-api'
 
 export async function getGitRowSummary(repoRoot: string): Promise<GitRowSummary> {
   let branch: string | null = null
