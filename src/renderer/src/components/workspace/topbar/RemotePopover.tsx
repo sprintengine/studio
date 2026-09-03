@@ -1,9 +1,22 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { GhostButton, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, PanelHeader, StatusDot } from '../../ui'
+import {
+  GhostButton,
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  OutlineButton,
+  PanelHeader,
+  PrimaryButton,
+  StatusDot,
+} from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
+import {
+  TAILNET_STRUCTURED_SCOPES,
+  type TailnetPairRequest,
+  type TailnetScope,
+} from '../../../../../shared/tailnet'
 
 // The Remote glyph's surface (remote-sessions-ux / remote-glyph-topbar):
 // what this machine is serving and who is driving it, then the machines this
@@ -45,28 +58,9 @@ export function RemotePopover({
             {status?.lastError ? status.lastError : 'The listener is off.'}
           </div>
         )}
-        {status?.pairRequests.map((request) => {
-          const msLeft = Math.max(0, Date.parse(request.expiresAt) - now)
-          const minutes = Math.floor(msLeft / 60_000)
-          const seconds = Math.floor((msLeft % 60_000) / 1000)
-          return (
-            <div key={request.id} className="flex items-center gap-2 px-2.5 py-1.5 text-meta">
-              <StatusDot tone="warn" pulse label="Pair request" />
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium text-[color:var(--text-default)]">
-                  {request.peerNode ?? request.peerAddress}
-                </span>{' '}
-                <span className="text-[color:var(--text-subtle)]">asks to pair</span>
-                <span className="ml-1.5 font-mono text-micro tabular-nums text-[color:var(--tone-warn)]">
-                  {minutes}:{String(seconds).padStart(2, '0')}
-                </span>
-              </span>
-              <GhostButton size="xs" onClick={onOpenRemoteSettings}>
-                Review
-              </GhostButton>
-            </div>
-          )
-        })}
+        {status?.pairRequests.map((request) => (
+          <PairRequestCard key={request.id} request={request} now={now} />
+        ))}
         {live.devices.map((device) => (
           <div key={device.deviceId} className="flex items-center gap-2 px-2.5 py-1.5 text-meta">
             <StatusDot
@@ -137,6 +131,104 @@ export function RemotePopover({
         <GhostButton size="sm" onClick={onOpenRemoteSettings}>
           {openSettingsLabel}
         </GhostButton>
+      </div>
+    </div>
+  )
+}
+
+// The scope choices the card offers, in the mockup's four combined rows:
+// operate implies read within a family (shared/tailnet's own rule), so one
+// checkbox per family grants the pair, and the terminal tier — arbitrary
+// shell — stays its own named line, never bundled.
+const PAIR_SCOPE_ROWS: Array<{ label: string; scopes: TailnetScope[]; note?: string; defaultOn: boolean }> = [
+  { label: 'Workspaces — read & operate', scopes: ['workspace:read', 'workspace:operate'], defaultOn: true },
+  { label: 'Sprints — read & operate', scopes: ['sprint:read', 'sprint:operate'], defaultOn: true },
+  { label: 'Backlog — read & operate', scopes: ['backlog:read', 'backlog:operate'], defaultOn: true },
+  { label: 'Horizons — read & operate', scopes: ['horizon:read', 'horizon:operate'], defaultOn: true },
+  { label: 'Terminals — control', scopes: ['terminal:observe', 'terminal:control'], note: 'arbitrary shell', defaultOn: false },
+]
+
+/**
+ * The ACTING surface for a request from another machine (remote-sessions-ux /
+ * incoming-pair-request-prompt): the six-digit comparison code rendered
+ * large — the person must see the same digits on the asker's screen — the
+ * scopes chosen HERE, a live countdown, Allow and Decline. Approval and
+ * denial go through the exact IPC Settings uses; resolution reaches every
+ * surface over the push channel, so no double-approve is possible. The code
+ * lives ONLY here and in Settings — never in the announcing toast.
+ */
+function PairRequestCard({ request, now }: { request: TailnetPairRequest; now: number }) {
+  const [granted, setGranted] = React.useState<ReadonlySet<string>>(
+    () => new Set(PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).map((row) => row.label))
+  )
+  const [busy, setBusy] = React.useState<'allow' | 'decline' | null>(null)
+  const msLeft = Math.max(0, Date.parse(request.expiresAt) - now)
+  const minutes = Math.floor(msLeft / 60_000)
+  const seconds = Math.floor((msLeft % 60_000) / 1000)
+  const scopes = PAIR_SCOPE_ROWS.filter((row) => granted.has(row.label)).flatMap((row) => row.scopes)
+
+  const answer = async (kind: 'allow' | 'decline'): Promise<void> => {
+    if (busy) return
+    setBusy(kind)
+    try {
+      if (kind === 'allow') {
+        await window.api.tailnetApprovePairRequest(
+          request.id,
+          scopes.length > 0 ? scopes : [...TAILNET_STRUCTURED_SCOPES]
+        )
+      } else {
+        await window.api.tailnetDenyPairRequest(request.id)
+      }
+      // The push channel clears the card everywhere; nothing to do locally.
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="mx-2.5 my-1.5 rounded-[7px] border border-[color:var(--border-default)] p-2.5">
+      <div className="flex items-center gap-2 text-meta">
+        <StatusDot tone="warn" pulse label="Pair request" />
+        <span className="min-w-0 flex-1 truncate font-medium text-[color:var(--text-default)]">
+          {request.peerNode ?? request.peerAddress}{' '}
+          <span className="font-normal text-[color:var(--text-subtle)]">asks to pair</span>
+        </span>
+      </div>
+      <div className="my-2 rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-1.5 text-center font-mono text-title tracking-[0.3em] text-[color:var(--text-strong)]">
+        {request.comparisonCode}
+      </div>
+      <div className="flex flex-col gap-1 pb-2">
+        {PAIR_SCOPE_ROWS.map((row) => (
+          <label key={row.label} className="flex cursor-pointer items-center gap-2 text-meta text-[color:var(--text-default)]">
+            <input
+              type="checkbox"
+              className="accent-[color:var(--accent-primary)]"
+              checked={granted.has(row.label)}
+              onChange={(event) => {
+                setGranted((current) => {
+                  const next = new Set(current)
+                  if (event.target.checked) next.add(row.label)
+                  else next.delete(row.label)
+                  return next
+                })
+              }}
+            />
+            {row.label}
+            {row.note ? <span className="text-[color:var(--text-subtle)]">({row.note})</span> : null}
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-micro tabular-nums text-[color:var(--tone-warn)]">
+          {minutes}:{String(seconds).padStart(2, '0')}
+        </span>
+        <span className="flex-1" />
+        <OutlineButton size="sm" disabled={busy !== null} onClick={() => void answer('decline')}>
+          {busy === 'decline' ? 'Declining…' : 'Decline'}
+        </OutlineButton>
+        <PrimaryButton size="sm" disabled={busy !== null || scopes.length === 0} onClick={() => void answer('allow')}>
+          {busy === 'allow' ? 'Allowing…' : 'Allow'}
+        </PrimaryButton>
       </div>
     </div>
   )

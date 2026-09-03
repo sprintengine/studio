@@ -96,7 +96,7 @@ run('driving = a device attached to a terminal HERE; connected covers both direc
   assert.equal(outbound.connected, true)
 })
 
-run('the popover names the serving endpoint, the driving device with Revoke, and a waiting request with Review', () => {
+run('the popover names the endpoint and driving device, and hosts the ACTING pair-request card', () => {
   const markup = renderToStaticMarkup(
     <RemotePopover
       presence={presence({
@@ -137,8 +137,15 @@ run('the popover names the serving endpoint, the driving device with Revoke, and
   assert.match(markup, /Revoke/)
   assert.match(markup, /dev-macbook-air/)
   assert.match(markup, /asks to pair/)
-  assert.match(markup, /Review/)
-  assert.doesNotMatch(markup, /481972|481 972/, 'the comparison code never renders here — it belongs to the acting surface')
+  // This IS the acting surface (incoming-pair-request-prompt): the code
+  // renders large for the human comparison, the scopes are chosen here, and
+  // Allow/Decline answer through the same IPC Settings uses.
+  assert.match(markup, /481972/)
+  assert.match(markup, /Terminals — control/)
+  assert.match(markup, /arbitrary shell/)
+  assert.match(markup, /Allow/)
+  assert.match(markup, /Decline/)
+  assert.doesNotMatch(markup, /Review/, 'no pointer elsewhere — the card acts, right here')
   assert.match(markup, /Conal’s MacBook Air/)
   assert.match(markup, /2 terminals attached/)
   assert.match(markup, /Open Fleet/)
