@@ -1,6 +1,7 @@
 // Imported from the concrete module rather than the `../../ui` barrel to keep
 // this hookless module free of the barrel's whole component graph.
 import { Tooltip } from '../../ui/Tooltip'
+import { MENU_ITEM_STACKED_CLASS } from '../../ui/menuClasses'
 import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
@@ -85,6 +86,102 @@ export function PermissionPresetChips({
               {PRESET_CHIP_LABEL[option.value]}
             </button>
           </Tooltip>
+        )
+      })}
+    </>
+  )
+}
+
+// One 16-grid glyph per preset makes permission choices recognizable: quiet dial for the CLI's own default, a closed lock for Manual,
+// a spark for Auto, an open lock for Bypass. All-or-nothing per the menu
+// spec's leading-slot rule — every row carries one.
+function PresetGlyph({ preset }: { preset: SprintEngineCliPermissionPreset }) {
+  const shared = { className: 'icon-xs shrink-0', viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true as const }
+  if (preset === 'manual') {
+    return (
+      <svg {...shared}>
+        <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    )
+  }
+  if (preset === 'auto') {
+    return (
+      <svg {...shared}>
+        <path
+          d="M8 2.5l1.35 3.4 3.4 1.35-3.4 1.35L8 12l-1.35-3.4-3.4-1.35 3.4-1.35L8 2.5Z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M12.6 11.2l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" fill="currentColor" />
+      </svg>
+    )
+  }
+  if (preset === 'bypass') {
+    return (
+      <svg {...shared}>
+        <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M10.5 7V5.4a2.5 2.5 0 0 0-4.9-.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...shared}>
+      <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 8l2.4-2.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// The permission choice as the menu spec's STACKED items — glyph on the first
+// line, `body` name, `meta` support — shared by the chat composer's pill and
+// the launch panel's pill so one choice never renders two ways
+// (remote-sessions-ux / selector-menus-premium; the chip row above stays the
+// compact in-line form for footers). Selection is `bg.selected` + a check,
+// distinct from hover; Bypass keeps warn INK, never a fill.
+export function PermissionPresetMenuRows({
+  value,
+  disabled = false,
+  onSelect,
+}: {
+  value: SprintEngineCliPermissionPreset
+  /** Locks the rows while a live change is in flight. */
+  disabled?: boolean
+  onSelect: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  return (
+    <>
+      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+        const active = option.value === value
+        const isBypass = option.value === 'bypass'
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={active}
+            disabled={disabled}
+            onClick={() => onSelect(option.value)}
+            className={`${MENU_ITEM_STACKED_CLASS} ${
+              active ? 'bg-[color:var(--bg-selected)]' : ''
+            } ${isBypass ? 'text-[color:var(--tone-warn)]' : active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+          >
+            <span className="mt-0.5 inline-flex shrink-0"><PresetGlyph preset={option.value} /></span>
+            <span className="min-w-0 flex-1">
+              <span className={`block text-body font-medium ${isBypass ? '' : 'text-[color:var(--text-strong)]'}`}>
+                {option.label}
+              </span>
+              <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">
+                {option.title}
+              </span>
+            </span>
+            {active ? (
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]">
+                <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : null}
+          </button>
         )
       })}
     </>

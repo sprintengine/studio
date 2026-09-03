@@ -23,6 +23,10 @@ import {
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  MENU_DIVIDER_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_ITEM_STACKED_CLASS,
+  MENU_LIST_CLASS,
   InlineSkillPicker,
   Popover,
   PrimaryButton,
@@ -37,7 +41,7 @@ import CliIcon from '../../CliIcon'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
-import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentSpawnShared'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from './agentSpawnShared'
 import { ConnectorPickerPopover } from './ConnectorPickerPopover'
 import {
   launchCommandLineKey,
@@ -681,19 +685,16 @@ export default function NewAgentPanel({
                   </button>
                 )}
               >
-                <div className="w-[264px] p-1" role="menu" aria-label="Permissions">
-                  {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => (
-                    <MenuRow
-                      key={option.value}
-                      selected={option.value === permissionPreset}
-                      label={option.label}
-                      hint={option.title}
-                      onClick={() => {
-                        onChangePermissionPreset(option.value)
-                        setAccessOpen(false)
-                      }}
-                    />
-                  ))}
+                <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Permissions">
+                  {/* The same stacked rows the chat composer's pill opens
+                      (agentSpawnShared) — one choice, one rendering. */}
+                  <PermissionPresetMenuRows
+                    value={permissionPreset}
+                    onSelect={(preset) => {
+                      onChangePermissionPreset(preset)
+                      setAccessOpen(false)
+                    }}
+                  />
                 </div>
               </Popover>
             )}
@@ -964,7 +965,7 @@ function ProjectScopePicker({
         </button>
       )}
     >
-      <div className="w-[264px] p-1" role="menu" aria-label="Projects">
+      <div className={`w-[264px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Projects">
         {options.map((option) => (
           <MenuRow
             key={option.path}
@@ -978,7 +979,7 @@ function ProjectScopePicker({
         ))}
         {onBrowse ? (
           <>
-            <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+            <div className={MENU_DIVIDER_CLASS} role="separator" />
             <MenuRow
               selected={false}
               label="Browse…"
@@ -1026,7 +1027,7 @@ function MoreMenu({
   const worktreeRef = React.useRef<HTMLInputElement>(null)
 
   return (
-    <div className="w-[264px] p-1" role="menu" aria-label="More launch options">
+    <div className={`w-[264px] ${MENU_LIST_CLASS}`} role="menu" aria-label="More launch options">
       {/* What is being launched. An agent is the answer nearly every time, so it
           stays the default and lives here rather than on the row — but a plain
           shell and a conversation agent have to be reachable somewhere, and this
@@ -1065,7 +1066,7 @@ function MoreMenu({
           else onOpenProviderSettings()
         }}
       />
-      <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+      <div className={MENU_DIVIDER_CLASS} role="separator" />
 
       {/* A conversation has no repo checkout of its own, so no worktree. */}
       {worktreeAvailable && selection.kind !== 'conversation' ? (
@@ -1103,7 +1104,7 @@ function MoreMenu({
               />
             </div>
           </div>
-          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+          <div className={MENU_DIVIDER_CLASS} role="separator" />
         </>
       ) : null}
 
@@ -1137,7 +1138,9 @@ function MenuValueRow({
       type="button"
       onClick={onClick}
       aria-expanded={expanded || undefined}
-      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+      // Full-bleed like its sibling rows (menu spec): the inset rounded fill
+      // is the card-in-a-card the spec retires.
+      className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)]`}
     >
       <span className="min-w-0 flex-1">{label}</span>
       <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
@@ -1190,6 +1193,12 @@ function MenuRow({
   hint?: string
   onClick: () => void
 }) {
+  // The menu spec's two row shapes (remote-sessions-ux /
+  // selector-menus-premium): full-bleed on the list's own inset — the inset
+  // rounded fill this row shipped with is the card-in-a-card the spec retires
+  // by name. `aria-disabled`, not `disabled`: a dimmed row here can still
+  // route somewhere useful (the Chat row opens provider Settings).
+  const shape = hint ? MENU_ITEM_STACKED_CLASS : MENU_ITEM_CLASS
   return (
     <button
       type="button"
@@ -1197,26 +1206,26 @@ function MenuRow({
       aria-checked={selected}
       aria-disabled={disabled || undefined}
       onClick={onClick}
-      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta ${
+      className={`${shape} ${
         disabled
-          ? 'text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)]'
+          ? 'text-[color:var(--text-disabled)]'
           : selected
             ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
-      } ${FOCUS_RING_CLASS}`}
+            : 'text-[color:var(--text-default)]'
+      }`}
     >
-      {/* The hint WRAPS rather than truncating. A menu row is 264px and these
-          sentences are the whole explanation — "connect one in S…" and "works
-          the…" told nobody anything, and a tooltip to recover a sentence the
-          surface had room for is a worse answer than two lines. */}
+      {/* The hint WRAPS rather than truncating. These sentences are the whole
+          explanation — "connect one in S…" and "works the…" told nobody
+          anything, and a tooltip to recover a sentence the surface had room
+          for is a worse answer than two lines. */}
       <span className="min-w-0 flex-1">
-        <span className="block">{label}</span>
+        <span className={hint ? 'block text-body font-medium' : 'block'}>{label}</span>
         {hint ? (
-          <span className="mt-0.5 block text-micro leading-snug text-[color:var(--text-subtle)]">{hint}</span>
+          <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
         ) : null}
       </span>
       {selected && !disabled ? (
-        <CheckIcon className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+        <CheckIcon className={`${hint ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`} />
       ) : null}
     </button>
   )

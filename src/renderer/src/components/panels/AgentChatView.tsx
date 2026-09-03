@@ -30,13 +30,13 @@ import {
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../workspace/agentComposer/agentSpawnShared'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from '../workspace/agentComposer/agentSpawnShared'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_ITEM_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -2549,9 +2549,9 @@ export function PermissionPresetPill({
 }) {
   const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
-  // chips. Land focus on the preset in force (Escape returns it to the trigger).
+  // rows. Land focus on the preset in force (Escape returns it to the trigger).
   const focusActivePreset = useCallback((surface: HTMLElement) => {
-    const active = surface.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+    const active = surface.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
     ;(active ?? surface.querySelector<HTMLButtonElement>('button'))?.focus()
   }, [])
   return (
@@ -2559,7 +2559,7 @@ export function PermissionPresetPill({
       open={open}
       onOpenChange={onOpenChange}
       ariaLabel="Tool permissions"
-      popupRole="dialog"
+      popupRole="menu"
       placement="top-start"
       onOpenAutoFocus={focusActivePreset}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
@@ -2586,13 +2586,13 @@ export function PermissionPresetPill({
         </Tooltip>
       )}
     >
-      <div className="w-[236px] p-2">
-        {/* The surface is already named "Tool permissions"; the chips need no
-            second group label on top of it. */}
-        <div className="flex items-center gap-1">
-          <PermissionPresetChips value={preset} onChange={onChange} disabled={changing} />
-        </div>
-        <p className="px-1 pt-1.5 text-micro leading-4 text-[color:var(--text-muted)]">
+      {/* The menu spec's stacked items, shared with the launch panel's pill
+          (remote-sessions-ux / selector-menus-premium): glyph + name +
+          description per row, full-bleed on the list's own vertical inset. */}
+      <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Tool permissions">
+        <PermissionPresetMenuRows value={preset} onSelect={onChange} disabled={changing} />
+        <div className={MENU_DIVIDER_CLASS} role="separator" />
+        <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
           {permissionChangeScopeLabel(live)}
         </p>
       </div>
@@ -2732,8 +2732,11 @@ function ModelPickerPill({
           ) : (
             filtered.map((group) => (
               <div key={group.providerId} className="py-0.5">
-                <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
-                  <span className="text-micro font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
+                {/* The spec's group label — micro, `text.subtle`, never
+                    bolder than the rows it heads (menu spec; the reasoning
+                    selector is the conforming reference this now matches). */}
+                <div className={`flex items-baseline gap-1.5 pb-0.5 pt-1.5 ${MENU_GROUP_LABEL_CLASS}`}>
+                  <span>{group.providerLabel}</span>
                   <span className="text-micro text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'

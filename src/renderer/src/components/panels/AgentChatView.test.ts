@@ -998,7 +998,10 @@ const pillMarkup = (preset: 'none' | 'manual' | 'auto' | 'bypass'): string =>
 const manualPill = pillMarkup('manual')
 assert.ok(manualPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
 assert.ok(
-  manualPill.includes('aria-haspopup="dialog"') && manualPill.includes('aria-expanded="false"'),
+  // "menu", not "dialog", since remote-sessions-ux/selector-menus-premium:
+  // the surface is the spec's stacked menuitemradio rows now, and a popup of
+  // activatable items is announced as the menu it is.
+  manualPill.includes('aria-haspopup="menu"') && manualPill.includes('aria-expanded="false"'),
   'the retired read-only chip is now a real disclosure control, announced as one'
 )
 assert.ok(!manualPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')

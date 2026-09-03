@@ -145,7 +145,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // `rounded-*` spellings left the tree with it. Locked in here rather than
   // left as headroom, which is what lets the next regression show up as one.
   radius: {
-    'components/workspace': 42,
+    // 42 → 40: the launch panel's MenuRow and MenuValueRow gave up their
+    // inset `rounded` fills for the full-bleed menu item classes
+    // (remote-sessions-ux / selector-menus-premium).
+    'components/workspace': 40,
     'components/panels': 35,
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
