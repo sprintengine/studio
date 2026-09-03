@@ -4,6 +4,8 @@ import type {
   SprintEngineCliPermissionPreset,
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
+import type { FleetConnection, FleetWorkspace } from '../../../../../shared/tailnet-fleet'
+import { RemoteMachineGlyph } from '../../AppIcons'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
@@ -100,6 +102,26 @@ export type NewAgentPanelProps = {
    * the surface has no way out at all.
    */
   showCloseButton?: boolean
+  /**
+   * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start the
+   * chat on a paired machine instead of this one. Present = the panel offers
+   * the machine dropdown (This Mac first, paired machines after — one
+   * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
+   * routes a remote launch here instead of `onLaunch`.
+   */
+  onLaunchRemote?: (launch: RemoteNewChatLaunch) => void
+}
+
+/** What a remote launch carries: the target, and the launch identity. */
+export type RemoteNewChatLaunch = {
+  connectionId: string
+  machineName: string
+  remoteWorkspaceId: string
+  remoteWorkspaceName: string
+  prompt: string
+  cli?: AgentCli
+  cliModel?: string | null
+  permissionPreset: SprintEngineCliPermissionPreset
 }
 
 // The greeting rotates per tab open. No exclamation marks and no "we" (the copy
@@ -144,6 +166,7 @@ export default function NewAgentPanel({
   onLaunch,
   onClose,
   showCloseButton = false,
+  onLaunchRemote,
 }: NewAgentPanelProps) {
   const composer = useAgentComposer({
     showTerminal: true,
@@ -173,6 +196,69 @@ export default function NewAgentPanel({
   // below for why that inversion is the bug this replaces.
   const canChooseProject =
     Boolean(onBrowseProject) || Boolean(onSelectProject && projectOptions && projectOptions.length > 0)
+  // The machine dimension (remote-sessions-ux / new-chat-on-a-remote-machine).
+  // One dropdown: This Mac is the default entry, paired machines follow. A
+  // remote target swaps the project choice for the machine's own workspaces
+  // (fetched over the audited fleet client) and routes the launch remotely.
+  // Terminal and conversation launches are this machine's only — picking
+  // either resets the target rather than lying about where they would run.
+  const [remoteMachines, setRemoteMachines] = React.useState<FleetConnection[]>([])
+  const [remoteTarget, setRemoteTarget] = React.useState<{
+    connection: FleetConnection
+    workspaces: FleetWorkspace[] | null
+    error: string | null
+    picked: FleetWorkspace | null
+  } | null>(null)
+  const remoteCapable = Boolean(onLaunchRemote)
+  React.useEffect(() => {
+    if (!remoteCapable) return
+    let cancelled = false
+    void window.api
+      .fleetListConnections()
+      .then((connections) => {
+        if (!cancelled) setRemoteMachines(connections)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [remoteCapable])
+  const remoteSelectable = remoteCapable && selection.kind !== 'terminal' && selection.kind !== 'conversation'
+  React.useEffect(() => {
+    if (!remoteSelectable) setRemoteTarget(null)
+  }, [remoteSelectable])
+  const pickRemoteMachine = (connection: FleetConnection | null): void => {
+    if (!connection) {
+      setRemoteTarget(null)
+      return
+    }
+    setRemoteTarget({ connection, workspaces: null, error: null, picked: null })
+    void window.api
+      .fleetBrowse(connection.id)
+      .then((browse) => {
+        setRemoteTarget((current) => {
+          if (current?.connection.id !== connection.id) return current
+          if (!browse.reachable) {
+            return {
+              ...current,
+              workspaces: [],
+              error: browse.unreachableReason ?? 'That machine is not answering.',
+            }
+          }
+          if (browse.unauthorized) {
+            return { ...current, workspaces: [], error: 'That machine refused this pairing — re-pair from the Fleet.' }
+          }
+          return { ...current, workspaces: browse.workspaces, picked: browse.workspaces[0] ?? null }
+        })
+      })
+      .catch((error: unknown) => {
+        setRemoteTarget((current) =>
+          current?.connection.id === connection.id
+            ? { ...current, workspaces: [], error: error instanceof Error ? error.message : String(error) }
+            : current
+        )
+      })
+  }
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
@@ -373,6 +459,24 @@ export default function NewAgentPanel({
 
   const launch = (text: string) => {
     if (!canLaunch) return
+    if (remoteTarget) {
+      if (!remoteTarget.picked || !onLaunchRemote) return
+      const confirm = composer.buildConfirm(selection)
+      if (confirm.kind !== 'general' && confirm.kind !== 'specialist') return
+      // Local image paths mean nothing on another machine, so they stay out
+      // of a remote prompt rather than riding as dead strings.
+      onLaunchRemote({
+        connectionId: remoteTarget.connection.id,
+        machineName: remoteTarget.connection.machineName,
+        remoteWorkspaceId: remoteTarget.picked.id,
+        remoteWorkspaceName: remoteTarget.picked.name,
+        prompt: text.trim(),
+        cli: confirm.cli,
+        cliModel: confirm.model ?? null,
+        permissionPreset,
+      })
+      return
+    }
     // The attached images ride along as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
     const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
@@ -488,21 +592,38 @@ export default function NewAgentPanel({
               tab strip's "+", which spawns into the workspace it was pressed
               in) still gets the plain line, because there its project is a fact
               rather than a choice. */}
-          {canChooseProject ? (
-            <ProjectScopePicker
-              label={projectLabel ?? 'Choose a project'}
-              branch={branch}
-              options={projectOptions ?? []}
-              selectedPath={workspaceRoot}
-              onSelect={(path) => onSelectProject?.(path)}
-              onBrowse={onBrowseProject}
-            />
-          ) : projectLabel ? (
-            <p className="mt-1 text-meta text-[color:var(--text-subtle)]">
-              {projectLabel}
-              {branch ? ` · ${branch}` : ''}
-            </p>
-          ) : null}
+          <div className="mt-1 flex items-center justify-center gap-1.5">
+            {/* One machine dropdown, This Mac first (owner ruling 2026-09-03
+                — no separate Local/Remote switch). Shown whenever a remote
+                launch is possible and a machine is paired; on This Mac the
+                line reads exactly as it always did. */}
+            {remoteSelectable && remoteMachines.length > 0 ? (
+              <MachineScopePicker
+                machines={remoteMachines}
+                selected={remoteTarget?.connection ?? null}
+                onSelect={pickRemoteMachine}
+              />
+            ) : null}
+            {remoteTarget ? (
+              <RemoteProjectPicker target={remoteTarget} onPick={(workspace) => {
+                setRemoteTarget((current) => (current ? { ...current, picked: workspace } : current))
+              }} />
+            ) : canChooseProject ? (
+              <ProjectScopePicker
+                label={projectLabel ?? 'Choose a project'}
+                branch={branch}
+                options={projectOptions ?? []}
+                selectedPath={workspaceRoot}
+                onSelect={(path) => onSelectProject?.(path)}
+                onBrowse={onBrowseProject}
+              />
+            ) : projectLabel ? (
+              <p className="text-meta text-[color:var(--text-subtle)]">
+                {projectLabel}
+                {branch ? ` · ${branch}` : ''}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div
@@ -926,6 +1047,161 @@ function DebugGlyph() {
       <rect x="5" y="5" width="6" height="7" rx="3" stroke="currentColor" strokeWidth="1.3" />
       <path d="M2.5 7.5h2.5M11 7.5h2.5M2.5 11h2.5M11 11h2.5M8 2.5V5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
+  )
+}
+
+/**
+ * The machine dropdown (remote-sessions-ux / new-chat-on-a-remote-machine):
+ * This Mac is the first entry and the default; paired machines follow with
+ * the shared stacked-server mark. One dropdown — the owner rejected a
+ * separate Local/Remote switch as redundant.
+ */
+function MachineScopePicker({
+  machines,
+  selected,
+  onSelect,
+}: {
+  machines: FleetConnection[]
+  selected: FleetConnection | null
+  onSelect: (connection: FleetConnection | null) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Machine this chat runs on"
+      popupRole="menu"
+      placement="bottom-start"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          onClick={togglePopover}
+          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+          {...triggerProps}
+        >
+          {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
+          {selected ? selected.machineName : 'This Mac'}
+          <ChevronGlyph />
+        </button>
+      )}
+    >
+      <div className={`w-[240px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Machines">
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked={selected === null}
+          onClick={() => {
+            onSelect(null)
+            setOpen(false)
+          }}
+          className={`${MENU_ITEM_CLASS} ${selected === null ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+        >
+          This Mac
+        </button>
+        {machines.map((machine) => (
+          <button
+            key={machine.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={selected?.id === machine.id}
+            onClick={() => {
+              onSelect(machine)
+              setOpen(false)
+            }}
+            className={`${MENU_ITEM_CLASS} ${selected?.id === machine.id ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+          >
+            <RemoteMachineGlyph className="icon-xs shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{machine.machineName}</span>
+            <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
+          </button>
+        ))}
+      </div>
+    </Popover>
+  )
+}
+
+/**
+ * A remote machine's projects: its workspaces, served over the fleet client.
+ * Loading and unreachable states are said plainly — a machine that does not
+ * answer keeps its entry with the reason, never a silent empty list.
+ */
+function RemoteProjectPicker({
+  target,
+  onPick,
+}: {
+  target: {
+    connection: FleetConnection
+    workspaces: FleetWorkspace[] | null
+    error: string | null
+    picked: FleetWorkspace | null
+  }
+  onPick: (workspace: FleetWorkspace) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const label = target.error
+    ? 'Unavailable'
+    : target.workspaces === null
+      ? 'Loading…'
+      : target.picked?.name ?? 'Choose a project'
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={`Project on ${target.connection.machineName}`}
+      popupRole="menu"
+      placement="bottom-start"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          onClick={togglePopover}
+          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+          {...triggerProps}
+        >
+          {label}
+          <ChevronGlyph />
+        </button>
+      )}
+    >
+      <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label={`Projects on ${target.connection.machineName}`}>
+        {target.error ? (
+          <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]">{target.error}</div>
+        ) : target.workspaces === null ? (
+          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">Loading projects…</div>
+        ) : target.workspaces.length === 0 ? (
+          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No workspaces on that machine.</div>
+        ) : (
+          target.workspaces.map((workspace) => (
+            <button
+              key={workspace.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={target.picked?.id === workspace.id}
+              onClick={() => {
+                onPick(workspace)
+                setOpen(false)
+              }}
+              className={`${MENU_ITEM_STACKED_CLASS} ${
+                target.picked?.id === workspace.id
+                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)]'
+              }`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-body font-medium">{workspace.name}</span>
+                {workspace.folderPath ? (
+                  <span className="mt-0.5 block truncate font-mono text-micro text-[color:var(--text-subtle)]">
+                    {workspace.folderPath}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </Popover>
   )
 }
 

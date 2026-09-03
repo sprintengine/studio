@@ -83,6 +83,10 @@ export type TailnetFleetService = {
     connectionId: unknown
     workspaceId?: unknown
     name?: unknown
+    cli?: unknown
+    prompt?: unknown
+    cliModel?: unknown
+    permissionPreset?: unknown
   }): Promise<FleetCreateTerminalResult>
   /**
    * Attach a pane to a remote session. `emit` is the pane's event sink; the
@@ -454,6 +458,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     connectionId: unknown
     workspaceId?: unknown
     name?: unknown
+    cli?: unknown
+    prompt?: unknown
+    cliModel?: unknown
+    permissionPreset?: unknown
   }): Promise<FleetCreateTerminalResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -461,9 +469,19 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       endpoint: endpointOf(connection),
       token: connection.deviceToken,
       tool: 'terminal.create',
+      // Launch identity forwarded verbatim (remote-sessions-ux /
+      // new-chat-on-a-remote-machine): the remote gateway validates every
+      // field itself — including refusing `bypass` — and its refusal
+      // surfaces to the caller word for word rather than being smoothed here.
       args: {
         ...(typeof input.workspaceId === 'string' && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         ...(typeof input.name === 'string' && input.name ? { name: input.name } : {}),
+        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+        ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+        ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
+        ...(typeof input.permissionPreset === 'string' && input.permissionPreset
+          ? { permissionPreset: input.permissionPreset }
+          : {}),
       },
       // A launch waits on a real CLI starting on another machine; the default
       // read timeout would call a healthy slow start a failure.

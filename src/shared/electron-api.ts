@@ -3050,6 +3050,11 @@ export type ElectronApi = {
     connectionId: string
     workspaceId?: string
     name?: string
+    /** Launch identity, forwarded verbatim; the remote gateway validates (and refuses bypass). */
+    cli?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: string
   }) => Promise<FleetCreateTerminalResult>
   /**
    * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`

@@ -61,6 +61,10 @@ export const fleetApi = {
     connectionId: string
     workspaceId?: string
     name?: string
+    cli?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: string
   }): Promise<FleetCreateTerminalResult> =>
     ipcRenderer.invoke(FLEET_CREATE_TERMINAL_CHANNEL, input) as Promise<FleetCreateTerminalResult>,
   fleetAttachTerminal: (input: {

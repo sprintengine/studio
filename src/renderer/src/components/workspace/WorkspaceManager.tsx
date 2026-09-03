@@ -98,6 +98,9 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { ToastHost } from './ToastHost'
+import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
+import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import { showToast } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -2850,6 +2853,61 @@ export default function WorkspaceManager() {
     closeNewChatPanel()
   }
 
+  // A chat started on a paired machine (remote-sessions-ux /
+  // new-chat-on-a-remote-machine): the agent is created THERE over the
+  // audited fleet client — cli, prompt, model, and preset forwarded verbatim,
+  // so the remote's own refusals (bypass, scopes) surface word for word — and
+  // what appears here is a solo workspace whose lone pane is the fleet
+  // attachment onto that session, provenance-badged by the two-line row. A
+  // failure leaves the panel open with the remote's message as a toast; no
+  // phantom row.
+  const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch) => {
+    const created = await window.api
+      .fleetCreateTerminal({
+        connectionId: launch.connectionId,
+        workspaceId: launch.remoteWorkspaceId,
+        cli: launch.cli,
+        prompt: launch.prompt || undefined,
+        cliModel: launch.cliModel ?? undefined,
+        permissionPreset: launch.permissionPreset === 'none' ? undefined : launch.permissionPreset,
+      })
+      .catch((error: unknown): { ok: false; code: string; message: string } => ({
+        ok: false,
+        code: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    if (!created.ok) {
+      showToast({
+        tone: 'error',
+        title: `Could not start on ${launch.machineName}`,
+        description: created.message,
+      })
+      return
+    }
+    if (!SOLO_CHAT_TEMPLATE) return
+    addWorkspace(SOLO_CHAT_TEMPLATE, {
+      name: `${created.title} · ${launch.remoteWorkspaceName}`,
+      // No local checkout: the code lives on the other machine, and a local
+      // folder here would claim otherwise.
+      folderPath: null,
+      windowId: workspaceWindowId,
+      seedAgent: {
+        tabName: fleetTerminalTabName(launch.machineName, created.title),
+        fleet: {
+          connectionId: launch.connectionId,
+          machineName: launch.machineName,
+          remoteSessionId: created.sessionId,
+        },
+      },
+    })
+    closeNewChatPanel()
+    showToast({
+      tone: 'good',
+      title: `Started on ${launch.machineName}`,
+      description: `${created.title} in ${launch.remoteWorkspaceName}`,
+    })
+  }, [addWorkspace, closeNewChatPanel, workspaceWindowId])
+
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
   // panels ignore it, but the Git panel (which can be mounted in several
   // background workspaces at once) uses it so a destructive command like commit
@@ -3796,6 +3854,7 @@ export default function WorkspaceManager() {
                         confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
                         closeNewChatPanel()
                       }}
+                      onLaunchRemote={(launch) => void confirmRemoteNewChat(launch)}
                       onClose={closeNewChatPanel}
                       // The door has no tab to close, so the surface carries the
                       // control itself.

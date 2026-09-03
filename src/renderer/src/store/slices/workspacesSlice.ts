@@ -527,6 +527,15 @@ export type SoloChatSeed = {
   agentPatch?: Partial<AgentState>
   tabName?: string
   terminal?: { terminalId: string }
+  /**
+   * Swap the lone agent tab for a fleet-terminal pane attached to a session
+   * on another machine (remote-sessions-ux / new-chat-on-a-remote-machine).
+   * Like `terminal`, no local agent record is created — the agent lives on
+   * the remote machine; this workspace is the pane onto it. The tab id
+   * follows `addFleetTerminalTab`'s convention so opening the same session
+   * later focuses this pane rather than attaching twice.
+   */
+  fleet?: { connectionId: string; machineName: string; remoteSessionId: string }
 }
 
 // Transform the single-agent solo-chat layout for a seed: rename the lone agent
@@ -539,7 +548,19 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
   const visit = (node: LayoutAgentTabNode | undefined) => {
     if (!node || done) return
     if (node.component === 'agent') {
-      const target = node as { component?: unknown; name?: unknown; config?: Record<string, unknown> }
+      const target = node as { component?: unknown; id?: unknown; name?: unknown; config?: Record<string, unknown> }
+      if (seed.fleet) {
+        target.component = 'fleet-terminal'
+        target.id = `fleet-terminal:${seed.fleet.connectionId}:${encodeURIComponent(seed.fleet.remoteSessionId)}`
+        target.name = seed.tabName ?? 'Remote terminal'
+        target.config = {
+          connectionId: seed.fleet.connectionId,
+          machineName: seed.fleet.machineName,
+          remoteSessionId: seed.fleet.remoteSessionId,
+        }
+        done = true
+        return
+      }
       if (seed.terminal) {
         target.component = 'terminal'
         target.name = seed.tabName ?? 'Terminal'
@@ -1127,9 +1148,11 @@ export function createWorkspacesSlice(
           if (!sprintEngineRoleCliDefaults) {
             throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
           }
-        } else if (options?.seedAgent?.terminal) {
-          // Terminal seed: the lone agent tab is swapped for a terminal tab in
-          // the layout below, so no agent record is created for it.
+        } else if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
+          // Terminal and fleet seeds: the lone agent tab is swapped for a
+          // terminal / remote-pane tab in the layout below, so no local agent
+          // record is created for it — a remote chat's agent lives on the
+          // other machine.
         } else {
           const templateAgentCli =
             typeof options?.templateAgentCli === 'string' && options.templateAgentCli.trim()

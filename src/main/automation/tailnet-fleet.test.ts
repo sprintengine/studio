@@ -25,6 +25,9 @@ import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 
 const MUTATIONS = new Set(['terminal.create'])
 
+// What the remote's terminal.create actually received, per call.
+const terminalCreateArgs: Array<Record<string, unknown>> = []
+
 type Harness = {
   server: TailnetGatewayServer
   devices: TailnetDeviceStore
@@ -111,6 +114,7 @@ async function startHarness(): Promise<Harness> {
 
 /** The remote machine's tool surface, answering the shapes the Fleet reads. */
 function remoteTools(): McpToolRegistration[] {
+  void terminalCreateArgs
   const tool = (name: string, structured: Record<string, unknown>): McpToolRegistration => ({
     name,
     description: `Test tool ${name}`,
@@ -137,12 +141,24 @@ function remoteTools(): McpToolRegistration[] {
       ],
     }),
     tool('sprint.list', { runs: [{ slug: 'nightly', statePath: '.multi-code/sprintengine/nightly/run.yaml' }] }),
-    tool('terminal.create', {
-      sessionId: 'session_two',
-      workspaceId: 'ws-1',
-      agentId: 'agent-2',
-      terminal: { sessionId: 'session_two', agentName: 'Rook' },
-    }),
+    {
+      name: 'terminal.create',
+      description: 'Test tool terminal.create',
+      inputSchema: { type: 'object', properties: {} },
+      // Records what the wire actually carried, so the launch-identity
+      // pass-through (remote-sessions-ux / new-chat-on-a-remote-machine) is
+      // asserted against the request the remote REALLY received.
+      handler: async (args: Record<string, unknown>) => {
+        terminalCreateArgs.push(args)
+        return toolSuccess({
+          ok: true,
+          sessionId: 'session_two',
+          workspaceId: 'ws-1',
+          agentId: 'agent-2',
+          terminal: { sessionId: 'session_two', agentName: 'Rook' },
+        })
+      },
+    },
   ]
 }
 
@@ -377,10 +393,24 @@ test('a terminal opened on another machine attaches and takes keystrokes', async
   const harness = await startHarness()
   try {
     const connectionId = await harness.pair(['workspace:read', 'terminal:control'])
-    const created = await harness.fleet.createTerminal({ connectionId, workspaceId: 'ws-1' })
+    const created = await harness.fleet.createTerminal({
+      connectionId,
+      workspaceId: 'ws-1',
+      cli: 'claude-code',
+      prompt: 'Fix the relay snapshot race',
+      cliModel: 'claude-fable-5',
+      permissionPreset: 'auto',
+    })
     assert.ok(created.ok, created.ok ? '' : created.message)
     assert.equal(created.sessionId, 'session_two')
     assert.equal(created.title, 'Rook')
+    // The launch identity crossed the wire verbatim — the remote validates it,
+    // never a smoothing layer here.
+    const wire = terminalCreateArgs[terminalCreateArgs.length - 1]
+    assert.equal(wire?.cli, 'claude-code')
+    assert.equal(wire?.prompt, 'Fix the relay snapshot race')
+    assert.equal(wire?.cliModel, 'claude-fable-5')
+    assert.equal(wire?.permissionPreset, 'auto')
     // The remote machine really made the session the id names.
     harness.terminals.create(created.sessionId)
 

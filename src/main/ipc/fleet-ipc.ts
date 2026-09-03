@@ -82,6 +82,10 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
       connectionId: record.connectionId,
       workspaceId: record.workspaceId,
       name: record.name,
+      cli: record.cli,
+      prompt: record.prompt,
+      cliModel: record.cliModel,
+      permissionPreset: record.permissionPreset,
     })
   })
 
