@@ -71,6 +71,9 @@ export default function FleetPanel({ workspaceId }: Props) {
   // without anyone pressing anything. Attachment link-state events are the
   // panes' own; the list they would change is re-read on browse.
   useEffect(() => {
+    // Tolerant of a host without the push bridge (partial test harnesses,
+    // narrower aux-window preloads): the panel then simply stays fetch-based.
+    if (typeof window.api.onFleetEvent !== 'function') return
     return window.api.onFleetEvent((event) => {
       if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') {
         void refreshConnections().catch(() => {})

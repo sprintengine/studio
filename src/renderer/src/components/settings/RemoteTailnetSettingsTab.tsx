@@ -70,6 +70,9 @@ export function RemoteTailnetSettingsTab() {
   // surface — lands here without a refetch. The fetch-on-mount above stays the
   // initial read; this keeps it true afterwards.
   useEffect(() => {
+    // Tolerant of a host without the push bridge: the tab then stays
+    // fetch-on-action, exactly as it was before the channel existed.
+    if (typeof window.api.onTailnetEvent !== 'function') return
     return window.api.onTailnetEvent((payload) => {
       setStatus(payload.status)
       // The local offer holds the one-time CODE (main never re-serves it),

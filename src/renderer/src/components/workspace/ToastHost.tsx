@@ -27,6 +27,7 @@ export function ToastHost() {
 function usePairRequestToastBridge(): void {
   const toastByRequestId = useRef(new Map<string, string>())
   useEffect(() => {
+    if (typeof window.api.onTailnetEvent !== 'function') return
     return window.api.onTailnetEvent((payload) => {
       const event = payload.event
       if (event.kind !== 'pair-request') return
@@ -55,6 +56,7 @@ function useFleetToastBridge(): void {
   const offlineConnections = useRef(new Set<string>())
 
   useEffect(() => {
+    if (typeof window.api.onFleetEvent !== 'function') return
     return window.api.onFleetEvent((event) => {
       if (event.kind === 'machine-paired') {
         showToast({

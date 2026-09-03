@@ -26,6 +26,16 @@ export function useTailnetPresence(): TailnetPresence {
   )
 
   useEffect(() => {
+    // A host without the tailnet/fleet bridges (partial test harnesses,
+    // narrower preloads) gets a quiet, absent glyph rather than a mount-time
+    // throw inside React's commit.
+    if (
+      typeof window.api.onTailnetEvent !== 'function'
+      || typeof window.api.onFleetEvent !== 'function'
+      || typeof window.api.tailnetGetStatus !== 'function'
+    ) {
+      return
+    }
     let cancelled = false
     void window.api
       .tailnetGetStatus()
