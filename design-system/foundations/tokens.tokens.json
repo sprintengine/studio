@@ -179,13 +179,13 @@
         "app": {
           "$type": "color",
           "$value": "{ref.color.mist-100}",
-          "$description": "Root/page background — the canvas every panel sits on.",
+          "$description": "Root/page background \u2014 the canvas every panel sits on.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
               "role": "surface",
               "use": "Root and page background, the base layer of every view.",
-              "doNotUse": "Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.",
+              "doNotUse": "Cards or raised chrome \u2014 use bg.surface / bg.surface-raised so panels read as elevated.",
               "modes": {
                 "light": "{ref.color.mist-100}",
                 "dark": "{ref.color.ink-950}"
@@ -196,12 +196,12 @@
         "surface": {
           "$type": "color",
           "$value": "{ref.color.white}",
-          "$description": "Panel, section, and default card surface — one step above the app canvas.",
+          "$description": "Panel, section, and default card surface \u2014 one step above the app canvas.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
               "role": "surface",
-              "use": "Panels, sections, cards — the default working surface.",
+              "use": "Panels, sections, cards \u2014 the default working surface.",
               "modes": {
                 "light": "{ref.color.white}",
                 "dark": "{ref.color.ink-900}"
@@ -228,7 +228,7 @@
         "hover": {
           "$type": "color",
           "$value": "{ref.color.mist-150}",
-          "$description": "Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow).",
+          "$description": "Hover fill on rows, buttons, and list items \u2014 the only hover treatment (no shadow, scale, or glow).",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
@@ -265,7 +265,7 @@
             "com.multicode": {
               "role": "interaction",
               "use": "The selected row of the focused pane or list. Pair with text.primary.",
-              "doNotUse": "A second simultaneous strong selection elsewhere on screen — every other pane drops to bg.selected-resting.",
+              "doNotUse": "A second simultaneous strong selection elsewhere on screen \u2014 every other pane drops to bg.selected-resting.",
               "modes": {
                 "light": "{ref.color.mist-250}",
                 "dark": "{ref.color.ink-800}"
@@ -276,12 +276,12 @@
         "selected-resting": {
           "$type": "color",
           "$value": "{ref.color.mist-225}",
-          "$description": "Selection in a pane that does not have focus — it remembers, quietly.",
+          "$description": "Selection in a pane that does not have focus \u2014 it remembers, quietly.",
           "$extensions": {
             "com.multicode": {
               "role": "interaction",
               "use": "The selected row of every pane except the focused one, so a three-pane surface has exactly one strong selection.",
-              "doNotUse": "The focused pane — that is bg.selected.",
+              "doNotUse": "The focused pane \u2014 that is bg.selected.",
               "modes": {
                 "light": "{ref.color.mist-225}",
                 "dark": "{ref.color.ink-825}"
@@ -348,7 +348,7 @@
               "seeded": true,
               "role": "text",
               "use": "Identifiers, placeholders, tertiary meta.",
-              "doNotUse": "Actionable copy on its own — pair with primary text or an affordance.",
+              "doNotUse": "Actionable copy on its own \u2014 pair with primary text or an affordance.",
               "modes": {
                 "light": "{ref.color.slate-450}",
                 "dark": "{ref.color.paper-500}"
@@ -365,7 +365,7 @@
               "seeded": true,
               "role": "text",
               "use": "Disabled control labels, empty-state hints.",
-              "doNotUse": "Body copy — this step is below the AA body-contrast floor by design.",
+              "doNotUse": "Body copy \u2014 this step is below the AA body-contrast floor by design.",
               "modes": {
                 "light": "{ref.color.slate-400}",
                 "dark": "{ref.color.paper-600}"
@@ -399,7 +399,7 @@
             "com.multicode": {
               "seeded": true,
               "role": "border",
-              "use": "Section dividers and quiet card edges — borders carry the structure, not shadows.",
+              "use": "Section dividers and quiet card edges \u2014 borders carry the structure, not shadows.",
               "modes": {
                 "light": "rgba(32, 36, 40, 0.10)",
                 "dark": "rgba(252, 252, 252, 0.06)"
@@ -442,13 +442,13 @@
         "focus": {
           "$type": "color",
           "$value": "{ref.color.green-700}",
-          "$description": "Focus ring color on every focusable primitive (green family, tracks the accent). Opaque: at the 0.55/0.6 alphas it shipped with, the 2px ring composited to 2.31:1 on light and 2.58:1 on dark against bg.app — below the 3:1 non-text floor a focus indicator has to clear.",
+          "$description": "Focus ring color on every focusable primitive (green family, tracks the accent). Opaque: at the 0.55/0.6 alphas it shipped with, the 2px ring composited to 2.31:1 on light and 2.58:1 on dark against bg.app \u2014 below the 3:1 non-text floor a focus indicator has to clear.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
               "role": "border",
               "use": "The 2px focus-visible ring on every focusable primitive.",
-              "doNotUse": "Resting borders or dividers — focus only.",
+              "doNotUse": "Resting borders or dividers \u2014 focus only.",
               "modes": {
                 "light": "{ref.color.green-700}",
                 "dark": "{ref.color.green-500}"
@@ -461,7 +461,7 @@
         "primary": {
           "$type": "color",
           "$value": "{ref.color.green-700}",
-          "$description": "The single product accent — signature green. Selection and primary action share it.",
+          "$description": "The single product accent \u2014 signature green. Selection and primary action share it.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
@@ -534,7 +534,7 @@
               "seeded": true,
               "role": "status",
               "use": "Idle or unknown status dots and inline status copy.",
-              "doNotUse": "Button fills, chrome tints, or category coding — status only.",
+              "doNotUse": "Button fills, chrome tints, or category coding \u2014 status only.",
               "modes": {
                 "light": "{ref.color.gray-500}",
                 "dark": "{ref.color.paper-400}"
@@ -568,7 +568,7 @@
               "seeded": true,
               "role": "status",
               "use": "Needs-input and warning marks.",
-              "doNotUse": "Button fills or chrome tints — status only.",
+              "doNotUse": "Button fills or chrome tints \u2014 status only.",
               "modes": {
                 "light": "{ref.color.amber-800}",
                 "dark": "{ref.color.amber-400}"
@@ -677,13 +677,13 @@
         "scrim": {
           "$type": "color",
           "$value": "rgba(20, 24, 28, 0.42)",
-          "$description": "Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim.",
+          "$description": "Modal/dialog backdrop above panel chrome. A plain translucent layer \u2014 never add backdrop-filter to a full-viewport scrim.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
               "role": "overlay",
               "use": "The backdrop layer behind modals, dialogs, and drawers.",
-              "doNotUse": "Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.",
+              "doNotUse": "Combining with backdrop-filter blur \u2014 full-viewport blur re-renders every frame and tanks pointer framerate.",
               "modes": {
                 "light": "rgba(20, 24, 28, 0.42)",
                 "dark": "rgba(8, 8, 12, 0.7)"
@@ -702,8 +702,8 @@
           "com.multicode": {
             "seeded": true,
             "role": "elevation",
-            "use": "Drawer and overlay-panel elevation — the only drop shadow in the system.",
-            "doNotUse": "Cards, rows, or hover states — structure comes from hairline borders.",
+            "use": "Drawer and overlay-panel elevation \u2014 the only drop shadow in the system.",
+            "doNotUse": "Cards, rows, or hover states \u2014 structure comes from hairline borders.",
             "modes": {
               "light": "0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)",
               "dark": "0 8px 24px -12px rgba(0, 0, 0, 0.6)"
@@ -719,7 +719,7 @@
           "com.multicode": {
             "role": "elevation",
             "use": "Popover, ContextMenu, Select listbox, and Tooltip shells.",
-            "doNotUse": "Cards, rows, or hover states — structure comes from hairline borders.",
+            "doNotUse": "Cards, rows, or hover states \u2014 structure comes from hairline borders.",
             "modes": {
               "light": "0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)",
               "dark": "0 4px 12px -6px rgba(0, 0, 0, 0.55)"
@@ -734,11 +734,11 @@
         "$extensions": {
           "com.multicode": {
             "role": "elevation",
-            "use": "Modal and ConfirmDialog shells only.",
-            "doNotUse": "Anchored surfaces — those use shadow.popover.",
+            "use": "Modal and ConfirmDialog shells only. In dark mode the value leads with an inset top highlight \u2014 the lit edge \u2014 because a black drop shadow over a scrimmed near-black ground separates nothing; light mode needs no such line.",
+            "doNotUse": "Anchored surfaces \u2014 those use shadow.popover.",
             "modes": {
               "light": "0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)",
-              "dark": "0 16px 48px -16px rgba(0, 0, 0, 0.72)"
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72)"
             }
           }
         }
@@ -750,8 +750,8 @@
         "$extensions": {
           "com.multicode": {
             "role": "elevation",
-            "use": "Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface.",
-            "doNotUse": "Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.",
+            "use": "Filled buttons at rest \u2014 the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface.",
+            "doNotUse": "Overlays \u2014 those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.",
             "components": [
               "button",
               "split-button"
@@ -770,8 +770,8 @@
         "$extensions": {
           "com.multicode": {
             "role": "elevation",
-            "use": "Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above.",
-            "doNotUse": "Filled controls — those take shadow.control-raised, which is a full step brighter.",
+            "use": "Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light \u2014 both read as lit from above.",
+            "doNotUse": "Filled controls \u2014 those take shadow.control-raised, which is a full step brighter.",
             "components": [
               "button",
               "split-button"
@@ -790,7 +790,7 @@
         "$extensions": {
           "com.multicode": {
             "role": "elevation",
-            "use": "Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it.",
+            "use": "Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright \u2014 it is not layered over it.",
             "doNotUse": "A resting state, and never on a control that carries no resting elevation.",
             "components": [
               "button",
@@ -857,7 +857,7 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Micro labels only — kbd shortcuts, dense chrome.",
+              "use": "Micro labels only \u2014 kbd shortcuts, dense chrome.",
               "platforms": {
                 "compact": {
                   "$value": "11px",
@@ -899,7 +899,7 @@
                   "$value": "15px",
                   "$description": "One step up, to the iOS/Material body floor. `principles.md` sets 13px as a MINIMUM for primary content, so 15px exceeds the rule rather than breaking it."
                 },
-                "$note": "`compact` is the touch-scale ramp: same step NAMES and same step COUNT as the pointer scale, different values. It exists because a 13px body at 30cm on a phone is not the same physical size as a 13px body at 60cm on a monitor, and the two viewing distances do not cancel. Consumers that cannot load tokens.css at all (React Native) read these values and keep the names, so a surface stays portable between the two even though its pixels do not. NOT consumed by build-tokens.mjs — tokens.css is the pointer scale only, and reproduces byte-identically with these annotations present."
+                "$note": "`compact` is the touch-scale ramp: same step NAMES and same step COUNT as the pointer scale, different values. It exists because a 13px body at 30cm on a phone is not the same physical size as a 13px body at 60cm on a monitor, and the two viewing distances do not cancel. Consumers that cannot load tokens.css at all (React Native) read these values and keep the names, so a surface stays portable between the two even though its pixels do not. NOT consumed by build-tokens.mjs \u2014 tokens.css is the pointer scale only, and reproduces byte-identically with these annotations present."
               }
             }
           }
@@ -916,7 +916,7 @@
               "platforms": {
                 "compact": {
                   "$value": "15px",
-                  "$description": "Collapses onto body. A phone screen rarely earns four distinct sizes, and the '3 font sizes per view' ceiling applies here too — weight separates a heading from its body instead."
+                  "$description": "Collapses onto body. A phone screen rarely earns four distinct sizes, and the '3 font sizes per view' ceiling applies here too \u2014 weight separates a heading from its body instead."
                 }
               }
             }
@@ -930,7 +930,7 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Panel titles (H2) and inspector titles — keep at most 3 sizes per view.",
+              "use": "Panel titles (H2) and inspector titles \u2014 keep at most 3 sizes per view.",
               "platforms": {
                 "compact": {
                   "$value": "22px",
@@ -1026,7 +1026,7 @@
             "com.multicode": {
               "role": "typography",
               "use": "font.size.heading and font.size.title, which read loose at their default metrics.",
-              "doNotUse": "Body or meta text — tightening small text costs legibility."
+              "doNotUse": "Body or meta text \u2014 tightening small text costs legibility."
             }
           }
         },
@@ -1049,7 +1049,7 @@
             "com.multicode": {
               "role": "typography",
               "use": "font.family.mono identifiers and font.size.micro labels, which jam at their default metrics.",
-              "doNotUse": "Uppercase-tracked section headings — the system has none."
+              "doNotUse": "Uppercase-tracked section headings \u2014 the system has none."
             }
           }
         }
@@ -1134,7 +1134,7 @@
           "com.multicode": {
             "seeded": true,
             "role": "shape",
-            "use": "The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner."
+            "use": "The default control radius: buttons, inputs, cards, rows \u2014 keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner."
           }
         }
       },
@@ -1159,7 +1159,7 @@
             "seeded": true,
             "role": "shape",
             "use": "Modal shells and the largest overlay surfaces.",
-            "doNotUse": "Operational chrome — larger radii are marketing-only."
+            "doNotUse": "Operational chrome \u2014 larger radii are marketing-only."
           }
         }
       },
@@ -1170,8 +1170,8 @@
         "$extensions": {
           "com.multicode": {
             "role": "shape",
-            "use": "Badges, status chips, switch tracks and progress rails — anything whose shape says \"this is a marker, not a control\". Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
-            "doNotUse": "Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
+            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
+            "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",
@@ -1228,8 +1228,8 @@
           "$extensions": {
             "com.multicode": {
               "role": "motion",
-              "use": "The single play of a change pulse — a count that just moved, a status icon that just flipped. Long enough to be noticed after the eye arrives, where a transition only has to keep up with a pointer already there. Value taken from the shipped .status-icon-pulse, which hard-coded 620ms.",
-              "doNotUse": "Transitions and state changes — those take fast / normal / deliberate. A 620ms hover is a control that feels broken. Never loop it either: the pulse means \"this just changed\", and a loop means \"this is still happening\".",
+              "use": "The single play of a change pulse \u2014 a count that just moved, a status icon that just flipped. Long enough to be noticed after the eye arrives, where a transition only has to keep up with a pointer already there. Value taken from the shipped .status-icon-pulse, which hard-coded 620ms.",
+              "doNotUse": "Transitions and state changes \u2014 those take fast / normal / deliberate. A 620ms hover is a control that feels broken. Never loop it either: the pulse means \"this just changed\", and a loop means \"this is still happening\".",
               "components": [
                 "liveness"
               ]
@@ -1246,7 +1246,7 @@
             "com.multicode": {
               "seeded": true,
               "role": "motion",
-              "use": "Every transition and animation — one ease, no exceptions.",
+              "use": "Every transition and animation \u2014 one ease, no exceptions.",
               "doNotUse": "Introducing a second easing curve."
             }
           }
@@ -1262,7 +1262,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1274,19 +1274,19 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
       "xs": {
         "$type": "dimension",
         "$value": "6px",
-        "$description": "Dense row gap — the most common gap in list chrome.",
+        "$description": "Dense row gap \u2014 the most common gap in list chrome.",
         "$extensions": {
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1298,7 +1298,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1310,7 +1310,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1322,7 +1322,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1334,7 +1334,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1346,7 +1346,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1358,7 +1358,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       },
@@ -1370,7 +1370,7 @@
           "com.multicode": {
             "role": "spacing",
             "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
-            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+            "doNotUse": "Control heights or icon sizes \u2014 those have their own scales (sem.size.control.*, sem.icon.size.*)."
           }
         }
       }
@@ -1384,7 +1384,7 @@
           "$extensions": {
             "com.multicode": {
               "role": "sizing",
-              "use": "Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label.",
+              "use": "Height of icon buttons, controls inside a list row, and dense labelled chrome \u2014 toolbar and row actions carrying a font.size.meta label.",
               "doNotUse": "Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.",
               "platforms": {
                 "compact": {
@@ -1423,10 +1423,10 @@
               "platforms": {
                 "compact": {
                   "$value": "44px",
-                  "$description": "Touch. Pointer 34px + 10, landing exactly ON the hit-target floor — the largest control IS the floor."
+                  "$description": "Touch. Pointer 34px + 10, landing exactly ON the hit-target floor \u2014 the largest control IS the floor."
                 }
               },
-              "doNotUse": "Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs."
+              "doNotUse": "Inline chrome inside a modal \u2014 a row action or a section-header action in a settings tab is not the modal\u2019s primary action, and takes sm or xs."
             }
           }
         }
@@ -1471,7 +1471,7 @@
           "com.multicode": {
             "role": "focus",
             "use": "outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against.",
-            "doNotUse": "A wider offset to make focus louder — the gap is spatial separation, not emphasis."
+            "doNotUse": "A wider offset to make focus louder \u2014 the gap is spatial separation, not emphasis."
           }
         }
       },
@@ -1483,7 +1483,7 @@
           "com.multicode": {
             "role": "focus",
             "use": "Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface.",
-            "doNotUse": "Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement."
+            "doNotUse": "Hover, selection, or validation \u2014 focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement."
           }
         }
       }
@@ -1516,24 +1516,24 @@
       "pane": {
         "$type": "number",
         "$value": 20,
-        "$description": "In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay.",
+        "$description": "In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) \u2014 above sticky headers, below every overlay.",
         "$extensions": {
           "com.multicode": {
             "role": "layering",
             "use": "The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins.",
-            "doNotUse": "Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder."
+            "doNotUse": "Anything that scrims, traps focus or portals to the body \u2014 that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder."
           }
         }
       },
       "float": {
         "$type": "number",
         "$value": 30,
-        "$description": "In-flow depth: panel-internal popovers and HUDs that float over a pane's own content — above docked panes, below every overlay.",
+        "$description": "In-flow depth: panel-internal popovers and HUDs that float over a pane's own content \u2014 above docked panes, below every overlay.",
         "$extensions": {
           "com.multicode": {
             "role": "layering",
             "use": "The top in-flow depth step: a panel-internal popover, HUD or tray that floats over its own pane's content and must clear a docked `z.pane` sibling, but stays inside the pane and portals nowhere. Sits directly below `z.drawer`.",
-            "doNotUse": "Surfaces that leave their pane (portalled popovers, menus, dialogs) — they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface."
+            "doNotUse": "Surfaces that leave their pane (portalled popovers, menus, dialogs) \u2014 they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface."
           }
         }
       },
@@ -1564,7 +1564,7 @@
       "menu": {
         "$type": "number",
         "$value": 90,
-        "$description": "ContextMenu and PointerPopover — above an open popover.",
+        "$description": "ContextMenu and PointerPopover \u2014 above an open popover.",
         "$extensions": {
           "com.multicode": {
             "role": "layering",
@@ -1588,7 +1588,7 @@
       "toast": {
         "$type": "number",
         "$value": 100,
-        "$description": "Transient notifications — above everything.",
+        "$description": "Transient notifications \u2014 above everything.",
         "$extensions": {
           "com.multicode": {
             "role": "layering",

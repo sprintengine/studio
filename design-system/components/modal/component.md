@@ -31,6 +31,17 @@ The shell sits on `bg.surface` — not `bg.surface-raised` — because the scrim
 and `shadow.modal` already do the separating; a tone step on top would be a
 third signal for the same fact.
 
+That ruling holds only if `shadow.modal` actually separates in both modes,
+and in dark it did not: a black drop shadow over a scrimmed near-black
+ground draws nothing, and the `border.subtle` hairline is 6% white — so a
+dark-mode shell read as painted on the scrim rather than above it
+(remote-sessions-ux, 2026-09-03). The fix lives in the TOKEN, not on any
+surface: `shadow.modal`'s dark value now leads with an inset top highlight —
+the lit edge, the same trick `shadow.control-raised` already encodes — so
+every consumer separates again and the two-signal reasoning above stays
+true. No shell may compensate locally with a raised ground or a stronger
+border; that would be the third signal this section rules out.
+
 ## Geometry
 
 Every floating surface in the product draws from one scale. Shape and
