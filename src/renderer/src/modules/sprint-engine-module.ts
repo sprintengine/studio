@@ -18,7 +18,6 @@ import {
   SPRINT_ENGINE_PR_TARGET_KIND,
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
-import type { ProxyTrackerIdentity } from '../utils/sprintengineTrackerSeeding'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
@@ -216,21 +215,12 @@ export const sprintEngineRendererModule: RendererModule = {
           }
         }
 
-        let sourceContent = await context.readSource()
-
-        // A proxy item mirrors a tracker issue. Backlog launches are reference-
-        // mode, so the architect reads this file in place — refresh it from the
-        // live issue first (T6 materialize upsert) so the run is seeded with the
-        // current description + comments and the goal is the current issue title
-        // (plan §3.6). A native item skips this entirely, keeping its seeding
-        // byte-identical to today. Refresh failure falls back to the saved copy
-        // with a visible notice — the launch is never blocked.
-        const { parseProxyTrackerIdentity } = await import('../utils/sprintengineTrackerSeeding')
-        const identity = parseProxyTrackerIdentity(sourceContent)
-        if (identity) {
-          const refreshed = await refreshProxyItemForSeed(context.workspaceRoot, identity)
-          if (refreshed) sourceContent = await context.readSource()
-        }
+        // Backlog launches stay reference-mode: the architect reads this file in
+        // place. There is no proxy-refresh step any more — MC-2361 removed
+        // mirrored tracker items, so a backlog file is always its own canonical
+        // source. Starting from a tracker issue is a separate path
+        // (startTrackerIssueSprint) that never writes into backlog/.
+        const sourceContent = await context.readSource()
 
         const baseName = basename(context.item.relativePath).replace(/\.(md|html?)$/i, '')
         const teamName = slugifySprintEngineName(baseName)
@@ -266,47 +256,4 @@ export const sprintEngineRendererModule: RendererModule = {
 
 function sourcePlanKindForBacklogItem(kind: string): 'product_plan' | 'architect_plan' | 'unknown' {
   return kind === 'product_plan' || kind === 'architect_plan' ? kind : 'unknown'
-}
-
-// Plain provider name for the fallback notice — never "provider"/"baseUrl" jargon.
-function trackerProviderDisplayName(provider: ProxyTrackerIdentity['provider']): string {
-  return provider === 'github' ? 'GitHub' : provider === 'jira' ? 'Jira' : 'Linear'
-}
-
-// Refresh a proxy item's on-disk file from its live tracker issue at seed time,
-// through the shared T6 materialize upsert (which rewrites only tracker-owned
-// body and preserves the Multicode-owned frontmatter + sidecar). Returns true
-// when the file was refreshed, so the caller re-reads it for the fresh seed.
-// Any failure (removed connection, dead token, offline, rate limit) resolves to
-// false WITH a visible notice: the sprint still starts from the saved copy —
-// never a blocked launch (plan §3.6, fallback discipline).
-async function refreshProxyItemForSeed(
-  workspaceRoot: string,
-  identity: ProxyTrackerIdentity,
-): Promise<boolean> {
-  let reason = 'unavailable'
-  try {
-    const result = await window.api.trackerMaterialize({
-      workspaceRoot,
-      connectionId: identity.connectionId,
-      externalIds: [identity.externalId],
-    })
-    if (result.ok) {
-      const failure = result.failed.find((entry) => entry.externalId === identity.externalId)
-      if (!failure) return true
-      reason = failure.reason.trim() || 'unavailable'
-    } else {
-      reason = result.error.message.trim() || 'unavailable'
-    }
-  } catch (error) {
-    reason = error instanceof Error ? error.message.trim() || 'unavailable' : 'unavailable'
-  }
-  const { publishDiagnosticSync } = await import('../utils/diagnostics')
-  publishDiagnosticSync({
-    level: 'warning',
-    source: 'sprintengine',
-    title: 'Started from the saved copy',
-    message: `Couldn’t refresh ${identity.nativeKey || 'the issue'} from ${trackerProviderDisplayName(identity.provider)} (${reason}). The sprint starts from the last saved description and comments.`,
-  })
-  return false
 }

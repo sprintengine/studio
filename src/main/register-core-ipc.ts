@@ -150,7 +150,6 @@ export function registerCoreIpc(
     ipcMain,
     undefined,
     undefined,
-    undefined,
     createTrackerWriteBackNoticeDeps(services.trackerWriteBack)
   )
   registerSprintEngineRoleRegistryIpc(ipcMain)

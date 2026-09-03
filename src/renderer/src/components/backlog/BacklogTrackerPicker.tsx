@@ -4,13 +4,11 @@ import type { NormalizedIssue, RedactedTrackerConnection } from '../../../../sha
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
-  Checkbox,
   Drawer,
   GhostButton,
   InboxSearchInput,
   InlineNotice,
   OutlineButton,
-  PrimaryButton,
   Select,
   StatusDot,
   type SelectItem,
@@ -18,7 +16,6 @@ import {
 import { presentTrackerError, trackerProviderMonogram } from '../settings/trackerConnectionsForm'
 import {
   isIssueInBacklog,
-  materializeReport,
   trackerIssueStateChip,
 } from './backlogTrackerPickerModel'
 
@@ -39,48 +36,42 @@ type SearchState = {
   loadMoreError?: string
 }
 
-type MaterializeState = { phase: 'idle' | 'working' | 'done' | 'error'; report?: string }
-
 const INITIAL_SEARCH: SearchState = { phase: 'idle', issues: [], loadingMore: false }
 
-// The "Add from tracker" flow (mockup §2). Mirrors the interaction SHAPE of
-// BacklogItemSearchPicker — a search field over a checkbox result list — but is
-// backed by a REMOTE tracker source (window.api.trackerSearch) instead of the
-// local backlog, and adds the multi-select → materialize → result-report footer
-// the local picker has no need for. All tracker access is IPC; there is no
-// tracker HTTP in the renderer.
+// Browse a tracker and start a sprint from an issue (MC-2359).
+//
+// This used to be an "Add from tracker" flow: tick issues, materialize them into
+// `backlog/` as proxy files, report what was added. That copied another team's
+// tickets into a git-tracked directory, so the whole add path is gone — with it
+// the checkbox column, the selection state and the result-report footer.
+//
+// What remains is what the surface was actually for: search a tracker, and start
+// a sprint from an issue. All tracker access is IPC; there is no tracker HTTP in
+// the renderer.
 export function BacklogTrackerPicker({
   open,
   onClose,
-  workspaceRoot,
   connections,
   initialConnectionId,
   issueLinkIndex,
-  onMaterialized,
   onStartSprint,
 }: {
   open: boolean
   onClose: () => void
-  workspaceRoot: string
   connections: ReadonlyArray<RedactedTrackerConnection>
   initialConnectionId: string
   issueLinkIndex: ReadonlySet<string>
-  /** Re-scan the backlog so freshly materialized proxy items appear. */
-  onMaterialized: () => void | Promise<void>
-  /** One-step "Start sprint" (mockup §2): materialize this one issue and start a
-   *  plan-sourced sprint from its fresh description + comments. Absent → the
-   *  per-row action is not shown (the drawer stays a pure add surface). */
+  /** Start a sprint from this issue, seeded from its fresh description and
+   *  comment thread. Absent → the per-row action is not shown. */
   onStartSprint?: (issue: NormalizedIssue) => Promise<{ ok: true } | { ok: false; error: string }>
 }): JSX.Element {
   const now = useRelativeNow()
   const [connectionId, setConnectionId] = useState(initialConnectionId)
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState<SearchState>(INITIAL_SEARCH)
-  // Selected issues (by externalId) not yet added; and issues added this session
-  // (dimmed + locked immediately, before the panel re-scan lands).
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  // Issues a sprint was started from this session — locked immediately so a
+  // double-click cannot start two runs on one ticket.
   const [added, setAdded] = useState<ReadonlySet<string>>(() => new Set())
-  const [materialize, setMaterialize] = useState<MaterializeState>({ phase: 'idle' })
   // Per-row one-step start (by externalId): 'starting' while the sprint is being
   // created, 'running' once it is. A started row locks (like an added one) and
   // shows a running indicator in place of its Start action. `startNotice`
@@ -135,9 +126,7 @@ export function BacklogTrackerPicker({
     if (!open) return
     setConnectionId(initialConnectionId)
     setQuery('')
-    setSelected(new Set())
     setAdded(new Set())
-    setMaterialize({ phase: 'idle' })
     setSprintState(new Map())
     setStartNotice(null)
   }, [open, initialConnectionId])
@@ -156,57 +145,6 @@ export function BacklogTrackerPicker({
     [added, issueLinkIndex],
   )
 
-  const toggle = useCallback(
-    (externalId: string) => {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        if (next.has(externalId)) next.delete(externalId)
-        else next.add(externalId)
-        return next
-      })
-      setMaterialize({ phase: 'idle' })
-      setStartNotice(null)
-      setSearch((prev) => (prev.loadMoreError ? { ...prev, loadMoreError: undefined } : prev))
-    },
-    [],
-  )
-
-  const selectedCount = selected.size
-
-  const addToBacklog = useCallback(async () => {
-    if (!connection || selectedCount === 0) return
-    const externalIds = [...selected]
-    setStartNotice(null)
-    setSearch((prev) => (prev.loadMoreError ? { ...prev, loadMoreError: undefined } : prev))
-    setMaterialize({ phase: 'working' })
-    const result = await window.api.trackerMaterialize({ workspaceRoot, connectionId: connection.id, externalIds })
-    if (!result.ok) {
-      setMaterialize({ phase: 'error', report: result.error.message })
-      return
-    }
-    // Resolve failed externalIds to their native keys for a human-readable report.
-    const nativeKeyById = new Map(search.issues.map((issue) => [issue.externalId, issue.nativeKey]))
-    const failedIds = new Set(result.failed.map((entry) => entry.externalId))
-    setAdded((prev) => {
-      const next = new Set(prev)
-      for (const externalId of externalIds) if (!failedIds.has(externalId)) next.add(externalId)
-      return next
-    })
-    setSelected(new Set())
-    setMaterialize({
-      phase: 'done',
-      report: materializeReport({
-        added: result.added,
-        refreshed: result.refreshed,
-        failed: result.failed.map((entry) => ({
-          key: nativeKeyById.get(entry.externalId) ?? entry.externalId,
-          reason: entry.reason,
-        })),
-      }),
-    })
-    await onMaterialized()
-  }, [connection, selected, selectedCount, workspaceRoot, search.issues, onMaterialized])
-
   // One-step "Start sprint" for a single row (mockup §2): materialize just this
   // issue and start a sprint from its fresh description + comments. The row locks
   // and shows a running indicator; a failure surfaces in the footer report and
@@ -220,14 +158,9 @@ export function BacklogTrackerPicker({
       if (result.ok) {
         setSprintState((prev) => new Map(prev).set(issue.externalId, 'running'))
         setAdded((prev) => new Set(prev).add(issue.externalId))
-        setSelected((prev) => {
-          const next = new Set(prev)
-          next.delete(issue.externalId)
-          return next
-        })
         setStartNotice({
           tone: 'muted',
-          text: `${issue.nativeKey} added to the backlog — its sprint is starting from the fresh issue description and comments.`,
+          text: `Sprint starting for ${issue.nativeKey}, from its current description and comments. Nothing was written to your repository.`,
         })
       } else {
         setSprintState((prev) => {
@@ -241,14 +174,11 @@ export function BacklogTrackerPicker({
     [onStartSprint, sprintState],
   )
 
-  // Switching connection clears the selection: the ticked externalIds belong to
-  // the previous connection, so carrying them into a materialize on the new one
-  // would add the wrong issues.
+  // Switching connection clears the per-issue state: it is keyed by externalId,
+  // which belongs to the connection it came from.
   const selectConnection = useCallback((nextConnectionId: string) => {
     setConnectionId(nextConnectionId)
-    setSelected(new Set())
     setAdded(new Set())
-    setMaterialize({ phase: 'idle' })
     setSprintState(new Map())
     setStartNotice(null)
   }, [])
@@ -258,26 +188,17 @@ export function BacklogTrackerPicker({
     [connections],
   )
 
-  // The one-step start result takes precedence over the add-report while it is
-  // showing, so a "sprint starting" / start-failure message is never masked by
-  // the ambient "Tick issues…" prompt.
+  // The start result takes precedence over the ambient prompt, so a "sprint
+  // starting" / start-failure message is never masked.
   const reportText = startNotice
     ? startNotice.text
     : search.loadMoreError
       ? search.loadMoreError
-      : materialize.phase === 'idle'
-        ? selectedCount > 0
-          ? `${selectedCount} ${selectedCount === 1 ? 'issue' : 'issues'} selected.`
-          : 'Tick issues to add them to the backlog.'
-        : materialize.report
-  const reportIsError = startNotice
-    ? startNotice.tone === 'error'
-    : search.loadMoreError
-      ? true
-      : materialize.phase === 'error'
+      : 'Start a sprint from an issue — the tracker stays its home.'
+  const reportIsError = startNotice ? startNotice.tone === 'error' : Boolean(search.loadMoreError)
 
   return (
-    <Drawer open={open} onClose={onClose} title="Add from a tracker" ariaLabel="Add issues from a tracker" width={520}>
+    <Drawer open={open} onClose={onClose} title="Start from a tracker" ariaLabel="Start a sprint from a tracker issue" width={520}>
       {/* Tools: which connection to search, and the query. */}
       {/* No hairlines inside the drawer: padding separates the search head and
           the footer from the results between them. */}
@@ -342,11 +263,9 @@ export function BacklogTrackerPicker({
                 <IssueRow
                   key={`${issue.provider}:${issue.externalId}`}
                   issue={issue}
-                  checked={selected.has(issue.externalId)}
                   locked={isLocked(issue)}
                   lockedLabel={lockedLabel}
                   now={now}
-                  onToggle={() => toggle(issue.externalId)}
                   sprint={sprint}
                   canStartSprint={Boolean(onStartSprint)}
                   onStartSprint={() => void startSprint(issue)}
@@ -368,10 +287,11 @@ export function BacklogTrackerPicker({
         )}
       </div>
 
-      {/* Footer: result report + the add action. */}
+      {/* Footer: the status line. There is no add action any more — starting a
+          sprint is a per-row action, and nothing is copied into the backlog. */}
       <div className="flex shrink-0 items-center gap-3 bg-[color:var(--bg-surface-raised)] px-3 py-2">
-        {/* A failed add / start / page is a failure with a glyph and a role, never
-            amber ink alone; the ambient report stays a quiet status line. */}
+        {/* A failed start / page is a failure with a glyph and a role, never amber
+            ink alone; the ambient report stays a quiet status line. */}
         {reportIsError ? (
           <InlineNotice tone="error" className="min-w-0 flex-1">
             {reportText}
@@ -381,17 +301,6 @@ export function BacklogTrackerPicker({
             {reportText}
           </span>
         )}
-        <PrimaryButton
-          size="md"
-          onClick={() => void addToBacklog()}
-          disabled={selectedCount === 0 || materialize.phase === 'working'}
-        >
-          {materialize.phase === 'working'
-            ? 'Adding…'
-            : selectedCount > 0
-              ? `Add ${selectedCount} to backlog`
-              : 'Add to backlog'}
-        </PrimaryButton>
       </div>
     </Drawer>
   )
@@ -418,21 +327,17 @@ function Monogram({ provider }: { provider: RedactedTrackerConnection['provider'
 // place.
 function IssueRow({
   issue,
-  checked,
   locked,
   lockedLabel,
   now,
-  onToggle,
   sprint,
   canStartSprint,
   onStartSprint,
 }: {
   issue: NormalizedIssue
-  checked: boolean
   locked: boolean
   lockedLabel: string
   now: number
-  onToggle: () => void
   sprint: 'starting' | 'running' | undefined
   canStartSprint: boolean
   onStartSprint: () => void
@@ -446,18 +351,15 @@ function IssueRow({
   return (
     <li>
       <div className="group relative flex items-stretch">
-        <Checkbox
-          checked={checked}
-          disabled={locked}
-          onChange={() => {
-            if (!locked) onToggle()
-          }}
-          // A locked row dims to the row canon (0.5), and the whole label is the
-          // hit target, so the row stays one click and one tab stop.
-          className={`min-w-0 flex-1 px-3 py-2 transition-colors ${
+        {/* No checkbox: there is nothing to select for, now that issues are not
+            copied into the backlog. The row is a plain read of the issue, and
+            its one action sits in the trail. A locked row dims to the row canon. */}
+        <div
+          className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 transition-colors ${
             locked ? 'opacity-50' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
-          label={
+        >
+          {(
             <>
               <span className="w-[76px] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                 {issue.nativeKey}
@@ -471,8 +373,8 @@ function IssueRow({
                 {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
               </span>
             </>
-          }
-        />
+          )}
+        </div>
         {sprint === 'running' ? (
           <span className="flex shrink-0 items-center gap-1.5 self-center pl-2 pr-3 text-micro text-[color:var(--text-muted)]">
             <StatusDot tone="accent" pulse />

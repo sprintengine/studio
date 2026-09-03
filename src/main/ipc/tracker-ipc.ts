@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron'
 
 import { resolveConnectionSampleIssue } from '../tracker/connection-sample-issue'
-import { materializeTrackerIssues } from '../tracker/materialize/materialize-service'
 import { getSharedTrackerService } from '../tracker/tracker-service'
 import type { TrackerWriteBackRuntime } from '../tracker/writeback'
 import { getSharedTrackerWriteBackConfigStore } from '../tracker/writeback/config-store'
@@ -27,8 +26,6 @@ import {
   type TrackerFetchIssueInput,
   type TrackerFetchIssueResult,
   type TrackerListConnectionsResult,
-  type TrackerMaterializeInput,
-  type TrackerMaterializeResult,
   type TrackerRemoveConnectionInput,
   type TrackerRemoveConnectionResult,
   type TrackerSearchInput,
@@ -109,26 +106,9 @@ function defaultWriteBackNoticeDeps(): TrackerWriteBackNoticeDeps {
   }
 }
 
-// Materialization needs the connection store + issue fetch (not just the narrow
-// IPC service slice), so it is injected separately. The default binds the shared
-// tracker service to the backlog-service writer via materializeTrackerIssues.
-export type TrackerMaterializeHandler = (input: TrackerMaterializeInput) => Promise<TrackerMaterializeResult>
-
-function defaultMaterializeHandler(input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> {
-  const service = getSharedTrackerService()
-  return materializeTrackerIssues({
-    ...input,
-    tracker: {
-      getConnection: (id) => service.connections.getConnection(id),
-      fetchIssue: (fetchInput) => service.fetchIssue(fetchInput),
-    },
-  })
-}
-
 export function registerTrackerIpc(
   ipcMain: IpcMain,
   service: TrackerIpcService = getSharedTrackerService(),
-  materialize: TrackerMaterializeHandler = defaultMaterializeHandler,
   writeBack: TrackerWriteBackIpcDeps = defaultWriteBackDeps(),
   writeBackNotices: TrackerWriteBackNoticeDeps = defaultWriteBackNoticeDeps()
 ): void {
@@ -160,10 +140,6 @@ export function registerTrackerIpc(
 
   ipcMain.handle('tracker:fetchIssue', (_event, input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult> => {
     return service.fetchIssue(input)
-  })
-
-  ipcMain.handle('tracker:materialize', (_event, input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> => {
-    return materialize(input)
   })
 
   // Write-back config round-trips the T10 schema (no secret). The store normalizes

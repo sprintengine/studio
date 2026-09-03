@@ -1898,13 +1898,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         <BacklogTrackerPicker
           open={trackerPicker.open}
           onClose={closeTrackerPicker}
-          workspaceRoot={folderPath}
           connections={trackerConnections}
           initialConnectionId={trackerPicker.connectionId}
           issueLinkIndex={issueLinkIndex}
-          onMaterialized={async () => {
-            await runScan()
-          }}
           onStartSprint={startSprintFromTrackerIssue}
         />
       ) : null}

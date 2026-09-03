@@ -5,8 +5,8 @@ import { DEFAULT_TRACKER_WRITEBACK_CONFIG, type TrackerWriteBackConfig } from '.
 import {
   desiredPostsFor,
   TrackerWriteBackEngine,
-  type ProxyItemLookup,
-  type RunProxyItem,
+  type RunIssueLookup,
+  type RunIssue,
   type RunStateReader,
   type RunWriteBackFacts,
   type TrackerWriteBackPoster,
@@ -52,7 +52,7 @@ async function testMultiRepoPrCommentsPostPerUrlSet(): Promise<void> {
   const runState = mutableRunState({ ...startedFacts(), pullRequestUrls: [firstPr] })
   const engine = new TrackerWriteBackEngine({
     runState,
-    proxyItems: proxyLookup([githubItem()]),
+    runIssues: proxyLookup([githubItem()]),
     config: configReader({ 'conn-gh': allCommentsOn() }),
     capabilities: capabilityResolver({ github: GITHUB_CAPS }),
     poster,
@@ -93,7 +93,7 @@ async function testExactlyThreeCommentsAcrossLifecycleAndRestart(): Promise<void
   const runState = mutableRunState(startedFacts())
   const engine = new TrackerWriteBackEngine({
     runState,
-    proxyItems: proxy,
+    runIssues: proxy,
     config,
     capabilities: caps,
     poster,
@@ -127,7 +127,7 @@ async function testExactlyThreeCommentsAcrossLifecycleAndRestart(): Promise<void
   const restartPoster = recordingPoster()
   const restarted = new TrackerWriteBackEngine({
     runState: mutableRunState(completedFacts(['https://github.com/o/r/pull/7'])),
-    proxyItems: proxy,
+    runIssues: proxy,
     config,
     capabilities: caps,
     poster: restartPoster,
@@ -172,7 +172,7 @@ async function testDisablingMidRunStopsFuturePostsAndRetractsNothing(): Promise<
   const runState = mutableRunState(startedFacts())
   const engine = new TrackerWriteBackEngine({
     runState,
-    proxyItems: proxyLookup([githubItem()]),
+    runIssues: proxyLookup([githubItem()]),
     config,
     capabilities: capabilityResolver({ github: GITHUB_CAPS }),
     poster,
@@ -203,7 +203,7 @@ async function testFailureIsolationRetriesOnNextEvent(): Promise<void> {
   const runState = mutableRunState(startedFacts())
   const engine = new TrackerWriteBackEngine({
     runState,
-    proxyItems: proxyLookup([githubItem()]),
+    runIssues: proxyLookup([githubItem()]),
     config: configReader({ 'conn-gh': allCommentsOn() }),
     capabilities: capabilityResolver({ github: GITHUB_CAPS }),
     poster: failing,
@@ -313,14 +313,14 @@ function testEventToPostMappingAndOrdering(): void {
 
 function buildEngine(input: {
   facts: RunWriteBackFacts
-  items: RunProxyItem[]
+  items: RunIssue[]
   configs: Record<string, TrackerWriteBackConfig>
   caps: Partial<Record<TrackerProviderId, TrackerCapabilities>>
   poster: ReturnType<typeof recordingPoster>
 }): TrackerWriteBackEngine {
   return new TrackerWriteBackEngine({
     runState: mutableRunState(input.facts),
-    proxyItems: proxyLookup(input.items),
+    runIssues: proxyLookup(input.items),
     config: configReader(input.configs),
     capabilities: capabilityResolver(input.caps),
     poster: input.poster,
@@ -350,13 +350,13 @@ function allCommentsOn(): TrackerWriteBackConfig {
   return { ...DEFAULT_TRACKER_WRITEBACK_CONFIG, enabled: true }
 }
 
-function githubItem(): RunProxyItem {
+function githubItem(): RunIssue {
   return { relativePath: 'backlog/gh.md', provider: 'github', connectionId: 'conn-gh', externalId: 'o/r#7', nativeKey: '#7' }
 }
-function jiraItem(): RunProxyItem {
+function jiraItem(): RunIssue {
   return { relativePath: 'backlog/jira.md', provider: 'jira', connectionId: 'conn-jira', externalId: '10023', nativeKey: 'PROJ-17' }
 }
-function linearItem(): RunProxyItem {
+function linearItem(): RunIssue {
   return { relativePath: 'backlog/lin.md', provider: 'linear', connectionId: 'conn-linear', externalId: 'uuid-1', nativeKey: 'ENG-1' }
 }
 
@@ -370,8 +370,8 @@ function mutableRunState(initial: RunWriteBackFacts | null): RunStateReader & { 
   }
 }
 
-function proxyLookup(items: RunProxyItem[]): ProxyItemLookup {
-  return { proxyItemsForRun: async () => items }
+function proxyLookup(items: RunIssue[]): RunIssueLookup {
+  return { issuesForRun: async () => items }
 }
 
 function configReader(initial: Record<string, TrackerWriteBackConfig>): WriteBackConfigReader & { set(id: string, c: TrackerWriteBackConfig): void } {

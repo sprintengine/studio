@@ -22,7 +22,6 @@ async function main(): Promise<void> {
   await api.trackerTestConnection({ connectionId: 'trk-1' })
   await api.trackerSearch({ connectionId: 'trk-1', query: 'q' })
   await api.trackerFetchIssue({ connectionId: 'trk-1', externalId: '9' })
-  await api.trackerMaterialize({ workspaceRoot: '/ws', connectionId: 'trk-1', externalIds: ['9'] })
 
   assert.deepEqual(calls, [
     { channel: 'tracker:listConnections', input: undefined },
@@ -31,7 +30,6 @@ async function main(): Promise<void> {
     { channel: 'tracker:testConnection', input: { connectionId: 'trk-1' } },
     { channel: 'tracker:search', input: { connectionId: 'trk-1', query: 'q' } },
     { channel: 'tracker:fetchIssue', input: { connectionId: 'trk-1', externalId: '9' } },
-    { channel: 'tracker:materialize', input: { workspaceRoot: '/ws', connectionId: 'trk-1', externalIds: ['9'] } },
   ])
 
   console.log('tracker-preload tests passed')

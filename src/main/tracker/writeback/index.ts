@@ -3,7 +3,7 @@ import { getSharedTrackerProviderRegistry, type TrackerProviderRegistry } from '
 import { getSharedTrackerWriteBackConfigStore, TrackerWriteBackConfigStore } from './config-store'
 import { TrackerWriteBackEngine } from './engine'
 import { getSharedTrackerWriteBackLedger, TrackerWriteBackLedger } from './ledger'
-import { createProxyItemLookup } from './proxy-item-lookup'
+import { createRunIssueLookup } from './run-issue-lookup'
 import { createTrackerWriteBackPoster, createWriteBackCapabilityResolver } from './poster'
 import { createRunStateReader, type WriteBackProjectionReader } from './run-state-reader'
 
@@ -68,7 +68,7 @@ export function createTrackerWriteBackRuntime(options: CreateTrackerWriteBackRun
 
   const engine = new TrackerWriteBackEngine({
     runState: createRunStateReader({ readProjection: options.readProjection }),
-    proxyItems: createProxyItemLookup(),
+    runIssues: createRunIssueLookup(),
     config: configStore,
     capabilities: createWriteBackCapabilityResolver(registry),
     poster: createTrackerWriteBackPoster(registry),

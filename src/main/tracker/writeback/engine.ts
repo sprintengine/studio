@@ -47,8 +47,8 @@ export type RunStateReader = {
   readRunFacts(input: { statePath: string }): Promise<RunWriteBackFacts | null>
 }
 
-// One tracker proxy backlog item linked to the run being reconciled.
-export type RunProxyItem = {
+// The tracker issue a run was started from.
+export type RunIssue = {
   relativePath: string
   provider: TrackerProviderId
   connectionId: string
@@ -56,8 +56,8 @@ export type RunProxyItem = {
   nativeKey: string
 }
 
-export type ProxyItemLookup = {
-  proxyItemsForRun(input: { workspaceRoot: string; statePath: string }): Promise<RunProxyItem[]>
+export type RunIssueLookup = {
+  issuesForRun(input: { workspaceRoot: string; statePath: string }): Promise<RunIssue[]>
 }
 
 export type WriteBackCapabilityResolver = {
@@ -103,7 +103,7 @@ type LedgerWriteMeta = {
 
 export type TrackerWriteBackEngineDeps = {
   runState: RunStateReader
-  proxyItems: ProxyItemLookup
+  runIssues: RunIssueLookup
   config: WriteBackConfigReader
   capabilities: WriteBackCapabilityResolver
   poster: TrackerWriteBackPoster
@@ -143,7 +143,7 @@ export class TrackerWriteBackEngine {
       if (!facts) return { posted: 0, failed: 0, skipped: 0, reason: 'run_unreadable' }
       if (!facts.started) return { posted: 0, failed: 0, skipped: 0, reason: 'not_started' }
 
-      const items = await this.deps.proxyItems.proxyItemsForRun({
+      const items = await this.deps.runIssues.issuesForRun({
         workspaceRoot: input.workspaceRoot,
         statePath: input.statePath,
       })
@@ -189,7 +189,7 @@ export class TrackerWriteBackEngine {
     }
   }
 
-  private async attempt(item: RunProxyItem, post: DesiredPost, key: string, statePath: string): Promise<'posted' | 'failed'> {
+  private async attempt(item: RunIssue, post: DesiredPost, key: string, statePath: string): Promise<'posted' | 'failed'> {
     const meta: LedgerWriteMeta = {
       key,
       statePath,

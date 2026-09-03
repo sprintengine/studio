@@ -220,19 +220,3 @@ export type TrackerFetchIssueInput = { connectionId: string; externalId: string 
 export type TrackerFetchIssueResult =
   | { ok: true; issue: NormalizedIssue }
   | { ok: false; error: TrackerError }
-
-// Materialize external issues into the Backlog as proxy items (MC-1637). The
-// writer lives in the main-process backlog service; this channel (declared by
-// T6) is what the T7 picker and scan-triggered refresh call. `added`/`refreshed`
-// tally new versus re-materialized items; `failed` carries per-issue reasons for
-// transient errors (auth/rate-limit/network), each already redacted to the
-// provider's own message.
-export type TrackerMaterializeInput = {
-  workspaceRoot: string
-  connectionId: string
-  externalIds: string[]
-}
-
-export type TrackerMaterializeResult =
-  | { ok: true; added: number; refreshed: number; failed: Array<{ externalId: string; reason: string }> }
-  | { ok: false; error: TrackerError }

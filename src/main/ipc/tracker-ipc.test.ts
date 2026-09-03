@@ -59,12 +59,6 @@ async function main(): Promise<void> {
   }
 
   const ipcMain = createIpcMain()
-  // Materialization is injected separately (it needs the writer, not just the IPC
-  // service slice), so a mock captures its delegation without the real backlog fs.
-  const materialize = async (input: unknown) => {
-    calls.push({ method: 'materialize', input })
-    return { ok: true as const, added: 1, refreshed: 0, failed: [] }
-  }
   // Write-back config + sample-issue seam, mocked so the config/transition handlers
   // run without a real userData file or backlog.
   const writeBack: TrackerWriteBackIpcDeps = {
@@ -103,7 +97,6 @@ async function main(): Promise<void> {
   registerTrackerIpc(
     ipcMain as unknown as Parameters<typeof registerTrackerIpc>[0],
     service,
-    materialize,
     writeBack,
     writeBackNotices,
   )
@@ -115,7 +108,6 @@ async function main(): Promise<void> {
     'tracker:testConnection',
     'tracker:search',
     'tracker:fetchIssue',
-    'tracker:materialize',
     'tracker:getWriteBackConfig',
     'tracker:setWriteBackConfig',
     'tracker:listTransitions',
@@ -131,7 +123,6 @@ async function main(): Promise<void> {
   await ipcMain.handlers.get('tracker:testConnection')!(null, { connectionId: 'trk-x' })
   await ipcMain.handlers.get('tracker:search')!(null, { connectionId: 'trk-x', query: 'bug' })
   await ipcMain.handlers.get('tracker:fetchIssue')!(null, { connectionId: 'trk-x', externalId: '42' })
-  await ipcMain.handlers.get('tracker:materialize')!(null, { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] })
   await ipcMain.handlers.get('tracker:getWriteBackConfig')!(null, { connectionId: 'trk-x' })
   await ipcMain.handlers.get('tracker:setWriteBackConfig')!(null, { connectionId: 'trk-x', config: DEFAULT_TRACKER_WRITEBACK_CONFIG })
 
@@ -142,7 +133,6 @@ async function main(): Promise<void> {
     { method: 'testConnection', input: { connectionId: 'trk-x' } },
     { method: 'search', input: { connectionId: 'trk-x', query: 'bug' } },
     { method: 'fetchIssue', input: { connectionId: 'trk-x', externalId: '42' } },
-    { method: 'materialize', input: { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] } },
     { method: 'getConfig', input: { connectionId: 'trk-x' } },
     { method: 'setConfig', input: { connectionId: 'trk-x', config: DEFAULT_TRACKER_WRITEBACK_CONFIG } },
   ])

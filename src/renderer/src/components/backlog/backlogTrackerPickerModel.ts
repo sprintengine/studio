@@ -58,29 +58,3 @@ export function trackerIssueStateChip(issue: Pick<NormalizedIssue, 'state'>): { 
   return { tone: issue.state.category === 'closed' ? 'good' : 'neutral', label }
 }
 
-// The result report shown after a materialize round-trip (AC: "states added/
-// refreshed/failed counts with reasons"). Speaks in plain human terms and never
-// lets a partial failure read as a clean success — every failure is named with
-// the provider's own reason. `failed[].key` is the native key (falling back to
-// the externalId) so the message shows PROJ-141, not an opaque internal id.
-export function materializeReport(result: {
-  added: number
-  refreshed: number
-  failed: ReadonlyArray<{ key: string; reason: string }>
-}): string {
-  const changed: string[] = []
-  if (result.added > 0) changed.push(`Added ${result.added}`)
-  if (result.refreshed > 0) changed.push(result.added > 0 ? `refreshed ${result.refreshed}` : `Refreshed ${result.refreshed}`)
-
-  const sentences: string[] = []
-  if (changed.length > 0) {
-    sentences.push(`${changed.join(' and ')} — native keys stay visible, and the items keep themselves fresh.`)
-  }
-  if (result.failed.length > 0) {
-    const detail = result.failed.map((entry) => `${entry.key} (${entry.reason})`).join('; ')
-    const noun = result.failed.length === 1 ? 'issue' : 'issues'
-    sentences.push(`${result.failed.length} ${noun} couldn’t be added: ${detail}.`)
-  }
-  if (sentences.length === 0) return 'Nothing was added.'
-  return sentences.join(' ')
-}

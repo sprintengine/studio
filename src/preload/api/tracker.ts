@@ -12,8 +12,6 @@ import type {
   TrackerListTransitionsInput,
   TrackerListTransitionsResult,
   TrackerListWriteBackNoticesResult,
-  TrackerMaterializeInput,
-  TrackerMaterializeResult,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
   TrackerRetryWriteBackInput,
@@ -37,7 +35,6 @@ type TrackerIpcRenderer = {
   invoke(channel: 'tracker:testConnection', input: TrackerTestConnectionInput): Promise<TrackerTestConnectionResult>
   invoke(channel: 'tracker:search', input: TrackerSearchInput): Promise<TrackerSearchResult>
   invoke(channel: 'tracker:fetchIssue', input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult>
-  invoke(channel: 'tracker:materialize', input: TrackerMaterializeInput): Promise<TrackerMaterializeResult>
   invoke(
     channel: 'tracker:getWriteBackConfig',
     input: TrackerGetWriteBackConfigInput
@@ -63,8 +60,6 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
     trackerSearch: (input: TrackerSearchInput): Promise<TrackerSearchResult> => renderer.invoke('tracker:search', input),
     trackerFetchIssue: (input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult> =>
       renderer.invoke('tracker:fetchIssue', input),
-    trackerMaterialize: (input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> =>
-      renderer.invoke('tracker:materialize', input),
     trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput): Promise<TrackerGetWriteBackConfigResult> =>
       renderer.invoke('tracker:getWriteBackConfig', input),
     trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput): Promise<TrackerSetWriteBackConfigResult> =>
@@ -83,7 +78,6 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
     | 'trackerTestConnection'
     | 'trackerSearch'
     | 'trackerFetchIssue'
-    | 'trackerMaterialize'
     | 'trackerGetWriteBackConfig'
     | 'trackerSetWriteBackConfig'
     | 'trackerListTransitions'

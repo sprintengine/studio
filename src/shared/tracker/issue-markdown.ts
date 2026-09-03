@@ -13,17 +13,8 @@
 // of record. Saying so plainly is what stops an agent treating it as a document
 // to keep up to date.
 
+import { trackerProviderLabel } from './provider-label'
 import type { NormalizedIssue, TrackerProviderId } from './types'
-
-const PROVIDER_LABEL: Record<TrackerProviderId, string> = {
-  github: 'GitHub',
-  jira: 'Jira',
-  linear: 'Linear',
-}
-
-export function trackerProviderLabel(provider: TrackerProviderId | string): string {
-  return PROVIDER_LABEL[provider as TrackerProviderId] ?? provider
-}
 
 // The line separating the snapshot's own header from the issue's body. Addressed
 // to whoever reads the file — human or agent — so neither treats it as a local
@@ -47,7 +38,24 @@ export function issueSnapshotMarker(provider: TrackerProviderId | string, captur
 export function composeIssueMarkdown(issue: NormalizedIssue, options: { capturedAt?: string } = {}): string {
   const capturedAt = options.capturedAt ?? new Date().toISOString()
   const title = issue.title.trim() || issue.nativeKey
-  const lines: string[] = [`# ${title}`, '']
+
+  // The external identity rides as frontmatter so the run board's "Started from"
+  // chip keeps working — `trackerSeedProvenance` reads exactly these keys off the
+  // seed, and without them a tracker-sourced run would lose its "PROJ-141 · View
+  // in Jira" line. These are the same keys the retired proxy items carried; the
+  // difference is that this document is run-local and gitignored, not a backlog
+  // item the app keeps syncing.
+  const lines: string[] = [
+    '---',
+    `external_provider: ${issue.provider}`,
+    `external_connection: ${issue.connectionId}`,
+    `external_id: ${issue.externalId}`,
+    `external_key: ${issue.nativeKey}`,
+    ...(issue.url.trim() ? [`external_url: ${issue.url.trim()}`] : []),
+    '---',
+    `# ${title}`,
+    '',
+  ]
 
   const facts: string[] = [`**State:** ${issue.state.nativeName.trim() || defaultStateName(issue)}`]
   if (issue.priority?.trim()) facts.push(`**Priority:** ${issue.priority.trim()}`)

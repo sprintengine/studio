@@ -151,8 +151,6 @@ import type {
   TrackerFetchIssueInput,
   TrackerFetchIssueResult,
   TrackerListConnectionsResult,
-  TrackerMaterializeInput,
-  TrackerMaterializeResult,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
   TrackerSearchInput,
@@ -178,8 +176,6 @@ export type {
   TrackerFetchIssueInput,
   TrackerFetchIssueResult,
   TrackerListConnectionsResult,
-  TrackerMaterializeInput,
-  TrackerMaterializeResult,
   TrackerProviderId,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
@@ -3223,7 +3219,6 @@ export type ElectronApi = {
   trackerTestConnection: (input: TrackerTestConnectionInput) => Promise<TrackerTestConnectionResult>
   trackerSearch: (input: TrackerSearchInput) => Promise<TrackerSearchResult>
   trackerFetchIssue: (input: TrackerFetchIssueInput) => Promise<TrackerFetchIssueResult>
-  trackerMaterialize: (input: TrackerMaterializeInput) => Promise<TrackerMaterializeResult>
   trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput) => Promise<TrackerGetWriteBackConfigResult>
   trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput) => Promise<TrackerSetWriteBackConfigResult>
   trackerListTransitions: (input: TrackerListTransitionsInput) => Promise<TrackerListTransitionsResult>
