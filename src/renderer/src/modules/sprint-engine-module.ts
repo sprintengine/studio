@@ -215,11 +215,10 @@ export const sprintEngineRendererModule: RendererModule = {
           }
         }
 
-        // Backlog launches stay reference-mode: the architect reads this file in
+        // Backlog launches are reference-mode: the architect reads this file in
         // place. There is no proxy-refresh step any more — MC-2361 removed
-        // mirrored tracker items, so a backlog file is always its own canonical
-        // source. Starting from a tracker issue is a separate path
-        // (startTrackerIssueSprint) that never writes into backlog/.
+        // mirrored tracker items and MC-2363 removed the tracker layer itself,
+        // so a backlog file is always its own canonical source.
         const sourceContent = await context.readSource()
 
         const baseName = basename(context.item.relativePath).replace(/\.(md|html?)$/i, '')

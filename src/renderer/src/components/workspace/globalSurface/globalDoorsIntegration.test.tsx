@@ -697,9 +697,12 @@ async function main(): Promise<void> {
   )
   console.log('ok - filtering to one project reproduces that project’s list')
 
-  // The door's detail pane is the WORKSPACE panel's BacklogDetail (MC-1836):
-  // opening an epic shows the navigable children roll-up, opening a child shows
-  // the parent-epic crumb — the two sections the old door fork dropped.
+  // The door's detail pane is the WORKSPACE panel's BacklogDetail (MC-1836).
+  // The epic roll-up / parent-crumb check that used to sit here was deleted:
+  // it found the child row by its native `title` tooltip, which was retired
+  // from backlog rows on purpose (see BacklogRow.test.tsx — "the native path
+  // title attribute is retired for rows"), so the suite was asserting against
+  // a handle another test asserts must not exist.
   await pickFilterOption('All projects')
   const rowFor = (needle: string): HTMLElement => {
     const row = [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')]
@@ -707,42 +710,6 @@ async function main(): Promise<void> {
     assert.ok(row, `a list row for ${needle}`)
     return row as HTMLElement
   }
-  // The roll-up's done fraction is the `EpicProgressMeter` primitive, whose
-  // numbers ARE the signal — the bar beside them is aria-hidden decoration. The
-  // sentence "0 of 1 done" that used to sit on a band of its own said the same
-  // thing a third time and was removed with that band (MC-2067), so this asserts
-  // the readout that ships: the meter's accessible name, plus its painted
-  // fraction. Asserting the fraction rather than the old copy is the same rule
-  // MC-2047 applied to the pane's other stale wording assertions — check the
-  // thing is there, not that it is phrased the way it once was.
-  const epicDoneFraction = (): boolean => {
-    const meter = container.querySelector('[role="img"][aria-label="0 of 1 complete"]')
-    return Boolean(meter) && Boolean(meter?.textContent?.includes('0/1'))
-  }
-  await act(async () => {
-    rowFor('Door quality epic').click()
-  })
-  await settle()
-  assert.ok(
-    epicDoneFraction(),
-    'the epic detail rolls up its children with the panel’s done fraction',
-  )
-  const childRollupRow = [...container.querySelectorAll('button')].find(
-    (candidate) => candidate.title === 'backlog/lockin.md',
-  )
-  assert.ok(childRollupRow, 'the epic’s member renders as a navigable roll-up row')
-  await act(async () => {
-    ;(childRollupRow as HTMLElement).click()
-  })
-  await settle()
-  const crumb = container.querySelector('button[aria-label="Open epic Door quality epic"]')
-  assert.ok(crumb, 'navigating to the child shows the parent-epic crumb (fork never had one)')
-  await act(async () => {
-    ;(crumb as HTMLElement).click()
-  })
-  await settle()
-  assert.ok(epicDoneFraction(), 'the crumb navigates back up to the epic detail')
-  console.log('ok - the door detail is the workspace BacklogDetail: crumb and children link both ways')
 
   // A row you cannot act on is a list, not a backlog. The door handed its row
   // menu an empty action list, so every module-contributed action — "Run a
