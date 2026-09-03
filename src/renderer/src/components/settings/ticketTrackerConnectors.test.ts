@@ -2,12 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { McpCatalogServer } from '../../../../shared/electron-api'
-import {
-  isTicketTracker,
-  partitionTicketTrackers,
-  ticketTrackerEndpointLabel,
-  ticketTrackerStateLine,
-} from './ticketTrackerConnectors'
+import { isTicketTracker, partitionTicketTrackers } from './ticketTrackerConnectors'
 
 function server(overrides: Partial<McpCatalogServer> & { id: string; name: string }): McpCatalogServer {
   return { transport: 'http', ...overrides } as McpCatalogServer
@@ -46,27 +41,3 @@ test('installing one moves only that entry between bands', () => {
   assert.deepEqual(after.installed.map((e) => e.id), ['linear'])
 })
 
-test('the endpoint label is the host, so the row stays short and checkable', () => {
-  assert.equal(ticketTrackerEndpointLabel(LINEAR), 'mcp.linear.app')
-  assert.equal(
-    ticketTrackerEndpointLabel(server({ id: 'x', name: 'X', command: 'npx some-mcp' })),
-    'npx some-mcp',
-  )
-  // A malformed URL is shown as written rather than swallowed — an unreadable
-  // endpoint is something the user needs to see.
-  assert.equal(ticketTrackerEndpointLabel(server({ id: 'y', name: 'Y', url: 'not a url' })), 'not a url')
-  assert.equal(ticketTrackerEndpointLabel(server({ id: 'z', name: 'Z' })), 'no endpoint declared')
-})
-
-// Multicode holds no credential for these — the catalogue entries carry
-// envVarNames: [] and the CLI does its own OAuth. Saying "connected" would claim
-// a relationship the app does not have.
-test('an installed tracker is never described as connected', () => {
-  const [installed] = partitionTicketTrackers([LINEAR], new Set(['linear'])).installed
-  const line = ticketTrackerStateLine(installed)
-  assert.match(line, /Installed for your agents/)
-  assert.match(line, /signs in on first use/)
-  assert.doesNotMatch(line, /connected/i)
-  const [available] = partitionTicketTrackers([LINEAR], new Set()).available
-  assert.match(ticketTrackerStateLine(available), /^Not installed · mcp\.linear\.app$/)
-})

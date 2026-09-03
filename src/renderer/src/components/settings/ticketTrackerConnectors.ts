@@ -17,8 +17,6 @@ export type TicketTrackerEntry = {
   name: string
   description?: string
   icon?: string
-  /** The one server this connector reaches, shown so the row is checkable. */
-  endpoint: string
   installed: boolean
 }
 
@@ -29,22 +27,6 @@ export type TicketTrackerBands = {
 
 export function isTicketTracker(server: McpCatalogServer): boolean {
   return server.ticketTracker === true
-}
-
-// Where a connector points, for the state line. A remote MCP has a URL; a stdio
-// one has a command. Rendering the host rather than the full URL keeps the line
-// short and is the part a user recognises.
-export function ticketTrackerEndpointLabel(server: McpCatalogServer): string {
-  const url = typeof server.url === 'string' ? server.url.trim() : ''
-  if (url) {
-    try {
-      return new URL(url).host
-    } catch {
-      return url
-    }
-  }
-  const command = typeof server.command === 'string' ? server.command.trim() : ''
-  return command || 'no endpoint declared'
 }
 
 /**
@@ -63,7 +45,6 @@ export function partitionTicketTrackers(
     name: server.name,
     ...(server.description ? { description: server.description } : {}),
     ...(server.icon ? { icon: server.icon } : {}),
-    endpoint: ticketTrackerEndpointLabel(server),
     installed: installedServerIds.has(server.id),
   }))
   const byName = (a: TicketTrackerEntry, b: TicketTrackerEntry): number => a.name.localeCompare(b.name)
@@ -73,17 +54,3 @@ export function partitionTicketTrackers(
   }
 }
 
-/**
- * The row's one mandatory state line (provider-row's contract: it is state, and
- * it says what happens next).
- *
- * An installed tracker is deliberately NOT described as "connected": Multicode
- * holds no credential for it — these catalogue entries carry `envVarNames: []`
- * and the agent authenticates on first use. Saying "connected" would claim a
- * relationship the app does not have.
- */
-export function ticketTrackerStateLine(entry: TicketTrackerEntry): string {
-  return entry.installed
-    ? `Installed for your agents · ${entry.endpoint} — the agent signs in on first use`
-    : `Not installed · ${entry.endpoint}`
-}
