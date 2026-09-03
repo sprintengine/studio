@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { basename } from '../../utils/paths'
+import { composeIssueMarkdown, issueSprintGoal } from '../../../../shared/tracker/issue-markdown'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '../../utils/sprintengine'
 import { backlogIssueLinkIndex } from './backlogTrackerPickerModel'
-import { matchProxyItemByIssue } from '../../utils/sprintengineTrackerSeeding'
-import { startTrackerProxySprint } from '../../utils/sprintengineWorkspaceCreation'
+import { startTrackerIssueSprint } from '../../utils/sprintengineWorkspaceCreation'
 import { rendererSprintEngineWorkspaceCreationPort } from '../../utils/sprintengineWorkspaceCreationPorts'
 import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
@@ -13,14 +12,13 @@ import {
   sprintEngineLaunchRoleCounts,
 } from '../workspace/newWorkspace/savedRosters'
 import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from '../workspace/newWorkspace/controllers/sprintEngineController'
-import { markdownTitle, workspaceRelativePath } from '../workspace/newWorkspace/helpers'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
 } from '../../utils/sprintengineAutomationLifecycle'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import type { NormalizedIssue, RedactedTrackerConnection } from '../../../../shared/electron-api'
-import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
+import type { BacklogItem } from '../../utils/backlog'
 
 // Which tracker connection's search drawer is open, and whether it is sliding
 // out or in. Held above the drawer component so its close animation survives a
@@ -48,9 +46,8 @@ export type BacklogTrackerSeeding = {
 export function useBacklogTrackerSeeding(params: {
   items: BacklogItem[]
   folderPath: string | null
-  runScan: () => Promise<BacklogScanResult | null>
 }): BacklogTrackerSeeding {
-  const { items, folderPath, runScan } = params
+  const { items, folderPath } = params
 
   // Connected trackers (redacted; no secret), for the "Add from tracker" entry
   // point (T7 / MC-1637). Empty by default: a backlog with zero tracker
@@ -91,25 +88,18 @@ export function useBacklogTrackerSeeding(params: {
     async (issue: NormalizedIssue): Promise<StartSprintResult> => {
       if (!folderPath) return { ok: false, error: 'Open a project folder first.' }
       try {
-        // 1. Materialize the single issue — writes the proxy item fresh from the
-        // tracker. The issue carries its own owning connection id.
-        const materialized = await window.api.trackerMaterialize({
-          workspaceRoot: folderPath,
+        // 1. Re-fetch the issue so the architect plans against what the tracker
+        // says NOW — body and comment thread included, since acceptance criteria
+        // usually live in the comments rather than the description.
+        const fresh = await window.api.trackerFetchIssue({
           connectionId: issue.connectionId,
-          externalIds: [issue.externalId],
+          externalId: issue.externalId,
         })
-        if (!materialized.ok) return { ok: false, error: materialized.error.message }
-        const failure = materialized.failed.find((entry) => entry.externalId === issue.externalId)
-        if (failure) return { ok: false, error: failure.reason }
-        // 2. Re-scan and locate the freshly written proxy item by its issue link.
-        const scanResult = await runScan()
-        const item = scanResult
-          ? matchProxyItemByIssue(scanResult.items, issue.provider, issue.externalId)
-          : null
-        if (!item) {
-          return { ok: false, error: 'Added to the backlog, but the new item could not be located to start a sprint.' }
-        }
-        // 3. Resolve the user's saved roster (never invents a roster) + auto-run mode.
+        if (!fresh.ok) return { ok: false, error: fresh.error.message }
+        const current = fresh.issue
+        const capturedAt = new Date().toISOString()
+
+        // 2. Resolve the user's saved roster (never invents a roster) + auto-run mode.
         const store = useWorkspaceStore.getState()
         const roleSettings = store.appSettings.sprintEngineRoleSettings
         const roster = resolveInitialSprintEngineRoster({
@@ -124,14 +114,23 @@ export function useBacklogTrackerSeeding(params: {
           startRunner: true,
           autoApproveArtifacts: false,
         })
-        const baseTeamName = slugifySprintEngineName(basename(item.relativePath).replace(/\.(md|html?)$/i, ''))
-        // 4. Create the plan-sourced run from the just-refreshed on-disk item + link it.
-        const result = await startTrackerProxySprint({
+
+        // 3. Create the run. The issue markdown lands in the run's own gitignored
+        // directory — nothing is written into `backlog/`, and there is no scan,
+        // no lookup and no proxy item anywhere in this path.
+        const result = await startTrackerIssueSprint({
           rootPath: folderPath,
-          baseTeamName,
-          goal: markdownTitle(item.sourceContent) ?? (issue.title.trim() || issue.nativeKey),
-          sourceRelativePath: item.relativePath,
-          sourceContent: item.sourceContent,
+          baseTeamName: slugifySprintEngineName(current.nativeKey || issue.nativeKey || 'sprint'),
+          goal: issueSprintGoal(current),
+          sourceContent: composeIssueMarkdown(current, { capturedAt }),
+          issue: {
+            provider: current.provider,
+            connectionId: current.connectionId,
+            externalId: current.externalId,
+            nativeKey: current.nativeKey,
+            url: current.url,
+            capturedAt,
+          },
           sourcePlanKind: 'unknown',
           // The no-roles/roster selection decides staffing here too. This is
           // the THIRD caller that resolves a roster and must honor the
@@ -152,32 +151,16 @@ export function useBacklogTrackerSeeding(params: {
           // the active workspace's window, then primary).
           workspaceWindowId: null,
           pathExists: window.api.pathExists,
-          initializeSprintEngineState: window.api.initializeSprintEngineState,
-          recordExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath }) => {
-            const linked = await window.api.addOrUpdateBacklogLink({
-              workspaceRoot,
-              relativePath: sourceRelativePath,
-              link: {
-                id: `sprint-engine:${teamSlug}`,
-                moduleId: 'sprint-engine',
-                type: 'execution',
-                label: 'Sprint',
-                target: {
-                  kind: 'sprintengine.run',
-                  id: teamSlug,
-                  path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
-                },
-                status: 'active',
-              },
-              status: 'in_progress',
-            })
-            if (!linked.ok) throw new Error(linked.message)
+          // `ensureDir(dir, '')` joins to `dir` itself and mkdirs it recursively —
+          // the run directory does not exist until creation runs.
+          ensureDirectory: async (path) => {
+            await window.api.ensureDir(path, '')
           },
+          writeFile: window.api.writefile,
+          initializeSprintEngineState: window.api.initializeSprintEngineState,
           workspace: rendererSprintEngineWorkspaceCreationPort,
         })
         if (!result.ok) return { ok: false, error: result.message }
-        // Re-scan so the new proxy row shows its running-sprint link immediately.
-        await runScan()
         return { ok: true }
       } catch (error) {
         // Failure-isolated: a thrown IPC/creation error becomes a visible result,
@@ -185,7 +168,7 @@ export function useBacklogTrackerSeeding(params: {
         return { ok: false, error: error instanceof Error ? error.message : 'Could not start the sprint.' }
       }
     },
-    [folderPath, runScan],
+    [folderPath],
   )
 
   return {

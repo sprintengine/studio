@@ -1400,7 +1400,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     closeTrackerPicker,
     issueLinkIndex,
     startSprintFromTrackerIssue,
-  } = useBacklogTrackerSeeding({ items, folderPath, runScan })
+  } = useBacklogTrackerSeeding({ items, folderPath })
 
   // Refresh, then one "Add from <tracker>" entry per connected tracker (T7).
   // Tracker labels stay plain-human ("Add from Jira · ACME"), never
