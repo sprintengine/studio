@@ -1821,8 +1821,21 @@ export default function SettingsPanel({
 
   // Groups carry no printed header — they read as one list separated by a
   // whitespace gap (Cursor-parity). `label` stays as the React key only.
+  //
+  // The column is a rail, so it takes the rail's scrollport inset
+  // (`--sem-space-2xs`, 4px — design-system/patterns/context-rail.html) rather
+  // than sitting flush against the modal's edge: 4 + 8 (row padding) + 16 (icon
+  // slot) + 8 (gap) is the 36px title line every other rail in the product puts
+  // its labels on, and the inset is what keeps a row's hover fill off the edge.
+  // It scrolls here too — the category list outgrows a short window, and the
+  // shell's aside does not scroll for it.
   const sidebarNode = (
-    <div role="tablist" aria-label="Settings categories" aria-orientation="vertical">
+    <div
+      role="tablist"
+      aria-label="Settings categories"
+      aria-orientation="vertical"
+      className="min-h-0 flex-1 overflow-y-auto px-1 py-2"
+    >
       {railGroups.map((group) => (
         <div key={group.label} className="mt-3 first:mt-0">
           <div className="grid grid-cols-2 gap-0.5 md:grid-cols-1">
@@ -2899,7 +2912,7 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
     >
       {Icon ? (
         <Icon
-          className={`icon-md shrink-0 ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'}`}
+          className={`icon-sm shrink-0 ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'}`}
         />
       ) : null}
       <span className="min-w-0 truncate">{tab.label}</span>

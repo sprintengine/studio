@@ -77,7 +77,6 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './agentComposer/AgentComposer'
-import SpawnPicker from './agentComposer/SpawnPicker'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 // Always-on observer of background automation run events (raises run
@@ -144,7 +143,6 @@ import {
   type WorkspaceNavigationHistory,
 } from '../../utils/workspaceNavigationHistory'
 import {
-  buildConversationProviderRows,
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   resolveDefaultConversationOption,
@@ -1136,17 +1134,6 @@ export default function WorkspaceManager() {
     [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
   )
   const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
-  // The spawn picker's Conversation rail entry lists PROVIDERS, one row each
-  // (MC-2122); the model stays switchable in the chat composer until the first
-  // message, so a row only needs the pair it opens on.
-  const conversationSpawnRows = useMemo(
-    () =>
-      conversationSpawnEnabled
-        ? buildConversationProviderRows(conversationSpawnOptions, rememberedConversationModel)
-        : [],
-    [conversationSpawnEnabled, conversationSpawnOptions, rememberedConversationModel],
-  )
-
   // Create a fresh single-agent "solo chat" workspace. `folderPath === undefined`
   // inherits the active workspace's folder (the plain New chat default); an
   // explicit value (sidebar) targets that folder. `seedAgent` opens a specific
@@ -1404,11 +1391,12 @@ export default function WorkspaceManager() {
     specialistModelDefaults,
   ])
 
-  // "New chat" entry point: create a fresh workspace that opens empty so the
-  // WorkspaceLauncher chooser shows (the user picks an agent / specialist / Sprint
-  // Engine there). `folderPath === undefined` inherits the active workspace's
-  // folder, matching the plain New chat default. No agent is seeded.
-  const createLauncherChat = useCallback((folderPath?: string | null) => {
+  // "New chat" entry point: create a fresh workspace that opens empty, so
+  // WorkspaceLayout's empty-workspace rule opens the New chat launch surface in
+  // the tab its agent will run in. `folderPath === undefined` inherits the
+  // active workspace's folder, matching the plain New chat default. No agent is
+  // seeded.
+  const createNewChatWorkspace = useCallback((folderPath?: string | null) => {
     const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
     addWorkspace(EMPTY_CHAT_TEMPLATE, {
       name: pickNewChatName(targetFolderPath),
@@ -1515,12 +1503,6 @@ export default function WorkspaceManager() {
       }),
     [closeGlobalSurface, openFuturePlanWorkspace, openNewWorkspacePanelWithMode],
   )
-
-  // The empty-workspace launcher's Sprint Engine path: the same dialog, with
-  // nothing chosen yet.
-  const openSprintEngineSetup = useCallback(() => {
-    openNewSprintDialog()
-  }, [openNewSprintDialog])
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
@@ -3306,9 +3288,6 @@ export default function WorkspaceManager() {
     }
   }
 
-  // The empty-workspace launcher's agent row renders the shared spawn picker
-  // anchored to the row. It spawns into the launcher's own (active) workspace —
-  // a single `here` destination, no new-chat toggle.
   // ── The tab strip's "+" (MC-2147) ──────────────────────────────────────────
   // Opens the tab the agent will run in. Standard workspaces only: a sprint
   // staffs its own agents, and a hand-spawned terminal in that strip would read
@@ -3346,21 +3325,6 @@ export default function WorkspaceManager() {
         }}
       />
     </React.Suspense>
-  )
-
-  // The empty-workspace launcher's "Specialist agent" row renders the shared
-  // AgentComposerPopover anchored to the row. It spawns into the launcher's own
-  // (active) workspace — a single `here` destination, no new-chat toggle.
-  const renderSpecialistPicker = (close: () => void) => (
-    <SpawnPicker
-      conversationRows={conversationSpawnAvailable ? conversationSpawnRows : []}
-      onSpawn={runComposerSpawn}
-      permissionPreset={agentSpawnPermissionPreset}
-      onChangePermissionPreset={setAgentSpawnPermissionPreset}
-      debugMode={agentSpawnDebugMode}
-      onChangeDebugMode={setAgentSpawnDebugMode}
-      onClose={close}
-    />
   )
 
   const startLogin = async () => {
@@ -3786,12 +3750,6 @@ export default function WorkspaceManager() {
                     <WorkspaceLayout
                       workspaceId={workspaceId}
                       onStartFuturePlan={openFuturePlanWorkspace}
-                      agentClis={agentCliCatalog}
-                      onSpawnAgent={addNewCliAgent}
-                      renderSpecialistPicker={renderSpecialistPicker}
-                      onStartSprintEngine={openSprintEngineSetup}
-                      onNewWorkspace={openNewWorkspacePanel}
-                      onCloseWorkspace={closeWorkspaceById}
                       // The "+" belongs to the layer the user is actually in:
                       // every spawn handler acts on the ACTIVE workspace, so
                       // offering it on a background layer would open a tab in a
@@ -3992,7 +3950,7 @@ export default function WorkspaceManager() {
           <CommandPalette
             onClose={() => setShowPalette(false)}
             onNewWorkspace={openNewWorkspacePanel}
-            onNewChat={() => createLauncherChat()}
+            onNewChat={() => createNewChatWorkspace()}
             onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
             onSpawnSpecialist={handleSelectSpecialist}
             workspaceWindowId={workspaceWindowId}

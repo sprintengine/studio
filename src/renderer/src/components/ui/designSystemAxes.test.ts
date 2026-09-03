@@ -181,7 +181,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // tier it was already sitting on. What remains on this axis is in-flow depth
   // inside a pane, not overlay layering.
   z: {
-    'components/workspace': 7,
+    'components/workspace': 6,
     'components/panels': 10,
     'components/ui': 1,
     'components/memory': 1,
@@ -196,7 +196,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // above: the deleted composer popover spelled its own icon boxes, and
   // `SpawnPicker` takes the ramp classes the picker surface already uses.
   icon: {
-    'components/workspace': 32,
+    'components/workspace': 30,
     'components/panels': 24,
     'components/ui': 16,
     'components/backlog': 3,

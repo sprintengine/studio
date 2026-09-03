@@ -38,7 +38,7 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
+import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
 import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -46,10 +46,8 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
-import WorkspaceLauncher from './WorkspaceLauncher'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
-import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
@@ -60,16 +58,6 @@ import AgentPanel from '../panels/AgentPanel'
 interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
-  // Empty-workspace launcher inputs: the CLI quick-launch grid and the two
-  // secondary launch paths (specialist picker, Sprint Engine setup).
-  agentClis?: AgentCliCatalogOption[]
-  onSpawnAgent?: (cli: AgentCli) => void
-  // Renders the shared spawn picker (SpawnPicker) as Popover content,
-  // anchored to the launcher's row; `close` dismisses the popover after a pick.
-  renderSpecialistPicker?: (close: () => void) => React.ReactNode
-  onStartSprintEngine?: () => void
-  onNewWorkspace?: () => void
-  onCloseWorkspace?: (workspaceId: string) => void
   // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
   // the launch surface until something spawns. Absent → no plus, which is how a
   // Sprint Engine workspace stays free of a hand-spawn affordance its run would
@@ -288,7 +276,7 @@ function renderTerminalRecencyIndicator(
   )
 }
 
-function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAgent, renderSpecialistPicker, onStartSprintEngine, onNewWorkspace, onCloseWorkspace, onNewAgentTab, renderNewAgentPanel }: Props) {
+function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
@@ -1422,6 +1410,29 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
 
   const isEmpty = countOpenTabs(modelRef.current) === 0
 
+  // An empty workspace lands on the New chat surface, not on a launcher page of
+  // its own (2026-09-03). The tab the "+" opens IS that surface — same composer,
+  // same prompt box, same permission and connector controls — so a workspace
+  // with nothing in it opens one instead of standing in front of a second,
+  // older chooser that offered a subset of the same choices. That is also what
+  // makes a spawn from here work at all: every spawn path bails without a
+  // tabset, and an empty FlexLayout model often has none, so the tab both shows
+  // the surface and creates the tabset its terminal will dock into.
+  //
+  // The floor, not a one-shot: close the last tab and another opens, because a
+  // workspace with no tabs has nothing to show and no way to start. The handler
+  // is absent on background layers and outside standard workspaces, so neither
+  // gets a tab it never asked for.
+  const openNewAgentTabRef = useRef(onNewAgentTab)
+  openNewAgentTabRef.current = onNewAgentTab
+  // The handler's identity changes every render, so the effect watches whether
+  // there is one rather than which one, and calls through the ref.
+  const canOpenNewAgentTab = Boolean(onNewAgentTab)
+  useEffect(() => {
+    if (!isEmpty || !canOpenNewAgentTab) return
+    openNewAgentTabRef.current?.()
+  }, [isEmpty, canOpenNewAgentTab])
+
   // A workspace whose mode has no registered type: the owning module is not
   // installed (fresh machine, uninstalled, or a marketplace module pending
   // install). An explicit, labeled state with an install path — never a grid
@@ -1458,16 +1469,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           updateLayout(workspaceId, model.toJson())
         }}
       />
-      {isEmpty ? (
-        <WorkspaceLauncher
-          agentClis={agentClis ?? []}
-          onSpawnAgent={onSpawnAgent ?? (() => {})}
-          renderSpecialistPicker={renderSpecialistPicker}
-          onStartSprintEngine={onStartSprintEngine ?? (() => {})}
-          onNewWorkspace={onNewWorkspace}
-          onClose={onCloseWorkspace ? () => onCloseWorkspace(workspaceId) : undefined}
-        />
-      ) : null}
       {tabMenu ? (
         <ContextMenu
           x={tabMenu.x}
