@@ -908,6 +908,9 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   setupNotes?: string
   skill?: string
   icon?: string
+  // Membership of the Ticket trackers surface, declared in the catalogue so
+  // adding a fifth tracker is a data edit rather than a renderer change.
+  ticketTracker?: boolean
 }
 
 export type McpCatalogResult =

@@ -10,6 +10,7 @@ import type {
 import { Field, GhostButton, InlineNotice, Input, OutlineButton, PrimaryButton, SegmentedControl, Select, StatusDot } from '../ui'
 import type { SelectItem } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
+import { TicketTrackerSection } from './TicketTrackerSection'
 import { TrackerWriteBackSettings } from './TrackerWriteBackSettings'
 import {
   activeAuthModeSpec,
@@ -233,11 +234,20 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
 
   return (
     <div role="tabpanel" id="settings-panel-trackers" aria-labelledby="settings-tab-trackers" className="space-y-6">
+      {/* Two halves, and the copy says which is which. Above: the tracker's MCP,
+          which an agent uses during a run. Below: an API credential Multicode
+          itself uses with no agent running — browsing issues, and posting run
+          lifecycle comments after the agent has exited. Complements, not
+          alternatives; conflating them is the mistake this layout prevents. */}
+      <TicketTrackerSection workspaceRoot={workspaceRoot} />
+
       <section className="space-y-3">
-        <SettingsSectionTitle count={connections?.length}>Connections</SettingsSectionTitle>
+        <SettingsSectionTitle count={connections?.length}>For Multicode</SettingsSectionTitle>
         <p className="max-w-[68ch] text-body leading-5 text-[color:var(--text-muted)]">
-          A connection is a provider, a server address, and a credential — hold as many as you need, including
-          self-hosted servers. Credentials are stored encrypted on this machine and never written to workspace files.
+          A connection lets Multicode itself reach your tracker with no agent running — to browse issues, start a
+          sprint from one, and post run updates back. It is a provider, a server address, and a credential; hold as
+          many as you need, including self-hosted servers. Credentials are stored encrypted on this machine and
+          never written to workspace files.
         </p>
 
         {listError ? (
