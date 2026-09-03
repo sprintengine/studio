@@ -505,22 +505,32 @@ export function WorkspaceRowMeta({
           ) : null}
         </span>
       ) : null}
+      {/* Truncation order under squeeze (acceptance): the BRANCH is the one
+          flexible segment, so it gives way first; the machine name yields only
+          past its own cap, and the title on line 1 never does. The labels are
+          the visible text — no aria-label on generic spans (ignored there);
+          the one pictorial part, the provenance glyph pair, is the img. */}
       {fleetMachines.length > 0 ? (
-        <span className="flex min-w-0 shrink items-center gap-1" aria-label={`Remote: ${fleetMachines.join(', ')}`}>
+        <span
+          role="img"
+          aria-label={`Remote: ${fleetMachines.join(', ')}`}
+          className="flex max-w-[45%] shrink-0 items-center gap-1"
+        >
           <RemoteMachineGlyph className="icon-xs shrink-0" />
           <TruncatedText as="span" text={fleetMachines.join(', ')} className="min-w-0" />
         </span>
       ) : null}
       {branch ? (
-        <span className="flex min-w-0 shrink items-center gap-1 font-mono text-micro" aria-label={`Branch ${branch}`}>
+        <span className="flex min-w-0 shrink items-center gap-1 font-mono text-micro">
           <GitBranchGlyph className="icon-xs shrink-0" />
           <TruncatedText as="span" text={branch} className="min-w-0" />
         </span>
       ) : null}
       {hasDiff ? (
-        <span className="ml-auto shrink-0 pl-2 font-mono text-micro tabular-nums" aria-label={`${additions} added, ${deletions} removed`}>
+        <span className="ml-auto shrink-0 pl-2 font-mono text-micro tabular-nums">
           <span className="text-[color:var(--tone-good)]">+{additions}</span>
           <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
+          <span className="sr-only">{`${additions} added, ${deletions} removed`}</span>
         </span>
       ) : idleText ? (
         <span className="ml-auto shrink-0 pl-2 tabular-nums">{idleText}</span>

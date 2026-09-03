@@ -59,14 +59,19 @@ run('remote provenance shows the machine; a local row shows no mark at all', () 
   assert.doesNotMatch(local, /Remote:/, 'local is the unmarked default (epic decision 7)')
 })
 
-run('branch is mono and named; the diff stat holds the trailing edge in tone ink', () => {
+run('branch is mono; the diff stat holds the trailing edge in tone ink, spoken in words', () => {
   const markup = meta({ branch: 'feat/relay-snapshots', additions: 86, deletions: 12 })
-  assert.match(markup, /aria-label="Branch feat\/relay-snapshots"/)
+  assert.match(markup, /feat\/relay-snapshots/)
   assert.match(markup, /font-mono/, 'branch reads in the mono voice')
-  assert.match(markup, /aria-label="86 added, 12 removed"/)
+  // No aria-label on generic spans (ignored there): the numbers read
+  // visually, and the words ride along for AT in an sr-only span.
+  assert.match(markup, /86 added, 12 removed/)
   assert.match(markup, /--tone-good/, 'additions in the good tone')
   assert.match(markup, /--tone-error/, 'deletions in the danger tone')
   assert.match(markup, /ml-auto/, 'the stat is pushed to the trailing edge')
+  // Truncation order: the branch is the flexible segment (min-w-0 shrink);
+  // the provenance span is capped, not flexible.
+  assert.match(markup, /min-w-0 shrink items-center gap-1 font-mono/)
 })
 
 run('with a clean tree the trailing edge falls back to idle recency', () => {
