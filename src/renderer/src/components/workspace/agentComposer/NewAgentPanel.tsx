@@ -42,6 +42,8 @@ import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from './agentSpawnShared'
+import { ProjectSourceMenu } from './ProjectSourceMenu'
+import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import { ConnectorPickerPopover } from './ConnectorPickerPopover'
 import {
   launchCommandLineKey,
@@ -943,6 +945,13 @@ function ProjectScopePicker({
   onSelect: (path: string) => void
   onBrowse?: () => void
 }) {
+  // Where an imported repository lands: beside the current project, else
+  // beside the first offered one — the same smart-parent idea the workspace
+  // hub uses, without asking a question this small surface has no room for.
+  const defaultParent = resolveDefaultParentPath({
+    folderPath: selectedPath,
+    recentFolders: options.map((option) => option.path),
+  })
   const [open, setOpen] = React.useState(false)
   return (
     <Popover
@@ -965,32 +974,18 @@ function ProjectScopePicker({
         </button>
       )}
     >
-      <div className={`w-[264px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Projects">
-        {options.map((option) => (
-          <MenuRow
-            key={option.path}
-            selected={option.path === selectedPath}
-            label={option.label}
-            onClick={() => {
-              onSelect(option.path)
-              setOpen(false)
-            }}
-          />
-        ))}
-        {onBrowse ? (
-          <>
-            <div className={MENU_DIVIDER_CLASS} role="separator" />
-            <MenuRow
-              selected={false}
-              label="Browse…"
-              onClick={() => {
-                onBrowse()
-                setOpen(false)
-              }}
-            />
-          </>
-        ) : null}
-      </div>
+      {/* Search + sources (remote-sessions-ux / project-selector-sources):
+          the selector filters the projects, browses the disk, and steps in
+          place into the shipped MC-2207 Git import — one surface, no second
+          dialog stacked on the first. */}
+      <ProjectSourceMenu
+        options={options}
+        selectedPath={selectedPath}
+        defaultParent={defaultParent}
+        onSelect={(path) => onSelect(path)}
+        onBrowse={onBrowse}
+        onClose={() => setOpen(false)}
+      />
     </Popover>
   )
 }

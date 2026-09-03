@@ -59,6 +59,41 @@ export function WorkspaceTypeIcon({
   return <Icon className={className} />
 }
 
+// A git branch, for the sidebar row's meta line (remote-sessions-ux /
+// two-line-session-rows). 16-grid: it renders at glyph scale inside a row.
+// Mirrored framework-neutral as design-system/glyphs/git-branch.svg.
+export function GitBranchGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <circle cx="4.5" cy="4" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4.5" cy="12" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="11.5" cy="5.5" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M4.5 5.7v4.6M11.5 7.2c0 2.4-3.2 2.3-7 2.9"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+// The stacked-server mark — the epic's ONE machine-provenance glyph
+// (remote-sessions-ux decision 7): it marks anything that lives on another
+// machine, wherever it appears (session rows, pickers, the Remote popover).
+// Local is the unmarked default. 16-grid; mirrored framework-neutral as
+// design-system/glyphs/remote-machine.svg.
+export function RemoteMachineGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor" />
+      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor" />
+    </svg>
+  )
+}
+
 // The folder glyph a sidebar folder header wears when its project has no logo
 // of its own. Drawn on the 16px grid, unlike the 24px workspace-type glyphs
 // above it, because the header slot is where it renders.

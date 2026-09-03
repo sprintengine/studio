@@ -177,7 +177,7 @@
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
-  --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -218,7 +218,7 @@
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
-  --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -7371,7 +7371,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h3>Other tokens</h3>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. In dark mode the value leads with an inset top highlight — the lit edge — because a black drop shadow over a scrimmed near-black ground separates nothing; light mode needs no such line. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-raised</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a filled control: a 1px lit top edge over a shallow drop. Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface. <strong>Do not:</strong> Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-edge</code><code class="catalog-token-value">inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a bordered neutral control: the quieter half-step below control-raised. Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above. <strong>Do not:</strong> Filled controls — those take shadow.control-raised, which is a full step brighter.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-pressed</code><code class="catalog-token-value">inset 0 1px 2px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The pressed state of any elevated control: the bevel inverts and the drop is gone. Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it. <strong>Do not:</strong> A resting state, and never on a control that carries no resting elevation.</p></div></div>
@@ -7412,10 +7412,22 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none">
   <path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>close</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="4.5" cy="4" r="1.7" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="11.5" cy="5.5" r="1.7" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M4.5 5.7v4.6M11.5 7.2c0 2.4-3.2 2.3-7 2.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>git-branch</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <path d="M4 3.5 L16 13.5 L16 28.5 L4 28.5 Z" fill="currentColor"/>
   <path d="M28 3.5 L16 13.5 L16 28.5 L28 28.5 Z" fill="currentColor" fill-opacity="0.72"/>
 </svg><figcaption>multicode-mark</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor"/>
+  <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor"/>
+</svg><figcaption>remote-machine</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11 11" fill="none">
   <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/>
   <path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -15555,6 +15567,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-modal-scrim</code> | yes — <code>overlay.scrim</code> at <code>z.modal</code>, centring the shell; a pointer-down on it closes | | Shell | <code>.ds-modal</code> | yes — <code>role=&quot;dialog&quot;</code>, <code>aria-modal=&quot;true&quot;</code>, <code>aria-labelledby</code> the title, <code>tabindex=&quot;-1&quot;</code> | | Header | <code>.ds-modal-header</code> | yes — title <code>.ds-modal-title</code>, optional subtitle <code>.ds-modal-subtitle</code>, optional close button | | Body | <code>.ds-modal-body</code> | no — a confirm with a self-explaining title needs none | | Footer | <code>.ds-modal-footer</code> | yes — the actions, right-aligned, built from <code>ds-button</code> |</p>
 <p><strong>Header, content, actions — separated by space.</strong> No rule under the title and none above the buttons: the shell already draws its own edge, and it scrolls as one piece (<code>max-height</code> on the shell, not on the body), so neither rule would even be a scroll affordance. A divided dialog is on the reject-on-sight list.</p>
 <p>The shell sits on <code>bg.surface</code> — not <code>bg.surface-raised</code> — because the scrim and <code>shadow.modal</code> already do the separating; a tone step on top would be a third signal for the same fact.</p>
+<p>That ruling holds only if <code>shadow.modal</code> actually separates in both modes, and in dark it did not: a black drop shadow over a scrimmed near-black ground draws nothing, and the <code>border.subtle</code> hairline is 6% white — so a dark-mode shell read as painted on the scrim rather than above it (remote-sessions-ux, 2026-09-03). The fix lives in the TOKEN, not on any surface: <code>shadow.modal</code>'s dark value now leads with an inset top highlight — the lit edge, the same trick <code>shadow.control-raised</code> already encodes — so every consumer separates again and the two-signal reasoning above stays true. No shell may compensate locally with a raised ground or a stronger border; that would be the third signal this section rules out.</p>
 <h4>Geometry</h4>
 <p>Every floating surface in the product draws from one scale. Shape and elevation are tokens; width is a content measure, and therefore a <strong>named scale</strong> rather than a token — a width is chosen for the content it holds, not composed against by other surfaces.</p>
 <p>| Axis | Value | |---|---| | Radius | <code>radius.shell</code> (9px) for a dialog-scale shell; <code>radius.overlay</code> (7px) for the popover family — anchored menus, flyouts, floating cards. Nothing between the two steps. | | Border | <code>color.border.subtle</code>, 1px | | Elevation | <code>shadow.modal</code> for a shell, <code>shadow.popover</code> for the popover family, <code>shadow.drawer</code> for an edge-docked drawer. Every one of them per-theme; a shell is never shadowless. | | Inset | <code>space.3xl</code> (24px), the step the token's own metadata names as the modal inset |</p>

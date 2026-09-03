@@ -22,7 +22,7 @@ import {
 import { getGitStatus } from './git-status'
 
 export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list'
-export { getGitOperationInProgress, getGitStatus } from './git-status'
+export { getGitOperationInProgress, getGitRowSummary, getGitStatus, type GitRowSummary } from './git-status'
 export { getGitBranches, getGitHistory, getGitCommitGraph } from './git-read-models'
 export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash'
 export {

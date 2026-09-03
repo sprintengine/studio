@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, SprintEngineMarkIcon } from '../AppIcons'
+import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
+import CliIcon from '../CliIcon'
+import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { buildModeModels } from './newWorkspace/modeModels'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -418,6 +421,114 @@ function ShowOlderRow({
   )
 }
 
+/**
+ * Machines this workspace's layout mounts panes FROM: the unique machine names
+ * of its fleet-terminal tabs. The layout JSON is the one durable record of a
+ * remote attachment, so a walk of it — not a live socket — is what says a
+ * workspace is remote-flavoured even while the peer sleeps.
+ */
+export function fleetMachineNamesOf(workspace: Workspace): string[] {
+  const names = new Set<string>()
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return
+    const record = node as { type?: unknown; component?: unknown; config?: unknown; children?: unknown }
+    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+      const machine = (record.config as { machineName?: unknown } | undefined)?.machineName
+      if (typeof machine === 'string' && machine) names.add(machine)
+    }
+    if (Array.isArray(record.children)) for (const child of record.children) walk(child)
+  }
+  const model = workspace.layoutModel as { layout?: unknown; borders?: unknown } | undefined
+  walk(model?.layout)
+  if (Array.isArray(model?.borders)) for (const border of model.borders) walk(border)
+  return [...names]
+}
+
+/**
+ * The row's second line (remote-sessions-ux / two-line-session-rows): agent
+ * heads · provenance · branch, with the diff stat (or, failing that, the idle
+ * recency) holding the trailing edge. Line 1 keeps the title and the status
+ * cluster; this line answers who is working here, where, and on what.
+ */
+export function WorkspaceRowMeta({
+  sessions,
+  fleetMachines,
+  branch,
+  additions,
+  deletions,
+  idleText,
+}: {
+  sessions: ReadonlyArray<{ sessionId: string; cli?: string }>
+  fleetMachines: string[]
+  branch: string | null
+  additions: number
+  deletions: number
+  idleText: string
+}) {
+  const shown = sessions.slice(0, 3)
+  const overflow = sessions.length - shown.length
+  const hasDiff = additions > 0 || deletions > 0
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-meta text-[color:var(--text-subtle)]">
+      {sessions.length > 0 ? (
+        <span
+          className="flex shrink-0 items-center"
+          role="img"
+          aria-label={`${sessions.length} open terminal${sessions.length === 1 ? '' : 's'}`}
+        >
+          {shown.map((session, index) => (
+            <span
+              key={session.sessionId}
+              // One chip per open terminal, overlapped like a face pile. The
+              // ring is the row's own ground so the overlap reads as depth on
+              // any row state; provider mark from the tab strip's vocabulary.
+              className={`flex size-icon-sm items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] ${
+                index > 0 ? '-ml-1.5' : ''
+              }`}
+            >
+              {session.cli ? (
+                <CliIcon cli={session.cli} className="icon-xs" />
+              ) : (
+                // A plain shell wears the prompt mark; drawn, not typed, so the
+                // chip never needs type below the 11px floor.
+                <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
+                  <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              )}
+            </span>
+          ))}
+          {overflow > 0 ? (
+            <span className="-ml-1.5 flex h-icon-sm min-w-icon-sm items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-0.5 text-micro font-medium tabular-nums text-[color:var(--text-muted)]">
+              +{overflow}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      {fleetMachines.length > 0 ? (
+        <span className="flex min-w-0 shrink items-center gap-1" aria-label={`Remote: ${fleetMachines.join(', ')}`}>
+          <RemoteMachineGlyph className="icon-xs shrink-0" />
+          <TruncatedText as="span" text={fleetMachines.join(', ')} className="min-w-0" />
+        </span>
+      ) : null}
+      {branch ? (
+        <span className="flex min-w-0 shrink items-center gap-1 font-mono text-micro" aria-label={`Branch ${branch}`}>
+          <GitBranchGlyph className="icon-xs shrink-0" />
+          <TruncatedText as="span" text={branch} className="min-w-0" />
+        </span>
+      ) : null}
+      {hasDiff ? (
+        <span className="ml-auto shrink-0 pl-2 font-mono text-micro tabular-nums" aria-label={`${additions} added, ${deletions} removed`}>
+          <span className="text-[color:var(--tone-good)]">+{additions}</span>
+          <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
+        </span>
+      ) : idleText ? (
+        <span className="ml-auto shrink-0 pl-2 tabular-nums">{idleText}</span>
+      ) : null}
+    </div>
+  )
+}
+
 export default function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
@@ -467,6 +578,21 @@ export default function WorkspaceSidebar({
   // Passed to WorkspaceTypeIcon so a disabled-module workspace row degrades to
   // the generic glyph (AC4) instead of its tool icon.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // The two-line row's second line (remote-sessions-ux / two-line-session-rows):
+  // live terminals grouped per workspace for the agent-head stack, and the slow
+  // per-workspace git poll for branch + ±lines.
+  const terminalSessions = useTerminalSessions()
+  const sessionsByWorkspaceId = useMemo(() => {
+    const map = new Map<string, typeof terminalSessions>()
+    for (const session of terminalSessions) {
+      if (!session.workspaceId || !isLiveTerminal(session)) continue
+      const list = map.get(session.workspaceId)
+      if (list) list.push(session)
+      else map.set(session.workspaceId, [session])
+    }
+    return map
+  }, [terminalSessions])
+  const gitSummaries = useSidebarGitSummaries(workspaces)
   // Rows for the "+" create menu, matching the creation hub rail's list/order.
   const createMenuModels = useMemo(() => buildModeModels(moduleOverrides), [moduleOverrides])
   // A door-routed full-page surface owns the card region (global-surfaces epic
@@ -1172,6 +1298,17 @@ export default function WorkspaceSidebar({
     const isTabDropTarget =
       tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
+    // Line 2's facts (remote-sessions-ux): open terminals, remote provenance,
+    // branch, ±lines. A row with none of them stays the one-liner it was —
+    // idle recency then keeps its old seat in the line-1 status cluster.
+    const rowSessions = sessionsByWorkspaceId.get(workspace.id) ?? []
+    const fleetMachines = fleetMachineNamesOf(workspace)
+    const gitSummary = gitSummaries[workspace.id]
+    const rowBranch = gitSummary?.branch ?? null
+    const rowAdditions = gitSummary?.additions ?? 0
+    const rowDeletions = gitSummary?.deletions ?? 0
+    const metaHasSubstance =
+      rowSessions.length > 0 || fleetMachines.length > 0 || rowBranch !== null || rowAdditions > 0 || rowDeletions > 0
 
     return (
       <div
@@ -1219,7 +1356,10 @@ export default function WorkspaceSidebar({
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
         // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below)
-        className={`interactive group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
+        // Two-line row (remote-sessions-ux): a column now — line 1 is the title
+        // + status cluster, line 2 the meta (heads · provenance · branch ·
+        // diff). min-h keeps a metaless row exactly the height it always was.
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
           active
             ? activeRowClass(workspace)
             : highlighted
@@ -1242,6 +1382,7 @@ export default function WorkspaceSidebar({
           />
         ) : null}
 
+        <div className="flex min-w-0 items-center gap-2">
         {/* No identity slot on the row. Owner, 2026-09-02: the project's
             discovered logo belongs to the FOLDER header that names the project,
             not repeated once per chat beneath it, and the terminal glyph the
@@ -1315,7 +1456,7 @@ export default function WorkspaceSidebar({
                 <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
               )
             ) : null}
-            {showRecencyText ? (
+            {showRecencyText && !metaHasSubstance ? (
               <span
                 className="text-meta tabular-nums text-[color:var(--text-subtle)]"
                 title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
@@ -1367,6 +1508,17 @@ export default function WorkspaceSidebar({
             </Tooltip>
           </span>
         </span>
+        </div>
+        {metaHasSubstance ? (
+          <WorkspaceRowMeta
+            sessions={rowSessions}
+            fleetMachines={fleetMachines}
+            branch={rowBranch}
+            additions={rowAdditions}
+            deletions={rowDeletions}
+            idleText={showRecencyText ? idleRecencyText : ''}
+          />
+        ) : null}
       </div>
     )
   }

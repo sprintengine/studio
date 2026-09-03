@@ -127,10 +127,15 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
 
   const connect = () => {
     if (unsubscribeIpc) return
+    // A host without the terminal bridge (a partial test harness, an aux
+    // window with a narrower preload) gets an empty, quiet store rather than
+    // a subscriber-time throw inside React's commit.
+    const api = apiProvider() as Partial<TerminalSessionsApi> | undefined
+    if (typeof api?.onTerminalSessionsChanged !== 'function' || typeof api.terminalList !== 'function') return
     connectionVersion += 1
     const version = connectionVersion
-    unsubscribeIpc = apiProvider().onTerminalSessionsChanged(apply)
-    void apiProvider().terminalList().then((sessions) => {
+    unsubscribeIpc = api.onTerminalSessionsChanged(apply)
+    void api.terminalList().then((sessions) => {
       if (subscriberCount === 0 || !unsubscribeIpc || version !== connectionVersion) return
       apply(sessions)
     }).catch(() => {})

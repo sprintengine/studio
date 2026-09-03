@@ -30,6 +30,7 @@ import {
   getGitFileBase,
   getGitHistory,
   getGitRepoRoot,
+  getGitRowSummary,
   getGitStatus,
   listGitWorktrees,
   mergeGitRef,
@@ -59,6 +60,12 @@ type IpcDiagnostics = {
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
+  })
+
+  ipcMain.handle('git:get-row-summary', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-row-summary', { repoRoot }, () =>
+      getGitRowSummary(repoRoot)
+    )
   })
 
   ipcMain.handle('git:get-status', async (_, repoRoot: string) => {

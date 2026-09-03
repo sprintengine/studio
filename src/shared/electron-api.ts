@@ -1522,6 +1522,17 @@ export type GitStatusSnapshot = {
   updatedAt: number
 }
 
+/**
+ * The sidebar row's one-line git story (remote-sessions-ux /
+ * two-line-session-rows): branch + working-tree ±lines against HEAD. Quiet on
+ * anything unreadable — a row simply shows no git facts.
+ */
+export type GitRowSummary = {
+  branch: string | null
+  additions: number
+  deletions: number
+}
+
 export type GitStashEntry = {
   /** Git's selector for the entry, e.g. `stash@{0}`. */
   ref: string
@@ -3237,6 +3248,7 @@ export type ElectronApi = {
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
+  getGitRowSummary: (repoRoot: string) => Promise<GitRowSummary>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>

@@ -18,6 +18,7 @@ import type {
   GitRepoOperation,
   GitResetMode,
   GitStashListSnapshot,
+  GitRowSummary,
   GitStatusSnapshot,
   GitWorktreeCopyIncludedInput,
   GitWorktreeCopyIncludedResult,
@@ -34,6 +35,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-repo-root', folderPath),
   getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> =>
     ipcRenderer.invoke('git:get-status', repoRoot),
+  getGitRowSummary: (repoRoot: string): Promise<GitRowSummary> =>
+    ipcRenderer.invoke('git:get-row-summary', repoRoot),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage): Promise<GitFileStageResult> =>
@@ -130,6 +133,7 @@ export const gitApi = {
   ElectronApi,
   | 'getGitRepoRoot'
   | 'getGitStatus'
+  | 'getGitRowSummary'
   | 'getGitFileBase'
   | 'getGitFileAtStage'
   | 'getGitBranches'

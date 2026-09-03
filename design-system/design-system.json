@@ -65,7 +65,9 @@
     ],
     "glyphs": [
       "glyphs/close.svg",
+      "glyphs/git-branch.svg",
       "glyphs/multicode-mark.svg",
+      "glyphs/remote-machine.svg",
       "glyphs/search.svg",
       "glyphs/spinner.svg"
     ],

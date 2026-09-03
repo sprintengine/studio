@@ -93,6 +93,52 @@ export async function getGitOperationInProgress(repoRoot: string): Promise<GitRe
   return null
 }
 
+/**
+ * The sidebar row's one-line git story (remote-sessions-ux /
+ * two-line-session-rows): branch plus working-tree ±lines against HEAD.
+ *
+ * Deliberately tiny — two git subprocesses, no file list — because the
+ * sidebar polls it once per visible workspace on a slow cadence, where the
+ * full porcelain status would be waste. Anything unreadable (not a repo, no
+ * HEAD yet, git missing) reports the quiet shape rather than throwing: a row
+ * simply shows no git facts.
+ */
+export type GitRowSummary = {
+  branch: string | null
+  additions: number
+  deletions: number
+}
+
+export async function getGitRowSummary(repoRoot: string): Promise<GitRowSummary> {
+  let branch: string | null = null
+  let isRepo = true
+  try {
+    // symbolic-ref, not rev-parse: it names the branch even on an unborn HEAD
+    // (fresh init, nothing committed) and fails on a detached checkout — both
+    // exactly what the row wants shown.
+    branch = (await runGit(repoRoot, ['symbolic-ref', '--short', 'HEAD'])).trim() || null
+  } catch {
+    branch = null
+    try {
+      await runGit(repoRoot, ['rev-parse', '--git-dir'])
+    } catch {
+      isRepo = false
+    }
+  }
+  if (!isRepo) return { branch: null, additions: 0, deletions: 0 }
+  try {
+    // Staged + unstaged against HEAD in one number pair. Untracked files are
+    // invisible to `diff` — accepted: the row summarises edits, not inventory.
+    const stat = await runGit(repoRoot, ['diff', '--shortstat', 'HEAD'])
+    const additions = Number(/([0-9]+) insertion/.exec(stat)?.[1] ?? 0)
+    const deletions = Number(/([0-9]+) deletion/.exec(stat)?.[1] ?? 0)
+    return { branch, additions, deletions }
+  } catch {
+    // An unborn HEAD (fresh init) has nothing to diff against.
+    return { branch, additions: 0, deletions: 0 }
+  }
+}
+
 export async function getGitStatus(repoRoot: string): Promise<GitStatusSnapshot> {
   const [stdout, operation] = await Promise.all([
     runGit(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
