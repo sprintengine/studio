@@ -6,9 +6,10 @@ import { FOCUS_RING_PEER_CLASS } from './tokens'
 // `<input type="checkbox">` independently — 3px and 3.5px boxes, one on the
 // browser's `accent-color`, one with a hand-rolled ring whose `ring-offset-color`
 // was pinned to `--bg-surface-raised` and therefore wrong on any other surface,
-// and one with no focus treatment at all. The most complete of them
-// (`settings/TrackerWriteBackSettings.tsx`, the styled-peer box that motivated
-// `FOCUS_RING_PEER_CLASS`) is what this promotes.
+// and one with no focus treatment at all. The most complete of them — the
+// styled-peer box in the tracker write-back settings, which is what motivated
+// `FOCUS_RING_PEER_CLASS` — is what this promotes. (That surface has since been
+// retired with the native tracker layer; the primitive it produced outlived it.)
 //
 // The native input stays: it carries the semantics, the keyboard path, the
 // indeterminate state and form participation. The visible box is decorative and

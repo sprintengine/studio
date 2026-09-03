@@ -67,8 +67,6 @@ import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSectio
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
 import { FilePreviewPane } from '../ui/FilePreviewPane'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
-import { BacklogTrackerPicker } from '../backlog/BacklogTrackerPicker'
-import { useBacklogTrackerSeeding } from '../backlog/useBacklogTrackerSeeding'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -1389,23 +1387,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [epicMeta, folderPath, runAction, runScan],
   )
 
-  // Tracker seeding (connections, the "Add from tracker" drawer, and the
-  // one-step materialize → start-sprint flow) lives in one cohesive hook so the
-  // tracker seam is not threaded through the panel body. See
-  // useBacklogTrackerSeeding for the composed pipeline.
-  const {
-    trackerConnections,
-    trackerPicker,
-    setTrackerPicker,
-    closeTrackerPicker,
-    issueLinkIndex,
-    startSprintFromTrackerIssue,
-  } = useBacklogTrackerSeeding({ items, folderPath })
 
-  // Refresh, then one "Add from <tracker>" entry per connected tracker (T7).
-  // Tracker labels stay plain-human ("Add from Jira · ACME"), never
-  // "materialize"/"provider".
-  //
   // Refresh sits in this menu rather than beside the plus: PanelHeader carries
   // ONE primary action, and stacking a second glyph in that slot is what gave
   // every panel a different action cluster (2112). Creating an item is the
@@ -1420,11 +1402,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           disabled: loading,
           icon: <RefreshIcon />,
         },
-        ...trackerConnections.map((connection) => ({
-          id: `add-from-tracker-${connection.id}`,
-          label: `Add from ${connection.label}`,
-          onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
-        })),
       ]
     : []
 
@@ -1894,16 +1871,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         />
       ) : null}
 
-      {folderPath && trackerPicker ? (
-        <BacklogTrackerPicker
-          open={trackerPicker.open}
-          onClose={closeTrackerPicker}
-          connections={trackerConnections}
-          initialConnectionId={trackerPicker.connectionId}
-          issueLinkIndex={issueLinkIndex}
-          onStartSprint={startSprintFromTrackerIssue}
-        />
-      ) : null}
     </section>
   )
 }

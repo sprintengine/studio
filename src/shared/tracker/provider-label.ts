@@ -1,10 +1,12 @@
-// Canonical human display labels for tracker providers. Node-free single source
-// consumed by the write-back settings copy, the "Started from" seed row, and the
-// automations repo-event detail — each previously carried its own duplicate
-// github/jira/linear → GitHub/Jira/Linear map. Provider-specific fallbacks (a
-// neutral word, or the automations "Any source" pseudo-provider) stay with their
-// caller; only the id→label table is shared.
-import type { TrackerProviderId } from './types'
+// What is left of the tracker layer (MC-2363): the id→label table, kept because
+// two unrelated surfaces still name a provider — the automations repo-event
+// detail and the run board's provenance line.
+//
+// Multicode no longer integrates with ticket trackers; agents do, through the
+// MCPs those companies ship. Everything else that lived here went with that
+// decision. This file is a naming table, not an integration.
+
+export type TrackerProviderId = 'github' | 'jira' | 'linear'
 
 export const TRACKER_PROVIDER_LABEL: Record<TrackerProviderId, string> = {
   github: 'GitHub',

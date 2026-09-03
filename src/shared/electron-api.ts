@@ -145,76 +145,11 @@ export type {
   UserRoleSaveResult,
 } from './sprintengine/role-manifest'
 import type { SprintEngineTokenUsageReport } from './sprintengine-token-usage'
-import type {
-  TrackerAddConnectionInput,
-  TrackerAddConnectionResult,
-  TrackerFetchIssueInput,
-  TrackerFetchIssueResult,
-  TrackerListConnectionsResult,
-  TrackerRemoveConnectionInput,
-  TrackerRemoveConnectionResult,
-  TrackerSearchInput,
-  TrackerSearchResult,
-  TrackerTestConnectionInput,
-  TrackerTestConnectionResult,
-} from './tracker/types'
 // Re-export the tracker seam contract so the preload bridge and renderer import
 // tracker types from the single electron-api surface (MC-1633).
-export type {
-  NormalizedIssue,
-  RedactedTrackerConnection,
-  TrackerAddConnectionInput,
-  TrackerAddConnectionResult,
-  TrackerAuthMode,
-  TrackerCapabilities,
-  TrackerConnection,
-  TrackerConnectionDraft,
-  TrackerConnectionProbe,
-  TrackerConnectionStatus,
-  TrackerError,
-  TrackerErrorKind,
-  TrackerFetchIssueInput,
-  TrackerFetchIssueResult,
-  TrackerListConnectionsResult,
-  TrackerProviderId,
-  TrackerRemoveConnectionInput,
-  TrackerRemoveConnectionResult,
-  TrackerSearchInput,
-  TrackerSearchResult,
-  TrackerTestConnectionInput,
-  TrackerTestConnectionResult,
-  TrackerTransition,
-} from './tracker/types'
 // Write-back config + IPC contracts (MC-1640): schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
-export type {
-  TrackerGetWriteBackConfigInput,
-  TrackerGetWriteBackConfigResult,
-  TrackerListTransitionsInput,
-  TrackerListTransitionsReason,
-  TrackerListTransitionsResult,
-  TrackerListWriteBackNoticesResult,
-  TrackerRetryWriteBackInput,
-  TrackerRetryWriteBackResult,
-  TrackerSetWriteBackConfigInput,
-  TrackerSetWriteBackConfigResult,
-  TrackerWriteBackCommentEvent,
-  TrackerWriteBackConfig,
-  TrackerWriteBackNotice,
-  TrackerWriteBackTransitionEvent,
-} from './tracker/writeback'
-import type {
-  TrackerGetWriteBackConfigInput,
-  TrackerGetWriteBackConfigResult,
-  TrackerListTransitionsInput,
-  TrackerListTransitionsResult,
-  TrackerListWriteBackNoticesResult,
-  TrackerRetryWriteBackInput,
-  TrackerRetryWriteBackResult,
-  TrackerSetWriteBackConfigInput,
-  TrackerSetWriteBackConfigResult,
-} from './tracker/writeback'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
@@ -3216,17 +3151,6 @@ export type ElectronApi = {
   credentialSecretStatus: (input: CredentialSecretStatusInput) => Promise<CredentialSecretStatusResult>
   credentialSecretSet: (input: CredentialSecretSetInput) => Promise<CredentialSecretSetResult>
   credentialSecretClear: (input: CredentialSecretClearInput) => Promise<CredentialSecretClearResult>
-  trackerListConnections: () => Promise<TrackerListConnectionsResult>
-  trackerAddConnection: (input: TrackerAddConnectionInput) => Promise<TrackerAddConnectionResult>
-  trackerRemoveConnection: (input: TrackerRemoveConnectionInput) => Promise<TrackerRemoveConnectionResult>
-  trackerTestConnection: (input: TrackerTestConnectionInput) => Promise<TrackerTestConnectionResult>
-  trackerSearch: (input: TrackerSearchInput) => Promise<TrackerSearchResult>
-  trackerFetchIssue: (input: TrackerFetchIssueInput) => Promise<TrackerFetchIssueResult>
-  trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput) => Promise<TrackerGetWriteBackConfigResult>
-  trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput) => Promise<TrackerSetWriteBackConfigResult>
-  trackerListTransitions: (input: TrackerListTransitionsInput) => Promise<TrackerListTransitionsResult>
-  trackerListWriteBackNotices: () => Promise<TrackerListWriteBackNoticesResult>
-  trackerRetryWriteBack: (input: TrackerRetryWriteBackInput) => Promise<TrackerRetryWriteBackResult>
   conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>

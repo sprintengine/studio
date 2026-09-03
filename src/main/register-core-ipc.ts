@@ -36,10 +36,6 @@ import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
-import { createTrackerWriteBackNoticeDeps, registerTrackerIpc } from './ipc/tracker-ipc'
-import { registerGitHubTrackerProvider } from './tracker/github/register'
-import { registerJiraTrackerProvider } from './tracker/jira/register'
-import { registerLinearTrackerProvider } from './tracker/linear/register'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
@@ -141,17 +137,6 @@ export function registerCoreIpc(
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
-  registerGitHubTrackerProvider()
-  registerJiraTrackerProvider()
-  registerLinearTrackerProvider()
-  // Bind the write-back notices surface to the live runtime so its "Retry now"
-  // genuinely re-runs reconcile (the default fallback can only re-read).
-  registerTrackerIpc(
-    ipcMain,
-    undefined,
-    undefined,
-    createTrackerWriteBackNoticeDeps(services.trackerWriteBack)
-  )
   registerSprintEngineRoleRegistryIpc(ipcMain)
   registerLayoutTemplateRegistryIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)

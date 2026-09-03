@@ -63,7 +63,6 @@ import { createBackgroundModeStore } from './background-mode-store'
 import type { BackgroundStatus } from '../shared/background-mode'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
-import { createTrackerWriteBackRuntime } from './tracker/writeback'
 import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
 import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
@@ -411,21 +410,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   // Tracker write-back (MC-1640): opt-in comments/transitions posted to the
   // linked issue as a run progresses. Default off per connection, so with no
-  // tracker connection this is inert (the engine early-outs before any scan). It
-  // has no run-event push channel, so it reconciles: the runtime op broadcast
-  // below wakes it, and it reads fresh run state and posts whatever is newly due.
-  const trackerWriteBack = createTrackerWriteBackRuntime({
-    readProjection: (input) => sprintEngineArtifacts.readProjection(input),
-    logDiagnostic: (event, payload) => {
-      void writeDiagnosticLog({
-        level: 'warning',
-        source: 'sprintengine',
-        title: 'Tracker write-back',
-        message: event,
-        details: JSON.stringify(payload),
-      })
-    },
-  })
   // Invalidate a run's cached summary and tell every open Sprints door to
   // refetch. Fired for every runtime op with a statePath, directly for state
   // writes that happen with no registered runtime (non-resident cancel), and —
@@ -517,8 +501,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         window.webContents.send(SPRINT_RUNTIME_OP_CHANNEL, op)
       }
       // Every runtime op means a run's state may have moved; wake write-back to
-      // reconcile it against the tracker (debounced, and inert when off).
-      if (op.statePath) trackerWriteBack.notifyRunActivity(op.statePath)
       // …and its cross-project run-index summary may be stale: drop the memo and
       // notify any open Sprints door so it refetches without polling (MC-1761).
       if (op.statePath) notifySprintRunsChanged(op.statePath)
@@ -995,7 +977,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintPowerManager,
     sprintPullRequestMergePoller,
     sprintRuntime,
-    trackerWriteBack,
     terminalRuntime,
     updateService,
     withIpcDiagnostics,

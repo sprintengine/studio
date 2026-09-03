@@ -23,7 +23,7 @@ import {
 } from '../../../../../shared/automations/contracts'
 import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummaryForReader } from '../../../../../shared/automations/cadence'
 import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
-import type { TrackerProviderId } from '../../../../../shared/tracker/types'
+import type { TrackerProviderId } from '../../../../../shared/tracker/provider-label'
 import { relativeFromNow } from '../../../utils/relativeTime'
 
 // Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps

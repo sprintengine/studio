@@ -9,7 +9,6 @@ import type {
 import {
   buildPlanSourcedSprintEngineWorkspaceContext,
   buildSprintEngineRoleRuntimes,
-  startTrackerIssueSprint,
 } from './sprintengineWorkspaceCreation'
 
 // Regression coverage for the Sprint Engine workspace-creation seam (MC-1712 /
@@ -140,81 +139,4 @@ test('the context trims the team name and root before deriving paths, and is det
   assert.equal(padded.teamName, 'Team Alpha')
   // Same logical inputs derive the same layout — no hidden state.
   assert.deepEqual(padded, clean)
-})
-
-// --- startTrackerIssueSprint (MC-2358) ---------------------------------------
-// The point of the change: a sprint started from a tracker issue must not write
-// anything into the repository. The issue markdown and the run's issue reference
-// both land in the run's own directory under `.multi-code/sprintengine/`, which
-// is gitignored, and the run is created in COPY mode so no agent is ever told to
-// edit a canonical file that does not exist.
-
-test('a tracker-issue sprint writes its source into the run directory, never backlog/', async () => {
-  const writes: Array<{ path: string; content: string }> = []
-  const ensured: string[] = []
-  let startupPrompt = ''
-
-  const result = await startTrackerIssueSprint({
-    rootPath: '/repo',
-    baseTeamName: 'eng-423',
-    goal: 'ENG-423 — Session token refresh races',
-    sourceContent: '# Session token refresh races\n\nbody\n',
-    issue: {
-      provider: 'linear',
-      connectionId: 'conn-1',
-      externalId: 'issue-uuid',
-      nativeKey: 'ENG-423',
-      url: 'https://linear.app/acme/issue/ENG-423',
-      capturedAt: '2026-09-03T00:00:00.000Z',
-    },
-    sourcePlanKind: 'unknown',
-    roleCounts: {},
-    roleCliDefaults: {},
-    roleModelOverrides: null,
-    initialSpawnRoles: null,
-    sprintEngineAutoState: {},
-    workspaceWindowId: null,
-    pathExists: () => false,
-    ensureDirectory: async (path: string) => {
-      ensured.push(path)
-    },
-    writeFile: async (path, content) => {
-      writes.push({ path, content })
-    },
-    initializeSprintEngineState: async () => ({ ok: true }) as never,
-    workspace: {
-      addWorkspace: () => 'ws-1' as never,
-      setStartupPrompt: ({ startupPrompt: prompt }: { startupPrompt: string }) => {
-        startupPrompt = prompt
-      },
-    } as never,
-  } as never)
-
-  assert.equal(result.ok, true)
-
-  // Both writes land inside the run's own gitignored directory. Nothing reaches
-  // the repository — this is the whole point of the change.
-  assert.equal(writes.length, 2)
-  for (const write of writes) {
-    assert.match(write.path, /\.multi-code\/sprintengine\/eng-423\//)
-    assert.doesNotMatch(write.path, /(^|\/)backlog\//)
-  }
-  assert.ok(writes.some((w) => w.path.endsWith('handover.md')))
-  // The run directory is created first — it does not exist until creation runs,
-  // so writing straight into it would fail with ENOENT.
-  assert.deepEqual(ensured, ['/repo/.multi-code/sprintengine/eng-423'])
-
-  // The run records which issue it came from, so write-back can resolve it with
-  // no proxy backlog item in existence.
-  const sidecar = writes.find((w) => w.path.endsWith('tracker-source.json'))
-  assert.ok(sidecar, 'the run records which issue it came from')
-  assert.equal(JSON.parse(sidecar.content).nativeKey, 'ENG-423')
-
-  // COPY mode, not reference: the architect must never be told to edit a
-  // canonical file in place, because for a tracker issue there is not one.
-  // Assert the prompt exists first — a doesNotMatch against '' passes vacuously.
-  assert.ok(startupPrompt.length > 0, 'the coordinator seat was handed a startup prompt')
-  assert.doesNotMatch(startupPrompt, /read and update (it|those files) in place/)
-  // And it does point at the run's own snapshot.
-  assert.match(startupPrompt, /handover\.md/)
 })

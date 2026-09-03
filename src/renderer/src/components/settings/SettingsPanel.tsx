@@ -90,7 +90,7 @@ import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitle
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
-import { TrackerConnectionsTab } from './TrackerConnectionsTab'
+import { TicketTrackersTab } from './TicketTrackersTab'
 import {
   authoringFieldErrors,
   authoringStatusReducer,
@@ -168,7 +168,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   // so the label is the subject rather than one of the two rows. The tab *id*
   // stays 'github' — it is a persisted deep-link target (menus, module routes).
   { id: 'github', label: 'Version control', icon: GithubSettingsIcon },
-  { id: 'trackers', label: 'Trackers', icon: TrackersSettingsIcon },
+  { id: 'trackers', label: 'Ticket trackers', icon: TrackersSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
@@ -2154,7 +2154,7 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'trackers' ? <TrackerConnectionsTab workspaceRoot={activeSprintEngineRoot} /> : null}
+      {activeSettingsTab === 'trackers' ? <TicketTrackersTab workspaceRoot={activeSprintEngineRoot} /> : null}
 
       {activeSettingsTab === 'agents' ? (
         <div

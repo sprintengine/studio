@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react'
 
 import { GhostButton, InlineNotice, OutlineButton, StatusDot } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
+import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useConnectorSources } from '../panels/ConnectorsPanel/useConnectorSources'
 import {
   partitionTicketTrackers,
@@ -48,6 +49,24 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
     [servers, toggleCatalogServer],
   )
 
+  // The two things a user wants next, routed through the host WorkspaceManager
+  // already registers for the Extensions door — the same seam, so a terminal
+  // started here is byte-identical to one started from Connectors. Both close
+  // Settings on their way, which is why they are fire-and-forget.
+  const startTerminal = useCallback(
+    (entry: TicketTrackerEntry) => {
+      getExtensionsSurfaceHost()?.onLaunchConnector({
+        id: entry.id,
+        name: entry.name,
+        ...(entry.icon ? { icon: entry.icon } : {}),
+      })
+    },
+    [],
+  )
+  const useInAutomation = useCallback((entry: TicketTrackerEntry) => {
+    getExtensionsSurfaceHost()?.onUseInAutomation(entry.id)
+  }, [])
+
   const total = bands.installed.length + bands.available.length
 
   return (
@@ -56,7 +75,6 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
       <p className="max-w-[68ch] text-body leading-5 text-[color:var(--text-muted)]">
         Install a tracker to give your agents its tools — reading a ticket, leaving a comment, moving a status,
         during a run. Each one signs you in the first time an agent uses it; Multicode never holds the credential.
-        An installed tracker becomes launchable in Connectors, where you can start a chat or an automation on it.
       </p>
 
       {catalogLoad.status === 'error' ? (
@@ -85,6 +103,8 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
             emptyHint="None yet — install one below and your agents can work its tickets."
             busyId={busyId}
             onToggle={toggle}
+            onStartTerminal={startTerminal}
+            onUseInAutomation={useInAutomation}
           />
           <Band label="Available" entries={bands.available} busyId={busyId} onToggle={toggle} />
         </div>
@@ -99,12 +119,16 @@ function Band({
   emptyHint,
   busyId,
   onToggle,
+  onStartTerminal,
+  onUseInAutomation,
 }: {
   label: string
   entries: readonly TicketTrackerEntry[]
   emptyHint?: string
   busyId: string | null
   onToggle: (id: string) => void
+  onStartTerminal?: (entry: TicketTrackerEntry) => void
+  onUseInAutomation?: (entry: TicketTrackerEntry) => void
 }): JSX.Element | null {
   if (entries.length === 0 && !emptyHint) return null
   return (
@@ -122,6 +146,8 @@ function Band({
               entry={entry}
               busy={busyId === entry.id}
               onToggle={() => onToggle(entry.id)}
+              {...(onStartTerminal ? { onStartTerminal: () => onStartTerminal(entry) } : {})}
+              {...(onUseInAutomation ? { onUseInAutomation: () => onUseInAutomation(entry) } : {})}
             />
           ))}
         </div>
@@ -134,10 +160,14 @@ function TrackerRow({
   entry,
   busy,
   onToggle,
+  onStartTerminal,
+  onUseInAutomation,
 }: {
   entry: TicketTrackerEntry
   busy: boolean
   onToggle: () => void
+  onStartTerminal?: () => void
+  onUseInAutomation?: () => void
 }): JSX.Element {
   return (
     <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] py-3 last:border-b-0">
@@ -162,6 +192,16 @@ function TrackerRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {entry.installed && onStartTerminal ? (
+          <GhostButton size="xs" onClick={onStartTerminal}>
+            Start a terminal
+          </GhostButton>
+        ) : null}
+        {entry.installed && onUseInAutomation ? (
+          <GhostButton size="xs" onClick={onUseInAutomation}>
+            Use in an automation
+          </GhostButton>
+        ) : null}
         <OutlineButton size="xs" disabled={busy} onClick={onToggle}>
           {entry.installed ? 'Remove' : 'Install'}
         </OutlineButton>

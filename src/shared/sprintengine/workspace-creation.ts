@@ -29,7 +29,6 @@ import type {
   SprintEngineStateInitializeSource,
   SprintEngineStateInitializeSourceBundleItem,
 } from '../electron-api'
-import { joinPath } from '../source-paths'
 import { derivePlanSourcedGoal } from './tracker-seeding'
 import { resolveChainedSprintTeamName } from './chained-team-name'
 import {
@@ -388,8 +387,7 @@ export type LaunchPlanSourcedSprintResult =
   | { ok: false; code: string; message: string }
 
 // The one-step plan-sourced sprint launch composition shared by every non-wizard
-// entry path — the tracker "Start sprint" button (startTrackerIssueSprint)
-// and the automations `sprint.create` chain (main's sprint-create-service). It owns the
+// entry path — the automations `sprint.create` chain (main's sprint-create-service). It owns the
 // two pieces those paths used to duplicate: the self-trigger-guarded team-name
 // numbering (resolveChainedSprintTeamName) and the create + error mapping, behind
 // one stable `sprint_*` error vocabulary — so the entry paths cannot drift apart
@@ -404,14 +402,6 @@ export async function launchPlanSourcedSprint(input: {
   // omitted by launches with no such loop risk (the tracker-proxy button).
   refuseTeamSlug?: string
   stateExists: (statePath: string) => boolean | Promise<boolean>
-  // Runs after the team name is resolved and before creation, for a source that
-  // has to be written into the run's own directory rather than read from the
-  // repo. A tracker issue has no file to point at, and writing one into
-  // `backlog/` is exactly what MC-2361 removed — so it lands under
-  // `.multi-code/sprintengine/<slug>/`, which is gitignored. A failure here
-  // fails the launch: a run whose source never landed would hand the architect
-  // a dangling path.
-  prepareSource?: (context: SprintEngineWorkspaceContext) => Promise<void>
   buildArgs: (teamName: string) => PlanSourcedSprintEngineWorkspaceArgs
 }): Promise<LaunchPlanSourcedSprintResult> {
   const resolved = await resolveChainedSprintTeamName({
@@ -422,17 +412,6 @@ export async function launchPlanSourcedSprint(input: {
   })
   if (!resolved.ok) return { ok: false, code: resolved.code, message: resolved.message }
 
-  if (input.prepareSource) {
-    try {
-      await input.prepareSource(buildPlanSourcedSprintEngineWorkspaceContext(input.rootPath, resolved.teamName))
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'sprint_source_write_failed',
-        message: error instanceof Error ? error.message : 'Could not write the sprint source.',
-      }
-    }
-  }
 
   try {
     const result = await createPlanSourcedSprintEngineWorkspace(input.buildArgs(resolved.teamName))
@@ -453,127 +432,3 @@ export async function launchPlanSourcedSprint(input: {
   }
 }
 
-// The file a tracker-sourced run's seed is written into, inside the run's own
-// directory. `.multi-code/sprintengine/*` is gitignored, so the issue text never
-// reaches the repository — which is the entire point of MC-2361. The name
-// matches the engine's own `handover_path_for_state`, so the architect's
-// handover call finds it where the engine already expects a handover document.
-export const TRACKER_ISSUE_SOURCE_FILENAME = 'handover.md'
-
-// The sidecar recording which tracker issue a run was started from. Written
-// beside the run state (also gitignored) so write-back can resolve a run's issue
-// without a proxy backlog item to look it up through — the lookup MC-2359
-// re-keys onto this.
-export const TRACKER_RUN_SOURCE_FILENAME = 'tracker-source.json'
-
-export type TrackerRunSourceRecord = {
-  provider: string
-  connectionId: string
-  externalId: string
-  nativeKey: string
-  url: string
-  capturedAt: string
-}
-
-export type StartTrackerProxySprintResult =
-  | { ok: true; teamName: string; teamSlug: string; workspaceId: WorkspaceId }
-  | { ok: false; code: string; message: string }
-
-// The one-step "Start sprint from a tracker issue" composition (MC-2358).
-//
-// It used to require a file: the caller materialized the issue into `backlog/`,
-// re-scanned, found the new item, and seeded a reference-mode run from it. That
-// put another team's tickets into a git-tracked directory, and told the
-// architect to edit a file the next refresh would overwrite.
-//
-// Now the issue never touches the repository. Its markdown is written into the
-// run's own gitignored directory as the run's handover document, and the run is
-// created in COPY mode — the architect hands the snapshot over to the engine,
-// which takes it into the run store. Nothing tells the architect to update a
-// canonical file, because there is no canonical file: the tracker is the system
-// of record.
-//
-// Collision numbering and error mapping stay in `launchPlanSourcedSprint` so
-// this path and the automations path cannot drift (the MC-1716 shape). Ports are
-// injected so this is unit-testable without window/IPC.
-export async function startTrackerIssueSprint(args: {
-  rootPath: string
-  baseTeamName: string
-  goal: string
-  // The composed issue markdown (see shared/tracker/issue-markdown.ts), already
-  // fetched fresh by the caller. Written into the run directory, never the repo.
-  sourceContent: string
-  // Identity of the issue this run came from, recorded beside the run state so
-  // write-back can find it with no backlog item in existence.
-  issue: TrackerRunSourceRecord
-  sourcePlanKind: SprintEngineSourcePlanKind
-  roleCounts: SprintEngineRoleCounts
-  roleCliDefaults: SprintEngineRoleCliDefaults
-  roleModelOverrides: SprintEngineRoleModelOverrides | null
-  initialSpawnRoles: SprintEngineRoleId[] | null
-  sprintEngineAutoState: Partial<SprintEngineAutoState>
-  workspaceWindowId?: WorkspaceWindowId | null
-  pathExists: (path: string) => boolean | Promise<boolean>
-  // Creates the run directory (recursively) before anything is written into it.
-  // The run does not exist yet at this point — creation happens after — so
-  // writing straight into it would fail with ENOENT.
-  ensureDirectory: (path: string) => Promise<void>
-  // Writes an absolute path. Bound to `window.api.writefile` in the renderer.
-  writeFile: (path: string, content: string) => Promise<void>
-  initializeSprintEngineState: (
-    input: SprintEngineStateInitializeInput
-  ) => Promise<SprintEngineArtifactCommandResult>
-  workspace: SprintEngineWorkspaceCreationPort
-}): Promise<StartTrackerProxySprintResult> {
-  // Both writes land in the run's own directory, which the run context already
-  // names. Using `teamDirectoryPath` + `joinPath` rather than slicing the state
-  // path keeps this correct on Windows, where the separator is a backslash.
-  const runFile = (context: SprintEngineWorkspaceContext, fileName: string): string =>
-    joinPath(context.teamDirectoryPath, fileName)
-
-  const launch = await launchPlanSourcedSprint({
-    rootPath: args.rootPath,
-    baseTeamName: args.baseTeamName.trim() || 'Sprint',
-    stateExists: args.pathExists,
-    // Write the snapshot and the issue reference before the run exists, so the
-    // architect's prompt can never point at a file that is not there yet.
-    prepareSource: async (context) => {
-      await args.ensureDirectory(context.teamDirectoryPath)
-      await args.writeFile(runFile(context, TRACKER_ISSUE_SOURCE_FILENAME), args.sourceContent)
-      await args.writeFile(
-        runFile(context, TRACKER_RUN_SOURCE_FILENAME),
-        `${JSON.stringify(args.issue, null, 2)}\n`
-      )
-    },
-    buildArgs: (teamName) => {
-      const context = buildPlanSourcedSprintEngineWorkspaceContext(args.rootPath, teamName)
-      return {
-        rootPath: args.rootPath,
-        teamName,
-        goal: args.goal,
-        sourcePath: runFile(context, TRACKER_ISSUE_SOURCE_FILENAME),
-        sourceContent: args.sourceContent,
-        sourcePlanKind: args.sourcePlanKind,
-        roleCounts: args.roleCounts,
-        roleCliDefaults: args.roleCliDefaults,
-        roleModelOverrides: args.roleModelOverrides,
-        initialSpawnRoles: args.initialSpawnRoles,
-        sprintEngineAutoState: args.sprintEngineAutoState,
-        workspaceWindowId: args.workspaceWindowId,
-        // COPY, not reference. There is no canonical repo file to keep in step
-        // with, so the architect must never be told to update one — the snapshot
-        // is handed to the engine and the tracker stays the system of record.
-        sourceReference: false,
-        pathExists: args.pathExists,
-        initializeSprintEngineState: args.initializeSprintEngineState,
-        workspace: args.workspace,
-      }
-    },
-  })
-  if (!launch.ok) return { ok: false, code: launch.code, message: launch.message }
-  const { result } = launch
-
-  // No backlog execution link: there is no backlog item to link. The run's issue
-  // reference lives in the sidecar written above, which is what write-back reads.
-  return { ok: true, teamName: launch.teamName, teamSlug: result.sprintEngineContext.teamSlug, workspaceId: result.workspaceId }
-}
