@@ -119,7 +119,10 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
 
   const refresh = async (): Promise<TerminalSessionSnapshot[]> => {
     const version = connectionVersion
-    const sessions = await apiProvider().terminalList()
+    const api = apiProvider() as Partial<TerminalSessionsApi> | undefined
+    // Same partial-host tolerance as connect(): quiet emptiness, not a throw.
+    if (typeof api?.terminalList !== 'function') return []
+    const sessions = await api.terminalList()
     if (subscriberCount === 0 || version !== connectionVersion) return sessions
     apply(sessions)
     return sessions

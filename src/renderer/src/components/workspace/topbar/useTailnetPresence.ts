@@ -81,13 +81,15 @@ export function useTailnetPresence(): TailnetPresence {
       // Attachment link state: only `live` counts as attached — connecting,
       // reconnecting, and offline are a pane hoping, not a session held.
       setFleetLiveSessions((current) => {
+        const had = current.get(event.connectionId)?.has(event.sessionId) ?? false
+        const wantsLive = event.state === 'live'
+        // No-op transitions (adding a session already live, or a
+        // connecting/closed frame for one never tracked) rebuild nothing —
+        // and every attach's first 'connecting' frame is exactly that.
+        if (had === wantsLive) return current
         const sessions = new Set(current.get(event.connectionId) ?? [])
-        if (event.state === 'live') sessions.add(event.sessionId)
+        if (wantsLive) sessions.add(event.sessionId)
         else sessions.delete(event.sessionId)
-        if ((current.get(event.connectionId)?.size ?? 0) === sessions.size && event.state === 'live') {
-          // Adding an id it already had: nothing changed.
-          if (current.get(event.connectionId)?.has(event.sessionId)) return current
-        }
         const next = new Map(current)
         if (sessions.size === 0) next.delete(event.connectionId)
         else next.set(event.connectionId, sessions)

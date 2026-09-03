@@ -392,10 +392,10 @@ export type WorkspaceActionsProps = {
 
 }
 
-// One branch fork for the whole app: the shared AppIcons drawing (also
-// mirrored in design-system/glyphs/git-branch.svg since remote-sessions-ux /
-// two-line-session-rows). This file drew its own; the identity cluster, the
-// tab popover, and the sidebar rows now share the single export.
+// The shared AppIcons branch fork (mirrored in
+// design-system/glyphs/git-branch.svg since remote-sessions-ux /
+// two-line-session-rows). This file drew its own; the tab popover, the
+// layout header, and the sidebar rows now share the single export.
 export { GitBranchGlyph } from '../AppIcons'
 
 export function WorkspaceActions({
@@ -665,7 +665,7 @@ export function WorkspaceActions({
                     >
                       <RemoteMachinesIcon
                         className={`size-icon-md ${
-                          remoteState.driving ? 'animate-pulse text-[color:var(--tone-warn)]' : ''
+                          remoteState.driving ? 'animate-pulse text-[color:var(--tone-warn)] motion-reduce:animate-none' : ''
                         }`}
                       />
                     </ChangePulse>

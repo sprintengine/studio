@@ -53,10 +53,19 @@ function usePairRequestToastBridge(): void {
 function useFleetToastBridge(): void {
   // Per-connection link memory, so N panes on one machine make one
   // announcement per outage, not N — and recovery is only news after one.
-  const offlineConnections = useRef(new Set<string>())
+  // The warn toast's id is kept so recovery RETRACTS it: a persistent
+  // "Reconnecting." standing over a fresh "Reconnected" would contradict
+  // itself, and warn tones never auto-dismiss on their own.
+  const offlineToastByConnection = useRef(new Map<string, string>())
 
   useEffect(() => {
     if (typeof window.api.onFleetEvent !== 'function') return
+    const retract = (connectionId: string): boolean => {
+      const toastId = offlineToastByConnection.current.get(connectionId)
+      offlineToastByConnection.current.delete(connectionId)
+      if (toastId) useToastStore.getState().dismissToast(toastId)
+      return toastId !== undefined
+    }
     return window.api.onFleetEvent((event) => {
       if (event.kind === 'machine-paired') {
         showToast({
@@ -67,7 +76,7 @@ function useFleetToastBridge(): void {
         return
       }
       if (event.kind === 'machine-forgotten') {
-        offlineConnections.current.delete(event.connectionId)
+        retract(event.connectionId)
         showToast({
           tone: 'neutral',
           title: 'Machine removed',
@@ -77,19 +86,21 @@ function useFleetToastBridge(): void {
       }
       if (event.kind === 'attachment') {
         if (event.state === 'offline') {
-          if (offlineConnections.current.has(event.connectionId)) return
-          offlineConnections.current.add(event.connectionId)
-          showToast({
-            tone: 'warn',
-            title: `Connection to ${event.machineName} lost`,
-            description: 'Reconnecting.',
-          })
+          if (offlineToastByConnection.current.has(event.connectionId)) return
+          offlineToastByConnection.current.set(
+            event.connectionId,
+            showToast({
+              tone: 'warn',
+              title: `Connection to ${event.machineName} lost`,
+              description: 'Reconnecting.',
+            })
+          )
           return
         }
-        if (event.state === 'live' && offlineConnections.current.delete(event.connectionId)) {
+        if (event.state === 'live' && retract(event.connectionId)) {
           showToast({ tone: 'good', title: `Reconnected to ${event.machineName}` })
         }
-        if (event.state === 'closed') offlineConnections.current.delete(event.connectionId)
+        if (event.state === 'closed') retract(event.connectionId)
       }
     })
   }, [])

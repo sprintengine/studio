@@ -1187,7 +1187,7 @@ export function createWorkspacesSlice(
         // renames the lone tab or swaps it for a terminal, apply that transform.
         const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
         const standardLayout =
-          options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal)
+          options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.fleet)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
         const sprintEngineContext = deps.normalizeSprintEngineWorkspaceContext(

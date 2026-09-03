@@ -2884,7 +2884,16 @@ export default function WorkspaceManager() {
       })
       return
     }
-    if (!SOLO_CHAT_TEMPLATE) return
+    if (!SOLO_CHAT_TEMPLATE) {
+      // The remote agent is REAL now; say so rather than orphaning it silently.
+      showToast({
+        tone: 'error',
+        title: `Started on ${launch.machineName}, but no pane could open`,
+        description: `The Solo layout template is missing. Attach to "${created.title}" from the Fleet panel.`,
+      })
+      closeNewChatPanel()
+      return
+    }
     addWorkspace(SOLO_CHAT_TEMPLATE, {
       name: `${created.title} · ${launch.remoteWorkspaceName}`,
       // No local checkout: the code lives on the other machine, and a local

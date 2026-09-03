@@ -36,12 +36,37 @@ interface ToastStore {
 
 let nextToastId = 0
 
+/**
+ * The stack stays a report, not a backlog: a repeat of the SAME report
+ * (tone + title) replaces its predecessor in place — a drag that fails five
+ * times is one "File action failed", freshly worded, exactly what the old
+ * self-replacing inline toast did — and the region holds at most this many,
+ * shedding the OLDEST auto-dismissing toast first. Persistent tones
+ * (warn/error) are only ever shed by another persistent one arriving, so an
+ * error cannot be pushed out by a parade of successes.
+ */
+const MAX_TOASTS = 6
+const PERSISTENT_TONES: ReadonlySet<AppToast['tone']> = new Set(['warn', 'error'])
+
 export const useToastStore = create<ToastStore>()((set) => ({
   toasts: [],
 
   showToast: (input) => {
     const id = `toast-${++nextToastId}`
-    set((state) => ({ toasts: [...state.toasts, { id, ...input }] }))
+    set((state) => {
+      const replaced = state.toasts.find(
+        (toast) => toast.tone === input.tone && toast.title === input.title
+      )
+      let toasts = replaced
+        ? state.toasts.map((toast) => (toast === replaced ? { ...toast, ...input, id } : toast))
+        : [...state.toasts, { id, ...input }]
+      if (toasts.length > MAX_TOASTS) {
+        const shed =
+          toasts.find((toast) => !PERSISTENT_TONES.has(toast.tone)) ?? toasts[0]
+        toasts = toasts.filter((toast) => toast !== shed)
+      }
+      return { toasts }
+    })
     return id
   },
 

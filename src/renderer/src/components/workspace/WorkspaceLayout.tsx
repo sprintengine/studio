@@ -592,7 +592,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return config?.connectionId && config.remoteSessionId
             ? timedPanel('FleetTerminalPanel', (
               <FleetTerminalPanel
-                attachId={node.getId()}
+                // Scoped by WORKSPACE, not just by the tab's session-derived id:
+                // the tab id is deliberately deterministic per session (dedupe
+                // within a workspace), so the same session opened in a second
+                // workspace — a New-chat-door solo pane plus a FleetPanel open
+                // elsewhere — used to collide on one attachId, where main's
+                // same-pane replace rule silently stole the first pane's
+                // stream. The remote terminal port is multi-viewer; two panes
+                // are two healthy attachments (remote-sessions-ux review).
+                attachId={`${workspaceId}:${node.getId()}`}
                 connectionId={config.connectionId}
                 machineName={config.machineName ?? 'Remote machine'}
                 sessionId={config.remoteSessionId}

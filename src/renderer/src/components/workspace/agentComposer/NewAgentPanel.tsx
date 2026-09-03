@@ -46,6 +46,7 @@ import { CliInstallCta } from '../cliInstallRoute'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from './agentSpawnShared'
 import { ProjectSourceMenu } from './ProjectSourceMenu'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
+import { showToast } from '../../../store/toastStore'
 import { ConnectorPickerPopover } from './ConnectorPickerPopover'
 import {
   launchCommandLineKey,
@@ -109,7 +110,7 @@ export type NewAgentPanelProps = {
    * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
    * routes a remote launch here instead of `onLaunch`.
    */
-  onLaunchRemote?: (launch: RemoteNewChatLaunch) => void
+  onLaunchRemote?: (launch: RemoteNewChatLaunch) => void | Promise<void>
 }
 
 /** What a remote launch carries: the target, and the launch identity. */
@@ -209,18 +210,33 @@ export default function NewAgentPanel({
     error: string | null
     picked: FleetWorkspace | null
   } | null>(null)
+  // One launch at a time: the remote create waits on a real CLI starting on
+  // another machine, and a second Enter during that window must read as
+  // "starting", never as a second agent.
+  const [remoteLaunching, setRemoteLaunching] = React.useState(false)
   const remoteCapable = Boolean(onLaunchRemote)
   React.useEffect(() => {
     if (!remoteCapable) return
     let cancelled = false
-    void window.api
-      .fleetListConnections()
-      .then((connections) => {
-        if (!cancelled) setRemoteMachines(connections)
-      })
-      .catch(() => {})
+    const load = (): void => {
+      void window.api
+        .fleetListConnections()
+        .then((connections) => {
+          if (!cancelled) setRemoteMachines(connections)
+        })
+        .catch(() => {})
+    }
+    load()
+    // A machine paired or forgotten while the door is open shows up live.
+    const unsubscribe =
+      typeof window.api.onFleetEvent === 'function'
+        ? window.api.onFleetEvent((event) => {
+            if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') load()
+          })
+        : null
     return () => {
       cancelled = true
+      unsubscribe?.()
     }
   }, [remoteCapable])
   const remoteSelectable = remoteCapable && selection.kind !== 'terminal' && selection.kind !== 'conversation'
@@ -247,6 +263,14 @@ export default function NewAgentPanel({
           }
           if (browse.unauthorized) {
             return { ...current, workspaces: [], error: 'That machine refused this pairing — re-pair from the Fleet.' }
+          }
+          // A gap is a DIFFERENT statement from an empty list: a pairing
+          // without workspace:read genuinely cannot list workspaces, and
+          // "no workspaces on that machine" would be false (the FleetGap
+          // contract). Say the real reason instead.
+          const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
+          if (browse.workspaces.length === 0 && workspaceGap) {
+            return { ...current, workspaces: [], error: workspaceGap.message }
           }
           return { ...current, workspaces: browse.workspaces, picked: browse.workspaces[0] ?? null }
         })
@@ -460,21 +484,43 @@ export default function NewAgentPanel({
   const launch = (text: string) => {
     if (!canLaunch) return
     if (remoteTarget) {
-      if (!remoteTarget.picked || !onLaunchRemote) return
+      if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
       if (confirm.kind !== 'general' && confirm.kind !== 'specialist') return
+      // What cannot travel must not be silently dropped while its chip is on
+      // screen: skills install locally, connectors resolve local worktrees,
+      // worktrees branch the LOCAL checkout, debug drives the local state
+      // machine, and a specialist's soul brief is composed locally too.
+      const stranded = [
+        confirm.kind === 'specialist' ? 'the specialist role' : null,
+        confirm.skill ? 'the skill' : null,
+        confirm.connector ? 'the connector' : null,
+        confirm.worktree ? 'the worktree' : null,
+        debugMode ? 'debug mode' : null,
+      ].filter((entry): entry is string => entry !== null)
+      if (stranded.length > 0) {
+        showToast({
+          tone: 'warn',
+          title: 'That launch cannot travel yet',
+          description: `Remove ${stranded.join(', ')} to start on ${remoteTarget.connection.machineName}, or launch on This Mac.`,
+        })
+        return
+      }
       // Local image paths mean nothing on another machine, so they stay out
       // of a remote prompt rather than riding as dead strings.
-      onLaunchRemote({
-        connectionId: remoteTarget.connection.id,
-        machineName: remoteTarget.connection.machineName,
-        remoteWorkspaceId: remoteTarget.picked.id,
-        remoteWorkspaceName: remoteTarget.picked.name,
-        prompt: text.trim(),
-        cli: confirm.cli,
-        cliModel: confirm.model ?? null,
-        permissionPreset,
-      })
+      setRemoteLaunching(true)
+      void Promise.resolve(
+        onLaunchRemote({
+          connectionId: remoteTarget.connection.id,
+          machineName: remoteTarget.connection.machineName,
+          remoteWorkspaceId: remoteTarget.picked.id,
+          remoteWorkspaceName: remoteTarget.picked.name,
+          prompt: text.trim(),
+          cli: confirm.cli,
+          cliModel: confirm.model ?? null,
+          permissionPreset,
+        })
+      ).finally(() => setRemoteLaunching(false))
       return
     }
     // The attached images ride along as paths after the text, quoted only when
@@ -662,7 +708,7 @@ export default function NewAgentPanel({
           {/* Opaque, not a scrim: the field's own text ghosting through the
               drop state reads as a rendering artifact rather than a state. */}
           {dropActive && !isTerminalLaunch ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
           ) : null}

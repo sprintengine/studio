@@ -12,11 +12,8 @@ import {
 } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
-import {
-  TAILNET_STRUCTURED_SCOPES,
-  type TailnetPairRequest,
-  type TailnetScope,
-} from '../../../../../shared/tailnet'
+import type { TailnetPairRequest, TailnetScope } from '../../../../../shared/tailnet'
+import { showToast } from '../../../store/toastStore'
 
 // The Remote glyph's surface (remote-sessions-ux / remote-glyph-topbar):
 // what this machine is serving and who is driving it, then the machines this
@@ -171,15 +168,16 @@ function PairRequestCard({ request, now }: { request: TailnetPairRequest; now: n
     if (busy) return
     setBusy(kind)
     try {
-      if (kind === 'allow') {
-        await window.api.tailnetApprovePairRequest(
-          request.id,
-          scopes.length > 0 ? scopes : [...TAILNET_STRUCTURED_SCOPES]
-        )
-      } else {
-        await window.api.tailnetDenyPairRequest(request.id)
-      }
+      // Allow is disabled at zero scopes, so `scopes` is always a real grant.
+      if (kind === 'allow') await window.api.tailnetApprovePairRequest(request.id, scopes)
+      else await window.api.tailnetDenyPairRequest(request.id)
       // The push channel clears the card everywhere; nothing to do locally.
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: kind === 'allow' ? 'Could not approve the pair request' : 'Could not decline the pair request',
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setBusy(null)
     }
