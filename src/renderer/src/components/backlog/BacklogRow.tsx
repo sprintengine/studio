@@ -181,6 +181,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   plainTitle = false,
   selected = false,
   hideTouchedTime = false,
+  onOpenEpic,
 }: {
   item: BacklogItem
   now: number
@@ -221,6 +222,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  epic list stacks it under the status cell so both share one right edge),
    *  so the supporting line omits it — a row never shows the time twice. */
   hideTouchedTime?: boolean
+  /** Makes the parent-epic pill a jump: clicking it opens the epic instead of
+   *  selecting the member row. Hosts with cross-item navigation pass it; a
+   *  host without (the source picker) leaves the pill inert. */
+  onOpenEpic?: () => void
 }): JSX.Element {
   // Blocked overrides the item's own status presentation — the stored `ready`
   // must never read as Ready while prerequisites are unresolved — but a live
@@ -325,7 +330,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             identity, not a parent, so it never pills itself. */}
         {epicMeta && !item.isEpic ? (
           <div className="ml-auto flex min-w-0 shrink items-center overflow-hidden">
-            <EpicPill epic={epicMeta} />
+            <EpicPill epic={epicMeta} onOpen={onOpenEpic} />
           </div>
         ) : null}
         {hideTouchedTime ? null : (
@@ -529,29 +534,52 @@ function WaitingBadge(): JSX.Element {
 // tint over the row (never colour alone — the id text is the label); the full
 // epic title rides in the hover tooltip and the accessible name. Falls back to
 // the epic title as the label only when the scan has not allocated a display id.
-function EpicPill({ epic }: { epic: BacklogEpicMeta }): JSX.Element {
+function EpicPill({ epic, onOpen }: { epic: BacklogEpicMeta; onOpen?: () => void }): JSX.Element {
   const swatch = epic.color ? getHighlightSwatch(epic.color) : null
   const label = epic.displayId ?? epic.title
-  return (
-    <Tooltip content={epic.title} placement="top" wrapperClassName="inline-flex min-w-0 shrink">
-      <span
-        role="img"
-        aria-label={`Epic: ${epic.title}`}
-        // No vertical padding: the pill's own line box already stands it a hair
-        // proud of the 11px supporting line, so a row's height no longer depends
-        // on whether the item has a parent epic.
-        className="inline-flex min-w-0 max-w-[14ch] shrink items-center gap-1 rounded-full border px-1.5 text-micro font-medium text-[color:var(--text-muted)]"
-        style={
-          swatch
-            ? { borderColor: `${swatch.hex}59`, backgroundColor: `${swatch.hex}1f` }
-            : { borderColor: 'var(--border-default)' }
-        }
-      >
-        <EpicColorDot color={epic.color} size={6} />
-        <span aria-hidden="true" className="min-w-0 truncate font-mono tabular-nums">
-          {label}
-        </span>
+  // No vertical padding: the pill's own line box already stands it a hair
+  // proud of the 11px supporting line, so a row's height no longer depends
+  // on whether the item has a parent epic.
+  const pillClass =
+    'inline-flex min-w-0 max-w-[14ch] shrink items-center gap-1 rounded-full border px-1.5 text-micro font-medium text-[color:var(--text-muted)]'
+  const pillStyle = swatch
+    ? { borderColor: `${swatch.hex}59`, backgroundColor: `${swatch.hex}1f` }
+    : { borderColor: 'var(--border-default)' }
+  const body = (
+    <>
+      <EpicColorDot color={epic.color} size={6} />
+      <span aria-hidden="true" className="min-w-0 truncate font-mono tabular-nums">
+        {label}
       </span>
+    </>
+  )
+  return (
+    <Tooltip
+      content={onOpen ? `Open epic: ${epic.title}` : epic.title}
+      placement="top"
+      wrapperClassName="inline-flex min-w-0 shrink"
+    >
+      {onOpen ? (
+        // The one nested control inside a clickable row: the pill claims its own
+        // click (stopPropagation) so opening the epic never also re-selects the
+        // member row underneath it.
+        <button
+          type="button"
+          aria-label={`Open epic ${epic.title}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpen()
+          }}
+          className={`${pillClass} cursor-pointer transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring`}
+          style={pillStyle}
+        >
+          {body}
+        </button>
+      ) : (
+        <span role="img" aria-label={`Epic: ${epic.title}`} className={pillClass} style={pillStyle}>
+          {body}
+        </span>
+      )}
     </Tooltip>
   )
 }

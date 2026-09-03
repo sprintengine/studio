@@ -886,6 +886,16 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [items, filtered, setProjectView, folderPath],
   )
 
+  // The member row's epic pill navigates by slug (the pill's meta carries no
+  // item id); resolving here keeps the pill purely presentational.
+  const navigateToEpicBySlug = useCallback(
+    (slug: string) => {
+      const epic = items.find((candidate) => candidate.isEpic && epicSlug(candidate) === slug)
+      if (epic) navigateToBacklogItem(epic.id)
+    },
+    [items, navigateToBacklogItem],
+  )
+
   // ---- file actions (all via existing window.api fs IPC; never mutate Sprint
   // Engine state). Failures surface as a visible, actionable error and leave
   // selection consistent. ----
@@ -1697,6 +1707,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       epicProgressBySlug={epicProgress}
       dependencyStateById={dependencyStateById}
       epicBlockedBySlug={epicBlockedBySlug}
+      onOpenEpic={navigateToEpicBySlug}
     />
   )
 
@@ -1941,6 +1952,7 @@ function BacklogList({
   epicProgressBySlug,
   dependencyStateById,
   epicBlockedBySlug,
+  onOpenEpic,
 }: {
   items: BacklogItem[]
   // Non-null when grouping by epic: the flattened header+child render order.
@@ -1970,6 +1982,8 @@ function BacklogList({
   // slug -> granular epic blocked rollup, for the "N blocked" count on epic
   // rows and group headers.
   epicBlockedBySlug?: ReadonlyMap<string, BacklogEpicBlockedRollup>
+  // Member-row epic-pill jump (flat list only — grouped rows carry no pill).
+  onOpenEpic?: (slug: string) => void
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -2062,6 +2076,7 @@ function BacklogList({
               epicProgress={item.isEpic ? epicProgressBySlug.get(epicSlug(item)) : undefined}
               dependencyState={dependencyStateById?.get(item.id) ?? null}
               epicBlocked={item.isEpic ? epicBlockedBySlug?.get(epicSlug(item)) : undefined}
+              onOpenEpic={onOpenEpic}
             />
           ))}
     </ul>
@@ -2090,6 +2105,7 @@ function BacklogOptionRow({
   epicProgress,
   dependencyState,
   epicBlocked,
+  onOpenEpic,
 }: {
   item: BacklogItem
   optionIndex: number
@@ -2110,6 +2126,9 @@ function BacklogOptionRow({
   // is the softer badge) and, for an epic row, the granular blocked count.
   dependencyState?: BacklogDependencyState | null
   epicBlocked?: BacklogEpicBlockedRollup
+  // Cross-navigation for the member row's epic pill: clicking it opens the
+  // epic (the widening navigate), the inverse of the detail crumb.
+  onOpenEpic?: (slug: string) => void
 }): JSX.Element {
   const archived = item.status === 'archived'
   // Option C: the epic identity colour fills the whole member row (below a
@@ -2167,6 +2186,11 @@ function BacklogOptionRow({
             epicProgress={epicProgress}
             plainTitle
             selected={selected}
+            onOpenEpic={
+              onOpenEpic && item.epic && !item.isEpic
+                ? () => onOpenEpic(item.epic as string)
+                : undefined
+            }
           />
         </div>
       </Tooltip>

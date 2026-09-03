@@ -731,6 +731,12 @@ export default function BacklogGlobalSurface(): JSX.Element {
           showProjectTag={showProjectTag}
           runGlyphByRowKey={runGlyphByRowKey}
           onSelect={handleRowSelect}
+          onOpenEpic={(feed, slug) => {
+            const epic = feed.items.find(
+              (entry) => entry.item.isEpic && epicSlug(entry.item) === slug,
+            )?.item
+            if (epic) navigateWithinProject(feed, epic.id)
+          }}
           onToggleGroup={toggleGroup}
           onContextMenu={(event, key) => {
             event.preventDefault()
@@ -981,6 +987,7 @@ function BacklogDoorList({
   showProjectTag,
   runGlyphByRowKey,
   onSelect,
+  onOpenEpic,
   onToggleGroup,
   onContextMenu,
 }: {
@@ -992,6 +999,9 @@ function BacklogDoorList({
   showProjectTag: boolean
   runGlyphByRowKey: ReadonlyMap<string, BacklogRunGlyph>
   onSelect: (key: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
+  /** Member-row epic-pill jump: resolve the slug within the row's own feed
+   *  and navigate to that epic (flat list only — grouped rows carry no pill). */
+  onOpenEpic?: (feed: BacklogProjectFeed, slug: string) => void
   onToggleGroup: (rootKey: string, group: BacklogEpicGroup) => void
   onContextMenu: (event: React.MouseEvent, rowKey: string) => void
 }): JSX.Element {
@@ -1167,6 +1177,11 @@ function BacklogDoorList({
                 epicProgress={epicProgress}
                 plainTitle
                 selected={selected}
+                onOpenEpic={
+                  onOpenEpic && item.epic && !item.isEpic
+                    ? () => onOpenEpic(feed, item.epic as string)
+                    : undefined
+                }
               />
             </Tooltip>
           </li>

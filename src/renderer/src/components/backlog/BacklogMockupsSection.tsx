@@ -194,7 +194,7 @@ function MockupRow({
     })()
 
   return (
-    <li className="relative flex min-w-0 flex-col gap-1">
+    <li className="group relative flex min-w-0 flex-col gap-1">
       <HtmlPreviewCard
         absolutePath={optimistic.absolutePath}
         relativePath={entry.path}
@@ -204,15 +204,46 @@ function MockupRow({
       {entry.source === 'detected' ? (
         <span className="px-1 text-micro text-[color:var(--text-subtle)]">Found in this item</span>
       ) : null}
-      {onRemove ? (
-        // The raised ground sits on the wrapper, not the button: it keeps the
-        // glyph legible over the preview while the kit button keeps its own
-        // hover fill.
-        <div className="absolute right-1.5 top-1.5 rounded-sm bg-[color:var(--bg-surface-raised)]">
-          <RemoveButton label={`Remove mockup ${entry.path}`} onClick={onRemove} />
-        </div>
-      ) : null}
+      {/* The raised ground sits on the wrapper, not the buttons: it keeps the
+          glyphs legible over the preview while the kit buttons keep their own
+          hover fill. Open-in-browser is hover/focus-revealed (it is a shortcut
+          past the inline preview, not the row's primary open); Remove stays
+          always-visible as before. */}
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-sm bg-[color:var(--bg-surface-raised)]">
+        <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <OpenInBrowserButton path={entry.path} absolutePath={optimistic.absolutePath} />
+        </span>
+        {onRemove ? <RemoveButton label={`Remove mockup ${entry.path}`} onClick={onRemove} /> : null}
+      </div>
     </li>
+  )
+}
+
+// Hover/focus-revealed jump straight to the default browser — the same
+// `openHtmlFileInBrowser` bridge the full preview pane's "Open in browser"
+// uses, without going through the inline preview first.
+function OpenInBrowserButton({ path, absolutePath }: { path: string; absolutePath: string }): JSX.Element {
+  return (
+    <Tooltip content="Open in browser" placement="top">
+      <IconButton
+        aria-label={`Open ${path} in browser`}
+        onClick={(event) => {
+          event.stopPropagation()
+          void window.api.openHtmlFileInBrowser(absolutePath)
+        }}
+        className="shrink-0"
+      >
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+          <path
+            d="M9.5 3H13v3.5M13 3L7.5 8.5M6.5 3.5H4.2C3.5 3.5 3 4 3 4.7v7.1c0 .7.5 1.2 1.2 1.2h7.1c.7 0 1.2-.5 1.2-1.2V9.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </IconButton>
+    </Tooltip>
   )
 }
 
