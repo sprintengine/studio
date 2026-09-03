@@ -723,7 +723,11 @@ async function main(): Promise<void> {
       )
     })
     await settle()
-    const menu = dom.window.document.querySelector('[role="menu"]')
+    // By its accessible name, not the first [role="menu"] on the page: the
+    // door's own filter/sort control is a menu too and renders earlier, so a
+    // bare querySelector reads the filter bar and reports the row's actions
+    // missing when they are present.
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label^="Backlog item actions"]')
     assert.ok(menu, 'right-clicking a door row opens its context menu')
     assert.match(
       menu?.textContent ?? '',
@@ -1307,7 +1311,7 @@ async function main(): Promise<void> {
     })
     assert.match(disabledHost.textContent ?? '', /The Tide-tables module is turned off\./)
     const disabledCta = [...disabledHost.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Find it in Extensions',
+      (button) => button.textContent === 'Find it in Plugins',
     )
     assert.ok(disabledCta)
     await act(async () => {
