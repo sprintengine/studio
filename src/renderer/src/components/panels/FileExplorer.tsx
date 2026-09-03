@@ -21,7 +21,7 @@ import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
-import { Toast } from '../ui/Toast'
+import { showToast } from '../../store/toastStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { inferSourcePlanKind } from '../workspace/newWorkspace/helpers'
 import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEngineSourcePlanKind } from '../../types/workspace'
@@ -744,7 +744,6 @@ function ExplorerTree({
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [rootDropActive, setRootDropActive] = useState(false)
-  const [errorToast, setErrorToast] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ExplorerMenuState | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
@@ -863,7 +862,15 @@ function ExplorerTree({
   }, [commitExpandedPaths])
 
   const showError = useCallback((error: unknown, fallback?: string) => {
-    setErrorToast(error instanceof Error ? error.message : fallback ?? String(error))
+    // Through the app's one toast region (design-system/components/toast):
+    // this panel used to render and position its own Toast in-flow, which was
+    // fine while no corner region existed — now one does, and two placements
+    // announcing at once is exactly what the spec's one-region rule forbids.
+    showToast({
+      tone: 'error',
+      title: 'File action failed',
+      description: error instanceof Error ? error.message : fallback ?? String(error),
+    })
   }, [])
 
   const applySearchResponse = useCallback((response: FileSearchResponse) => {
@@ -2098,16 +2105,6 @@ function ExplorerTree({
 
   return (
     <>
-      {errorToast ? (
-        <div className="sticky top-0 z-10 px-2 pb-1 pt-1">
-          <Toast
-            tone="error"
-            title="File action failed"
-            description={errorToast}
-            onDismiss={() => setErrorToast(null)}
-          />
-        </div>
-      ) : null}
       <div
         ref={containerRef}
         tabIndex={0}

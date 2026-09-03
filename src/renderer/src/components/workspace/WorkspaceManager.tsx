@@ -97,6 +97,7 @@ import {
   requestTerminalFocus,
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
+import { ToastHost } from './ToastHost'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -3534,6 +3535,9 @@ export default function WorkspaceManager() {
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}
       {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
+      {/* The one toast region (design-system/components/toast) + its app-level
+          producers. Fixed-position; its place in this tree carries no layout. */}
+      <ToastHost />
 
       <div className="relative flex min-h-0 flex-1 flex-row">
       <WorkspaceSidebar

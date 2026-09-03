@@ -125,10 +125,12 @@ export { StarGlyph } from './StarGlyph'
 export { McpGlyph, SkillsGlyph } from './CapabilityGlyphs'
 export { RoleAvatar } from './RoleAvatar'
 export { Toast } from './Toast'
+export { ToastRegion } from './ToastRegion'
 export { Tooltip, type TooltipChildProps } from './Tooltip'
 export { TruncatedText } from './TruncatedText'
 export type { Tone, StatusTone, ToolIdentity } from './tokens'
 export {
+  COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_PEER_CLASS,

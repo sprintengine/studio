@@ -1,0 +1,60 @@
+import { useEffect, useRef } from 'react'
+
+import { ToastRegion } from '../ui/ToastRegion'
+import { showToast } from '../../store/toastStore'
+
+// The main window's toast host: mounts the one region and runs the app-level
+// producers that have no pane of their own (MC: remote-sessions-ux /
+// toast-host-region). Pane-owned producers call `showToast` directly.
+//
+// First producers: fleet connection lifecycle. Per the toast spec these
+// announce and never act — pairing state stays readable in Settings → Remote
+// and the Fleet panel, link state on the pane itself.
+export function ToastHost() {
+  useFleetToastBridge()
+  return <ToastRegion />
+}
+
+function useFleetToastBridge(): void {
+  // Per-connection link memory, so N panes on one machine make one
+  // announcement per outage, not N — and recovery is only news after one.
+  const offlineConnections = useRef(new Set<string>())
+
+  useEffect(() => {
+    return window.api.onFleetEvent((event) => {
+      if (event.kind === 'machine-paired') {
+        showToast({
+          tone: 'good',
+          title: 'Machine paired',
+          description: `${event.connection.machineName} is in your fleet.`,
+        })
+        return
+      }
+      if (event.kind === 'machine-forgotten') {
+        offlineConnections.current.delete(event.connectionId)
+        showToast({
+          tone: 'neutral',
+          title: 'Machine removed',
+          description: `${event.machineName} was removed from your fleet.`,
+        })
+        return
+      }
+      if (event.kind === 'attachment') {
+        if (event.state === 'offline') {
+          if (offlineConnections.current.has(event.connectionId)) return
+          offlineConnections.current.add(event.connectionId)
+          showToast({
+            tone: 'warn',
+            title: `Connection to ${event.machineName} lost`,
+            description: 'Reconnecting.',
+          })
+          return
+        }
+        if (event.state === 'live' && offlineConnections.current.delete(event.connectionId)) {
+          showToast({ tone: 'good', title: `Reconnected to ${event.machineName}` })
+        }
+        if (event.state === 'closed') offlineConnections.current.delete(event.connectionId)
+      }
+    })
+  }, [])
+}
