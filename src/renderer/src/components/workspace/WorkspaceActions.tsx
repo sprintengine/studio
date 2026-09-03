@@ -48,6 +48,9 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
+import { RemoteMachinesIcon, RemotePopover, remoteGlyphState, useOpenRemoteSettings } from './topbar/RemotePopover'
+import { useTailnetPresence } from './topbar/useTailnetPresence'
+import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 
@@ -389,26 +392,11 @@ export type WorkspaceActionsProps = {
 
 }
 
-// Branch-fork glyph for the header identity cluster. Stroke idiom matches the
-// Git panel's local icons (1.3px round strokes on a 16px box) so the two Git
-// surfaces read as one family.
-export function GitBranchGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M5 5.15v5.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path
-        d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
+// One branch fork for the whole app: the shared AppIcons drawing (also
+// mirrored in design-system/glyphs/git-branch.svg since remote-sessions-ux /
+// two-line-session-rows). This file drew its own; the identity cluster, the
+// tab popover, and the sidebar rows now share the single export.
+export { GitBranchGlyph } from '../AppIcons'
 
 export function WorkspaceActions({
   workspaces,
@@ -446,6 +434,13 @@ export function WorkspaceActions({
     () => getRendererHost().getTopBarItems((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
     [moduleOverrides],
   )
+  // Remote presence (remote-sessions-ux / remote-glyph-topbar): pushed, never
+  // polled. Open-state lives here with its two neighbours so the three
+  // popovers stay mutually exclusive.
+  const remotePresence = useTailnetPresence()
+  const remoteState = remoteGlyphState(remotePresence)
+  const [remoteOpen, setRemoteOpen] = React.useState(false)
+  const openRemoteSettings = useOpenRemoteSettings()
   // The active workspace type's top-bar view set, from the registry and gated by
   // module enablement (was VIEWS_FOR_MODE). getWorkspaceType returns a stable
   // reference, so this memo only recomputes when the mode or enablement changes;
@@ -486,6 +481,7 @@ export function WorkspaceActions({
                 setSessionsOpen(next)
                 if (next) {
                   setNotificationsOpen(false)
+                  setRemoteOpen(false)
                 }
               }}
               ariaLabel="Sessions"
@@ -618,6 +614,92 @@ export function WorkspaceActions({
         ) : null}
 
         {/* top-bar-group: communication */}
+        {/* The Remote glyph (remote-sessions-ux / remote-glyph-topbar):
+            presence for both directions of the tailnet — who is driving this
+            machine, and the machines this Studio drives. Consciously
+            supersedes the Fleet "no rail glyph" ruling for the TOP BAR (epic
+            decision 5); commandRegistry's fleet comment records the same.
+            Hidden while the feature is off and no machine is paired — absent,
+            not present-but-empty. */}
+        {remoteState.visible ? (
+          <div className="relative inline-flex">
+            <Popover
+              open={remoteOpen}
+              onOpenChange={(next) => {
+                setRemoteOpen(next)
+                if (next) {
+                  setSessionsOpen(false)
+                  setNotificationsOpen(false)
+                }
+              }}
+              ariaLabel="Remote"
+              // Rows carry their own buttons (Revoke, Review) — a dialog, not
+              // a menu, same ruling as the notifications popover (MC-2138).
+              popupRole="dialog"
+              placement="bottom-end"
+              renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                <Tooltip
+                  content={
+                    remoteState.driving
+                      ? 'Remote — a device is driving a terminal here'
+                      : remoteState.requestCount > 0
+                        ? 'Remote — a pair request is waiting'
+                        : 'Remote'
+                  }
+                  placement="bottom"
+                >
+                  <IconButton
+                    ref={ref}
+                    size="md"
+                    onClick={togglePopover}
+                    pressed={remoteOpen}
+                    className="relative"
+                    aria-label="Remote"
+                    {...triggerProps}
+                  >
+                    <ChangePulse
+                      value={remoteState.requestCount}
+                      mode="increase"
+                      tint="var(--tone-warn)"
+                      className="inline-flex"
+                    >
+                      <RemoteMachinesIcon
+                        className={`size-icon-md ${
+                          remoteState.driving ? 'animate-pulse text-[color:var(--tone-warn)]' : ''
+                        }`}
+                      />
+                    </ChangePulse>
+                    {remoteState.requestCount > 0 ? (
+                      <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
+                    ) : remoteState.connected ? (
+                      <StatusDot
+                        tone="good"
+                        label="Connected"
+                        className="absolute right-0.5 top-0.5"
+                      />
+                    ) : null}
+                  </IconButton>
+                </Tooltip>
+              )}
+            >
+              <RemotePopover
+                presence={remotePresence}
+                onOpenFleet={
+                  activeWorkspace
+                    ? () => {
+                        setRemoteOpen(false)
+                        focusOrAddComponentTab(activeWorkspace.id, 'fleet', 'Fleet')
+                      }
+                    : null
+                }
+                onOpenRemoteSettings={() => {
+                  setRemoteOpen(false)
+                  openRemoteSettings()
+                }}
+              />
+            </Popover>
+          </div>
+        ) : null}
         <div ref={notificationsRef} className="relative inline-flex">
           <Popover
             open={notificationsOpen}
@@ -625,6 +707,7 @@ export function WorkspaceActions({
               setNotificationsOpen(next)
               if (next) {
                 setSessionsOpen(false)
+                setRemoteOpen(false)
               }
             }}
             ariaLabel="Notifications"
