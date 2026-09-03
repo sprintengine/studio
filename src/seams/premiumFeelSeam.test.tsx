@@ -1015,19 +1015,26 @@ async function main(): Promise<void> {
         )
       })
 
-      const triggers = [...container.querySelectorAll('button[aria-expanded]')] as HTMLElement[]
-      assert.equal(triggers.length, 2, 'the model popover and the reasoning selector both rendered')
-      for (const trigger of triggers) {
-        assert.equal(
-          trigger.getAttribute('aria-expanded'),
-          'false',
-          'an overlay trigger states its own expanded state before it is opened',
-        )
-        assert.ok(trigger.hasAttribute('aria-haspopup'))
-      }
+      // At rest there is ONE trigger: the model button. Reasoning is not a second
+      // control beside it any more — it moved inside the model popover, under a
+      // divider below the model list, because context window and effort are
+      // decisions about the model chosen just above them. So the pairing this
+      // seam cares about is trigger → surface → surface, not two peers.
+      const modelTrigger = container.querySelector('button[aria-expanded]') as HTMLElement | null
+      assert.ok(modelTrigger, 'the model popover trigger rendered')
+      assert.equal(
+        container.querySelectorAll('button[aria-expanded]').length,
+        1,
+        'reasoning is inside the model popover, not a second trigger beside it',
+      )
+      assert.equal(
+        modelTrigger.getAttribute('aria-expanded'),
+        'false',
+        'an overlay trigger states its own expanded state before it is opened',
+      )
+      assert.ok(modelTrigger.hasAttribute('aria-haspopup'))
 
-      for (const trigger of triggers) {
-        const name = trigger.getAttribute('aria-label') ?? trigger.textContent ?? ''
+      const openAndAssert = async (trigger: HTMLElement, name: string): Promise<void> => {
         trigger.focus()
         await act(async () => {
           trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -1044,17 +1051,41 @@ async function main(): Promise<void> {
         // the failure that makes arrow keys inert (verified in the built app).
         const active = dom.window.document.activeElement as HTMLElement | null
         assert.notEqual(active, trigger, `${name}: focus moved into the surface`)
-
-        await act(async () => {
-          dom.window.dispatchEvent(
-            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-          )
-        })
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 20))
-        })
-        assert.equal(trigger.getAttribute('aria-expanded'), 'false', `${name}: Escape closes it`)
       }
+
+      await openAndAssert(modelTrigger, 'Agent runtime')
+
+      // The reasoning selector now lives in the opened surface. Same contract:
+      // its own trigger, its own expanded state, the same one enter transition.
+      const reasoningTrigger = [...dom.window.document.querySelectorAll('button[aria-expanded]')].find(
+        (node) => node !== modelTrigger,
+      ) as HTMLElement | undefined
+      assert.ok(reasoningTrigger, 'the reasoning selector rendered inside the open model popover')
+      assert.ok(reasoningTrigger.hasAttribute('aria-haspopup'))
+      await openAndAssert(reasoningTrigger, 'Reasoning')
+
+      // On document, not window: the popover primitive listens there on purpose
+      // (see Popover.tsx — document bubble listeners run before a hosting
+      // dialog's window listener, so the popover consumes Escape first). A
+      // window-targeted event never reaches it.
+      await act(async () => {
+        dom.window.document.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        )
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+      assert.equal(
+        reasoningTrigger.getAttribute('aria-expanded'),
+        'false',
+        'Reasoning: Escape closes the innermost surface first',
+      )
+      assert.equal(
+        modelTrigger.getAttribute('aria-expanded'),
+        'true',
+        'and leaves the model popover it opened from standing',
+      )
     } finally {
       await act(async () => {
         root.unmount()
@@ -1123,7 +1154,7 @@ async function main(): Promise<void> {
 
   // ═══ 5. Drill-in replaces the rail, and gives it back ════════════════════
 
-  await check('opening a door replaces the projects rail, and Back restores it', async () => {
+  await check('opening a door replaces the projects rail, and its bar carries the way back', async () => {
     const { default: WorkspaceSidebar } = await import(
       '../renderer/src/components/workspace/WorkspaceSidebar'
     )
@@ -1265,16 +1296,17 @@ async function main(): Promise<void> {
         container.querySelector('[data-context-rail] [data-door-rail-row]'),
         "the door's own rail really is inside the host's column",
       )
-      const back = [...container.querySelectorAll('[data-context-rail] button')].find(
+      // Back moved out of the rail and onto the door's bar (see contextRail.tsx):
+      // the exit belongs beside the name of the thing it exits, not below a
+      // scrolling column where reaching it means travelling past every row the
+      // door brought. Still ONE way out — it just changed ends.
+      const railBack = [...container.querySelectorAll('[data-context-rail] button')].find(
         (node) => (node.textContent ?? '').trim() === 'Back',
       )
-      assert.ok(back, 'Back is a rail row, pinned by the host')
-      // One way out: the door bar carries no second back affordance while its
-      // rail owns the column.
-      assert.equal(
+      assert.equal(railBack, undefined, 'the rail no longer pins a Back row at its bottom')
+      assert.ok(
         container.querySelector('button[aria-label="Back"]'),
-        null,
-        'two back affordances on one screen is two answers to one question',
+        "the door's bar carries the one back affordance instead",
       )
 
       doorOpen = false

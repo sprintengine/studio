@@ -222,12 +222,12 @@ async function main(): Promise<void> {
     reopened.unmount()
   })
 
-  await check('SEAM: Terminal and Conversation are rail entries, and the footer leaves with them', async () => {
+  await check('SEAM: Terminal and Chats are rail entries, and the footer leaves with them', async () => {
     const view = await mountPicker()
     const labels = view.rails().map((entry) => entry.getAttribute('aria-label'))
     assert.deepEqual(
       labels.slice(-2),
-      ['Terminal', 'Conversation agents'],
+      ['Terminal', 'Chats'],
       'both sit after the providers, at the end of the rail',
     )
     assert.ok(view.footerButton('Permissions for the next spawn'), 'the model filters carry the footer')
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
     await view.click(view.row('zsh'))
     assert.deepEqual(view.spawns(), [{ kind: 'terminal' }], 'the shell row spawns a terminal')
 
-    await view.click(view.rail('Conversation agents'))
+    await view.click(view.rail('Chats'))
     assert.equal(view.footerButton('Permissions for the next spawn'), null, 'nor on the conversation filter')
     await view.click(view.row('Claude'))
     assert.deepEqual(
