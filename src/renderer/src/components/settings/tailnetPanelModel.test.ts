@@ -41,6 +41,7 @@ function status(overrides: Partial<TailnetRemoteStatus> = {}): TailnetRemoteStat
     lastError: null,
     devices: [],
     pairing: null,
+    pairRequests: [],
     ...overrides,
   }
 }

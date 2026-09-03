@@ -125,7 +125,7 @@ async function main(): Promise<void> {
         <SpawnPicker
           conversationRows={CONVERSATION_ROWS}
           onSpawn={(confirm) => spawns.push(confirm as unknown as Confirm)}
-          permissionPreset="default"
+          permissionPreset="manual"
           onChangePermissionPreset={() => {}}
           debugMode={false}
           onChangeDebugMode={() => {}}

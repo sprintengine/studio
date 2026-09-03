@@ -2182,6 +2182,20 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
     if (request === '@vscode/ripgrep') {
       return { rgPath: 'rg' }
     }
+    // The build stamp is minted by a Vite plugin at build time, so there is no
+    // module on disk for the test bundle's `require` to find. Stubbing it here
+    // keeps this test's existing interception the single place main's build-only
+    // dependencies are stood in for.
+    if (request === 'virtual:multicode-build-stamp') {
+      return {
+        buildStamp: {
+          commit: null,
+          source: 'unavailable' as const,
+          builtAt: '2026-01-01T00:00:00.000Z',
+          mode: 'development' as const,
+        },
+      }
+    }
     return originalLoad(request, parent, isMain)
   }
 

@@ -1172,8 +1172,10 @@ async function main(): Promise<void> {
                   surfaceKey="backlog"
                   ariaLabel="Backlog rail"
                   active={active}
-                  railRef={setRailEl}
-                  onBack={onBack}
+                  // The column takes a plain callback ref, not a state setter:
+                  // a Dispatch<SetStateAction<T>> also accepts an updater fn,
+                  // which is a wider contract than the column will ever call.
+                  railRef={(element) => setRailEl(element)}
                 />
               ) : undefined,
               contextRailActive: active,

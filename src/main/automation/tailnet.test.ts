@@ -813,6 +813,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
     lastError: null,
     devices: [],
     pairing: null,
+    pairRequests: [],
   }
   let status: TailnetRemoteStatus = { ...base }
   const minted: Array<{ scopes?: unknown }> = []
@@ -831,6 +832,16 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
         pairingUrl: 'multicode-tailnet://pair?endpoint=100.64.0.1%3A8787&token=mcpair_test',
       }
     },
+    // This test is about refusing to mint a code that points at nothing, not
+    // about approvals — the two request handlers exist to satisfy the front-door
+    // contract and are never reached here.
+    approveTailnetPairRequest: () => ({
+      ok: false as const,
+      code: 'request_not_found' as const,
+      message: 'No such pairing request.',
+      status,
+    }),
+    denyTailnetPairRequest: () => status,
     cancelTailnetPairing: () => status,
     revokeTailnetDevice: () => status,
     listTailnetPeers: async () => ({

@@ -759,7 +759,7 @@ function testResolveDebugSkillInvocation(): void {
 // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
 // permission surface.
 function testDebugModeOrthogonality(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto', 'bypass']
+  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const prompt = 'investigate the crash'
   for (const cli of ['claude-code', 'codex'] as const) {
     for (const preset of presets) {
@@ -850,7 +850,7 @@ function testCodexLegacyWindowsReasoning(): void {
   const script = (reasoning?: string): string[] =>
     decodeWindowsScriptArgs(
       buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy_r', false, cwd, 'go', runtime, 'default', 'gpt-5.6-sol', false, reasoning,
+        'sid_legacy_r', false, cwd, 'go', runtime, 'manual', 'gpt-5.6-sol', false, reasoning,
       ),
     )
 
@@ -875,7 +875,7 @@ function testCodexLegacyWindowsReasoning(): void {
   const resumeArgs = (reasoning?: string): string[] =>
     decodeWindowsScriptArgs(
       buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy_r', true, cwd, undefined, runtime, 'default', 'gpt-5.6-sol', false, reasoning,
+        'sid_legacy_r', true, cwd, undefined, runtime, 'manual', 'gpt-5.6-sol', false, reasoning,
       ),
     )
   assert.deepEqual(
@@ -896,7 +896,7 @@ function testCodexLegacyWindowsReasoning(): void {
 // when debugMode is on, and (b) keep launch/permission args byte-identical with
 // debug on vs off — the same orthogonality invariant the shared paths hold.
 function testCodexLegacyWindowsDebugInjection(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto', 'bypass']
+  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const cwd = 'C:/work/repo'
   const runtime = { command: '', useWsl: false }
   const prompt = 'investigate the crash'
@@ -948,10 +948,10 @@ function testCodexLegacyWindowsDebugInjection(): void {
   // Resume carries no prompt arg on this path, so debug on vs off renders an
   // identical script — the directive only rides an initial prompt.
   const resumeOff = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', true, cwd, undefined, runtime, 'default', undefined, false,
+    'sid_legacy', true, cwd, undefined, runtime, 'manual', undefined, false,
   )
   const resumeOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', true, cwd, undefined, runtime, 'default', undefined, true,
+    'sid_legacy', true, cwd, undefined, runtime, 'manual', undefined, true,
   )
   assert.equal(resumeOn, resumeOff, 'codex-legacy resume: debug toggle is a no-op without an initial prompt')
 
@@ -959,7 +959,7 @@ function testCodexLegacyWindowsDebugInjection(): void {
   // directive as the sole prompt arg, matching
   // applyDebugDirective('', true, 'Use $debug.').
   const noPromptOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', false, cwd, '', runtime, 'default', undefined, true,
+    'sid_legacy', false, cwd, '', runtime, 'manual', undefined, true,
   )
   // This legacy path escapes real newlines to literal "\n" in the codex prompt
   // arg (nativeWindowsCodexPromptArg), so build the expected value by applying

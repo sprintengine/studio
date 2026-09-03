@@ -983,7 +983,7 @@ assert.equal(
 )
 assert.equal(resolvePermissionPreset(null, undefined), 'manual', 'an agent record predating the field asks per tool')
 
-const pillMarkup = (preset: 'default' | 'auto' | 'bypass'): string =>
+const pillMarkup = (preset: 'none' | 'manual' | 'auto' | 'bypass'): string =>
   renderToStaticMarkup(
     createElement(PermissionPresetPill, {
       preset,
@@ -995,13 +995,13 @@ const pillMarkup = (preset: 'default' | 'auto' | 'bypass'): string =>
     })
   )
 
-const defaultPill = pillMarkup('default')
-assert.ok(defaultPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
+const manualPill = pillMarkup('manual')
+assert.ok(manualPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
 assert.ok(
-  defaultPill.includes('aria-haspopup="dialog"') && defaultPill.includes('aria-expanded="false"'),
+  manualPill.includes('aria-haspopup="dialog"') && manualPill.includes('aria-expanded="false"'),
   'the retired read-only chip is now a real disclosure control, announced as one'
 )
-assert.ok(!defaultPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
+assert.ok(!manualPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
 assert.ok(
   pillMarkup('bypass').includes('--tone-warn'),
   'a conversation running without permission checks says so in the warn tone'

@@ -377,7 +377,7 @@ async function main(): Promise<void> {
 
     const written = await harness.service.setCliPermissionPreset({
       statePath: harness.statePath,
-      preset: 'default',
+      preset: 'manual',
       actor: 'ui',
     })
     assert.ok(written.ok && written.changed)

@@ -22,7 +22,7 @@ const html = renderToStaticMarkup(
     runtimeState="blocked"
     runtimeReason="Waiting on T4: Should the loader fall back to the bundled registry?"
     runtimeTask={blockedTask}
-    cliPermissionPreset="default"
+    cliPermissionPreset="manual"
     onChangeAutomationMode={() => {}}
     onResumeAutomation={() => {}}
     onOpenRuntimeTask={() => {}}
@@ -53,7 +53,7 @@ const htmlNoTask = renderToStaticMarkup(
     runtimeState="blocked"
     runtimeReason="A task needs input from the user or architect before agents can continue."
     runtimeTask={null}
-    cliPermissionPreset="default"
+    cliPermissionPreset="manual"
     onChangeAutomationMode={() => {}}
     onResumeAutomation={() => {}}
     onOpenRuntimeTask={() => {}}
@@ -76,7 +76,7 @@ const htmlNoHandler = renderToStaticMarkup(
     runtimeState="blocked"
     runtimeReason="Waiting on T4: Should the loader fall back to the bundled registry?"
     runtimeTask={blockedTask}
-    cliPermissionPreset="default"
+    cliPermissionPreset="manual"
     onChangeAutomationMode={() => {}}
     onResumeAutomation={() => {}}
     onOpenRuntimeTask={null}
