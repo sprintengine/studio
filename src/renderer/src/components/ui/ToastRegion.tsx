@@ -8,8 +8,8 @@ import { useToastStore } from '../../store/toastStore'
 //
 // The wrapper swallows no clicks (`pointer-events-none`); each toast surface
 // reclaims its own, so an empty or animating region never blocks the pane
-// under the corner. No shadow and no blur on any of this — the spec's ruling,
-// and terminals may be rendering underneath.
+// under the corner. The region itself draws nothing; the card is the glass
+// (Toast.tsx), the one blurred surface the design system allows.
 export function ToastRegion() {
   const toasts = useToastStore((state) => state.toasts)
   const dismissToast = useToastStore((state) => state.dismissToast)

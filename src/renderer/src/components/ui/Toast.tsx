@@ -73,7 +73,13 @@ export function Toast({
         // toast-enter is defined in src/renderer/src/assets/index.css and is
         // disabled inside the global `prefers-reduced-motion: reduce` rule.
         'toast-enter flex items-start gap-2 rounded-[7px] border px-3 py-2',
-        'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
+        // Glass (owner ruling 2026-09-04):
+        // `surface-glass` is bg.surface-raised at glass.opacity over a blur of
+        // the page, with a hairline and shadow.popover to draw the card's
+        // edge over whatever shows through. The toast is the ONE surface
+        // allowed to blur — its area is a corner, not a viewport — and the
+        // conformance lint pins the utility to this file.
+        'surface-glass shadow-[var(--shadow-popover)] border-[color:var(--border-default)]',
         'text-meta text-[color:var(--text-default)]',
         className ?? '',
       ].join(' ')}

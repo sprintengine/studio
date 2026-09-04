@@ -37,7 +37,14 @@
   padding: var(--sem-space-sm) var(--sem-space-lg);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
-  background: var(--sem-color-bg-surface-raised);
+  /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * toast is the one surface allowed to blur — a corner, not a viewport. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  box-shadow: var(--sem-shadow-popover);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -137,5 +144,11 @@
 @media (prefers-reduced-motion: reduce) {
   .ds-toast {
     animation: none;
+  }
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-toast {
+    background: var(--sem-color-bg-surface-raised);
   }
 }

@@ -1488,6 +1488,61 @@
         }
       }
     },
+    "glass": {
+      "blur": {
+        "$type": "dimension",
+        "$value": "12px",
+        "$description": "Backdrop blur radius of the one glass surface \u2014 the toast card.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "The toast card only (owner ruling 2026-09-04): a corner-sized surface whose blur area is a fraction of the viewport. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane.",
+            "doNotUse": "Any scrim, modal, drawer, popover, menu, or full-width surface \u2014 blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim. The conformance lint pins glass to the toast.",
+            "components": [
+              "toast"
+            ],
+            "modes": {
+              "light": "12px",
+              "dark": "16px"
+            }
+          }
+        }
+      },
+      "opacity": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "How much of bg.surface-raised the glass keeps; the rest is the page showing through.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "The toast card's ground: color-mix(bg.surface-raised, glass.opacity) over the blur. Where backdrop-filter is unsupported the card falls back to solid bg.surface-raised.",
+            "doNotUse": "Tinting any other surface translucent.",
+            "components": [
+              "toast"
+            ]
+          }
+        }
+      },
+      "saturation": {
+        "$type": "number",
+        "$value": 1.14,
+        "$description": "Saturation boost applied with the blur so what shows through stays lively rather than grey.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Paired with glass.blur in the toast's backdrop-filter. Dark mode boosts less: near-black grounds have little to saturate and over-boosting shows as colour fringing.",
+            "doNotUse": "Anywhere glass.blur is not.",
+            "components": [
+              "toast"
+            ],
+            "modes": {
+              "light": 1.14,
+              "dark": 1.08
+            }
+          }
+        }
+      }
+    },
     "z": {
       "base": {
         "$type": "number",

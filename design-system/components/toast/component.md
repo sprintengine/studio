@@ -21,11 +21,17 @@ counts, hashes, byte sizes are stored, not displayed.
 | Content | `.ds-toast-content` | yes — title `.ds-toast-title`, optional description `.ds-toast-description` |
 | Dismiss | `.ds-toast-dismiss` | no — trailing icon button, `aria-label="Dismiss"` |
 
-The surface separates from the page with a `border.default` hairline on
-`bg.surface-raised`. **No shadow**: no elevation token names the toast (the
-ramp's three steps are popover, drawer, modal), and the shipped toast ships
-none — a small surface at the viewport's edge is not anchored to anything a
-shadow would lift it from.
+The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glass.opacity` over a `backdrop-filter` of
+`glass.blur` and `glass.saturation`, a `border.default` hairline, and
+`shadow.popover` drawing the edge over whatever shows through. Where
+`backdrop-filter` is unsupported the card is solid `bg.surface-raised`.
+
+This is the one surface in the system allowed to blur. The blur ban
+(`principles.md`, the modal and drawer specs) exists because a full-viewport
+scrim re-samples every terminal pane under it every frame; a toast's area is
+a corner, a fraction of that cost. The conformance lint pins the glass to
+this component — any other surface that blurs, or borrows the toast's
+utility, is a violation.
 
 The tone is carried by the dot's shape-plus-color and by the words — never by
 tinting the surface. A toast that survives greyscale is the test.
@@ -82,7 +88,8 @@ is a squatter.
 
 **Rebuilding it in a framework:** what must survive is the tone table — the
 role/live/persistence mapping is the component's actual contract — plus the
-single region and the hit-target floor on the dismiss button.
+single region, the hit-target floor on the dismiss button, and the glass
+staying the toast's alone.
 
 ## Accessibility
 

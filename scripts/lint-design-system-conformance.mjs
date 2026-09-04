@@ -35,6 +35,11 @@
 //                          ("Restraint": selection is neutral, no left bar).
 //   backdrop-filter        `backdrop-blur` / `backdrop-filter` ("Motion":
 //                          never on a scrim; it is also a ~10fps regression).
+//                          One sanctioned surface: the toast card (owner
+//                          ruling 2026-09-04) — a corner-sized area — through
+//                          the `surface-glass` utility in the app CSS,
+//                          consumed by Toast.tsx alone. Any other blur, and
+//                          any other consumer of the utility, is flagged.
 //   shadow-in-flow         a Tailwind `shadow-{sm,md,lg,xl,2xl}` utility
 //                          ("Hairlines carry the structure": elevation is a
 //                          three-step overlay ramp taken from the shadow
@@ -642,6 +647,12 @@ const ACCENT_BORDER = /(?<![\w-])border-\[(?:color:)?var\(--accent-primary\)\]/g
 const LEFT_BORDER_WIDTH = /(?<![\w-])border-l(?:-(?:0|2|4|8|\[\d+(?:\.\d+)?(?:px|rem)?\]))?(?![\w-])/
 
 const BACKDROP_FILTER = /(?<![\w-])backdrop-(?:blur|filter)(?:-[\w.[\]/-]+)?/g
+// Glass is the toast's alone: the utility that carries the blur, and the one
+// file allowed to wear it. Everything else that blurs — or borrows the class —
+// is a `backdrop-filter` violation.
+const GLASS_UTILITY = 'surface-glass'
+const GLASS_UTILITY_PATTERN = /(?<![\w-])surface-glass(?![\w-])/g
+const GLASS_CONSUMER_FILES = new Set(['src/renderer/src/components/ui/Toast.tsx'])
 
 const TAILWIND_SHADOW = /(?<![\w-])shadow-(?:sm|md|lg|xl|2xl)(?![\w-])/g
 
@@ -1042,6 +1053,13 @@ function scanSourceFile(file, push) {
     if (!inCode(match.index)) return
     push('backdrop-filter', file, match.index, match[0])
   })
+
+  if (!GLASS_CONSUMER_FILES.has(file.path)) {
+    forEachMatch(GLASS_UTILITY_PATTERN, source, (match) => {
+      if (!inCode(match.index)) return
+      push('backdrop-filter', file, match.index, `${match[0]} (glass is the toast's alone)`)
+    })
+  }
 
   forEachMatch(TAILWIND_SHADOW, source, (match) => {
     if (!inCode(match.index)) return
@@ -1512,7 +1530,9 @@ const FIX_HINT = {
   'spacing-off-grid': 'use the nearest sem.space step (2, 4, 6, 8, 10, 12, 16, 20, 24, 32)',
   'emoji-as-icon': 'use a glyph from components/AppIcons.tsx, or delete the decoration',
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
-  'backdrop-filter': 'separation comes from the scrim tone plus the shell shadow',
+  'backdrop-filter':
+    'separation comes from the scrim tone plus the shell shadow; the toast card is the one glass ' +
+    'surface (surface-glass in Toast.tsx) and nothing else blurs or borrows it',
   'shadow-in-flow':
     'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
     '.control-edge; all other in-flow chrome takes a hairline',
@@ -1644,6 +1664,36 @@ const appCssKinds = maskCssComments(appCss)
 const appCssStarts = lineStarts(appCss)
 const appCssLines = appCss.split('\n')
 markerLinesByPath.set(APP_CSS_PATH, collectMarkerLines(APP_CSS_PATH, appCssLines))
+
+// The app CSS may blur in exactly one place: the `surface-glass` utility.
+{
+  // Comment text (the prose that explains the ban) is skipped by kind.
+  const masked = appCss
+  let glassStart = -1
+  let glassEnd = -1
+  const utilityAt = masked.indexOf(`@utility ${GLASS_UTILITY} {`)
+  if (utilityAt !== -1) {
+    glassStart = utilityAt
+    let depth = 0
+    for (let i = masked.indexOf('{', utilityAt); i < masked.length; i += 1) {
+      if (masked[i] === '{') depth += 1
+      if (masked[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          glassEnd = i
+          break
+        }
+      }
+    }
+  }
+  const cssBackdrop = /backdrop-filter\s*:/g
+  forEachMatch(cssBackdrop, masked, (match) => {
+    if (appCssKinds[match.index] === KIND_COMMENT) return
+    const inside = glassStart !== -1 && match.index > glassStart && match.index < glassEnd
+    if (inside) return
+    pushAt('backdrop-filter', APP_CSS_PATH, lineOf(appCssStarts, match.index), match[0])
+  })
+}
 
 const bundle = resolveBundle(readFileSync(bundleCssAbs, 'utf8'))
 const rootBlocks = readRootBlocks(appCss, appCssKinds)

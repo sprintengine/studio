@@ -79,6 +79,21 @@
   outline-offset: calc(-1 * var(--focus-ring-offset));
 }
 
+/* The one glass surface: the toast card (owner ruling 2026-09-04). `bg.surface-raised` at `glass.opacity` over a
+ * blur-and-saturate of whatever is behind — a corner-sized area, which is why
+ * this is allowed where a scrim's full-viewport blur is not (see the
+ * `backdrop-filter` rule in scripts/lint-design-system-conformance.mjs: this
+ * utility, and Toast.tsx consuming it, are the only sanctioned sites). Where
+ * backdrop-filter is unsupported the card is solid bg.surface-raised. */
+@utility surface-glass {
+  background: color-mix(in srgb, var(--bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    background: var(--bg-surface-raised);
+  }
+}
+
 /* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
  * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.

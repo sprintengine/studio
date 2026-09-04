@@ -122,6 +122,9 @@
   --sem-focus-ring-width: 2px;
   --sem-focus-ring-offset: 2px;
   --sem-focus-ring: 2px solid var(--sem-color-border-focus);
+  --sem-glass-blur: 12px;
+  --sem-glass-opacity: 0.8;
+  --sem-glass-saturation: 1.14;
   --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
@@ -169,4 +172,6 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-glass-blur: 16px;
+  --sem-glass-saturation: 1.08;
 }

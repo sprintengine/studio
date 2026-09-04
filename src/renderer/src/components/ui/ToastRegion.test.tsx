@@ -93,7 +93,10 @@ run('the region is one fixed bottom-trailing stack at z.toast with space.sm gaps
   assert.match(classes, /gap-2/, 'space.sm apart')
   assert.match(classes, /pointer-events-none/, 'the wrapper swallows no clicks')
   assert.match(region.innerHTML, /pointer-events-auto/, 'each surface reclaims its own')
-  assert.doesNotMatch(region.innerHTML, /shadow|backdrop/, 'no shadow, no blur — the spec ruling')
+  assert.match(region.innerHTML, /surface-glass/, 'the card is the one glass surface (ruling 2026-09-04)')
+  assert.match(region.innerHTML, /shadow-\[var\(--shadow-popover\)\]/, 'its edge is drawn by shadow.popover')
+  assert.doesNotMatch(region.innerHTML, /bg-\[color:var\(--bg-surface-raised\)\]/, 'no flat fill under the glass')
+  assert.doesNotMatch(region.getAttribute('class') ?? '', /surface-glass|shadow/, 'the region draws nothing itself')
   unmount()
 })
 
