@@ -3,6 +3,10 @@ import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
 import { detectLanguage, isImageFile } from '../../utils/files'
+import { joinFilePath } from '../../utils/paths'
+import { BranchStepStrip } from './BranchStepStrip'
+import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } from './branchSteps'
+import { useBranchSteps } from './useBranchSteps'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import {
@@ -33,6 +37,13 @@ type Props = {
   variant?: DiffViewerVariant
   /** Pane host only: the canonical count of the view, for the tab strip; null once the viewer is gone. */
   onItemCountChange?: (count: number | null) => void
+  /**
+   * Show the branch's commits as steps above the file list
+   * (the-diff-an-agent-made / changed-files-and-commit-steps). Pane only: the
+   * aux window is opened on one file from the working tree and has no branch to
+   * step through.
+   */
+  branchSteps?: boolean
 }
 
 type DiffContent =
@@ -76,11 +87,36 @@ async function readWorktreeSide(path: string): Promise<{ content: string; binary
   }
 }
 
+// One side of a commit step, read at a revision. A revision of null means the
+// file was not there — an addition's original, a deletion's modified — and the
+// honest render for that is an empty pane, not a read failure.
+async function readRevSide(
+  repoRoot: string,
+  path: string,
+  rev: string | 'worktree' | null
+): Promise<{ content: string; binary: boolean }> {
+  if (rev === null) return { content: '', binary: false }
+  if (rev === 'worktree') return readWorktreeSide(joinFilePath(repoRoot, path))
+  const content = await window.api.getGitFileAtRev(repoRoot, rev, path)
+  if (content === null) return { content: '', binary: false }
+  return { content, binary: content.includes(NUL) }
+}
+
 async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<DiffContent> {
   const language = detectLanguage(item.relativePath)
 
   if (isImageFile(item.path) || isImageFile(item.relativePath)) {
     return { state: 'binary' }
+  }
+
+  if (item.kind === 'branch') {
+    const branch = item as BranchDiffItem
+    const [original, modified] = await Promise.all([
+      readRevSide(repoRoot, branch.relativePath, branch.originalRev),
+      readRevSide(repoRoot, branch.relativePath, branch.modifiedRev),
+    ])
+    if (original.binary || modified.binary) return { state: 'binary' }
+    return { state: 'ready', original: original.content, modified: modified.content, language }
   }
 
   if (item.kind === 'staged') {
@@ -218,12 +254,31 @@ function DiffBody({
   )
 }
 
-export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window', onItemCountChange }: Props) {
+export function DiffViewer({
+  repoRoot,
+  focusPath,
+  focusKind,
+  variant = 'window',
+  onItemCountChange,
+  branchSteps = false,
+}: Props) {
   const { status, repoState } = useGitStatus(repoRoot)
   const isMac = window.api.platform === 'darwin'
   const monacoTheme = useMonacoBaseTheme()
 
-  const items = useMemo(() => buildDiffFileList(status), [status])
+  // The branch's steps, re-read when the git watcher says the tree moved. The
+  // status snapshot is the revision token: a rebase or a commit changes it, and
+  // a strip held across one would be confidently wrong about hashes that no
+  // longer exist.
+  const steps = useBranchSteps(repoRoot, branchSteps, status)
+  const stripEntries = useMemo(() => stripEntriesFrom(steps.snapshot), [steps.snapshot])
+  const stepNote = useMemo(() => scopeNote(steps.snapshot), [steps.snapshot])
+  const workingItems = useMemo(() => buildDiffFileList(status), [status])
+  const branchItems = useMemo(
+    () => branchItemsFrom(steps.diff, steps.selection, steps.snapshot, repoRoot),
+    [steps.diff, steps.selection, steps.snapshot, repoRoot]
+  )
+  const items = branchSteps ? branchItems : workingItems
 
   useEffect(() => {
     onItemCountChange?.(items.length)
@@ -302,7 +357,15 @@ export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window',
     return () => {
       cancelled = true
     }
-  }, [repoRoot, currentItem?.path, currentItem?.kind])
+  }, [
+    repoRoot,
+    currentItem?.path,
+    currentItem?.kind,
+    // Stepping to another commit leaves path and kind identical while both sides
+    // move; without these the pane would keep showing the previous step's diff.
+    (currentItem as BranchDiffItem | null)?.originalRev,
+    (currentItem as BranchDiffItem | null)?.modifiedRev,
+  ])
 
   const revealHunk = useCallback((index: number) => {
     const editor = diffEditorRef.current
@@ -410,10 +473,14 @@ export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window',
 
   const openInWindow = useCallback(() => {
     const target = currentItem ?? items[0]
+    // The aux window shows the WORKING TREE; a branch step has no counterpart
+    // there, so it opens on the unstaged view of the same file rather than
+    // carrying a scope the window cannot honour.
+    const scope = target?.kind === 'branch' ? 'unstaged' : target?.kind
     void openDiffWindow({
       repoRoot,
       focusPath: target?.path ?? focusPath ?? '',
-      scope: target?.kind ?? focusKind ?? 'unstaged',
+      scope: scope ?? focusKind ?? 'unstaged',
     })
   }, [currentItem, focusKind, focusPath, items, repoRoot])
 
@@ -435,6 +502,14 @@ export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window',
       tabIndex={variant === 'pane' ? 0 : undefined}
       onKeyDown={variant === 'pane' ? (event) => { handleNavigationKey(event) } : undefined}
     >
+      {branchSteps ? (
+        <BranchStepStrip
+          entries={stripEntries}
+          selection={steps.selection}
+          onSelect={steps.select}
+          note={stepNote}
+        />
+      ) : null}
       <div className={bandClass}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
@@ -446,7 +521,21 @@ export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window',
           {currentItem ? (
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
-              {currentItem.kind === 'staged' ? ' · staged' : ' · unstaged'}
+              {currentItem.kind === 'branch'
+                ? ''
+                : currentItem.kind === 'staged'
+                  ? ' · staged'
+                  : ' · unstaged'}
+              {currentItem.kind === 'branch' && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+                <span className="ml-1 font-mono tabular-nums">
+                  <span className="text-[color:var(--tone-good)]">
+                    +{(currentItem as BranchDiffItem).additions}
+                  </span>
+                  <span className="ml-1 text-[color:var(--tone-error)]">
+                    −{(currentItem as BranchDiffItem).deletions}
+                  </span>
+                </span>
+              ) : null}
             </span>
           ) : null}
         </div>

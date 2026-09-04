@@ -1649,10 +1649,11 @@ export default function WorkspaceSidebar({
     const rowBranch = gitSummary?.branch ?? null
     const rowAdditions = gitSummary?.additions ?? 0
     const rowDeletions = gitSummary?.deletions ?? 0
-    // 'folder' means no turn has closed here yet, so these are the REPO's
-    // numbers, not this workspace's agents' (the-diff-an-agent-made). The row
-    // still shows them — they are the honest thing to say — but never as the
-    // agent's work.
+    // How much the ±lines may claim (the-diff-an-agent-made): 'worktree' this
+    // chat's own checkout, 'branch' a shared checkout's branch — real work, but
+    // a person's commits sit on it too — and 'folder' a checkout with no branch
+    // work to attribute, whose uncommitted numbers the row still shows because
+    // they are the honest thing to say, but never as the agent's work.
     const rowDiffScope = gitSummary?.scope ?? 'folder'
     const metaHasSubstance =
       rowSessions.length > 0

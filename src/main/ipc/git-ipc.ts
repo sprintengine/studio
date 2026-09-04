@@ -1,6 +1,8 @@
 import type { IpcMain } from 'electron'
+import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
+import type { BranchStepSelection } from '../../shared/electron-api'
 import {
   abortGitOperation,
   applyGitStash,
@@ -75,6 +77,33 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
       'get-workspace-change-summary',
       { checkoutPath },
       () => getWorkspaceChangeSummary({ checkoutPath })
+    )
+  })
+
+  ipcMain.handle('git:get-branch-steps', async (_, checkoutPath: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-branch-steps', { checkoutPath }, () =>
+      listBranchSteps(checkoutPath)
+    )
+  })
+
+  ipcMain.handle(
+    'git:get-branch-step-diff',
+    async (_, checkoutPath: string, selection: BranchStepSelection) => {
+      return diagnostics.withIpcDiagnostics(
+        'GitIPC',
+        'get-branch-step-diff',
+        { checkoutPath, selection: selection?.kind },
+        () => diffBranchSelection(checkoutPath, selection)
+      )
+    }
+  )
+
+  ipcMain.handle('git:get-file-at-rev', async (_, repoRoot: string, rev: string, filePath: string) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'get-file-at-rev',
+      { repoRoot, rev, filePath },
+      () => readFileAtRev(repoRoot, rev, filePath)
     )
   })
 

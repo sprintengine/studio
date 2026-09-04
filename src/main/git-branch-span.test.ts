@@ -10,6 +10,7 @@ import {
   readBranchName,
   readBranchSpan,
   resolveBranchBase,
+  resolveTrunk,
 } from './git-branch-span'
 
 // The branch reading's plumbing (the-diff-an-agent-made / branch-scoped-row-diff).
@@ -108,7 +109,7 @@ void (async () => {
     writeFileSync(join(dir, 'b.txt'), 'x\n')
     git(dir, 'add', '.')
     git(dir, 'commit', '-m', 'work')
-    assert.equal(await resolveBranchBase(dir), mainOid)
+    assert.equal(await resolveBranchBase(dir, 'feat'), mainOid)
   })
 
   await run('a repo with neither main nor master nor a remote has no base', async () => {
@@ -118,7 +119,7 @@ void (async () => {
     writeFileSync(join(dir, 'a.txt'), 'one\n')
     git(dir, 'add', '.')
     git(dir, 'commit', '-m', 'seed')
-    assert.equal(await resolveBranchBase(dir), null)
+    assert.equal(await resolveBranchBase(dir, 'solo'), null)
   })
 
   await run('origin/HEAD wins over the conventional guesses', async () => {
@@ -139,7 +140,34 @@ void (async () => {
     writeFileSync(join(clone, 'c.txt'), 'c\n')
     git(clone, 'add', '.')
     git(clone, 'commit', '-m', 'feature')
-    assert.equal(await resolveBranchBase(clone), trunkOid)
+    assert.equal(await resolveBranchBase(clone, 'feat'), trunkOid)
+  })
+
+  await run('a branch that IS the trunk takes no base at all', async () => {
+    const dir = repo()
+    // Local `main` is the trunk here, and HEAD is on it. Even with commits that
+    // a remote has not seen, there is no branch work to attribute.
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'more on main')
+    assert.equal(await resolveBranchBase(dir, 'main'), null, 'decided by NAME, not by distance')
+  })
+
+  await run('resolveTrunk rejects a branch’s own remote-tracking ref', async () => {
+    const origin = repo('multicode-branch-span-selftrack-origin-')
+    const clone = mkdtempSync(join(tmpdir(), 'multicode-branch-span-selftrack-'))
+    created.push(clone)
+    rmSync(clone, { recursive: true, force: true })
+    execFileSync('git', ['clone', '--quiet', origin, clone])
+    git(clone, 'checkout', '-b', 'feat')
+    writeFileSync(join(clone, 'b.txt'), 'b\n')
+    git(clone, 'add', '-A')
+    git(clone, 'commit', '-m', 'work')
+    git(clone, 'push', '--quiet', '-u', 'origin', 'feat')
+
+    const trunk = await resolveTrunk(clone, 'feat')
+    assert.notEqual(trunk?.name, 'feat', 'origin/feat is where it was pushed, not a trunk')
+    assert.equal(trunk?.name, 'main')
   })
 
   // ---- worktree detection -------------------------------------------------

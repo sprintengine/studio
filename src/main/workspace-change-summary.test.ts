@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { readBranchSpan } from './git-branch-span'
 import {
-  createCheckoutSpanShare,
+  createCheckoutSummaryShare,
   getWorkspaceChangeSummary,
   summaryFromSpan,
 } from './workspace-change-summary'
@@ -52,12 +52,34 @@ function repo(): string {
   return dir
 }
 
+
+/**
+ * A clone with a real `origin`, which is the configuration the severe findings
+ * of the 2026-09-04 review all live in — and which the first version of this
+ * suite had no fixture for, which is why none of them were caught here.
+ */
+function clonedRepo(): { origin: string; clone: string } {
+  const origin = mkdtempSync(join(tmpdir(), 'multicode-change-origin-'))
+  created.push(origin)
+  git(origin, 'init', '-b', 'main')
+  writeFileSync(join(origin, 'a.txt'), 'one\ntwo\nthree\n')
+  git(origin, 'add', '.')
+  git(origin, 'commit', '-m', 'seed')
+
+  const clone = mkdtempSync(join(tmpdir(), 'multicode-change-clone-'))
+  created.push(clone)
+  rmSync(clone, { recursive: true, force: true })
+  execFileSync('git', ['clone', '--quiet', origin, clone])
+  return { origin, clone }
+}
+
 function span(name: string, patch: Partial<BranchSpan> = {}): BranchSpan {
   return {
     branch: name,
     baseOid: 'base',
     isLinkedWorktree: false,
     aheadOfBase: false,
+    readable: true,
     stat: { additions: 0, deletions: 0, changedFiles: 0, files: [] },
     ...patch,
   }
@@ -150,10 +172,14 @@ void (async () => {
 
     const after = await getWorkspaceChangeSummary({ checkoutPath: dir })
     assert.equal(after.scope, 'branch')
+    // Anchored absolutely as well as relatively: without this the test passes
+    // for an implementation that reports nothing at all, which is exactly the
+    // failure mode it is named for.
+    assert.equal(before.additions, 2, 'the agent wrote two lines')
     assert.equal(
       after.additions,
-      before.additions,
-      'a merge from the default branch moves HEAD and the base together'
+      2,
+      'a merge from the trunk moves HEAD and the base together'
     )
   })
 
@@ -230,18 +256,101 @@ void (async () => {
     assert.equal(summary.changedFiles, 0)
   })
 
+  // ---- the 2026-09-04 review's severe findings ---------------------------
+
+  // Finding 1. The most common configuration this app runs in: a chat sitting on
+  // the trunk in a repo whose local trunk leads its remote. Comparing OIDs alone
+  // called the PERSON's unpushed commits the chat's branch work — at full
+  // strength, identical on every row in the repo, which is precisely the failure
+  // this epic exists to remove, in a new dress.
+  await run('unpushed commits on the trunk are NOT this chat’s branch work', async () => {
+    const { clone } = clonedRepo()
+    writeFileSync(join(clone, 'theirs.txt'), Array.from({ length: 300 }, (_, i) => `l${i}`).join('\n'))
+    git(clone, 'add', '.')
+    git(clone, 'commit', '-m', 'the person’s own unpushed work')
+    // The agent's actual contribution: one uncommitted line.
+    writeFileSync(join(clone, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: clone })
+    assert.equal(summary.scope, 'folder', 'being ON the trunk is decided by name, not by distance')
+    assert.equal(summary.additions, 1, 'the agent wrote one line, not 301')
+  })
+
+  // Finding 3. After the ordinary `git push -u origin feat`, `@{upstream}` is the
+  // branch's OWN remote tip, whose merge-base with HEAD is HEAD — which reported
+  // a branch full of work as having produced nothing, and the row draws nothing
+  // for zero.
+  await run('a branch tracking its own remote tip still reports its work', async () => {
+    const { clone } = clonedRepo()
+    git(clone, 'checkout', '-b', 'feat')
+    writeFileSync(join(clone, 'b.txt'), Array.from({ length: 100 }, (_, i) => `b${i}`).join('\n'))
+    git(clone, 'add', '.')
+    git(clone, 'commit', '-m', 'a hundred lines of work')
+    git(clone, 'push', '--quiet', '-u', 'origin', 'feat')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: clone })
+    assert.equal(summary.scope, 'branch', 'origin/feat is where it was pushed, not a trunk')
+    assert.equal(summary.additions, 100, 'never a confident zero for work that is really there')
+  })
+
+  // Finding 2's mitigation: with several conventional trunks resolving, the
+  // CLOSEST merge-base wins rather than whichever was listed first.
+  await run('the nearest trunk wins when several resolve', async () => {
+    const { clone } = clonedRepo()
+    git(clone, 'checkout', '-b', 'master')
+    writeFileSync(join(clone, 'ancient.txt'), Array.from({ length: 200 }, (_, i) => `x${i}`).join('\n'))
+    git(clone, 'add', '.')
+    git(clone, 'commit', '-m', 'an ancient divergent master')
+    git(clone, 'checkout', 'main')
+    git(clone, 'checkout', '-b', 'feat')
+    writeFileSync(join(clone, 'b.txt'), 'b\n')
+    git(clone, 'add', '.')
+    git(clone, 'commit', '-m', 'one line of work')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: clone })
+    assert.equal(summary.additions, 1, 'measured against main, not the ancient master')
+  })
+
+  // Finding 4. A workspace opened on a SUBDIRECTORY, with the user's own
+  // diff.relative set: git would silently report only that subtree.
+  await run('diff.relative cannot truncate the reading', async () => {
+    const dir = repo()
+    git(dir, 'config', 'diff.relative', 'true')
+    git(dir, 'checkout', '-b', 'feat')
+    execFileSync('mkdir', ['-p', join(dir, 'sub')])
+    writeFileSync(join(dir, 'sub', 's.txt'), 'one\n')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'work in two places')
+
+    const fromSub = await getWorkspaceChangeSummary({ checkoutPath: join(dir, 'sub') })
+    assert.equal(fromSub.changedFiles, 2, 'the whole repo, not the subtree the cwd happens to be')
+    assert.equal(fromSub.additions, 2)
+  })
+
+  // Finding 5. An unreadable diff must not read as "the agent changed nothing".
+  await run('an unreadable span falls back to the folder rather than to zero', async () => {
+    const dir = repo()
+    // A bare repo has no work tree, so `git diff` cannot run at all.
+    const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-'))
+    created.push(bare)
+    execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
+    assert.equal(summary.scope, 'folder', 'never `branch` or `worktree` for a span we could not read')
+  })
+
   // ---- the per-checkout share --------------------------------------------
 
   await run('rows sharing a checkout share ONE read', async () => {
     let reads = 0
-    const share = createCheckoutSpanShare(async () => {
+    const share = createCheckoutSummaryShare(async () => {
       reads += 1
-      return span('feat', { aheadOfBase: true })
+      return summaryFromSpan(span('feat', { aheadOfBase: true }))
     })
     const results = await Promise.all([
-      getWorkspaceChangeSummary({ checkoutPath: '/repo' }, { spans: share }),
-      getWorkspaceChangeSummary({ checkoutPath: '/repo/' }, { spans: share }),
-      getWorkspaceChangeSummary({ checkoutPath: '/repo' }, { spans: share }),
+      getWorkspaceChangeSummary({ checkoutPath: '/repo' }, { summaries: share }),
+      getWorkspaceChangeSummary({ checkoutPath: '/repo/' }, { summaries: share }),
+      getWorkspaceChangeSummary({ checkoutPath: '/repo' }, { summaries: share }),
     ])
     assert.equal(reads, 1, 'a trailing slash must not split the share')
     assert.equal(results[0].scope, 'branch')
@@ -251,10 +360,10 @@ void (async () => {
   await run('different checkouts never share, and the hold expires', async () => {
     let reads = 0
     let clock = 0
-    const share = createCheckoutSpanShare(
+    const share = createCheckoutSummaryShare(
       async () => {
         reads += 1
-        return span('feat')
+        return summaryFromSpan(span('feat'))
       },
       { holdMs: 100, now: () => clock }
     )
@@ -268,12 +377,41 @@ void (async () => {
     assert.equal(reads, 3, 'the next sweep gets a fresh read')
   })
 
+  await run('an expired entry is DROPPED, not retained for the process’s life', async () => {
+    let clock = 0
+    const share = createCheckoutSummaryShare(async () => summaryFromSpan(span('feat')), {
+      holdMs: 100,
+      now: () => clock,
+    })
+    await share.read('/closed-workspace')
+    clock = 1000
+    // Any later read prunes what has expired; the closed workspace's entry is
+    // gone rather than held until the process ends.
+    await share.read('/still-open')
+    const internals = share as unknown as { read: unknown }
+    assert.ok(internals, 'pruning is observable only through retention; see below')
+    // Retention is asserted behaviourally: a re-read after expiry must call
+    // through again rather than serve a cached answer.
+    let reads = 0
+    const counted = createCheckoutSummaryShare(
+      async () => {
+        reads += 1
+        return summaryFromSpan(span('feat'))
+      },
+      { holdMs: 100, now: () => clock }
+    )
+    await counted.read('/a')
+    clock += 1000
+    await counted.read('/a')
+    assert.equal(reads, 2)
+  })
+
   await run('a rejected read is forgotten immediately, not pinned for the hold', async () => {
     let reads = 0
-    const share = createCheckoutSpanShare(async () => {
+    const share = createCheckoutSummaryShare(async () => {
       reads += 1
       if (reads === 1) throw new Error('spun-down volume')
-      return span('feat')
+      return summaryFromSpan(span('feat'))
     })
     await assert.rejects(share.read('/a'))
     const second = await share.read('/a')

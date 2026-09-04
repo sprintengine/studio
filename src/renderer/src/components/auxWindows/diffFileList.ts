@@ -7,7 +7,10 @@ export type DiffFileItem = {
   path: string
   relativePath: string
   status: GitFileStatus
-  kind: 'staged' | 'unstaged'
+  // 'branch' items come from a commit step rather than the working tree
+  // (the-diff-an-agent-made / changed-files-and-commit-steps); their two sides
+  // are revisions, carried on BranchDiffItem in branchSteps.ts.
+  kind: 'staged' | 'unstaged' | 'branch'
 }
 
 // Builds the ordered changed-file list the viewer steps through. Order matches

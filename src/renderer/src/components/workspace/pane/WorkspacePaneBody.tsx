@@ -100,6 +100,9 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
             focusKind={tab.diff?.focusKind ?? null}
             variant="pane"
             onItemCountChange={onDiffCountChange}
+            // The pane is the only host with a branch to step through; the aux
+            // window opens on one file of the working tree.
+            branchSteps
           />
         )
         : <PaneUnavailable />

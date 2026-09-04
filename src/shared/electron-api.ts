@@ -1570,6 +1570,61 @@ export type WorkspaceChangeSummary = {
   scope: 'worktree' | 'branch' | 'folder'
 }
 
+/**
+ * One step in a branch's timeline: a commit
+ * (the-diff-an-agent-made / changed-files-and-commit-steps).
+ *
+ * A step is a commit rather than a captured turn, so the timeline is the repo's
+ * own history — it survives a restart, a re-clone and a machine change, and a
+ * pull cannot invent one.
+ */
+export type BranchStep = {
+  hash: string
+  shortHash: string
+  /** The commit subject. May be empty; never trusted to be one line. */
+  subject: string
+  /** Author date, epoch ms. Zero when git gave something unparseable. */
+  authoredAt: number
+  /**
+   * More than one parent. A merge step still carries a diff — what it brought
+   * into the branch — so the strip labels it rather than hiding it.
+   */
+  isMerge: boolean
+}
+
+export type BranchStepsSnapshot = {
+  branch: string | null
+  /** The merge-base the span measures from, or null when none resolves. */
+  baseOid: string | null
+  /** Same contract as WorkspaceChangeSummary['scope'] — how much may be claimed. */
+  scope: 'worktree' | 'branch' | 'folder'
+  /** Oldest first: the order the work happened in. */
+  steps: BranchStep[]
+  /** Whether the working tree carries anything at all, tracked or untracked. */
+  hasUncommitted: boolean
+}
+
+/** Which slice of the branch a viewer is showing. */
+export type BranchStepSelection =
+  | { kind: 'span' }
+  | { kind: 'uncommitted' }
+  | { kind: 'commit'; hash: string }
+
+export type BranchStepFile = {
+  path: string
+  status: 'new' | 'modified' | 'deleted' | 'renamed'
+  additions: number
+  deletions: number
+  /** Where a rename came from. Absent for every other status. */
+  oldPath?: string
+}
+
+export type BranchStepDiff = {
+  files: BranchStepFile[]
+  additions: number
+  deletions: number
+}
+
 export type GitStashEntry = {
   /** Git's selector for the entry, e.g. `stash@{0}`. */
   ref: string
@@ -3335,6 +3390,23 @@ export type ElectronApi = {
    * only the renderer holds the workspace's worktree record.
    */
   getWorkspaceChangeSummary: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
+  /**
+   * The branch's commits as steps, oldest first, for the changed-files surface.
+   * Read live on every call — a rebase re-identifies commits, so a cached strip
+   * would be confidently wrong about work that no longer exists.
+   */
+  getBranchSteps: (checkoutPath: string) => Promise<BranchStepsSnapshot>
+  /** The files and line counts for one step, or for the whole span. */
+  getBranchStepDiff: (
+    checkoutPath: string,
+    selection: BranchStepSelection
+  ) => Promise<BranchStepDiff>
+  /**
+   * A file's content at a revision, for one side of a step's diff. Null means
+   * the file was not present there — the correct original side for an addition
+   * and the correct modified side for a deletion.
+   */
+  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string) => Promise<string | null>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>

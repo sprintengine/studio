@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from 'path'
+
 import { pathExists, runGitCommand } from './git-utils'
 
 /**
@@ -5,13 +7,13 @@ import { pathExists, runGitCommand } from './git-utils'
  * and the changed-files surface both stand on
  * (the-diff-an-agent-made / branch-scoped-row-diff).
  *
- * The span is `merge-base(HEAD, <default branch>) → working tree`: every commit
- * this branch carries that the default branch does not, plus whatever is still
- * uncommitted. Measuring from the merge-base is the whole point — a pull, a
- * merge from the default branch, or a commit landing under the agent moves HEAD
- * *and* the base together, so ordinary repo movement cannot inflate the number.
- * That is the failure that retired the checkpoint model (epic Direction change),
- * and this shape cannot have it.
+ * The span is `merge-base(HEAD, <trunk>) → working tree`: every commit this
+ * branch carries that the trunk does not, plus whatever is still uncommitted.
+ * Measuring from the merge-base is the whole point — a pull, a merge from the
+ * trunk, or a commit landing under the agent moves HEAD *and* the base together,
+ * so ordinary repo movement cannot inflate the number. That is the failure that
+ * retired the checkpoint model (epic Direction change), and this shape cannot
+ * have it.
  *
  * Everything here is quiet: git runs through `runGitCommand`, which returns
  * failures as values, and every entry point degrades to a null or empty result
@@ -31,19 +33,39 @@ export type BranchSpanStat = {
   files: BranchFileStat[]
 }
 
+/** The trunk this branch's work is measured against. */
+export type TrunkRef = {
+  /** The ref the merge-base is taken with, e.g. `origin/develop` or `main`. */
+  ref: string
+  /** Its branch name, e.g. `develop` — what "am I ON the trunk?" compares to. */
+  name: string
+}
+
 export type BranchSpan = {
   /** Branch name, or null on a detached HEAD or an unreadable repo. */
   branch: string | null
   /**
-   * The commit the span measures from. `null` means no base resolved — a
-   * detached HEAD, an unborn repo, or a repo with no default branch to compare
-   * against — and the span is then simply `HEAD → working tree`.
+   * The commit the span measures from. `null` means there is nothing to measure
+   * from — a detached HEAD, an unborn repo, no trunk to compare against, or
+   * this checkout IS the trunk — and the span is then `HEAD → working tree`.
    */
   baseOid: string | null
   /** True when this cwd is a LINKED worktree, so nothing else writes into it. */
   isLinkedWorktree: boolean
-  /** True when HEAD carries commits the base does not. */
+  /** True when HEAD carries commits the trunk does not. */
   aheadOfBase: boolean
+  /**
+   * False when the diff itself could not be read — a bare repo, a locked index,
+   * a corrupt object.
+   *
+   * Load-bearing, and the reason it exists: without it an unreadable span is a
+   * confident zero, and a row that draws nothing for zero would silently claim
+   * "this agent changed nothing" for work it simply failed to measure. That rule
+   * came from the reading this file replaced and was lost in the move; it is
+   * back, and callers must fall back rather than report a zero when this is
+   * false.
+   */
+  readable: boolean
   stat: BranchSpanStat
 }
 
@@ -57,29 +79,11 @@ export function emptyBranchSpanStat(): BranchSpanStat {
 }
 
 /**
- * Candidate default branches, best first. `origin/HEAD` is the only one that
- * actually *knows* the remote's default; the rest are the conventional guesses
- * a repo without it will still answer to, and `@{upstream}` covers a branch
- * tracking something other than the default.
+ * git's empty tree, the only thing an unborn HEAD can be diffed against. SHA-1
+ * repos only; a SHA-256 repo has a different one, so its resolution is verified
+ * rather than assumed and an unborn HEAD there simply reports nothing.
  */
-async function defaultBaseCandidates(cwd: string): Promise<string[]> {
-  const candidates: string[] = []
-  // `symbolic-ref` on the remote HEAD ref: present after a clone, absent after
-  // `git init` + `remote add`, which is why it is a candidate and not a
-  // requirement.
-  const originHead = await runGitCommand(cwd, [
-    'symbolic-ref',
-    '--quiet',
-    '--short',
-    'refs/remotes/origin/HEAD',
-  ])
-  if (originHead.ok) {
-    const value = originHead.stdout.trim()
-    if (value) candidates.push(value)
-  }
-  candidates.push('origin/main', 'origin/master', '@{upstream}', 'main', 'master')
-  return candidates
-}
+const EMPTY_TREE_SHA1 = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 async function resolveCommit(cwd: string, rev: string): Promise<string | null> {
   const result = await runGitCommand(cwd, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`])
@@ -88,44 +92,164 @@ async function resolveCommit(cwd: string, rev: string): Promise<string | null> {
   return oid.length > 0 ? oid : null
 }
 
+async function resolveAnyObject(cwd: string, rev: string): Promise<string | null> {
+  const result = await runGitCommand(cwd, ['rev-parse', '--verify', '--quiet', rev])
+  if (!result.ok) return null
+  const oid = result.stdout.trim()
+  return oid.length > 0 ? oid : null
+}
+
+/** The branch part of a remote-tracking short name: `origin/feat` -> `feat`. */
+function branchNameOf(shortRef: string): string {
+  const slash = shortRef.indexOf('/')
+  return slash === -1 ? shortRef : shortRef.slice(slash + 1)
+}
+
 /**
- * The merge-base between HEAD and the first default-branch candidate that
- * resolves, or null when none does.
+ * Which ref this branch's work should be measured against.
  *
- * Deliberately NOT called on a detached HEAD: a detached checkout has no branch
+ * Order matters, and each step exists because of a way the previous one is
+ * wrong:
+ *
+ * 1. **`origin/HEAD`** is the only candidate that actually KNOWS the remote's
+ *    default branch. Present after a clone; absent after `git init` + `remote
+ *    add`, which is why the rest exist.
+ * 2. **`@{upstream}`**, but never when it is this branch's OWN remote-tracking
+ *    ref. After the ordinary `git push -u origin feat`, `@{upstream}` is
+ *    `origin/feat`, whose merge-base with HEAD is HEAD — which would report a
+ *    branch full of work as having produced nothing at all. Caught by review,
+ *    reproduced, and guarded here rather than left to the ordering.
+ * 3. **The conventional names**, remote before local.
+ *
+ * Among everything that resolves, the winner is the one whose merge-base is
+ * CLOSEST to HEAD — fewest commits in `base..HEAD`. That is what keeps a repo
+ * carrying both `origin/main` and `origin/master`, or a stale local trunk beside
+ * a current remote one, from measuring against the ancient one.
+ *
+ * **Known limit, accepted:** a repo whose trunk is neither `main` nor `master`
+ * AND which has no `origin/HEAD` cannot be detected — `develop` is not a name we
+ * can guess. The reading then measures against whichever conventional name
+ * exists, which over-reports. `git remote set-head origin -a` fixes it in the
+ * user's repo; there is nothing correct we can do from here without guessing.
+ */
+export async function resolveTrunk(cwd: string, currentBranch: string | null): Promise<TrunkRef | null> {
+  const candidates: TrunkRef[] = []
+  const push = (ref: string, name: string): void => {
+    if (!candidates.some((candidate) => candidate.ref === ref)) candidates.push({ ref, name })
+  }
+
+  const originHead = await runGitCommand(cwd, [
+    'symbolic-ref',
+    '--quiet',
+    '--short',
+    'refs/remotes/origin/HEAD',
+  ])
+  if (originHead.ok) {
+    const value = originHead.stdout.trim()
+    if (value) push(value, branchNameOf(value))
+  }
+
+  const upstream = await runGitCommand(cwd, [
+    'rev-parse',
+    '--abbrev-ref',
+    '--symbolic-full-name',
+    '@{upstream}',
+  ])
+  if (upstream.ok) {
+    const value = upstream.stdout.trim()
+    const name = value ? branchNameOf(value) : ''
+    // The self-tracking case. `origin/feat` for branch `feat` is not a trunk;
+    // it is where this branch was last pushed.
+    if (value && name && name !== currentBranch) push(value, name)
+  }
+
+  for (const name of ['main', 'master']) {
+    push(`origin/${name}`, name)
+    push(name, name)
+  }
+
+  let best: { trunk: TrunkRef; distance: number } | null = null
+  for (const candidate of candidates) {
+    if ((await resolveCommit(cwd, candidate.ref)) === null) continue
+    const base = await runGitCommand(cwd, ['merge-base', 'HEAD', candidate.ref])
+    if (!base.ok || !base.stdout.trim()) continue
+    const counted = await runGitCommand(cwd, [
+      'rev-list',
+      '--count',
+      `${base.stdout.trim()}..HEAD`,
+    ])
+    const distance = counted.ok ? Number.parseInt(counted.stdout.trim(), 10) : Number.NaN
+    const safeDistance = Number.isFinite(distance) ? distance : Number.MAX_SAFE_INTEGER
+    // Strictly less: ties keep the earlier, better-informed candidate.
+    if (best === null || safeDistance < best.distance) {
+      best = { trunk: candidate, distance: safeDistance }
+    }
+  }
+  return best?.trunk ?? null
+}
+
+/**
+ * The merge-base between HEAD and the resolved trunk, or null when there is
+ * none to take — including the case that matters most: **this checkout IS the
+ * trunk**.
+ *
+ * A workspace sitting on `main` whose local `main` leads `origin/main` has a
+ * merge-base that is not HEAD, and comparing OIDs alone would call the person's
+ * own unpushed commits the chat's branch work — every row in the repo reading
+ * the same inflated number, which is the exact failure this epic exists to
+ * remove. Being on the trunk is decided by NAME, not by distance.
+ *
+ * Deliberately not called on a detached HEAD: a detached checkout has no branch
  * whose work could be attributed, and merge-basing it against `origin/main`
  * would report the whole of history since the detach point as the agent's.
  */
-export async function resolveBranchBase(cwd: string): Promise<string | null> {
-  for (const candidate of await defaultBaseCandidates(cwd)) {
-    if ((await resolveCommit(cwd, candidate)) === null) continue
-    const base = await runGitCommand(cwd, ['merge-base', 'HEAD', candidate])
-    if (!base.ok) continue
-    const oid = base.stdout.trim()
-    if (oid) return oid
-  }
-  return null
+export async function resolveBranchBase(cwd: string, currentBranch: string | null): Promise<string | null> {
+  const trunk = await resolveTrunk(cwd, currentBranch)
+  if (!trunk) return null
+  if (currentBranch !== null && currentBranch === trunk.name) return null
+  const base = await runGitCommand(cwd, ['merge-base', 'HEAD', trunk.ref])
+  if (!base.ok) return null
+  return base.stdout.trim() || null
 }
 
 /**
  * Whether `cwd` is a LINKED worktree rather than a repo's main working tree.
  *
- * `--git-dir` points at `<common>/worktrees/<name>` for a linked worktree and
- * at `<common>` for the main one, so the two answers differing IS the test.
- * Both are resolved to absolute paths first: git answers `--git-dir` relatively
- * (`.git`) from a repo root, and comparing `.git` against an absolute common
- * dir would call every main checkout a worktree.
+ * `--git-dir` points at `<common>/worktrees/<name>` for a linked worktree and at
+ * `<common>` for the main one, so the two answers differing IS the test. Both
+ * are resolved to absolute paths first: git answers `--git-dir` relatively
+ * (`.git`) from a repo root, and comparing `.git` against an absolute common dir
+ * would call every main checkout a worktree.
+ *
+ * `--path-format=absolute` is git 2.31+ (March 2021) and this app documents no
+ * minimum, so its failure falls back to resolving the relative answer against
+ * cwd rather than silently reporting every worktree as a shared checkout — which
+ * would have the tooltip tell someone their exclusive checkout might carry
+ * another chat's work.
  */
 export async function isLinkedWorktree(cwd: string): Promise<boolean> {
-  const [gitDir, commonDir] = await Promise.all([
-    runGitCommand(cwd, ['rev-parse', '--absolute-git-dir']),
-    runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
-  ])
-  if (!gitDir.ok || !commonDir.ok) return false
+  const gitDir = await runGitCommand(cwd, ['rev-parse', '--absolute-git-dir'])
+  if (!gitDir.ok) return false
   const own = gitDir.stdout.trim()
-  const common = commonDir.stdout.trim()
-  if (!own || !common) return false
-  return own !== common
+  if (!own) return false
+
+  let common = ''
+  const absolute = await runGitCommand(cwd, [
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ])
+  if (absolute.ok) {
+    common = absolute.stdout.trim()
+  } else {
+    const relative = await runGitCommand(cwd, ['rev-parse', '--git-common-dir'])
+    if (!relative.ok) return false
+    const value = relative.stdout.trim()
+    if (!value) return false
+    common = isAbsolute(value) ? value : resolve(cwd, value)
+  }
+  if (!common) return false
+  return resolve(own) !== resolve(common)
 }
 
 /**
@@ -154,19 +278,24 @@ export async function readBranchSpan(cwd: string): Promise<BranchSpan | null> {
   const branch = await readBranchName(cwd)
   const headOid = await resolveCommit(cwd, 'HEAD')
 
-  // An unborn HEAD (fresh `git init`) has a branch name but no commit, so there
-  // is nothing to diff against and nothing committed to be ahead of.
+  // An unborn HEAD (fresh `git init`) has a branch name but no commit. Staged
+  // content is still real work and is visible against git's empty tree, so it is
+  // shown rather than dropped; a SHA-256 repo, whose empty tree is a different
+  // object, reports nothing rather than a wrong number.
   if (headOid === null) {
+    const emptyTree = await resolveAnyObject(cwd, EMPTY_TREE_SHA1)
+    const stat = emptyTree ? await diffWorkingTreeFrom(cwd, emptyTree) : null
     return {
       branch,
       baseOid: null,
       isLinkedWorktree: await isLinkedWorktree(cwd),
       aheadOfBase: false,
-      stat: emptyBranchSpanStat(),
+      readable: stat !== null,
+      stat: stat ?? emptyBranchSpanStat(),
     }
   }
 
-  const baseOid = branch === null ? null : await resolveBranchBase(cwd)
+  const baseOid = branch === null ? null : await resolveBranchBase(cwd, branch)
   const [isWorktree, stat] = await Promise.all([
     isLinkedWorktree(cwd),
     diffWorkingTreeFrom(cwd, baseOid ?? headOid),
@@ -176,23 +305,33 @@ export async function readBranchSpan(cwd: string): Promise<BranchSpan | null> {
     branch,
     baseOid,
     isLinkedWorktree: isWorktree,
-    // Equality is the honest test for "has this branch committed anything the
-    // base does not". A base that IS HEAD means the branch is level with the
-    // default branch and only its uncommitted state can be reported.
+    // Equality is still checked: a branch can be level with a trunk it is not
+    // itself (a feature branch with nothing on it yet).
     aheadOfBase: baseOid !== null && baseOid !== headOid,
-    stat,
+    readable: stat !== null,
+    stat: stat ?? emptyBranchSpanStat(),
   }
 }
 
 /**
  * `git diff --numstat <from>` — staged and unstaged, against the working tree.
+ * Null when the diff could not be run at all, which the caller must not report
+ * as a zero.
+ *
+ * `--no-relative` because a workspace can be opened on a SUBDIRECTORY of its
+ * repo: with the user's `diff.relative=true` set, git would both under-count
+ * (only that subtree) and hand back cwd-relative paths that no other surface
+ * here agrees with.
  *
  * Untracked files are invisible to `diff`, exactly as they are to the row's
  * previous reading and to the chrome's git badge: a file git has never tracked
  * has no line counts to report. The changed-files surface lists them
  * separately; a row that summarises edits does not.
  */
-export async function diffWorkingTreeFrom(cwd: string, fromRev: string): Promise<BranchSpanStat> {
+export async function diffWorkingTreeFrom(
+  cwd: string,
+  fromRev: string
+): Promise<BranchSpanStat | null> {
   const result = await runGitCommand(cwd, [
     'diff',
     '--numstat',
@@ -200,9 +339,10 @@ export async function diffWorkingTreeFrom(cwd: string, fromRev: string): Promise
     '--no-color',
     '--no-ext-diff',
     '--no-textconv',
+    '--no-relative',
     fromRev,
   ])
-  if (!result.ok) return emptyBranchSpanStat()
+  if (!result.ok) return null
   return parseNumstatZ(result.stdout)
 }
 

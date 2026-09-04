@@ -1,0 +1,312 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { diffBranchSelection, listBranchSteps, parseNameStatusZ, readFileAtRev } from './branch-steps'
+
+// A step is a COMMIT (the-diff-an-agent-made / changed-files-and-commit-steps).
+// This suite is the item's acceptance, run against real repos.
+
+let failures = 0
+async function run(name: string, fn: () => Promise<void> | void): Promise<void> {
+  try {
+    await fn()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    failures += 1
+    console.error(`not ok - ${name}`)
+    console.error(error)
+  }
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.invalid',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@example.invalid',
+    },
+  })
+}
+
+const created: string[] = []
+function repo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-'))
+  created.push(dir)
+  git(dir, 'init', '-b', 'main')
+  writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\n')
+  git(dir, 'add', '.')
+  git(dir, 'commit', '-m', 'seed')
+  return dir
+}
+
+function commit(dir: string, message: string): void {
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-m', message)
+}
+
+function paths(files: Array<{ path: string }>): string[] {
+  return files.map((file) => file.path).sort()
+}
+
+void (async () => {
+  // ---- the name-status framing -------------------------------------------
+
+  await run('parseNameStatusZ reads a rename as THREE fields', () => {
+    const parsed = parseNameStatusZ('R100\0old.ts\0new.ts\0M\0after.ts\0')
+    assert.deepEqual(parsed, [
+      { path: 'new.ts', status: 'renamed', oldPath: 'old.ts' },
+      { path: 'after.ts', status: 'modified' },
+    ])
+  })
+
+  await run('parseNameStatusZ maps A/D/M and survives junk', () => {
+    assert.deepEqual(parseNameStatusZ('A\0new.ts\0'), [{ path: 'new.ts', status: 'new' }])
+    assert.deepEqual(parseNameStatusZ('D\0gone.ts\0'), [{ path: 'gone.ts', status: 'deleted' }])
+    assert.deepEqual(parseNameStatusZ(''), [])
+    assert.deepEqual(parseNameStatusZ('M\0'), [], 'a code with no path is dropped, not guessed')
+  })
+
+  // ---- the strip ----------------------------------------------------------
+
+  await run('a branch lists its commits oldest first', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'first step')
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    commit(dir, 'second step')
+
+    const snapshot = await listBranchSteps(dir)
+    assert.equal(snapshot.branch, 'feat')
+    assert.equal(snapshot.scope, 'branch')
+    assert.deepEqual(
+      snapshot.steps.map((step) => step.subject),
+      ['first step', 'second step'],
+      'oldest first — the order the work happened in'
+    )
+    assert.ok(snapshot.steps[0].shortHash.length > 0)
+    assert.ok(snapshot.steps[0].authoredAt > 0)
+    assert.equal(snapshot.steps[0].isMerge, false)
+    assert.equal(snapshot.hasUncommitted, false)
+  })
+
+  await run('a branch level with the default branch has only the uncommitted step', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const snapshot = await listBranchSteps(dir)
+    assert.deepEqual(snapshot.steps, [])
+    assert.equal(snapshot.scope, 'folder')
+    assert.equal(snapshot.hasUncommitted, true)
+  })
+
+  await run('an untracked file alone still opens the uncommitted step', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'brand-new.txt'), 'x\n')
+    const snapshot = await listBranchSteps(dir)
+    assert.equal(snapshot.hasUncommitted, true, 'diff is blind to this; status is not')
+  })
+
+  await run('a subject containing a newline survives the record framing', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'subject line', '-m', 'body paragraph')
+    const snapshot = await listBranchSteps(dir)
+    assert.equal(snapshot.steps.length, 1)
+    assert.equal(snapshot.steps[0].subject, 'subject line', 'the body is not part of the subject')
+  })
+
+  await run('a non-repo and a missing folder report an empty strip, never a throw', async () => {
+    const plain = mkdtempSync(join(tmpdir(), 'multicode-steps-plain-'))
+    created.push(plain)
+    const snapshot = await listBranchSteps(plain)
+    assert.deepEqual(snapshot, {
+      branch: null,
+      baseOid: null,
+      scope: 'folder',
+      steps: [],
+      hasUncommitted: false,
+    })
+    assert.equal((await listBranchSteps(join(plain, 'gone'))).steps.length, 0)
+  })
+
+  // ---- the diffs ----------------------------------------------------------
+
+  await run('a step shows only that commit’s changes', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'adds b')
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    commit(dir, 'adds c')
+
+    const snapshot = await listBranchSteps(dir)
+    const first = await diffBranchSelection(dir, { kind: 'commit', hash: snapshot.steps[0].hash })
+    assert.deepEqual(paths(first.files), ['b.txt'])
+    assert.equal(first.files[0].status, 'new')
+    assert.equal(first.additions, 1)
+  })
+
+  await run('the span is the union, counted once', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    commit(dir, 'touch a')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\nfive\n')
+    commit(dir, 'touch a again')
+
+    const span = await diffBranchSelection(dir, { kind: 'span' })
+    assert.deepEqual(paths(span.files), ['a.txt'], 'one entry, not one per commit')
+    assert.equal(span.additions, 2)
+  })
+
+  // The item's sharpest case: a file that came and went inside the branch.
+  await run('a file created then deleted is in each step and NOT in the span', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'temp.txt'), 'scratch\n')
+    commit(dir, 'adds temp')
+    unlinkSync(join(dir, 'temp.txt'))
+    commit(dir, 'removes temp')
+
+    const snapshot = await listBranchSteps(dir)
+    const added = await diffBranchSelection(dir, { kind: 'commit', hash: snapshot.steps[0].hash })
+    const removed = await diffBranchSelection(dir, { kind: 'commit', hash: snapshot.steps[1].hash })
+    const span = await diffBranchSelection(dir, { kind: 'span' })
+
+    assert.deepEqual(paths(added.files), ['temp.txt'])
+    assert.equal(added.files[0].status, 'new')
+    assert.deepEqual(paths(removed.files), ['temp.txt'])
+    assert.equal(removed.files[0].status, 'deleted')
+    assert.deepEqual(paths(span.files), [], 'the branch produced nothing that survived')
+  })
+
+  await run('the uncommitted step is HEAD → working tree, untracked included', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    writeFileSync(join(dir, 'fresh.txt'), 'p\nq\n')
+    const diff = await diffBranchSelection(dir, { kind: 'uncommitted' })
+    assert.deepEqual(paths(diff.files), ['a.txt', 'fresh.txt'])
+    const fresh = diff.files.find((file) => file.path === 'fresh.txt')
+    assert.equal(fresh?.status, 'new')
+    assert.equal(fresh?.additions, 2, 'an untracked file’s lines are counted, not left at zero')
+  })
+
+  await run('an ignored file is not mistaken for untracked work', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, '.gitignore'), 'secret.txt\n')
+    commit(dir, 'ignore')
+    writeFileSync(join(dir, 'secret.txt'), 'nope\n')
+    const diff = await diffBranchSelection(dir, { kind: 'uncommitted' })
+    assert.deepEqual(paths(diff.files), [], 'exclude-standard is doing its job')
+  })
+
+  await run('a binary untracked file is listed with no line count', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'blob.bin'), Buffer.from([0, 1, 2, 0, 3]))
+    const diff = await diffBranchSelection(dir, { kind: 'uncommitted' })
+    const blob = diff.files.find((file) => file.path === 'blob.bin')
+    assert.equal(blob?.status, 'new')
+    assert.equal(blob?.additions, 0)
+  })
+
+  await run('a rename inside a commit reports its new path and where it came from', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    git(dir, 'mv', 'a.txt', 'renamed.txt')
+    commit(dir, 'rename')
+    const snapshot = await listBranchSteps(dir)
+    const step = await diffBranchSelection(dir, { kind: 'commit', hash: snapshot.steps[0].hash })
+    const entry = step.files.find((file) => file.path === 'renamed.txt')
+    assert.equal(entry?.status, 'renamed')
+    assert.equal(entry?.oldPath, 'a.txt')
+  })
+
+  await run('a ROOT commit reports its whole tree rather than failing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-root-'))
+    created.push(dir)
+    git(dir, 'init', '-b', 'main')
+    writeFileSync(join(dir, 'first.txt'), 'x\n')
+    commit(dir, 'root commit')
+    const head = git(dir, 'rev-parse', 'HEAD').trim()
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: head })
+    assert.deepEqual(paths(diff.files), ['first.txt'], 'no parent to diff against, still readable')
+  })
+
+  await run('a merge step shows what it brought IN, and is flagged as a merge', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'feature work')
+    git(dir, 'checkout', 'main')
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    commit(dir, 'main work')
+    git(dir, 'checkout', 'feat')
+    git(dir, 'merge', '--no-ff', '--no-edit', 'main')
+    const head = git(dir, 'rev-parse', 'HEAD').trim()
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: head })
+    // git's first-parent reading. Asserted rather than assumed: the comment
+    // here first claimed a merge reports nothing, and this proved otherwise.
+    assert.deepEqual(paths(diff.files), ['c.txt'], 'what the merge brought into the branch')
+    const snapshot = await listBranchSteps(dir)
+    const merge = snapshot.steps.find((step) => step.hash === head)
+    assert.equal(merge?.isMerge, true, 'the strip can label it')
+    assert.equal(
+      snapshot.steps.filter((step) => !step.isMerge).length,
+      1,
+      'the branch’s own work is still one ordinary step'
+    )
+  })
+
+  await run('a bad hash yields an empty diff rather than an error', async () => {
+    const dir = repo()
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: 'deadbeefdeadbeef' })
+    assert.deepEqual(diff.files, [])
+    assert.equal(diff.additions, 0)
+  })
+
+  await run('a rebase mid-session re-reads cleanly under new hashes', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'feature work')
+    const before = await listBranchSteps(dir)
+
+    git(dir, 'checkout', 'main')
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    commit(dir, 'main moved')
+    git(dir, 'checkout', 'feat')
+    git(dir, 'rebase', 'main')
+
+    const after = await listBranchSteps(dir)
+    assert.equal(after.steps.length, 1)
+    assert.equal(after.steps[0].subject, 'feature work')
+    assert.notEqual(after.steps[0].hash, before.steps[0].hash, 'the commit was re-identified')
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: after.steps[0].hash })
+    assert.deepEqual(paths(diff.files), ['b.txt'])
+  })
+
+  // ---- the diff sides -----------------------------------------------------
+
+  await run('readFileAtRev returns content, and null for a file not there', async () => {
+    const dir = repo()
+    assert.equal(await readFileAtRev(dir, 'HEAD', 'a.txt'), 'one\ntwo\nthree\n')
+    assert.equal(await readFileAtRev(dir, 'HEAD', 'never-existed.txt'), null)
+    assert.equal(await readFileAtRev(dir, 'nonsense-rev', 'a.txt'), null)
+  })
+
+  for (const dir of created) rmSync(dir, { recursive: true, force: true })
+
+  if (failures > 0) {
+    console.error(`branch-steps.test.ts: ${failures} failing`)
+    process.exit(1)
+  }
+  console.log('branch-steps.test.ts: ok')
+})()

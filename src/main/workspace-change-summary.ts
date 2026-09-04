@@ -1,4 +1,5 @@
 import { readBranchSpan, type BranchSpan } from './git-branch-span'
+import { getGitRowSummary } from './git-status'
 import type { WorkspaceChangeSummary } from '../shared/electron-api'
 
 /**
@@ -6,12 +7,11 @@ import type { WorkspaceChangeSummary } from '../shared/electron-api'
  * (the-diff-an-agent-made / branch-scoped-row-diff).
  *
  * The reading is the branch the agent's checkout is on:
- * `merge-base(HEAD, <default branch>) → working tree`. Whatever the person
- * already had committed on the default branch sits on both sides of that base
- * and never enters the number, and — the property the checkpoint model could
- * not have — a pull, a merge or a commit landing under the agent moves HEAD and
- * the base together, so ordinary repo movement is invisible here by
- * construction.
+ * `merge-base(HEAD, <trunk>) → working tree`. Whatever the person already had
+ * committed on the trunk sits on both sides of that base and never enters the
+ * number, and — the property the checkpoint model could not have — a pull, a
+ * merge or a commit landing under the agent moves HEAD and the base together, so
+ * ordinary repo movement is invisible here by construction.
  *
  * `scope` is the honesty contract, not a debug field. It says how much the
  * caller is entitled to claim, and the row's tooltip and spoken label are
@@ -19,29 +19,29 @@ import type { WorkspaceChangeSummary } from '../shared/electron-api'
  *
  * - `worktree` — a LINKED worktree, so nothing else writes into this checkout.
  *   The numbers are this chat's work.
- * - `branch`   — a shared checkout carrying commits the default branch does
- *   not. The numbers are the BRANCH's work, which may include commits a person
- *   or another chat made on it.
- * - `folder`   — a shared checkout level with the default branch. There is no
- *   branch work to attribute, so all that can honestly be said is what is
- *   uncommitted in the folder.
+ * - `branch`   — a shared checkout on a branch that is NOT the trunk, carrying
+ *   commits the trunk does not. The numbers are the BRANCH's work, which may
+ *   include commits a person or another chat made on it.
+ * - `folder`   — a shared checkout with no branch work to attribute: on the
+ *   trunk itself, detached, or with no trunk to compare against. All that can
+ *   honestly be said is what is uncommitted.
  *
- * The rule this file exists to enforce is unchanged from the reading it
- * replaces: never claim more than the checkout can support. What changed is
- * that the claim is now derived from git's own facts rather than from
- * bookkeeping we maintained.
+ * The rule this file exists to enforce, inherited from the reading it replaced
+ * and restored after a review found it missing: **never report a confident zero
+ * for a span we could not read.** The row draws nothing for zeros, so an
+ * unreadable span reported as zero would silently claim "this agent changed
+ * nothing" about work it merely failed to measure.
  */
 export async function getWorkspaceChangeSummary(
   input: { checkoutPath: string },
-  deps: { spans?: CheckoutSpanShare } = {}
+  deps: { summaries?: CheckoutSummaryShare } = {}
 ): Promise<WorkspaceChangeSummary> {
-  const span = await (deps.spans ?? defaultCheckoutSpans).read(input.checkoutPath)
-  return summaryFromSpan(span)
+  return (deps.summaries ?? defaultCheckoutSummaries).read(input.checkoutPath)
 }
 
 /**
- * The pure half: a span becomes a summary. Separated so the scope rule — the
- * one thing a reviewer needs to check — tests without a repo.
+ * The pure half: a span becomes a summary. Separated so the scope rule — the one
+ * thing a reviewer needs to check — tests without a repo.
  */
 export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary {
   if (!span) {
@@ -53,10 +53,34 @@ export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary
     deletions: span.stat.deletions,
     changedFiles: span.stat.changedFiles,
     // A linked worktree is exclusive to its workspace whatever its branch is
-    // doing, so it claims `worktree` even when level with the default branch:
-    // the uncommitted work in it is still nobody else's.
+    // doing, so it claims `worktree` even when level with the trunk: the
+    // uncommitted work in it is still nobody else's.
     scope: span.isLinkedWorktree ? 'worktree' : span.aheadOfBase ? 'branch' : 'folder',
   }
+}
+
+/**
+ * One reading for one checkout: the branch span, or the folder's own numbers
+ * when the span could not be measured.
+ *
+ * The fallback is deliberately the FOLDER reading rather than zeros. A locked
+ * index, a bare repo or a corrupt object makes `git diff <base>` fail, and the
+ * quiet, unattributed folder number is the honest thing to show there — the same
+ * degrade the checkpoint reading made for an unresolvable ref.
+ */
+async function readCheckoutSummary(checkoutPath: string): Promise<WorkspaceChangeSummary> {
+  const span = await readBranchSpan(checkoutPath)
+  if (span && !span.readable) {
+    const folder = await getGitRowSummary(checkoutPath)
+    return {
+      branch: span.branch ?? folder.branch,
+      additions: folder.additions,
+      deletions: folder.deletions,
+      changedFiles: 0,
+      scope: 'folder',
+    }
+  }
+  return summaryFromSpan(span)
 }
 
 /**
@@ -70,55 +94,70 @@ export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary
  * SAME answer — that is the premise of the design — so one read serving both is
  * correct, and the alternative is ten identical `git diff` runs a minute.
  *
- * A folder's read is shared while it is in flight and held for `holdMs` after it
- * settles, which covers a sweep's serial tail at the poll's concurrency of four;
- * the next sweep always gets a fresh read. The hold is measured from settle
- * rather than start on purpose — a slow read on a large repo must not expire
- * while the rows queued behind it are still arriving.
+ * It caches the SUMMARY, not the span: a span carries the whole per-file list,
+ * which nothing here reads and which would then be retained per checkout for the
+ * life of the process. Expired entries are dropped on the next read rather than
+ * left in the map, so what is retained is bounded by the checkouts currently
+ * being polled and not by every checkout ever polled.
+ *
+ * A read is shared while in flight and held for `holdMs` after it settles, which
+ * covers a sweep's serial tail at the poll's concurrency of four; the next sweep
+ * always gets a fresh read. The hold is measured from settle rather than start on
+ * purpose — a slow read on a large repo must not expire while the rows queued
+ * behind it are still arriving.
  *
  * A rejected read is forgotten immediately, so a transient failure never pins an
  * error onto every row of the checkout for the hold window.
  */
-export type CheckoutSpanShare = {
-  read: (checkoutPath: string) => Promise<BranchSpan | null>
+export type CheckoutSummaryShare = {
+  read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
 }
 
-export const CHECKOUT_SPAN_HOLD_MS = 15_000
+export const CHECKOUT_SUMMARY_HOLD_MS = 15_000
 /**
  * How long an in-flight read is shared before a newcomer starts its own. A
  * `git diff` hung on a spun-down volume must not pin every row of that checkout,
  * in every window, for the life of main — this keeps that worst case per read
  * rather than per checkout.
  */
-export const CHECKOUT_SPAN_IN_FLIGHT_MAX_MS = 60_000
+export const CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
 
-export function createCheckoutSpanShare(
-  read: (checkoutPath: string) => Promise<BranchSpan | null>,
+export function createCheckoutSummaryShare(
+  read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>,
   options: { holdMs?: number; inFlightMaxMs?: number; now?: () => number } = {}
-): CheckoutSpanShare {
-  const holdMs = options.holdMs ?? CHECKOUT_SPAN_HOLD_MS
-  const inFlightMaxMs = options.inFlightMaxMs ?? CHECKOUT_SPAN_IN_FLIGHT_MAX_MS
+): CheckoutSummaryShare {
+  const holdMs = options.holdMs ?? CHECKOUT_SUMMARY_HOLD_MS
+  const inFlightMaxMs = options.inFlightMaxMs ?? CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS
   const now = options.now ?? Date.now
-  type Entry = { promise: Promise<BranchSpan | null>; startedAt: number; settledAt: number | null }
+  type Entry = {
+    promise: Promise<WorkspaceChangeSummary>
+    startedAt: number
+    settledAt: number | null
+  }
   const reads = new Map<string, Entry>()
+
+  function shareable(entry: Entry, at: number): boolean {
+    return entry.settledAt === null
+      ? at - entry.startedAt < inFlightMaxMs
+      : at - entry.settledAt < holdMs
+  }
+
   return {
     read(checkoutPath) {
       // Rows on one checkout arrive with whatever path their workspace stores;
       // a trailing slash or a Windows separator must not split the share.
       const key = checkoutPath.replace(/\\/g, '/').replace(/\/+$/u, '')
+      const at = now()
+      // Opportunistic prune: the map is small (one entry per polled checkout),
+      // so this costs nothing and keeps a closed workspace's entry from being
+      // retained until the process ends.
+      for (const [existingKey, entry] of reads) {
+        if (!shareable(entry, at)) reads.delete(existingKey)
+      }
       const existing = reads.get(key)
-      if (existing) {
-        const shareable =
-          existing.settledAt === null
-            ? now() - existing.startedAt < inFlightMaxMs
-            : now() - existing.settledAt < holdMs
-        if (shareable) return existing.promise
-      }
-      const entry: Entry = {
-        promise: read(checkoutPath),
-        startedAt: now(),
-        settledAt: null,
-      }
+      if (existing) return existing.promise
+
+      const entry: Entry = { promise: read(checkoutPath), startedAt: at, settledAt: null }
       entry.promise.then(
         () => {
           entry.settledAt = now()
@@ -133,4 +172,4 @@ export function createCheckoutSpanShare(
   }
 }
 
-const defaultCheckoutSpans = createCheckoutSpanShare(readBranchSpan)
+const defaultCheckoutSummaries = createCheckoutSummaryShare(readCheckoutSummary)

@@ -19,6 +19,9 @@ import type {
   GitResetMode,
   GitStashListSnapshot,
   GitRowSummary,
+  BranchStepDiff,
+  BranchStepSelection,
+  BranchStepsSnapshot,
   WorkspaceChangeSummary,
   GitStatusSnapshot,
   GitWorktreeCopyIncludedInput,
@@ -40,6 +43,15 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-row-summary', repoRoot),
   getWorkspaceChangeSummary: (checkoutPath: string): Promise<WorkspaceChangeSummary> =>
     ipcRenderer.invoke('git:get-workspace-change-summary', checkoutPath),
+  getBranchSteps: (checkoutPath: string): Promise<BranchStepsSnapshot> =>
+    ipcRenderer.invoke('git:get-branch-steps', checkoutPath),
+  getBranchStepDiff: (
+    checkoutPath: string,
+    selection: BranchStepSelection
+  ): Promise<BranchStepDiff> =>
+    ipcRenderer.invoke('git:get-branch-step-diff', checkoutPath, selection),
+  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke('git:get-file-at-rev', repoRoot, rev, filePath),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage): Promise<GitFileStageResult> =>
@@ -138,6 +150,9 @@ export const gitApi = {
   | 'getGitStatus'
   | 'getGitRowSummary'
   | 'getWorkspaceChangeSummary'
+  | 'getBranchSteps'
+  | 'getBranchStepDiff'
+  | 'getGitFileAtRev'
   | 'getGitFileBase'
   | 'getGitFileAtStage'
   | 'getGitBranches'
