@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { diffBranchSelection, listBranchSteps, parseNameStatusZ, readFileAtRev } from './branch-steps'
+import { getWorkspaceChangeSummary } from './workspace-change-summary'
 
 // A step is a COMMIT (the-diff-an-agent-made / changed-files-and-commit-steps).
 // This suite is the item's acceptance, run against real repos.
@@ -188,6 +189,27 @@ void (async () => {
     assert.deepEqual(paths(span.files), [], 'the branch produced nothing that survived')
   })
 
+  // The seam with the sidebar row: both claim to show "the span", so they have
+  // to agree file-for-file. The row reads `git diff`, which cannot see untracked
+  // content, so the span does not add it either — it belongs to the step that
+  // says "uncommitted", one chip to the left.
+  await run('the SPAN excludes untracked files, so it agrees with the row', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'committed work')
+    writeFileSync(join(dir, 'brand-new.txt'), 'x\ny\n')
+
+    const span = await diffBranchSelection(dir, { kind: 'span' })
+    assert.deepEqual(paths(span.files), ['b.txt'], 'the new file is not the span’s to report')
+
+    const tail = await diffBranchSelection(dir, { kind: 'uncommitted' })
+    assert.ok(
+      paths(tail.files).includes('brand-new.txt'),
+      'but it is reachable — the uncommitted step is where it lives'
+    )
+  })
+
   await run('the uncommitted step is HEAD → working tree, untracked included', async () => {
     const dir = repo()
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
@@ -291,6 +313,35 @@ void (async () => {
     assert.notEqual(after.steps[0].hash, before.steps[0].hash, 'the commit was re-identified')
     const diff = await diffBranchSelection(dir, { kind: 'commit', hash: after.steps[0].hash })
     assert.deepEqual(paths(diff.files), ['b.txt'])
+  })
+
+  // ---- the seam with the sidebar row --------------------------------------
+
+  // The row and this panel are two renderings of ONE reading. If they ever
+  // disagree, one of them is lying to the person looking at both.
+  await run('the span’s totals equal the row’s ±N for the same checkout', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'x\ny\n')
+    commit(dir, 'committed')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    writeFileSync(join(dir, 'untracked.txt'), 'ignored by both\n')
+
+    const span = await diffBranchSelection(dir, { kind: 'span' })
+    const row = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.equal(span.additions, row.additions, 'additions agree')
+    assert.equal(span.deletions, row.deletions, 'deletions agree')
+    assert.equal(span.files.length, row.changedFiles, 'and so does the file count')
+  })
+
+  await run('the strip’s scope agrees with the row’s scope', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'x\n')
+    commit(dir, 'work')
+    const snapshot = await listBranchSteps(dir)
+    const row = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.equal(snapshot.scope, row.scope, 'one rule, two surfaces')
   })
 
   // ---- the diff sides -----------------------------------------------------

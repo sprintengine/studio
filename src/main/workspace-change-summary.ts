@@ -1,4 +1,4 @@
-import { readBranchSpan, type BranchSpan } from './git-branch-span'
+import { readBranchSpan, scopeOfSpan, type BranchSpan } from './git-branch-span'
 import { getGitRowSummary } from './git-status'
 import type { WorkspaceChangeSummary } from '../shared/electron-api'
 
@@ -52,10 +52,9 @@ export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary
     additions: span.stat.additions,
     deletions: span.stat.deletions,
     changedFiles: span.stat.changedFiles,
-    // A linked worktree is exclusive to its workspace whatever its branch is
-    // doing, so it claims `worktree` even when level with the trunk: the
-    // uncommitted work in it is still nobody else's.
-    scope: span.isLinkedWorktree ? 'worktree' : span.aheadOfBase ? 'branch' : 'folder',
+    // The shared rule, not a local copy — the step strip renders the same span
+    // and must say the same thing about it.
+    scope: scopeOfSpan(span),
   }
 }
 

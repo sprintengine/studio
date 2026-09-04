@@ -70,6 +70,27 @@ export type BranchSpan = {
 }
 
 /**
+ * How much a reading of this span may claim — the ONE definition, used by both
+ * surfaces that render it (the row's `WorkspaceChangeSummary` and the step
+ * strip's snapshot).
+ *
+ * It lives here rather than in either caller because the two are two renderings
+ * of one reading: a person looking at a row and the panel it opens must not be
+ * told two different things about who made the changes. Duplicating the rule
+ * would let them drift silently, which is exactly the class of bug this epic
+ * exists to remove.
+ *
+ * A linked worktree is exclusive to its workspace whatever its branch is doing,
+ * so it claims `worktree` even when level with the trunk: the uncommitted work
+ * in it is still nobody else's.
+ */
+export function scopeOfSpan(span: BranchSpan | null): 'worktree' | 'branch' | 'folder' {
+  if (!span) return 'folder'
+  if (span.isLinkedWorktree) return 'worktree'
+  return span.aheadOfBase ? 'branch' : 'folder'
+}
+
+/**
  * A fresh empty result each time. Never a shared constant: it is handed to
  * callers, and one that sorted `files` in place would corrupt every later
  * failure result for the life of the process.

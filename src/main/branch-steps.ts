@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-import { parseNumstatZ, readBranchSpan } from './git-branch-span'
+import { parseNumstatZ, readBranchSpan, scopeOfSpan } from './git-branch-span'
 import { runGitCommand } from './git-utils'
 import type {
   BranchStep,
@@ -52,11 +52,9 @@ export async function listBranchSteps(cwd: string): Promise<BranchStepsSnapshot>
     return { branch: null, baseOid: null, scope: 'folder', steps: [], hasUncommitted: false }
   }
 
-  const scope: BranchStepsSnapshot['scope'] = span.isLinkedWorktree
-    ? 'worktree'
-    : span.aheadOfBase
-      ? 'branch'
-      : 'folder'
+  // The shared rule, not a local copy: the row renders the same span and must
+  // say the same thing about it.
+  const scope = scopeOfSpan(span)
 
   const steps = span.baseOid && span.aheadOfBase ? await readLog(cwd, span.baseOid) : []
 
@@ -104,7 +102,13 @@ async function readLog(cwd: string, baseOid: string): Promise<BranchStep[]> {
  * The diff for one selection.
  *
  * - `span` — `merge-base → working tree`: everything the branch has produced,
- *   counted once even where several commits touched one file.
+ *   counted once even where several commits touched one file. Untracked files
+ *   are NOT included here, deliberately: the span has to agree file-for-file
+ *   with the sidebar row's number for the same checkout, and the row reads
+ *   `git diff` — which is structurally blind to content git has never tracked.
+ *   Two surfaces claiming to show one span while disagreeing about its size is a
+ *   bug a person sees immediately; a new file still has its own home, one chip
+ *   to the left, in the uncommitted step.
  * - `commit` — that commit alone. `git show` rather than `<hash>^ <hash>` so a
  *   ROOT commit (which has no parent to diff against) reports its whole tree as
  *   added instead of failing outright.
@@ -149,7 +153,7 @@ export async function diffBranchSelection(
     await numstat(cwd, [...base, '--numstat', '-z']),
     await nameStatus(cwd, [...base, '--name-status', '-z'])
   )
-  return withUntracked(cwd, tracked)
+  return selection.kind === 'uncommitted' ? withUntracked(cwd, tracked) : tracked
 }
 
 async function numstat(
