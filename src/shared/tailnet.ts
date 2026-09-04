@@ -209,17 +209,56 @@ export type TailnetLiveDevice = {
   connected: boolean
   /** Terminal session ids this device is currently attached to (observe or control). */
   attachedTerminalSessions: string[]
-  /** Epoch ms of the last observed activity on this channel set, or null. */
+  /** Epoch ms of the first socket in the current connected stretch, or null. */
+  connectedSince: number | null
+  /**
+   * Epoch ms of the last observed activity — a socket opening or closing, or
+   * an authenticated HTTP call — on this device, or null.
+   */
   lastActivityAt: number | null
+  /**
+   * Transport-proven identity of the peer holding the sockets: Tailscale's
+   * name for the node when `whois` resolved it, and the address the last
+   * socket arrived from. Distinct from `deviceName`, which is what the client
+   * CALLED itself at pairing. No user agent or platform: nothing on this
+   * transport sends one, and a field main does not hold is not reported.
+   */
+  peerNode: string | null
+  peerAddress: string | null
 }
 
 export type TailnetLiveState = {
+  /**
+   * The service's monotonic change counter at the time of the read, so a
+   * subscriber can drop this snapshot when a pushed payload already applied
+   * is newer (the initial read resolving after a push — the mount race).
+   */
+  revision: number
   devices: TailnetLiveDevice[]
 }
 
+/**
+ * How a pair request stopped waiting. Distinct because the surfaces say
+ * different things — an answer given here, an answer nobody gave, and a
+ * listener that went away underneath the request are three stories.
+ */
+export type TailnetPairRequestPhase = 'received' | 'approved' | 'denied' | 'expired' | 'cancelled'
+
+/** Every phase after `received`: the request no longer exists to be answered. */
+export function isPairRequestTerminalPhase(phase: TailnetPairRequestPhase): boolean {
+  return phase !== 'received'
+}
+
 export type TailnetLiveEvent =
-  | { kind: 'listener'; running: boolean }
-  | { kind: 'pair-request'; phase: 'received' | 'resolved'; requestId: string; deviceName: string }
+  | { kind: 'listener'; running: true }
+  /**
+   * Down, with the reason when it was ASKED to be up: a port already taken
+   * or an interface that vanished at boot reaches every window as this,
+   * without waiting for someone to open Settings. `error` is null for a
+   * stop that was requested.
+   */
+  | { kind: 'listener'; running: false; error: string | null }
+  | { kind: 'pair-request'; phase: TailnetPairRequestPhase; requestId: string; deviceName: string; peerNode: string | null }
   | { kind: 'device-connection'; deviceId: string; deviceName: string; connected: boolean }
   | {
       kind: 'terminal-drive'
@@ -231,6 +270,12 @@ export type TailnetLiveEvent =
   | { kind: 'devices-changed' }
 
 export type TailnetPushPayload = {
+  /**
+   * Monotonically increasing per service lifetime: a subscriber applies a payload
+   * only when it is newer than the last one applied, so out-of-order delivery
+   * or a late initial read can never roll presence backwards.
+   */
+  revision: number
   event: TailnetLiveEvent
   status: TailnetRemoteStatus
   live: TailnetLiveState

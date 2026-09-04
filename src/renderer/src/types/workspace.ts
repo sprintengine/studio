@@ -958,12 +958,28 @@ export type WorkspaceWorktree = {
  */
 export type WorkspaceModuleStateBag = Record<string, unknown>
 
+export type WorkspaceRemoteOrigin = {
+  // The paired machine (fleet connection id) the workspace was created on.
+  connectionId: string
+  machineName: string
+  // The remote gateway's workspace: its id, display name, and folder there.
+  workspaceId: string
+  workspaceName: string
+  workspaceRoot: string | null
+}
+
 export type Workspace = {
   id: WorkspaceId
   name: string
   mode: WorkspaceMode
   folderPath: string | null
   folderMissing?: boolean
+  // Where a remote-born workspace's code and agent actually live
+  // (remote-sessions-ux / new-chat-on-a-remote-machine). Set once at creation
+  // for a chat started on a paired machine; the sidebar groups and badges by
+  // it, so the row keeps its provenance even after its fleet pane closes.
+  // Absent for every local workspace — local is the unmarked default.
+  remoteOrigin?: WorkspaceRemoteOrigin | null
   worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
   // LEGACY, READ-ONLY (MC-1856). The human's review progress on a `review`-mode

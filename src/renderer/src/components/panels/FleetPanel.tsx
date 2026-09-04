@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
   FleetBrowse,
@@ -62,6 +62,9 @@ export default function FleetPanel({ workspaceId }: Props) {
   const [requestNow, setRequestNow] = useState(() => Date.now())
   const [action, setAction] = useState<ActionState>({ tone: 'idle', message: '' })
 
+  // The newest fleet revision applied; an older broadcast (or one replayed
+  // out of order) must not trigger a re-read that lands stale.
+  const fleetRevision = useRef(0)
   const refreshConnections = useCallback(async () => {
     setConnections(await window.api.fleetListConnections())
   }, [])
@@ -75,6 +78,8 @@ export default function FleetPanel({ workspaceId }: Props) {
     // narrower aux-window preloads): the panel then simply stays fetch-based.
     if (typeof window.api.onFleetEvent !== 'function') return
     return window.api.onFleetEvent((event) => {
+      if (event.revision < fleetRevision.current) return
+      fleetRevision.current = event.revision
       if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') {
         void refreshConnections().catch(() => {})
       }

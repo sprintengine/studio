@@ -2,7 +2,7 @@ import { diffCheckpointStat, hasCheckpointRef } from './checkpoint-store'
 import { getGitRowSummary } from './git-status'
 import { runGitCommand } from './git-utils'
 import type { CheckpointIndex } from './checkpoint-index'
-import type { WorkspaceChangeSummary } from '../shared/electron-api'
+import type { GitRowSummary, WorkspaceChangeSummary } from '../shared/electron-api'
 
 /**
  * What THIS workspace's agents changed — the honest replacement for the sidebar
@@ -28,7 +28,7 @@ import type { WorkspaceChangeSummary } from '../shared/electron-api'
  */
 export async function getWorkspaceChangeSummary(
   input: { workspaceId: string; folderPath: string },
-  deps: { index: CheckpointIndex }
+  deps: { index: CheckpointIndex; folderSummaries?: FolderSummaryShare }
 ): Promise<WorkspaceChangeSummary> {
   const timeline = deps.index.timelineFor(input.workspaceId)
   const turns = timeline?.turns ?? []
@@ -74,10 +74,11 @@ export async function getWorkspaceChangeSummary(
   }
 
   // Fallback. Only HERE does the expensive read happen: `getGitRowSummary` runs
-  // `diff --shortstat HEAD`, a full worktree scan, and running it for every row
-  // on every sweep is the cost regression this ordering avoids — a checkpointed
-  // row now costs two cheap ref reads and a ref-to-ref diff instead.
-  const folder = await getGitRowSummary(input.folderPath)
+  // `diff --shortstat HEAD`, a full worktree scan. A checkpointed row costs two
+  // cheap ref reads and a ref-to-ref diff instead — and the rows that DO land
+  // here share one scan per folder per sweep (see `FolderSummaryShare`), so ten
+  // fresh chats on one repo are one worktree scan, not ten.
+  const folder = await (deps.folderSummaries ?? defaultFolderSummaries).read(input.folderPath)
   return {
     branch: folder.branch,
     additions: folder.additions,
@@ -86,6 +87,79 @@ export async function getWorkspaceChangeSummary(
     scope: 'folder',
   }
 }
+
+/**
+ * One folder scan per sweep, shared by every un-checkpointed row on that folder.
+ *
+ * The renderer's poll asks per WORKSPACE — that is the point of the
+ * checkpoint-scoped reading, each row answers for itself — but the fallback
+ * for a row with no closed turn is the folder's `diff --shortstat HEAD`, and
+ * ten fresh chats on one repo were ten full worktree scans every minute once
+ * the old renderer-side folder dedupe went (6d4e28a6e). The guarantee the
+ * two-line-rows spec makes is restored here, at the one place the scan runs:
+ * a folder's read is shared while it is in flight and held for `holdMs` after
+ * it settles, which covers a sweep's serial tail at the poll's concurrency of
+ * four; the next 60s sweep always gets a fresh scan. The hold is measured from
+ * settle rather than start on purpose — a slow scan on a large repo must not
+ * expire while the rows queued behind it are still arriving.
+ *
+ * A rejected read is forgotten immediately, so a transient failure never pins
+ * an error onto every row of the folder for the hold window.
+ */
+export type FolderSummaryShare = {
+  read: (folderPath: string) => Promise<GitRowSummary>
+}
+
+export const FOLDER_SUMMARY_HOLD_MS = 15_000
+/**
+ * How long an in-flight read is shared before a newcomer starts its own. A
+ * `git diff` hung on a spun-down volume must not pin every row of that folder,
+ * in every window, for the life of main — before the share each row hung on
+ * its own, and this keeps that worst case per read rather than per folder.
+ */
+export const FOLDER_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
+
+export function createFolderSummaryShare(
+  read: (folderPath: string) => Promise<GitRowSummary>,
+  options: { holdMs?: number; inFlightMaxMs?: number; now?: () => number } = {}
+): FolderSummaryShare {
+  const holdMs = options.holdMs ?? FOLDER_SUMMARY_HOLD_MS
+  const inFlightMaxMs = options.inFlightMaxMs ?? FOLDER_SUMMARY_IN_FLIGHT_MAX_MS
+  const now = options.now ?? Date.now
+  type Entry = { promise: Promise<GitRowSummary>; startedAt: number; settledAt: number | null }
+  const reads = new Map<string, Entry>()
+  return {
+    read(folderPath) {
+      // Rows on one folder arrive with the folder path the workspace stores;
+      // a trailing slash or a Windows separator must not split the share.
+      const key = folderPath.replace(/\\/g, '/').replace(/\/+$/u, '')
+      const existing = reads.get(key)
+      if (existing) {
+        const shareable = existing.settledAt === null
+          ? now() - existing.startedAt < inFlightMaxMs
+          : now() - existing.settledAt < holdMs
+        if (shareable) return existing.promise
+      }
+      const entry: Entry = {
+        promise: read(folderPath),
+        startedAt: now(),
+        settledAt: null,
+      }
+      entry.promise.then(
+        () => {
+          entry.settledAt = now()
+        },
+        () => {
+          if (reads.get(key) === entry) reads.delete(key)
+        }
+      )
+      reads.set(key, entry)
+      return entry.promise
+    },
+  }
+}
+
+const defaultFolderSummaries = createFolderSummaryShare(getGitRowSummary)
 
 /**
  * The branch name, or null on a detached HEAD / unreadable repo. `symbolic-ref`

@@ -194,18 +194,37 @@ export type FleetCollectPairingResult =
  * exactly that rather than inventing a machine phase main does not hold.
  */
 export type FleetEvent =
-  | { kind: 'machine-paired'; connection: FleetConnection }
-  | { kind: 'machine-forgotten'; connectionId: string; machineName: string }
-  | {
-      kind: 'attachment'
-      connectionId: string
-      machineName: string
-      sessionId: string
-      state: FleetLinkState
-      detail: string
-    }
+  | { kind: 'machine-paired'; revision: number; connection: FleetConnection }
+  | { kind: 'machine-forgotten'; revision: number; connectionId: string; machineName: string }
+  | ({ kind: 'attachment'; revision: number } & FleetLiveAttachment)
+
+/**
+ * One pane's link to one remote session. Keyed by `attachId` — the pane —
+ * not by session: two panes on the same remote session are two links, and
+ * one closing must not retract the other's "live".
+ */
+export type FleetLiveAttachment = {
+  attachId: string
+  connectionId: string
+  machineName: string
+  sessionId: string
+  state: FleetLinkState
+  detail: string
+}
+
+/**
+ * The initial read behind `FLEET_EVENT_CHANNEL`: every attachment main holds
+ * right now with its link state, so a window that mounts (or reloads) after
+ * a pane went live is not stuck on "paired". Carries the same monotonic
+ * `revision` the events do; a subscriber keeps whichever is newer.
+ */
+export type FleetLiveState = {
+  revision: number
+  attachments: FleetLiveAttachment[]
+}
 
 export const FLEET_EVENT_CHANNEL = 'fleet:event'
+export const FLEET_GET_LIVE_STATE_CHANNEL = 'fleet:get-live-state'
 
 export const FLEET_REQUEST_PAIRING_CHANNEL = 'fleet:request-pairing'
 export const FLEET_COLLECT_PAIRING_CHANNEL = 'fleet:collect-pairing'

@@ -116,16 +116,15 @@ export type TailnetGatewayServerOptions = {
    */
   onPairRequested?: () => void
   /**
-   * Socket lifecycle, for the live-state push (remote-sessions-ux): a device's
-   * RPC stream or terminal attachment opening or closing. Fired exactly once
-   * per transition — the service above derives "connected" and "driving
-   * terminal X" from these without holding a socket reference of its own.
+   * Device activity, for the live-state push (remote-sessions-ux): a device's
+   * RPC stream or terminal attachment opening or closing — fired exactly once
+   * per transition, so the service above derives "connected" and "driving
+   * terminal X" without holding a socket reference of its own — and every
+   * authenticated HTTP call (`request`), which is activity on a device that
+   * may hold no socket at all. Opens and requests carry the peer as the
+   * transport saw it, resolved at the same point `recordSeen` is.
    */
-  onActivity?: (
-    event:
-      | { kind: 'stream'; device: TailnetDevice; open: boolean }
-      | { kind: 'terminal'; device: TailnetDevice; sessionId: string; open: boolean }
-  ) => void
+  onActivity?: (event: TailnetGatewayActivity) => void
   onToolCall?: (event: {
     context: McpConnectionContext
     tool: string
@@ -137,6 +136,15 @@ export type TailnetGatewayServerOptions = {
   now?: () => number
   log?: (message: string) => void
 }
+
+export type TailnetGatewayPeer = { peerNode: string | null; peerAddress: string }
+
+export type TailnetGatewayActivity =
+  | ({ kind: 'stream'; device: TailnetDevice; open: true } & TailnetGatewayPeer)
+  | { kind: 'stream'; device: TailnetDevice; open: false }
+  | ({ kind: 'terminal'; device: TailnetDevice; sessionId: string; open: true } & TailnetGatewayPeer)
+  | { kind: 'terminal'; device: TailnetDevice; sessionId: string; open: false }
+  | ({ kind: 'request'; device: TailnetDevice } & TailnetGatewayPeer)
 
 export type TailnetGatewayServer = {
   start(): Promise<void>
@@ -295,8 +303,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       writeUnauthorized(response)
       return
     }
-    const peerNode = await options.peers.resolve(normalizeAddress(request.socket.remoteAddress))
+    const peerAddress = normalizeAddress(request.socket.remoteAddress)
+    const peerNode = await options.peers.resolve(peerAddress)
     options.devices.recordSeen(device.id, peerNode)
+    options.onActivity?.({ kind: 'request', device, peerNode, peerAddress })
 
     if (method === 'GET' && path === TAILNET_IDENTITY_PATH) {
       writeJson(response, 200, {
@@ -522,7 +532,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       const sessionId = query.get('sessionId')?.trim()
       if (!sessionId) return rejectUpgrade(socket, 400, 'session_id_required')
 
-      const terminalPeer = await options.peers.resolve(normalizeAddress(remoteAddressOf(socket)))
+      const terminalPeerAddress = normalizeAddress(remoteAddressOf(socket))
+      const terminalPeer = await options.peers.resolve(terminalPeerAddress)
       options.devices.recordSeen(device.id, terminalPeer)
       acceptUpgrade(socket, key)
       // The stream can refuse itself (unknown session, missing grant) and run
@@ -552,18 +563,26 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // `onClosed` before this line, so only a live one is tracked.
       if (stream.isClosed()) return
       terminalStreams.add(stream)
-      options.onActivity?.({ kind: 'terminal', device, sessionId, open: true })
+      options.onActivity?.({
+        kind: 'terminal',
+        device,
+        sessionId,
+        open: true,
+        peerNode: terminalPeer,
+        peerAddress: terminalPeerAddress,
+      })
       if (head?.length) socket.emit('data', head)
       return
     }
 
-    const peerNode = await options.peers.resolve(normalizeAddress(remoteAddressOf(socket)))
+    const streamPeerAddress = normalizeAddress(remoteAddressOf(socket))
+    const peerNode = await options.peers.resolve(streamPeerAddress)
     options.devices.recordSeen(device.id, peerNode)
     acceptUpgrade(socket, key)
 
     const session: StreamSession = { socket, deviceId: device.id, device, context: contextFor(device, peerNode) }
     streams.add(session)
-    options.onActivity?.({ kind: 'stream', device, open: true })
+    options.onActivity?.({ kind: 'stream', device, open: true, peerNode, peerAddress: streamPeerAddress })
     const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
     // Serialize per connection so a client's messages are answered in order.
     let pending = Promise.resolve()

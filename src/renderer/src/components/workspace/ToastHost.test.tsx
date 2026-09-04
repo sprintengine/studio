@@ -51,12 +51,33 @@ function run(name: string, fn: () => void): void {
   }
 }
 
-function pairEvent(phase: 'received' | 'resolved', requestId = 'req1'): unknown {
+let revision = 0
+function pairEvent(
+  phase: 'received' | 'approved' | 'denied' | 'expired' | 'cancelled',
+  requestId = 'req1',
+  peerNode: string | null = null
+): unknown {
   return {
-    event: { kind: 'pair-request', phase, requestId, deviceName: 'macbook-air' },
+    revision: ++revision,
+    event: { kind: 'pair-request', phase, requestId, deviceName: 'macbook-air', peerNode },
     status: {},
-    live: { devices: [] },
+    live: { revision, devices: [] },
   }
+}
+
+function fleetEvent(body: Record<string, unknown>): unknown {
+  return { revision: ++revision, ...body }
+}
+function attachment(attachId: string, state: string, connectionId = 'c1', machineName = 'Air'): unknown {
+  return fleetEvent({ kind: 'attachment', attachId, connectionId, machineName, sessionId: 's1', state, detail: '' })
+}
+function fireFleet(payload: unknown): void {
+  act(() => {
+    for (const handler of [...fleetHandlers]) handler(payload)
+  })
+}
+function titles(): string[] {
+  return useToastStore.getState().toasts.map((toast) => toast.title)
 }
 
 let root: Root | null = null
@@ -108,13 +129,35 @@ run('the same request announced twice is one toast', () => {
   void mounted
 })
 
-run('resolution from any surface retracts the standing toast', () => {
+run('the toast names the transport-proven node first and the self-declared name second', () => {
   reset()
   const mounted = mount()
-  fireTailnet(pairEvent('received'))
-  assert.match(mounted.innerHTML, /Pair request/)
-  fireTailnet(pairEvent('resolved'))
-  assert.equal(mounted.innerHTML, '', 'the invitation to review a request that no longer exists is gone')
+  fireTailnet(pairEvent('received', 'req-named', 'dev-macbook-air'))
+  assert.match(mounted.innerHTML, /Pair request from dev-macbook-air/)
+  assert.match(mounted.innerHTML, /Calls itself “macbook-air”/)
+  unmount()
+})
+
+for (const phase of ['approved', 'denied', 'expired', 'cancelled'] as const) {
+  run(`every terminal phase retracts the standing toast — ${phase}`, () => {
+    reset()
+    const mounted = mount()
+    fireTailnet(pairEvent('received', `req-${phase}`))
+    assert.match(mounted.innerHTML, /Pair request/)
+    fireTailnet(pairEvent(phase, `req-${phase}`))
+    assert.equal(mounted.innerHTML, '', 'the invitation to review a request that no longer exists is gone')
+    unmount()
+  })
+}
+
+run('the toast’s id is the request’s, so a retraction can never orphan', () => {
+  reset()
+  mount()
+  fireTailnet(pairEvent('received', 'req-id'))
+  assert.deepEqual(
+    useToastStore.getState().toasts.map((toast) => toast.id),
+    ['pair-request:req-id']
+  )
   unmount()
 })
 
@@ -126,9 +169,68 @@ run('a toast the person dismissed stays dismissed — resolution does not resurr
     const id = useToastStore.getState().toasts[0]?.id
     if (id) useToastStore.getState().dismissToast(id)
   })
-  fireTailnet(pairEvent('resolved'))
+  fireTailnet(pairEvent('expired'))
   assert.equal(useToastStore.getState().toasts.length, 0)
   assert.equal(mounted.innerHTML, '')
+  unmount()
+})
+
+// ── the fleet bridge ─────────────────────────────────────────────────────
+
+run('a machine paired announces good; a machine removed announces neutral', () => {
+  reset()
+  const mounted = mount()
+  fireFleet(fleetEvent({ kind: 'machine-paired', connection: { id: 'c1', machineName: 'Air' } }))
+  assert.match(mounted.innerHTML, /Machine paired/)
+  assert.match(mounted.innerHTML, /Air is in your fleet/)
+  assert.ok(mounted.querySelector('[role="status"]'), 'good is polite')
+  fireFleet(fleetEvent({ kind: 'machine-forgotten', connectionId: 'c1', machineName: 'Air' }))
+  assert.match(mounted.innerHTML, /Machine removed/)
+  assert.match(mounted.innerHTML, /Air was removed from your fleet/)
+  unmount()
+})
+
+run('a lost connection is one warn toast per MACHINE, however many panes it has', () => {
+  reset()
+  const mounted = mount()
+  fireFleet(attachment('pane-a', 'reconnecting'))
+  assert.equal(titles().length, 0, 'reconnecting is the pane’s own business; no toast yet')
+  fireFleet(attachment('pane-a', 'offline'))
+  fireFleet(attachment('pane-b', 'offline'))
+  fireFleet(attachment('pane-c', 'offline'))
+  assert.deepEqual(titles(), ['Connection to Air lost'], 'three panes, one loss')
+  assert.deepEqual(useToastStore.getState().toasts.map((toast) => toast.id), ['fleet:c1'], 'keyed by the connection')
+  assert.ok(mounted.querySelector('[role="alert"]'), 'warn persists')
+  // A second machine losing its link is a second toast, not a replacement.
+  fireFleet(attachment('pane-z', 'offline', 'c2', 'Mini'))
+  assert.deepEqual(titles(), ['Connection to Air lost', 'Connection to Mini lost'])
+  unmount()
+})
+
+run('reconnected is only news after a loss, and it RETRACTS the loss', () => {
+  reset()
+  const mounted = mount()
+  fireFleet(attachment('pane-a', 'connecting'))
+  fireFleet(attachment('pane-a', 'live'))
+  assert.equal(titles().length, 0, 'a first connection is not a reconnection')
+  fireFleet(attachment('pane-a', 'offline'))
+  assert.deepEqual(titles(), ['Connection to Air lost'])
+  fireFleet(attachment('pane-a', 'live'))
+  assert.deepEqual(titles(), ['Reconnected to Air'], 'the standing loss is gone and the recovery announced')
+  assert.doesNotMatch(mounted.innerHTML, /lost/)
+  // Only once: a second pane going live on the same recovered machine is quiet.
+  fireFleet(attachment('pane-b', 'live'))
+  assert.deepEqual(titles(), ['Reconnected to Air'])
+  unmount()
+})
+
+run('a pane closed for good retracts the loss toast without claiming a recovery', () => {
+  reset()
+  mount()
+  fireFleet(attachment('pane-a', 'offline'))
+  assert.deepEqual(titles(), ['Connection to Air lost'])
+  fireFleet(attachment('pane-a', 'closed'))
+  assert.deepEqual(titles(), [], 'retracted, and no “Reconnected” invented')
   unmount()
 })
 

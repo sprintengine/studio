@@ -5,6 +5,7 @@ import {
   FOCUS_RING_CLASS,
   Input,
   MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
   MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
   PrimaryButton,
@@ -12,7 +13,6 @@ import {
 import { GitHubRepoPicker, toRepoListState, type GitHubRepoListState } from '../newWorkspace/GitHubRepoPicker'
 import { resolveCloneSource } from '../newWorkspace/githubClone'
 import { suggestedWorkspaceFolderName } from '../newWorkspace/folderCreation'
-import { showToast } from '../../../store/toastStore'
 import { basename } from '../../../utils/paths'
 
 // The New-chat project selector's body (remote-sessions-ux /
@@ -24,21 +24,35 @@ import { basename } from '../../../utils/paths'
 
 export type ProjectSourceOption = { path: string; label: string }
 
+export type ProjectCloneRequest = { url: string; parentDir: string; folderName: string }
+export type ProjectCloneResult = { ok: true; path: string } | { ok: false; message: string }
+
 export function ProjectSourceMenu({
   options,
+  recentOptions = [],
   selectedPath,
   defaultParent,
   onSelect,
   onBrowse,
+  onClone,
   onClose,
 }: {
   options: ProjectSourceOption[]
+  /** Projects the app knows but this window has not open: searched too. */
+  recentOptions?: ProjectSourceOption[]
   selectedPath: string | null
-  /** Where a cloned repository lands: the current project's parent folder. */
+  /** Where a cloned repository lands: the smart parent, or null on a cold start with nothing to go on. */
   defaultParent: string | null
   onSelect: (path: string) => void
   /** Absent hides the Browse… source (a host with no folder dialog). */
   onBrowse?: () => void
+  /**
+   * Runs the clone and ADOPTS the result. It lives with the host rather than
+   * here: this popover can close mid-clone, and a success that arrived into
+   * an unmounted menu used to be lost. The menu only reports progress and
+   * git's error inline, and closes on success if it is still open.
+   */
+  onClone: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
   onClose: () => void
 }) {
   const [step, setStep] = React.useState<'projects' | 'git'>('projects')
@@ -74,31 +88,41 @@ export function ProjectSourceMenu({
   const resolution = resolveCloneSource(selectedRepo, urlDraft)
   const canClone = Boolean(resolution.source) && !cloning
 
+  // Still mounted? State writes after an unmount are no-ops in React 18, but
+  // `onClose` into a host that already closed the popover is not.
+  const mounted = React.useRef(true)
+  React.useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
   const runClone = async (): Promise<void> => {
     const source = resolution.source
     if (!source || cloning) return
     if (!defaultParent) {
-      setCloneError('Open a project first, so there is a folder to clone beside.')
+      // Only a true cold start with no default parent from the app lands here.
+      setCloneError('Choose a folder with Browse… first, so there is somewhere to clone into.')
       return
     }
     setCloning(true)
     setCloneError(null)
     try {
-      const cloned = await window.api.cloneGitHubRepo({
+      const cloned = await onClone({
         url: source.url,
         parentDir: defaultParent,
         folderName: suggestedWorkspaceFolderName(source.repoName),
       })
+      if (!mounted.current) return
       if (!cloned.ok) {
+        // git's message, inline; the selection is untouched.
         setCloneError(cloned.message)
         return
       }
-      // The one fact the person cannot see from here: where it landed.
-      showToast({ tone: 'good', title: 'Repository cloned', description: cloned.path })
-      onSelect(cloned.path)
       onClose()
     } finally {
-      setCloning(false)
+      if (mounted.current) setCloning(false)
     }
   }
 
@@ -151,15 +175,40 @@ export function ProjectSourceMenu({
   }
 
   const needle = query.trim().toLowerCase()
-  const visible = needle
-    ? options.filter(
-        (option) =>
-          option.label.toLowerCase().includes(needle) || option.path.toLowerCase().includes(needle)
-      )
-    : options
+  const matches = (option: ProjectSourceOption) =>
+    !needle || option.label.toLowerCase().includes(needle) || option.path.toLowerCase().includes(needle)
+  const visible = options.filter(matches)
+  const visibleRecent = recentOptions.filter(matches)
 
+  const projectRow = (option: ProjectSourceOption) => (
+    <button
+      key={option.path}
+      type="button"
+      role="menuitemradio"
+      aria-checked={option.path === selectedPath}
+      onClick={() => {
+        onSelect(option.path)
+        onClose()
+      }}
+      className={`${MENU_ITEM_STACKED_CLASS} ${
+        option.path === selectedPath
+          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)]'
+      }`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-body font-medium">{option.label}</span>
+        <span className="mt-0.5 block truncate font-mono text-micro text-[color:var(--text-subtle)]">
+          {option.path}
+        </span>
+      </span>
+    </button>
+  )
+
+  // The hosting Popover surface is the `role="menu"`; this is the list layer
+  // inside it (menu spec anatomy), never a second menu.
   return (
-    <div className={`w-[300px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Projects">
+    <div className={`w-[300px] ${MENU_LIST_CLASS}`}>
       {/* Search first (owner, 2026-09-03): typing narrows the projects. Off
           the roving order on purpose — the field is where focus lands. */}
       <div className="px-1.5 pb-1">
@@ -173,31 +222,16 @@ export function ProjectSourceMenu({
           aria-label="Search projects"
         />
       </div>
-      {visible.map((option) => (
-        <button
-          key={option.path}
-          type="button"
-          role="menuitemradio"
-          aria-checked={option.path === selectedPath}
-          onClick={() => {
-            onSelect(option.path)
-            onClose()
-          }}
-          className={`${MENU_ITEM_STACKED_CLASS} ${
-            option.path === selectedPath
-              ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-default)]'
-          }`}
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-body font-medium">{option.label}</span>
-            <span className="mt-0.5 block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-              {option.path}
-            </span>
-          </span>
-        </button>
-      ))}
-      {visible.length === 0 ? (
+      {visible.map(projectRow)}
+      {visibleRecent.length > 0 ? (
+        // Known but not open here: the hub's recent folders, under the spec's
+        // group label (never bolder than its rows).
+        <div role="group" aria-label="Recent">
+          <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Recent</div>
+          {visibleRecent.map(projectRow)}
+        </div>
+      ) : null}
+      {visible.length === 0 && visibleRecent.length === 0 ? (
         <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No matching projects.</div>
       ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />

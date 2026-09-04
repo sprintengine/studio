@@ -108,9 +108,12 @@ None. Both entries that stood here were spent on 2026-08-05 (**MC-2138**):
 - The dismiss target was 20px, under `--sem-size-hit-target-min`. `Toast.tsx`
   now takes its floor from that token directly, keeping the 10px glyph and the
   flow advance the smaller target had.
-- The placement note pointed at **MC-2110**, which had already shipped. It was
-  never drift: the shipped product has no corner stack. Its one toast host
-  renders the surface IN FLOW, at the top of a scrolling pane, where the toast
-  belongs to the panel that produced it and stacks nothing. `.ds-toast-region`
-  and `--sem-z-toast` stay in this spec as the reference placement for a host
-  that does need a corner — unconsumed on purpose, not pending.
+- The placement note pointed at **MC-2110**, which had already shipped.
+
+*2026-09-04:* the corner region is consumed. The remote-sessions-ux epic's
+`toast-host-region` child shipped `.ds-toast-region`'s product counterpart —
+one bottom-trailing stack at `z.toast`, newest at the bottom, `space.sm`
+apart — and every producer (pair requests, remote-create failures, stranded
+attachments) routes through it. The older in-flow toast host at the top of a
+scrolling pane remains where a toast belongs to the panel that produced it;
+it stacks nothing and is not the region.

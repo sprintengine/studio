@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { TailnetScope } from '../../shared/tailnet'
-import type { FleetTerminalEvent } from '../../shared/tailnet-fleet'
+import type { FleetEvent, FleetTerminalEvent } from '../../shared/tailnet-fleet'
 import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
@@ -36,6 +36,8 @@ type Harness = {
   localDir: string
   fleet: TailnetFleetService
   terminals: StubTerminalHost
+  /** Every whole-app fleet event the service broadcast, in order. */
+  events: FleetEvent[]
   /** Pair the fleet service with the harness's listener under the given scopes. */
   pair(scopes: TailnetScope[]): Promise<string>
   /** Stop the listener, leaving the client dialling a dead port. */
@@ -71,12 +73,14 @@ async function startHarness(): Promise<Harness> {
   assert.ok(address, 'the harness listener reports a bound address')
   const port = address.port
 
+  const events: FleetEvent[] = []
   const fleet = createTailnetFleetService({
     resolveUserDataDir: () => localDir,
     resolveDeviceName: () => 'laptop',
     // No Tailscale in a test, so no name: the machine is listed by address, and
     // the point is that this degrades rather than blocking the pairing.
     resolvePeerName: async () => null,
+    onEvent: (event) => events.push(event),
   })
 
   return {
@@ -89,6 +93,7 @@ async function startHarness(): Promise<Harness> {
     localDir,
     fleet,
     terminals,
+    events,
     async pair(scopes): Promise<string> {
       const offer = devices.offerPairing({ scopes })
       const result = await fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', port, offer.token) })
@@ -681,6 +686,116 @@ test('endpoints are read exactly, or refused', async () => {
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+// The whole-app broadcast (remote-sessions-ux / tailnet-live-state-push):
+// machine paired and forgotten, per-attachment link state keyed by the PANE,
+// and a snapshot read that agrees with the events — every one stamped with
+// a revision that only goes up.
+test('the fleet broadcasts machine paired/forgotten and attachment link state, keyed by attachId, with a matching snapshot', async () => {
+  const harness = await startHarness()
+  try {
+    assert.deepEqual(harness.fleet.getLiveState(), { revision: 0, attachments: [] }, 'nothing attached, revision 0')
+    const connectionId = await harness.pair(['terminal:control'])
+    const paired = harness.events.find((event) => event.kind === 'machine-paired')
+    assert.ok(paired && paired.kind === 'machine-paired', 'pairing is broadcast')
+    assert.equal(paired.connection.id, connectionId)
+    assert.equal(paired.revision, 1, 'the first broadcast is revision 1')
+    assert.equal(
+      'deviceToken' in paired.connection,
+      false,
+      'the broadcast carries the public view, never the credential'
+    )
+
+    // Two panes on ONE session: two links, announced separately.
+    const first = createRecorder()
+    const second = createRecorder()
+    await harness.fleet.attachTerminal({ attachId: 'pane-a', connectionId, sessionId: 'session_one', emit: first.emit })
+    await harness.fleet.attachTerminal({ attachId: 'pane-b', connectionId, sessionId: 'session_one', emit: second.emit })
+    await first.waitFor((event) => event.type === 'status' && event.state === 'live', 'pane-a live')
+    await second.waitFor((event) => event.type === 'status' && event.state === 'live', 'pane-b live')
+    const attachmentEvents = harness.events.filter((event) => event.kind === 'attachment')
+    const states = (attachId: string) =>
+      attachmentEvents.filter((event) => event.kind === 'attachment' && event.attachId === attachId).map((event) => event.kind === 'attachment' && event.state)
+    assert.deepEqual(states('pane-a'), ['connecting', 'live'], 'pane-a narrated connecting → live')
+    assert.deepEqual(states('pane-b'), ['connecting', 'live'], 'pane-b narrated the same, under its own id')
+    for (const event of attachmentEvents) {
+      assert.ok(event.kind === 'attachment' && event.connectionId === connectionId && event.sessionId === 'session_one')
+    }
+
+    const snapshot = harness.fleet.getLiveState()
+    assert.equal(snapshot.revision, harness.events[harness.events.length - 1].revision, 'the snapshot carries the latest revision')
+    assert.deepEqual(
+      snapshot.attachments.map((attachment) => [attachment.attachId, attachment.state]).sort(),
+      [
+        ['pane-a', 'live'],
+        ['pane-b', 'live'],
+      ],
+      'the snapshot lists both panes as live'
+    )
+
+    // Closing one pane retracts ONLY that pane's link.
+    harness.fleet.detachTerminal('pane-a')
+    const closed = harness.events[harness.events.length - 1]
+    assert.ok(closed.kind === 'attachment' && closed.attachId === 'pane-a' && closed.state === 'closed')
+    assert.deepEqual(
+      harness.fleet.getLiveState().attachments.map((attachment) => attachment.attachId),
+      ['pane-b'],
+      'the other pane is still held'
+    )
+
+    // Forgetting the machine ends the remaining pane and announces the forget.
+    harness.fleet.forget(connectionId)
+    const forgotten = harness.events.find((event) => event.kind === 'machine-forgotten')
+    assert.ok(forgotten && forgotten.kind === 'machine-forgotten' && forgotten.connectionId === connectionId)
+    assert.ok(
+      harness.events.some((event) => event.kind === 'attachment' && event.attachId === 'pane-b' && event.state === 'closed'),
+      'the pane on a forgotten machine is closed, and said to be'
+    )
+    assert.deepEqual(harness.fleet.getLiveState().attachments, [])
+
+    harness.events.forEach((event, index) => {
+      if (index === 0) return
+      assert.ok(event.revision > harness.events[index - 1].revision, `revision rises at event ${index}`)
+    })
+  } finally {
+    await harness.close()
+  }
+})
+
+// When the peer stops answering the broadcast narrates reconnecting, then
+// offline after the retry budget, then live again when it returns — the
+// sequence the Remote glyph and the loss/recovery toasts are built on.
+test('a peer going away is broadcast as reconnecting then offline, and coming back as live', async () => {
+  const harness = await startHarness()
+  try {
+    const connectionId = await harness.pair(['terminal:observe'])
+    const recorder = createRecorder()
+    await harness.fleet.attachTerminal({ attachId: 'pane-x', connectionId, sessionId: 'session_one', emit: recorder.emit })
+    await recorder.waitFor((event) => event.type === 'status' && event.state === 'live', 'live')
+    await harness.stopServer()
+    await waitUntil(
+      () => harness.events.some((event) => event.kind === 'attachment' && event.state === 'offline'),
+      'the broadcast to report offline'
+    )
+    const sequence = harness.events
+      .filter((event) => event.kind === 'attachment' && event.attachId === 'pane-x')
+      .map((event) => event.kind === 'attachment' && event.state)
+    assert.ok(sequence.includes('reconnecting'), 'reconnecting precedes offline')
+    assert.ok(sequence.indexOf('reconnecting') < sequence.indexOf('offline'))
+    assert.equal(harness.fleet.getLiveState().attachments[0]?.state, 'offline', 'the snapshot agrees')
+    await harness.restartServer()
+    await waitUntil(
+      () => {
+        const last = harness.events[harness.events.length - 1]
+        return last.kind === 'attachment' && last.state === 'live'
+      },
+      'the link to come back live'
+    )
+    harness.fleet.detachTerminal('pane-x')
+  } finally {
+    await harness.close()
+  }
+})
 
 async function waitUntil(condition: () => boolean, what: string, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs

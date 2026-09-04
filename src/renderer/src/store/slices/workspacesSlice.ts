@@ -296,6 +296,8 @@ export interface WorkspacesSliceActions {
     options?: {
       name?: string
       folderPath?: string | null
+      // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
+      remoteOrigin?: import('../../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null
@@ -1254,6 +1256,7 @@ export function createWorkspacesSlice(
                     : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
+          ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
           templateId: template.id,

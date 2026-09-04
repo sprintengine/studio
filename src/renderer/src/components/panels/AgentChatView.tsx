@@ -30,7 +30,10 @@ import {
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from '../workspace/agentComposer/agentSpawnShared'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, focusActivePresetRow, PermissionPresetMenuRows } from '../workspace/agentComposer/agentSpawnShared'
+import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
+import { renderKeybinding } from '../../commands/keybindings'
+import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
@@ -41,7 +44,7 @@ import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CheckIcon } from '../AppIcons'
+import { CheckIcon, LockGlyph, UnlockedGlyph } from '../AppIcons'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -1245,6 +1248,51 @@ type TimelineChrome = {
   retryDisabled: boolean
 }
 
+// Which mounted chat view answers a whole-window model-picker shortcut (see
+// the effect inside AgentChatView). Mount order; the focused view wins.
+export type MountedChatView = {
+  workspaceId: string
+  isFocused: () => boolean
+  toggleModelPicker: () => void
+}
+const mountedChatViews: MountedChatView[] = []
+export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
+
+/**
+ * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
+ * view: the one holding focus, failing that the most recently mounted view
+ * in the active workspace — never every mounted view (background workspace
+ * layers stay mounted). One module-level listener, installed while any view
+ * is mounted, picks the responder and toggles it; the views never compare
+ * closures, which is how the first cut of this silently answered nothing.
+ * Returns the view that answered, or null.
+ */
+export function respondToModelPickerToggle(): MountedChatView | null {
+  const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId
+  const responder =
+    mountedChatViews.find((view) => view.isFocused())
+    ?? [...mountedChatViews].reverse().find((view) => view.workspaceId === activeWorkspaceId)
+    ?? null
+  responder?.toggleModelPicker()
+  return responder
+}
+
+function onModelPickerPanelCommand(event: Event): void {
+  const detail = (event as CustomEvent<{ id?: string }>).detail
+  if (detail?.id === MODEL_PICKER_TOGGLE_COMMAND) respondToModelPickerToggle()
+}
+
+/** Register a mounted chat view as a possible responder; returns the unregister. */
+export function registerMountedChatView(entry: MountedChatView): () => void {
+  if (mountedChatViews.length === 0) window.addEventListener(PANEL_COMMAND_EVENT, onModelPickerPanelCommand)
+  mountedChatViews.push(entry)
+  return () => {
+    const index = mountedChatViews.indexOf(entry)
+    if (index >= 0) mountedChatViews.splice(index, 1)
+    if (mountedChatViews.length === 0) window.removeEventListener(PANEL_COMMAND_EVENT, onModelPickerPanelCommand)
+  }
+}
+
 export default function AgentChatView({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
@@ -1871,6 +1919,33 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const currentModelLabel = currentModel?.displayName ?? conversation.modelId
   const contextLength = currentModel?.contextLength
   const usedTokens = projection.usage ? projection.usage.inputTokens + projection.usage.outputTokens : 0
+  // ⌘⇧M toggles the model picker (registered as
+  // `chat.modelPicker.toggle` so the Shortcuts settings, the
+  // palette and the conflict suite all know the chord). The shell's dispatcher
+  // resolves the binding and `runCommand` routes the registry's panel-event to
+  // the module-level responder above; this view only registers itself.
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
+  const toggleModelPickerRef = useRef<() => void>(() => {})
+  toggleModelPickerRef.current = () => {
+    if (modelLocked) return
+    setModelMenuOpen((open) => !open)
+  }
+  useEffect(
+    () =>
+      registerMountedChatView({
+        workspaceId,
+        isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
+        toggleModelPicker: () => toggleModelPickerRef.current(),
+      }),
+    [workspaceId]
+  )
+  const modelPickerShortcutLabel = useMemo(() => {
+    const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
+    if (!keybinding) return null
+    const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
+    return renderKeybinding(keybinding, platform)
+  }, [keybindingSettings])
   const selectModel = (providerId: string, modelId: string) => {
     setModelMenuOpen(false)
     if (modelLocked || (providerId === conversation.providerId && modelId === conversation.modelId)) return
@@ -1981,7 +2056,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const composerError = actionError ?? (projection.lastError && !hasFailedTurnEntry ? projection.lastError : null)
 
   return (
-    <ChatShell>
+    <ChatShell shellRef={shellRef}>
       <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
       {/* Loading is not a notice — it is the state the screen is in, so it reads
           as the quiet line it is; anything else here is a degraded session. */}
@@ -2274,6 +2349,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               ) : null}
               <ModelPickerPill
                 label={currentModelLabel}
+                shortcutLabel={modelPickerShortcutLabel}
                 locked={modelLocked}
                 open={modelMenuOpen}
                 onOpenChange={setModelMenuOpen}
@@ -2364,9 +2440,18 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 // The chat panel is header-less by design: the tab already names the agent, and
 // model/session state live in the composer footer (shared layout). Repeating the name
 // or model in a header is the duplication we're avoiding.
-function ChatShell({ children }: { children: React.ReactNode }) {
+function ChatShell({
+  shellRef,
+  children,
+}: {
+  shellRef?: React.RefObject<HTMLDivElement>
+  children: React.ReactNode
+}) {
   return (
-    <div className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]">
+    <div
+      ref={shellRef}
+      className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"
+    >
       {children}
     </div>
   )
@@ -2549,11 +2634,8 @@ export function PermissionPresetPill({
 }) {
   const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
-  // rows. Land focus on the preset in force (Escape returns it to the trigger).
-  const focusActivePreset = useCallback((surface: HTMLElement) => {
-    const active = surface.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
-    ;(active ?? surface.querySelector<HTMLButtonElement>('button'))?.focus()
-  }, [])
+  // rows. Land focus on the preset in force (Escape returns it to the trigger)
+  // — the one helper the launch panel's pill uses too.
   return (
     <Popover
       open={open}
@@ -2561,7 +2643,10 @@ export function PermissionPresetPill({
       ariaLabel="Tool permissions"
       popupRole="menu"
       placement="top-start"
-      onOpenAutoFocus={focusActivePreset}
+      // The list rides the surface itself, so the popover's `role="menu"` is
+      // the only one: a second menu role nested inside it announced two menus.
+      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusActivePresetRow}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip
           content={
@@ -2589,19 +2674,18 @@ export function PermissionPresetPill({
       {/* The menu spec's stacked items, shared with the launch panel's pill
           (remote-sessions-ux / selector-menus-premium): glyph + name +
           description per row, full-bleed on the list's own vertical inset. */}
-      <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Tool permissions">
-        <PermissionPresetMenuRows value={preset} onSelect={onChange} disabled={changing} />
-        <div className={MENU_DIVIDER_CLASS} role="separator" />
-        <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
-          {permissionChangeScopeLabel(live)}
-        </p>
-      </div>
+      <PermissionPresetMenuRows value={preset} onSelect={onChange} disabled={changing} />
+      <div className={MENU_DIVIDER_CLASS} role="separator" />
+      <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
+        {permissionChangeScopeLabel(live)}
+      </p>
     </Popover>
   )
 }
 
 function ModelPickerPill({
   label,
+  shortcutLabel,
   locked,
   open,
   onOpenChange,
@@ -2613,6 +2697,8 @@ function ModelPickerPill({
   onAddKey,
 }: {
   label: string
+  /** The rendered toggle chord (⌘⇧M), for the trigger's tip; null when unbound. */
+  shortcutLabel?: string | null
   locked: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -2650,6 +2736,49 @@ function ModelPickerPill({
   const normalized = query.trim().toLowerCase()
   const filtered = filterModelGroups(groups, query, activeFilter)
   const totalModels = groups.reduce((sum, group) => sum + group.models.length, 0)
+  // The rows in reading order, for the ⌘1–9 model-jump chords:
+  // the Nth choosable row as the eye sees it, filtered list included, so the
+  // hint on a row and the key that picks it can never disagree.
+  const jumpRows = filtered.flatMap((group) =>
+    group.unavailable ? [] : group.models.map((model) => ({ providerId: group.providerId, modelId: model.id })),
+  )
+  const jumpRowsKey = jumpRows.map((row) => `${row.providerId}:${row.modelId}`).join('\n')
+  const jumpModifier = window.api.platform === 'darwin' ? '⌘' : 'Ctrl+'
+  useEffect(() => {
+    if (!open) return
+    // Capture on window, like the shell's dispatcher, so the digit never
+    // reaches the search field as text. The workspace-switch chords on the
+    // same keys are suppressed by the shell while focus is in the search
+    // field (editable) or on a row (the list is `data-suppress-shortcuts`).
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.altKey || event.shiftKey) return
+      const primary = window.api.platform === 'darwin' ? event.metaKey : event.ctrlKey
+      if (!primary || !/^[1-9]$/.test(event.key)) return
+      const target = jumpRows[Number(event.key) - 1]
+      if (!target) return
+      event.preventDefault()
+      event.stopPropagation()
+      onSelect(target.providerId, target.modelId)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // jumpRows is derived per render; re-subscribe only when the rows change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onSelect, jumpRowsKey])
+  // Focus lands in the search field when there is one, else on the checked
+  // row — the surface is portaled, so Tab from the trigger never reaches it.
+  const focusOnOpen = useCallback((surface: HTMLElement) => {
+    const target =
+      surface.querySelector<HTMLElement>('input')
+      ?? surface.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')
+      ?? surface.querySelector<HTMLElement>('[role="menuitemradio"]:not([disabled])')
+    if (!target) return
+    target.focus()
+    if (document.activeElement === target) return
+    requestAnimationFrame(() => {
+      if (surface.isConnected) target.focus()
+    })
+  }, [])
   return (
     <Popover
       open={open}
@@ -2664,18 +2793,22 @@ function ModelPickerPill({
       ariaLabel="Select model"
       popupRole="menu"
       placement="top-start"
+      onOpenAutoFocus={focusOnOpen}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
-          <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
-          <TruncatedText as="span" text={label} className="max-w-[200px]" />
-          <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
-        </button>
+        <Tooltip content={shortcutLabel ? `Model · ${shortcutLabel}` : 'Model'} placement="top">
+          <button
+            ref={ref}
+            type="button"
+            onClick={togglePopover}
+            aria-keyshortcuts={shortcutLabel ?? undefined}
+            className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            {...triggerProps}
+          >
+            <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
+            <TruncatedText as="span" text={label} className="max-w-[200px]" />
+            <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
+          </button>
+        </Tooltip>
       )}
     >
       <div className="flex max-h-[400px] w-[300px] flex-col overflow-hidden">
@@ -2724,7 +2857,10 @@ function ModelPickerPill({
             ) : null}
           </div>
         ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+        {/* The spec's list layer on the scroller itself, unpadded: rows are
+            full-bleed and the fill reaches both edges. `p-1` here wrapped
+            them in the inset the menu spec retires. */}
+        <div className={`min-h-0 flex-1 overflow-y-auto ${MENU_LIST_CLASS}`}>
           {filtered.length === 0 ? (
             <div className="px-2.5 py-2 text-meta text-[color:var(--text-muted)]" role="status">
               {normalized ? `No models match “${query.trim()}”` : 'No providers available'}
@@ -2774,12 +2910,17 @@ function ModelPickerPill({
                 ) : null}
                 {group.models.map((model) => {
                   const isCurrent = group.providerId === selectedProviderId && model.id === selectedModelId
+                  const jumpIndex = jumpRows.findIndex(
+                    (row) => row.providerId === group.providerId && row.modelId === model.id,
+                  )
+                  const jumpHint = jumpIndex >= 0 && jumpIndex < 9 ? `${jumpModifier}${jumpIndex + 1}` : null
                   return (
                     <button
                       key={`${group.providerId}:${model.id}`}
                       type="button"
                       role="menuitemradio"
                       aria-checked={isCurrent}
+                      aria-keyshortcuts={jumpHint ? `${window.api.platform === 'darwin' ? 'Meta' : 'Control'}+${jumpIndex + 1}` : undefined}
                       disabled={Boolean(group.unavailable)}
                       onClick={() => onSelect(group.providerId, model.id)}
                       // The menu canon carries the row geometry, the hover
@@ -2795,6 +2936,13 @@ function ModelPickerPill({
                       {/* aria-checked on the radio carries the meaning; the
                           mark inherits the selected row's ink. */}
                       {isCurrent ? <CheckIcon className="icon-xs shrink-0" /> : null}
+                      {/* The spec's trailing hint: mono micro at text.disabled,
+                          plain text rather than a kbd capsule. */}
+                      {jumpHint ? (
+                        <span aria-hidden="true" className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
+                          {jumpHint}
+                        </span>
+                      ) : null}
                     </button>
                   )
                 })}
@@ -4157,26 +4305,6 @@ function ChevronRightGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 12 12" fill="none" aria-hidden="true">
       <path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function LockGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 6V4.5a2.5 2.5 0 015 0V6" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  )
-}
-
-// Open-shackle twin of LockGlyph: the permission pill's at-rest signal that
-// this agent is NOT stopping to ask before every tool.
-function UnlockedGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 6V4.5a2.5 2.5 0 015 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }

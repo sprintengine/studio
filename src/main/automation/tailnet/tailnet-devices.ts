@@ -146,6 +146,15 @@ export type TailnetDeviceStore = {
   }): TailnetPairRequestResult
   /** Requests still awaiting an answer here. Never includes answered ones. */
   listPairRequests(): TailnetPairRequest[]
+  /**
+   * Drop every request still waiting — the listener they arrived through is
+   * going away, and a request nobody can collect must not stay answerable.
+   * Returns the ids dropped so the caller can announce them as cancelled,
+   * not lapsed. Approved-but-uncollected records are left alone: their
+   * collect window is the asker's, and a listener re-enabled within it
+   * should still hand the token over.
+   */
+  cancelPairRequests(): string[]
   /** Approve one, minting the device with exactly the scopes named here. */
   approvePairRequest(input: { id: string; scopes: TailnetScope[] }): TailnetPairApprovalResult
   denyPairRequest(id: string): boolean
@@ -161,9 +170,12 @@ type StoredDevice = TailnetDevice & { tokenHash: string }
 export function createTailnetDeviceStore(options: {
   resolveUserDataDir: () => string
   now?: () => Date
+  /** How long an inbound pair request waits for an answer. Injected by tests that drive expiry for real. */
+  pairRequestTtlMs?: number
   log?: (message: string) => void
 }): TailnetDeviceStore {
   const now = options.now ?? (() => new Date())
+  const pairRequestTtlMs = Math.max(1, options.pairRequestTtlMs ?? DEFAULT_PAIR_REQUEST_TTL_MS)
   const revokeListeners = new Set<(deviceId: string) => void>()
   let devices: StoredDevice[] = readDevices(options.resolveUserDataDir(), options.log)
   let pairing: { tokenHash: string; scopes: TailnetScope[]; expiresAtMs: number } | null = null
@@ -386,7 +398,7 @@ export function createTailnetDeviceStore(options: {
         peerAddress: input.peerAddress,
         comparisonCode: nextComparisonCode(),
         createdAt: new Date(nowMs).toISOString(),
-        expiresAt: new Date(nowMs + DEFAULT_PAIR_REQUEST_TTL_MS).toISOString(),
+        expiresAt: new Date(nowMs + pairRequestTtlMs).toISOString(),
       }
       pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' } })
       return { ok: true, request }
@@ -397,6 +409,17 @@ export function createTailnetDeviceStore(options: {
       return [...pairRequests.values()]
         .filter((entry) => entry.state.kind === 'pending')
         .map((entry) => ({ ...entry.request }))
+    },
+
+    cancelPairRequests(): string[] {
+      prunePairRequests()
+      const cancelled: string[] = []
+      for (const [id, entry] of pairRequests) {
+        if (entry.state.kind !== 'pending') continue
+        pairRequests.delete(id)
+        cancelled.push(id)
+      }
+      return cancelled
     },
 
     approvePairRequest(input): TailnetPairApprovalResult {

@@ -6,7 +6,8 @@ import { join } from 'node:path'
 
 import { captureCheckpoint, checkpointRefFor } from './checkpoint-store'
 import { createCheckpointIndex } from './checkpoint-index'
-import { getWorkspaceChangeSummary } from './workspace-change-summary'
+import { createFolderSummaryShare, getWorkspaceChangeSummary } from './workspace-change-summary'
+import type { GitRowSummary } from '../shared/electron-api'
 
 // The row's honest number (the-diff-an-agent-made / workspace-scoped-row-diff):
 // this workspace's agents' work, or an explicitly folder-scoped fallback.
@@ -294,6 +295,115 @@ async function main(): Promise<void> {
       rmSync(plain, { recursive: true, force: true })
       rmSync(store.dir, { recursive: true, force: true })
     }
+  })
+
+  await run('N un-checkpointed workspaces on ONE folder cost ONE worktree scan per sweep', async () => {
+    // 6d4e28a6e removed the renderer's folder dedupe; the guarantee the spec
+    // makes ("ten chats on one repo = one summary") now lives at the scan.
+    const dir = repo()
+    const store = indexIn()
+    try {
+      writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+      let scans = 0
+      const share = createFolderSummaryShare(async (_folderPath) => {
+        scans += 1
+        // A slow scan: rows queued behind it must share it, not start their own.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return { branch: 'main', additions: 1, deletions: 0 } satisfies GitRowSummary
+      })
+      // Four in flight together (the poll's concurrency)…
+      const concurrent = await Promise.all(
+        ['w1', 'w2', 'w3', 'w4'].map((workspaceId) =>
+          getWorkspaceChangeSummary({ workspaceId, folderPath: dir }, { index: store.index, folderSummaries: share })
+        )
+      )
+      // …then the serial tail, with the folder spelled slightly differently.
+      const tail = await getWorkspaceChangeSummary(
+        { workspaceId: 'w5', folderPath: `${dir}/` },
+        { index: store.index, folderSummaries: share }
+      )
+      for (const summary of [...concurrent, tail]) {
+        assert.equal(summary.scope, 'folder')
+        assert.equal(summary.additions, 1)
+      }
+      assert.equal(scans, 1, 'five rows, one scan')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(store.dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('a checkpointed row never touches the folder scan; the hold expires for the next sweep', async () => {
+    const dir = repo()
+    const store = indexIn()
+    try {
+      const base = checkpointRefFor('w1', 0)!
+      await captureCheckpoint({ cwd: dir, ref: base })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 0, ref: base, at: 1 })
+      writeFileSync(join(dir, 'agent.txt'), 'x\n')
+      const first = checkpointRefFor('w1', 1)!
+      await captureCheckpoint({ cwd: dir, ref: first })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 1, ref: first, at: 2 })
+
+      let scans = 0
+      let clock = 0
+      const share = createFolderSummaryShare(
+        async () => {
+          scans += 1
+          return { branch: 'main', additions: 9, deletions: 9 }
+        },
+        { holdMs: 1_000, now: () => clock }
+      )
+      const own = await getWorkspaceChangeSummary(
+        { workspaceId: 'w1', folderPath: dir },
+        { index: store.index, folderSummaries: share }
+      )
+      assert.equal(own.scope, 'workspace')
+      assert.equal(scans, 0, 'a ref-to-ref diff asks nothing of the worktree scan')
+
+      await getWorkspaceChangeSummary({ workspaceId: 'w2', folderPath: dir }, { index: store.index, folderSummaries: share })
+      await getWorkspaceChangeSummary({ workspaceId: 'w3', folderPath: dir }, { index: store.index, folderSummaries: share })
+      assert.equal(scans, 1, 'within the hold, the folder rows share one scan')
+      clock = 60_000
+      await getWorkspaceChangeSummary({ workspaceId: 'w2', folderPath: dir }, { index: store.index, folderSummaries: share })
+      assert.equal(scans, 2, 'the next sweep reads fresh')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(store.dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('a failed folder read is forgotten, not pinned onto the folder for the hold', async () => {
+    let calls = 0
+    const share = createFolderSummaryShare(async () => {
+      calls += 1
+      if (calls === 1) throw new Error('volume spun down')
+      return { branch: 'main', additions: 0, deletions: 0 }
+    })
+    await assert.rejects(share.read('/repo'))
+    const second = await share.read('/repo')
+    assert.equal(second.branch, 'main')
+    assert.equal(calls, 2)
+  })
+
+  await run('an in-flight read past the cap is replaced, so a hung scan pins nothing for good', async () => {
+    let clock = 0
+    let calls = 0
+    const share = createFolderSummaryShare(
+      () => {
+        calls += 1
+        // A read that never settles: the spun-down volume.
+        return new Promise<GitRowSummary>(() => {})
+      },
+      { inFlightMaxMs: 1000, now: () => clock }
+    )
+    void share.read('/repo')
+    clock = 500
+    void share.read('/repo')
+    assert.equal(calls, 1, 'inside the cap, rows share the in-flight read')
+    clock = 1500
+    void share.read('/repo')
+    assert.equal(calls, 2, 'past the cap, a newcomer starts its own read')
   })
 
   if (failures > 0) {

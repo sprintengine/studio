@@ -162,6 +162,81 @@ run('the warn dismiss button dismisses through the store', () => {
   unmount()
 })
 
+run('a second toast arriving does not extend the first one’s life — the clock is keyed on policy, not the callback', () => {
+  reset()
+  // A hand-driven clock over jsdom's window timers: the primitive schedules
+  // through `window.setTimeout`, and the region hands each toast a fresh
+  // `onDismiss` closure per render — the exact shape that used to restart
+  // every toast's 5 s whenever any toast came or went.
+  const realSetTimeout = dom.window.setTimeout
+  const realClearTimeout = dom.window.clearTimeout
+  type Scheduled = { id: number; at: number; fn: () => void }
+  let clock = 0
+  let nextId = 1
+  const scheduled: Scheduled[] = []
+  const fakeSetTimeout = ((fn: () => void, ms?: number) => {
+    const id = nextId++
+    scheduled.push({ id, at: clock + (ms ?? 0), fn })
+    return id
+  }) as unknown as typeof dom.window.setTimeout
+  const fakeClearTimeout = ((id?: number) => {
+    const index = scheduled.findIndex((entry) => entry.id === id)
+    if (index !== -1) scheduled.splice(index, 1)
+  }) as unknown as typeof dom.window.clearTimeout
+  const advance = (ms: number): void => {
+    clock += ms
+    for (;;) {
+      const due = scheduled.filter((entry) => entry.at <= clock).sort((a, b) => a.at - b.at)[0]
+      if (!due) return
+      scheduled.splice(scheduled.indexOf(due), 1)
+      act(() => due.fn())
+    }
+  }
+  dom.window.setTimeout = fakeSetTimeout
+  dom.window.clearTimeout = fakeClearTimeout
+  try {
+    const mounted = mount()
+    act(() => {
+      showToast({ tone: 'good', title: 'First arrived' })
+    })
+    advance(4000)
+    // The first toast is one second from its deadline when a second arrives.
+    act(() => {
+      showToast({ tone: 'good', title: 'Second arrived' })
+    })
+    advance(1000)
+    assert.doesNotMatch(mounted.innerHTML, /First arrived/, 'the first toast left on ITS 5 s, unextended by the arrival')
+    assert.match(mounted.innerHTML, /Second arrived/, 'the second is still on its own clock')
+    // And the first leaving (a store change that re-renders the second with a
+    // fresh onDismiss) did not restart the second's clock either.
+    advance(4000)
+    assert.doesNotMatch(mounted.innerHTML, /Second arrived/, 'the second left exactly 5 s after it arrived')
+    assert.equal(useToastStore.getState().toasts.length, 0)
+    unmount()
+  } finally {
+    dom.window.setTimeout = realSetTimeout
+    dom.window.clearTimeout = realClearTimeout
+  }
+})
+
+run('a toast re-shown under its stable id is replaced in place and keeps that id', () => {
+  reset()
+  const mounted = mount()
+  act(() => {
+    showToast({ id: 'fleet:c1', tone: 'warn', title: 'Connection to Air lost' })
+    showToast({ id: 'fleet:c2', tone: 'warn', title: 'Connection to Air lost' })
+    showToast({ id: 'fleet:c1', tone: 'warn', title: 'Connection to Air lost', description: 'Still reconnecting.' })
+  })
+  const ids = useToastStore.getState().toasts.map((toast) => toast.id)
+  assert.deepEqual(ids, ['fleet:c1', 'fleet:c2'], 'same title, different ids — two machines, two toasts; the re-show replaced c1 in place')
+  assert.match(mounted.innerHTML, /Still reconnecting\./)
+  act(() => {
+    useToastStore.getState().dismissToast('fleet:c1')
+  })
+  assert.deepEqual(useToastStore.getState().toasts.map((toast) => toast.id), ['fleet:c2'], 'the handle a producer kept still retracts')
+  unmount()
+})
+
 if (failures > 0) {
   console.error(`ToastRegion.test.tsx: ${failures} failing`)
   process.exit(1)

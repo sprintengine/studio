@@ -1,6 +1,7 @@
 import React from 'react'
 
 import { ChevronDownIcon } from '../AppIcons'
+import { DefaultChip } from './DefaultChip'
 import { Popover } from './Popover'
 import {
   MENU_DIVIDER_CLASS,
@@ -346,11 +347,7 @@ function ReasoningMenuItem({
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {/* The catalog's own default, marked with a neutral chip rather than a
           tone: it is a fact about the option, not a status. */}
-      {defaultChip ? (
-        <span className="shrink-0 rounded-[3px] border border-[color:var(--border-default)] px-1 text-micro text-[color:var(--text-subtle)]">
-          Default
-        </span>
-      ) : null}
+      {defaultChip ? <DefaultChip /> : null}
     </button>
   )
 }

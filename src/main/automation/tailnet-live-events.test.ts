@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { hashSecret } from '../mobile/bridge/crypto'
+import { createTailnetDeviceStore } from './tailnet/tailnet-devices'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { TAILNET_PAIR_PATH, TAILNET_PAIR_REQUEST_PATH, TAILNET_STREAM_PATH, TAILNET_TERMINAL_PATH, TAILNET_WS_TICKET_PATH } from './tailnet/tailnet-routes'
 import { createTailnetRemoteService } from './tailnet/tailnet-service'
@@ -20,9 +21,9 @@ import type { TerminalRemoteHost } from '../terminal-remote-attach'
 // Like every other tailnet test, this drives the REAL listener over a real
 // loopback socket: the thing under test is that socket lifecycle and wire
 // events become renderer-facing pushes, and a faked server would only prove
-// the fake pushes. Expiry timers are exercised through the resolution diff
-// (deny), not by waiting five minutes — the diff is one code path for every
-// way a request stops existing.
+// the fake pushes. Expiry is driven for real too, on a request minted with a
+// sub-second TTL: the timer that announces "nobody answered" is the one path
+// no person ever exercises by hand, so it is the one a test must.
 
 let failures = 0
 let queue: Promise<void> = Promise.resolve()
@@ -316,6 +317,7 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     const up = await events.waitFor((p) => p.event.kind === 'listener', 'listener event')
     assert.deepEqual(up.event, { kind: 'listener', running: true })
     assert.equal(up.status.running, true)
+    assert.equal(up.revision, 1, 'the first push is revision 1')
 
     // Pair a device over the wire, open its RPC stream: device-connection true,
     // and the live snapshot carries the device.
@@ -336,6 +338,24 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     assert.equal(connected.live.devices.length, 1)
     assert.equal(connected.live.devices[0].connected, true)
     assert.deepEqual(service.getLiveState().devices.map((d) => d.deviceName), ['laptop'])
+    // Liveness metadata: when the socket opened, the last activity, and the
+    // peer as the TRANSPORT saw it — never a self-declared platform, because
+    // nothing on this transport sends one.
+    const device = connected.live.devices[0]
+    assert.equal(typeof device.connectedSince, 'number', 'connectedSince is stamped on the first socket')
+    assert.equal(typeof device.lastActivityAt, 'number')
+    assert.equal(device.peerAddress, '127.0.0.1', 'the peer address the socket arrived from')
+    assert.equal(device.peerNode, null, 'no whois in a test — null, not invented')
+    assert.equal(service.getLiveState().revision, connected.revision, 'a snapshot read carries the current revision')
+    // An authenticated HTTP call while the socket is open is activity too.
+    const before = device.lastActivityAt ?? 0
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const identity = await call(port, TAILNET_WS_TICKET_PATH, { token: deviceToken })
+    assert.equal(identity.status, 200)
+    assert.ok(
+      (service.getLiveState().devices[0]?.lastActivityAt ?? 0) >= before,
+      'HTTP activity refreshes lastActivityAt on a connected device'
+    )
 
     // Dropping the socket announces the disconnect and empties the snapshot.
     socket.destroy()
@@ -360,19 +380,36 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     assert.equal(received.status.pairRequests.length, 1)
 
     service.denyPairRequest(asked.body.requestId as string)
-    const resolved = await events.waitFor(
-      (p) => p.event.kind === 'pair-request' && p.event.phase === 'resolved',
-      'pair request resolved'
+    const denied = await events.waitFor(
+      (p) => p.event.kind === 'pair-request' && p.event.phase === 'denied',
+      'pair request denied'
     )
-    assert.equal(resolved.status.pairRequests.length, 0)
+    assert.equal(denied.status.pairRequests.length, 0)
+    assert.equal(
+      events.payloads.some((p) => p.event.kind === 'pair-request' && p.event.phase !== 'received' && p.event.phase !== 'denied'),
+      false,
+      'denial is announced as denied and nothing else'
+    )
 
-    // Turning the listener off is the last push.
+    // Turning the listener off is announced exactly once — the transition,
+    // with no unconditional echo behind it — and a requested stop carries
+    // no error.
+    const listenerEventsBefore = events.payloads.filter((p) => p.event.kind === 'listener').length
     await service.setEnabled(false)
     const down = await events.waitFor(
       (p) => p.event.kind === 'listener' && !p.event.running,
       'listener stopped'
     )
     assert.equal(down.status.running, false)
+    assert.deepEqual(down.event, { kind: 'listener', running: false, error: null }, 'a requested stop carries no error')
+    assert.equal(
+      events.payloads.filter((p) => p.event.kind === 'listener').length - listenerEventsBefore,
+      1,
+      'one stop announcement, not the transition plus an unconditional echo'
+    )
+
+    // Revisions only ever go up, by exactly one per push.
+    events.payloads.forEach((p, index) => assert.equal(p.revision, index + 1, `payload ${index} is revision ${index + 1}`))
   } finally {
     await service.shutdown()
     rmSync(userDataDir, { recursive: true, force: true })
@@ -404,8 +441,8 @@ check('approving a request announces the resolution and the device change', asyn
     const answer = service.approvePairRequest({ id: asked.body.requestId as string, scopes: ['workspace:read'] })
     assert.equal(answer.ok, true)
     const resolved = await events.waitFor(
-      (p) => p.event.kind === 'pair-request' && p.event.phase === 'resolved',
-      'resolved on approval'
+      (p) => p.event.kind === 'pair-request' && p.event.phase === 'approved',
+      'approved'
     )
     assert.equal(resolved.status.pairRequests.length, 0)
     await events.waitFor((p) => p.event.kind === 'devices-changed', 'devices changed')
@@ -413,6 +450,126 @@ check('approving a request announces the resolution and the device change', asyn
     assert.equal(service.getStatus().devices.some((device) => device.name === 'macbook-air'), true)
   } finally {
     await service.shutdown()
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
+check('stopping the listener cancels a request still waiting, and says so', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-cancel-'))
+  const port = await freePort()
+  writeTailnetSettings(userDataDir, { enabled: true, port })
+  const events = eventCollector()
+  const service = createTailnetRemoteService({
+    resolveUserDataDir: () => userDataDir,
+    serverName: 'sprintengine-studio',
+    serverVersion: '9.9.9',
+    resolveTools: testTools,
+    isMutation: () => false,
+    resolveBindAddress: () => '127.0.0.1',
+    onEvent: events.onEvent,
+  })
+  try {
+    await service.initialize()
+    const waiting = await call(port, TAILNET_PAIR_REQUEST_PATH, {
+      body: { deviceName: 'stranger', collectHash: hashSecret('secret') },
+    })
+    assert.equal(waiting.status, 200, JSON.stringify(waiting.body))
+    await events.waitFor((p) => p.event.kind === 'pair-request' && p.event.phase === 'received', 'received')
+    // A request nobody can collect through a dead listener must not stay
+    // answerable: it is CANCELLED, distinct from denied (an answer) and
+    // expired (nobody answered).
+    await service.setEnabled(false)
+    const cancelled = await events.waitFor(
+      (p) => p.event.kind === 'pair-request' && p.event.phase === 'cancelled',
+      'pending request cancelled by the stop'
+    )
+    assert.equal(cancelled.event.kind === 'pair-request' && cancelled.event.requestId, waiting.body.requestId)
+    assert.equal(service.getStatus().pairRequests.length, 0, 'nothing is left answerable')
+    const kinds = events.payloads.map((p) => (p.event.kind === 'pair-request' ? p.event.phase : p.event.kind))
+    assert.ok(kinds.indexOf('cancelled') < kinds.lastIndexOf('listener'), 'the cancellation precedes the stop announcement')
+  } finally {
+    await service.shutdown()
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
+check('a request nobody answers lapses on its own timer and is announced as expired', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-expire-'))
+  const port = await freePort()
+  writeTailnetSettings(userDataDir, { enabled: true, port })
+  const events = eventCollector()
+  const service = createTailnetRemoteService({
+    resolveUserDataDir: () => userDataDir,
+    serverName: 'sprintengine-studio',
+    serverVersion: '9.9.9',
+    resolveTools: testTools,
+    isMutation: () => false,
+    resolveBindAddress: () => '127.0.0.1',
+    // The real store with a sub-second TTL: the service's expiry timer fires
+    // just after the deadline, and the store's own prune agrees.
+    createDeviceStore: (storeOptions) => createTailnetDeviceStore({ ...storeOptions, pairRequestTtlMs: 300 }),
+    onEvent: events.onEvent,
+  })
+  try {
+    await service.initialize()
+    const asked = await call(port, TAILNET_PAIR_REQUEST_PATH, {
+      body: { deviceName: 'slowpoke', collectHash: hashSecret('secret') },
+    })
+    assert.equal(asked.status, 200)
+    await events.waitFor((p) => p.event.kind === 'pair-request' && p.event.phase === 'received', 'received')
+    const expired = await events.waitFor(
+      (p) => p.event.kind === 'pair-request' && p.event.phase === 'expired',
+      'expired on the timer'
+    )
+    assert.equal(expired.event.kind === 'pair-request' && expired.event.requestId, asked.body.requestId)
+    assert.equal(expired.status.pairRequests.length, 0, 'the lapsed request is gone from status')
+    assert.equal(
+      events.payloads.filter((p) => p.event.kind === 'pair-request').length,
+      2,
+      'received and expired — one terminal phase, nothing else'
+    )
+  } finally {
+    await service.shutdown()
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+})
+
+check('a listener that cannot start at boot announces the error without waiting for a knock', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-porttaken-'))
+  const port = await freePort()
+  // Take the port first, as a stale process or another app would have.
+  const squatter = createServer()
+  squatter.listen(port, '127.0.0.1')
+  await once(squatter, 'listening')
+  writeTailnetSettings(userDataDir, { enabled: true, port })
+  const events = eventCollector()
+  const service = createTailnetRemoteService({
+    resolveUserDataDir: () => userDataDir,
+    serverName: 'sprintengine-studio',
+    serverVersion: '9.9.9',
+    resolveTools: testTools,
+    isMutation: () => false,
+    resolveBindAddress: () => '127.0.0.1',
+    onEvent: events.onEvent,
+  })
+  try {
+    const status = await service.initialize()
+    assert.equal(status.running, false)
+    assert.ok(status.lastError, 'the failure is reported in status')
+    const failed = await events.waitFor((p) => p.event.kind === 'listener', 'listener error pushed at boot')
+    assert.ok(failed.event.kind === 'listener' && !failed.event.running, 'announced as not running')
+    assert.equal(failed.event.kind === 'listener' && !failed.event.running && failed.event.error, status.lastError)
+    assert.equal(events.payloads.length, 1, 'one announcement for one failure')
+
+    // Re-enabling while the port is still taken fails again — and is still
+    // announced exactly once, not once by the start and once by an echo.
+    await service.setEnabled(true)
+    assert.equal(events.payloads.filter((p) => p.event.kind === 'listener').length, 2)
+    assert.ok(events.payloads[1].event.kind === 'listener' && !events.payloads[1].event.running)
+  } finally {
+    await service.shutdown()
+    squatter.close()
+    await once(squatter, 'close')
     rmSync(userDataDir, { recursive: true, force: true })
   }
 })

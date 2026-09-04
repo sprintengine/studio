@@ -644,7 +644,9 @@ export function WorkspaceActions({
                       ? 'Remote — a device is driving a terminal here'
                       : remoteState.requestCount > 0
                         ? 'Remote — a pair request is waiting'
-                        : 'Remote'
+                        : remoteState.degraded
+                          ? 'Remote — a machine is not answering'
+                          : 'Remote'
                   }
                   placement="bottom"
                 >
@@ -671,6 +673,15 @@ export function WorkspaceActions({
                     </ChangePulse>
                     {remoteState.requestCount > 0 ? (
                       <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
+                    ) : remoteState.degraded ? (
+                      // Warn and steady: a link reconnecting or given up. The
+                      // pulse is reserved for "a device is driving a terminal
+                      // here", which the glyph itself carries.
+                      <StatusDot
+                        tone="warn"
+                        label="A machine is not answering"
+                        className="absolute right-0.5 top-0.5"
+                      />
                     ) : remoteState.connected ? (
                       <StatusDot
                         tone="good"

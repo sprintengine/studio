@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { TONE_COLOR_VAR, type Tone } from './tokens'
 
 const TOAST_ROLE: Record<Tone, 'status' | 'alert'> = {
@@ -51,12 +51,19 @@ export function Toast({
 }: ToastProps) {
   const resolved = autoDismissMs ?? TOAST_AUTO_DISMISS_MS[tone]
 
+  // The clock is keyed on the POLICY, never on the callback: a host that
+  // passes a fresh `onDismiss` closure each render (the region does, per
+  // toast) would otherwise restart every toast's 5 s whenever any toast
+  // arrived or left. The ref always calls the latest callback when it fires.
+  const onDismissRef = useRef(onDismiss)
   useEffect(() => {
-    if (!onDismiss) return
+    onDismissRef.current = onDismiss
+  }, [onDismiss])
+  useEffect(() => {
     if (resolved === false) return
-    const id = window.setTimeout(onDismiss, resolved)
+    const id = window.setTimeout(() => onDismissRef.current?.(), resolved)
     return () => window.clearTimeout(id)
-  }, [resolved, onDismiss])
+  }, [resolved])
 
   return (
     <div

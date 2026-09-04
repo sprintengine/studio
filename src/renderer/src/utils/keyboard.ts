@@ -22,5 +22,9 @@ export function isGlobalShortcutSuppressedTarget(target: EventTarget | null | un
   if (isEditableTarget(target)) return true
   if (target.closest('.monaco-editor')) return true
   if (target.closest('.xterm')) return true
+  // A surface that owns its own chords (the model picker's ⌘1–9 jumps) marks
+  // itself so the shell treats focus inside it like an editable target: only
+  // commands that allow editable targets still fire there.
+  if (target.closest('[data-suppress-shortcuts]')) return true
   return false
 }

@@ -7,6 +7,7 @@ import {
   FLEET_CREATE_TERMINAL_CHANNEL,
   FLEET_DETACH_TERMINAL_CHANNEL,
   FLEET_FORGET_CHANNEL,
+  FLEET_GET_LIVE_STATE_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
@@ -22,6 +23,7 @@ import {
   type FleetCreateTerminalResult,
   type FleetCollectPairingResult,
   type FleetEvent,
+  type FleetLiveState,
   type FleetPairResult,
   type FleetRequestPairingResult,
   type FleetRun,
@@ -91,6 +93,8 @@ export const fleetApi = {
   },
   // Whole-app fleet lifecycle (remote-sessions-ux): machine paired/forgotten
   // and attachment link-state changes, broadcast to every window.
+  fleetGetLiveState: (): Promise<FleetLiveState> =>
+    ipcRenderer.invoke(FLEET_GET_LIVE_STATE_CHANNEL) as Promise<FleetLiveState>,
   onFleetEvent: (cb: (event: FleetEvent) => void): (() => void) => {
     const handler = (_: IpcRendererEvent, event: FleetEvent) => cb(event)
     ipcRenderer.on(FLEET_EVENT_CHANNEL, handler)
@@ -112,5 +116,6 @@ export const fleetApi = {
   | 'fleetTerminalInput'
   | 'fleetTerminalResize'
   | 'onFleetTerminalEvent'
+  | 'fleetGetLiveState'
   | 'onFleetEvent'
 >

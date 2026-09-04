@@ -66,6 +66,22 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+N'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel()' },
   }),
+  // The chat composer's model picker (remote-sessions-ux / selector-menus-
+  // premium). Works from inside the
+  // composer's textarea — that is where a person is when they want to change
+  // model — so it is allowed in editable targets. The chat view listens for
+  // the panel event of the same id, which both the shell's runCommand (the
+  // palette row) and the view's own binding resolution dispatch.
+  command({
+    id: 'chat.modelPicker.toggle',
+    title: 'Toggle Model Picker',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+M'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'chat.modelPicker.toggle' },
+  }),
   command({
     id: 'workspace.close',
     title: 'Close Workspace',

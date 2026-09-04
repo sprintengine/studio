@@ -2684,6 +2684,36 @@ export default function WorkspaceManager() {
     if (!dir) return
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: dir, folderLabel: newChatFolderLabel(dir) } : prev))
   }
+  // The New-chat selector's Import-from-Git clone lives HERE, not in the
+  // selector (remote-sessions-ux / project-selector-sources): a clone that
+  // finishes after the selector closed used to call `onSelect` into an
+  // unmounted panel and the project was never adopted. The host outlives the
+  // popover, so success always lands — the panel is reopened on that project
+  // if it was closed meanwhile — and the toast names what arrived.
+  const cloneNewChatProject = useCallback(async (input: {
+    url: string
+    parentDir: string
+    folderName: string
+  }): Promise<{ ok: true; path: string } | { ok: false; message: string }> => {
+    const cloned = await window.api
+      .cloneGitHubRepo(input)
+      .catch((caught: unknown): { ok: false; message: string } => ({
+        ok: false,
+        message: caught instanceof Error ? caught.message : 'Could not clone the repository.',
+      }))
+    if (!cloned.ok) return cloned
+    setNewChatPanelState((prev) =>
+      prev
+        ? { ...prev, folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path) }
+        : { folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path), connector: null },
+    )
+    showToast({
+      tone: 'good',
+      title: `Cloned ${newChatFolderLabel(cloned.path)}`,
+      description: `${cloned.path} — selected in New chat.`,
+    })
+    return { ok: true, path: cloned.path }
+  }, [])
   // Switching workspaces dismisses the pre-creation panel: the user has moved
   // on, and the panel would otherwise sit over the newly revealed workspace.
   useEffect(() => {
@@ -2731,7 +2761,7 @@ export default function WorkspaceManager() {
   // attachment onto that session, provenance-badged by the two-line row. A
   // failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
-  const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch) => {
+  const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch): Promise<void> => {
     const created = await window.api
       .fleetCreateTerminal({
         connectionId: launch.connectionId,
@@ -2767,8 +2797,17 @@ export default function WorkspaceManager() {
     addWorkspace(SOLO_CHAT_TEMPLATE, {
       name: `${created.title} · ${launch.remoteWorkspaceName}`,
       // No local checkout: the code lives on the other machine, and a local
-      // folder here would claim otherwise.
+      // folder here would claim otherwise. Where it DOES live is the
+      // workspace's provenance, stamped once so the sidebar can group and
+      // badge it by machine after this pane is long closed.
       folderPath: null,
+      remoteOrigin: {
+        connectionId: launch.connectionId,
+        machineName: launch.machineName,
+        workspaceId: launch.remoteWorkspaceId,
+        workspaceName: launch.remoteWorkspaceName,
+        workspaceRoot: launch.remoteWorkspaceRoot,
+      },
       windowId: workspaceWindowId,
       seedAgent: {
         tabName: fleetTerminalTabName(launch.machineName, created.title),
@@ -3018,10 +3057,12 @@ export default function WorkspaceManager() {
       void moduleCommand.run()
       return true
     }
-    // Registry-backed panel-event commands (Sprint Engine's remain in the
-    // shell registry); switchboard/watchtower ids are module commands now and
-    // were handled above.
-    if (commandId.startsWith('sprintengine.')) {
+    // Registry-backed panel-event commands: the registry names the event, so
+    // the palette and a keybinding reach the same panel listener (Sprint
+    // Engine's ids and the chat view's model-picker toggle alike);
+    // switchboard/watchtower ids are module commands now and were handled
+    // above.
+    if (getCommandDefinition(commandId)?.handlerPath.kind === 'panel-event' || commandId.startsWith('sprintengine.')) {
       dispatchPanelCommand(commandId)
       return true
     }
@@ -3731,7 +3772,11 @@ export default function WorkspaceManager() {
                         confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
                         closeNewChatPanel()
                       }}
-                      onLaunchRemote={(launch) => void confirmRemoteNewChat(launch)}
+                      // The promise itself, not a void wrapper: the panel's
+                      // one-launch-at-a-time guard waits on it, and a wrapper
+                      // returning undefined released the guard a microtask later.
+                      onLaunchRemote={confirmRemoteNewChat}
+                      onCloneProject={cloneNewChatProject}
                       onClose={closeNewChatPanel}
                       // The door has no tab to close, so the surface carries the
                       // control itself.

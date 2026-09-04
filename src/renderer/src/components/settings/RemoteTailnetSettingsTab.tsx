@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { encodeQrCode } from '../../../../shared/qr-code'
 import {
@@ -54,9 +54,14 @@ export function RemoteTailnetSettingsTab() {
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [action, setAction] = useState<ActionState>({ tone: 'idle', message: '' })
   const [now, setNow] = useState(() => Date.now())
+  // The newest pushed revision applied, so a read that resolves after a push
+  // (the mount race) cannot roll the tab back to what main knew a moment ago.
+  const appliedRevision = useRef(0)
 
   const refresh = useCallback(async () => {
-    setStatus(await window.api.tailnetGetStatus())
+    const before = appliedRevision.current
+    const read = await window.api.tailnetGetStatus()
+    if (appliedRevision.current === before) setStatus(read)
   }, [])
 
   useEffect(() => {
@@ -74,6 +79,8 @@ export function RemoteTailnetSettingsTab() {
     // fetch-on-action, exactly as it was before the channel existed.
     if (typeof window.api.onTailnetEvent !== 'function') return
     return window.api.onTailnetEvent((payload) => {
+      if (payload.revision < appliedRevision.current) return
+      appliedRevision.current = payload.revision
       setStatus(payload.status)
       // The local offer holds the one-time CODE (main never re-serves it),
       // but the pairing's existence is main's fact: cancelled or replaced
@@ -85,14 +92,17 @@ export function RemoteTailnetSettingsTab() {
   }, [])
 
   const outstandingPairing = status?.pairing ?? null
+  const pendingRequestCount = status?.pairRequests.length ?? 0
 
-  // Only ticks while a countdown is on screen: an idle panel should not wake
-  // once a second for a number nobody is looking at.
+  // Only ticks while a countdown is on screen — an outbound offer, or an
+  // inbound request whose Allow must go dead the second it lapses: an idle
+  // panel should not wake once a second for a number nobody is looking at.
   useEffect(() => {
-    if (!offer && !outstandingPairing) return undefined
+    if (!offer && !outstandingPairing && pendingRequestCount === 0) return undefined
+    setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), EXPIRY_TICK_MS)
     return () => clearInterval(timer)
-  }, [offer, outstandingPairing])
+  }, [offer, outstandingPairing, pendingRequestCount])
 
   const readiness = tailnetReadiness(status)
   const enabled = status?.enabled ?? false

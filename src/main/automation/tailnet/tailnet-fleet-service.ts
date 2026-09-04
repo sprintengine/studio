@@ -11,6 +11,8 @@ import {
   type FleetBrowse,
   type FleetConnection,
   type FleetEvent,
+  type FleetLinkState,
+  type FleetLiveState,
   type FleetCreateTerminalResult,
   type FleetGap,
   type FleetPairResult,
@@ -101,6 +103,12 @@ export type TailnetFleetService = {
   sendInput(attachId: unknown, data: unknown): void
   resizeTerminal(attachId: unknown, cols: unknown, rows: unknown): void
   detachTerminal(attachId: unknown): void
+  /**
+   * Every attachment held right now with its link state, stamped with the
+   * same revision the events carry — the initial read behind `onEvent`, so a
+   * window that mounts after a pane went live is not stuck on "paired".
+   */
+  getLiveState(): FleetLiveState
   shutdown(): void
 }
 
@@ -122,6 +130,9 @@ export type TailnetFleetServiceOptions = {
   log?: (message: string) => void
 }
 
+/** A fleet event before the service stamps its revision — distributed over the union, member by member. */
+type FleetEventBody = FleetEvent extends infer E ? (E extends FleetEvent ? Omit<E, 'revision'> : never) : never
+
 type Attachment = {
   attachId: string
   connectionId: string
@@ -138,6 +149,9 @@ type Attachment = {
   retryTimer: ReturnType<typeof setTimeout> | null
   /** Last known size, replayed after a reconnect so the remote pty matches the pane. */
   size: { cols: number; rows: number } | null
+  /** The last status frame's state, so a snapshot can say what the pane was last told. */
+  state: FleetLinkState
+  detail: string
 }
 
 export function createTailnetFleetService(options: TailnetFleetServiceOptions): TailnetFleetService {
@@ -147,6 +161,13 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   })
   const deviceName = () => (options.resolveDeviceName ?? defaultDeviceName)()
   const attachments = new Map<string, Attachment>()
+  // Stamped on every broadcast and every snapshot; only ever goes up, so a
+  // subscriber can order a late initial read against events already applied.
+  let revision = 0
+  const broadcast = (event: FleetEventBody): void => {
+    revision += 1
+    options.onEvent?.({ ...event, revision })
+  }
 
   function connectionFor(connectionId: unknown): StoredFleetConnection | null {
     return typeof connectionId === 'string' ? store.find(connectionId) : null
@@ -189,7 +210,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         deviceToken: paired.value.deviceToken,
         scopes: paired.value.scopes,
       })
-      options.onEvent?.({ kind: 'machine-paired', connection })
+      broadcast({ kind: 'machine-paired', connection })
       return { ok: true, connection }
     } catch (error) {
       // The device now exists on the other machine. Saying "paired" over a token
@@ -281,7 +302,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         deviceToken: collected.value.deviceToken,
         scopes: collected.value.scopes,
       })
-      options.onEvent?.({ kind: 'machine-paired', connection })
+      broadcast({ kind: 'machine-paired', connection })
       return { ok: true, status: 'approved', connection }
     } catch (error) {
       // Same failure the carried-code path has, and the same honesty about it:
@@ -530,8 +551,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     const sessionId = input.sessionId
     const emitAndBroadcast = (event: FleetTerminalEvent): void => {
       if (event.type === 'status') {
-        options.onEvent?.({
+        attachment.state = event.state
+        attachment.detail = event.detail
+        broadcast({
           kind: 'attachment',
+          attachId: input.attachId,
           connectionId: connection.id,
           machineName,
           sessionId,
@@ -554,6 +578,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       attempts: 0,
       retryTimer: null,
       size: null,
+      state: 'connecting',
+      detail: `Connecting to ${machineName}.`,
     }
     attachments.set(input.attachId, attachment)
     void dial(attachment)
@@ -729,8 +755,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     // A detach sends no status frame (the pane is already gone), so the
     // broadcast half is announced directly or chrome would count this
     // attachment as live forever.
-    options.onEvent?.({
+    broadcast({
       kind: 'attachment',
+      attachId: attachment.attachId,
       connectionId: attachment.connectionId,
       machineName: store.find(attachment.connectionId)?.machineName ?? attachment.connectionId,
       sessionId: attachment.sessionId,
@@ -755,7 +782,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         }
         store.forget(connectionId)
         if (forgotten) {
-          options.onEvent?.({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
+          broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
         }
       }
       return store.list()
@@ -782,6 +809,20 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     },
 
     detachTerminal,
+
+    getLiveState(): FleetLiveState {
+      return {
+        revision,
+        attachments: [...attachments.values()].map((attachment) => ({
+          attachId: attachment.attachId,
+          connectionId: attachment.connectionId,
+          machineName: store.find(attachment.connectionId)?.machineName ?? attachment.connectionId,
+          sessionId: attachment.sessionId,
+          state: attachment.state,
+          detail: attachment.detail,
+        })),
+      }
+    },
 
     shutdown(): void {
       for (const attachment of [...attachments.values()]) detachTerminal(attachment.attachId)

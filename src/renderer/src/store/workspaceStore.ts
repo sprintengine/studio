@@ -296,6 +296,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Work
     options?: {
       name?: string
       folderPath?: string | null
+      // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
+      remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null

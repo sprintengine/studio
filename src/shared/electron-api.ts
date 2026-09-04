@@ -90,6 +90,7 @@ import type {
   FleetConnection,
   FleetCreateTerminalResult,
   FleetEvent,
+  FleetLiveState,
   FleetPairResult,
   FleetRun,
   FleetTerminalEvent,
@@ -3133,6 +3134,11 @@ export type ElectronApi = {
   fleetTerminalInput: (attachId: string, data: string) => void
   fleetTerminalResize: (attachId: string, cols: number, rows: number) => void
   onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void) => () => void
+  /**
+   * Every attachment main holds right now with its link state — the initial
+   * read behind `onFleetEvent`, carrying the same revision the events do.
+   */
+  fleetGetLiveState: () => Promise<FleetLiveState>
   /**
    * Whole-app fleet lifecycle (remote-sessions-ux): a machine paired or
    * forgotten, an attachment's link state changing — broadcast to every

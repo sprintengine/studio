@@ -67,7 +67,13 @@ import {
   type ConversationTimelineRow,
   type TranscriptEntry,
   type TranscriptToolEntry,
+  MODEL_PICKER_TOGGLE_COMMAND,
+  registerMountedChatView,
+  respondToModelPickerToggle,
+  type MountedChatView,
 } from './AgentChatView'
+import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
 // Most of this suite reads static markup, which needs no DOM. The composer
 // context menu is the exception: ContextMenu portals its surface to
@@ -1014,6 +1020,29 @@ assert.ok(
   'the middle preset is nameable too — the pill is never a two-state lie'
 )
 
+// The pill's rows (remote-sessions-ux / selector-menus-premium): roving
+// tabIndex, one-line summaries, the Default chip on the CLI-default row, and
+// the four glyphs drawn from AppIcons — not a paragraph per row and not a
+// second lock drawing.
+const { PermissionPresetMenuRows } = await import('../workspace/agentComposer/agentSpawnShared')
+const rowsMarkup = renderToStaticMarkup(
+  createElement(PermissionPresetMenuRows, { value: 'auto', onSelect: () => {} })
+)
+assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 4, 'four preset rows')
+assert.equal((rowsMarkup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one tab stop: the checked row')
+assert.ok(rowsMarkup.includes('No flag — the CLI decides.'), 'the CLI-default row carries a one-line summary')
+assert.ok(!rowsMarkup.includes('Pro, Max and Team plans'), 'the paragraph stays in the tooltip, off the row')
+assert.ok(rowsMarkup.includes('rounded-xs') && rowsMarkup.includes('>Default<'), 'the CLI-default row wears the shared Default chip')
+const remoteRows = renderToStaticMarkup(
+  createElement(PermissionPresetMenuRows, {
+    value: 'auto',
+    onSelect: () => {},
+    disabledReasons: { none: 'Not available on a remote machine', bypass: 'Not available on a remote machine' },
+  })
+)
+assert.equal((remoteRows.match(/ disabled=""/g) ?? []).length, 2, 'a remote target dims exactly the presets its gateway refuses')
+assert.equal((remoteRows.match(/Not available on a remote machine/g) ?? []).length, 2, 'each with its reason as the meta line')
+
 // --- image attachments (D3/1774) -------------------------------------------
 
 // The affordance is offered only where a provider actually reads the turn's
@@ -1536,6 +1565,43 @@ const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels
     !headerRegion.includes('font-semibold'),
     'the provider header carries no weight of its own — group labels never out-weigh their rows'
   )
+}
+
+// ⌘⇧M / the palette's "Toggle Model Picker" answer with ONE view: the focused
+// one, else the most recently mounted view in the active workspace. The first
+// cut compared closures per view and silently answered nothing; this pins the
+// module-level responder the shell's panel-event now reaches.
+{
+  // The event helper builds a `CustomEvent` from the global; under jsdom the
+  // window only accepts its own.
+  anyGlobal.CustomEvent = dom.window.CustomEvent
+  useWorkspaceStore.setState({ activeWorkspaceId: 'ws-active' } as never)
+  const toggled: string[] = []
+  const entry = (workspaceId: string, focused = false): MountedChatView => ({
+    workspaceId,
+    isFocused: () => focused,
+    toggleModelPicker: () => toggled.push(workspaceId),
+  })
+  const offBackground = registerMountedChatView(entry('ws-background'))
+  const offActiveOlder = registerMountedChatView(entry('ws-active'))
+  const offActiveNewer = registerMountedChatView(entry('ws-active'))
+  dispatchPanelCommandEvent(MODEL_PICKER_TOGGLE_COMMAND)
+  assert.deepEqual(toggled, ['ws-active'], 'exactly one view answers, in the active workspace')
+  assert.equal(respondToModelPickerToggle()?.workspaceId, 'ws-active', 'the responder is the active workspace view')
+  toggled.length = 0
+  const offFocused = registerMountedChatView(entry('ws-background', true))
+  dispatchPanelCommandEvent(MODEL_PICKER_TOGGLE_COMMAND)
+  assert.deepEqual(toggled, ['ws-background'], 'a focused view wins over the active workspace')
+  dispatchPanelCommandEvent('sprintengine.something-else')
+  assert.deepEqual(toggled, ['ws-background'], 'other panel commands are ignored')
+  offFocused()
+  offActiveNewer()
+  offActiveOlder()
+  offBackground()
+  toggled.length = 0
+  dispatchPanelCommandEvent(MODEL_PICKER_TOGGLE_COMMAND)
+  assert.deepEqual(toggled, [], 'with no view mounted the listener is gone')
+  void offActiveNewer
 }
 
 console.log('AgentChatView.test.ts (model picker 1772): ok')

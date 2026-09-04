@@ -129,6 +129,36 @@ expectIncludes(contextMenu, "event.key === 'ArrowDown'", 'ContextMenu roves focu
 expectIncludes(contextMenu, "event.key === 'ArrowUp'", 'ContextMenu roves focus on ArrowUp')
 expectIncludes(contextMenu, "event.key === 'Home'", 'ContextMenu roves focus to the first item on Home')
 expectIncludes(contextMenu, "event.key === 'End'", 'ContextMenu roves focus to the last item on End')
+// The shared permission-preset menu (remote-sessions-ux / selector-menus-
+// premium) carries the same keyboard contract as ContextMenu — the launch
+// panel's access pill and the chat composer's pill both host it, and both
+// hand focus to the checked row on open through the one shared helper.
+const presetMenu = read('src/renderer/src/components/workspace/agentComposer/agentSpawnShared.tsx')
+expectIncludes(presetMenu, 'role="menuitemradio"', 'preset rows expose menuitemradio semantics')
+expectIncludes(presetMenu, 'aria-checked={active}', 'the checked preset states it with aria-checked')
+expectIncludes(presetMenu, 'tabIndex={active ? 0 : -1}', 'preset rows rove: the checked row is the one tab stop')
+expectIncludes(presetMenu, "event.key === 'ArrowDown'", 'preset menu roves focus on ArrowDown')
+expectIncludes(presetMenu, "event.key === 'ArrowUp'", 'preset menu roves focus on ArrowUp')
+expectIncludes(presetMenu, "event.key === 'Home'", 'preset menu roves focus to the first row on Home')
+expectIncludes(presetMenu, "event.key === 'End'", 'preset menu roves focus to the last row on End')
+expectIncludes(presetMenu, '.filter(\n    (row) => !row.disabled,\n  )', 'the walk skips disabled rows')
+expectIncludes(presetMenu, "event.key === 'Enter' || event.key === ' '", 'Enter and Space activate the focused row')
+expectIncludes(presetMenu, 'export function focusActivePresetRow', 'one shared open-focus helper for every host')
+const launchPanel = read('src/renderer/src/components/workspace/agentComposer/NewAgentPanel.tsx')
+const chatView = read('src/renderer/src/components/panels/AgentChatView.tsx')
+expectIncludes(launchPanel, 'onOpenAutoFocus={focusActivePresetRow}', 'the launch panel lands focus on the checked preset on open')
+expectIncludes(chatView, 'onOpenAutoFocus={focusActivePresetRow}', 'the chat pill lands focus on the checked preset on open')
+assert.equal(
+  (launchPanel.match(/ role="menu"/g) ?? []).length,
+  0,
+  'the launch panel nests no second role="menu" inside a Popover surface that already carries it',
+)
+assert.equal(
+  (chatView.match(/ role="menu"/g) ?? []).length,
+  0,
+  'the chat composer nests no second role="menu" inside a Popover surface that already carries it',
+)
+
 expectIncludes(contextMenu, 'aria-haspopup="menu"', 'MenuFlyoutItem advertises its nested menu')
 expectIncludes(contextMenu, 'aria-expanded={open}', 'MenuFlyoutItem reports flyout expanded state')
 expectIncludes(contextMenu, "event.key === 'ArrowRight'", 'MenuFlyoutItem opens its flyout on ArrowRight')

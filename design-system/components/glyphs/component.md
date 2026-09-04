@@ -1,9 +1,9 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The four SVGs in
-`glyphs/` (close, search, spinner, multicode-mark) are the framework-neutral
-assets; the shipped vocabulary lives in React —
+line work, sized only by the `--sem-icon-size-*` ramp. The six SVGs in
+`glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine)
+are the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
 and color a glyph without reading the React source.
@@ -173,6 +173,9 @@ discipline: 1.7 frame, 1.9 letterform.
 |---|---|
 | `StarGlyph(filled, stroked)` | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink |
 | `RefreshIcon` | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) |
+| `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
+| `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
+| `RemoteMachineGlyph` | The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
 
 ### Settings rail (24-grid, one per category)
 
@@ -282,7 +285,7 @@ Cite these rather than matching the code you happen to be nearest.
    inconsistency, resolved by consuming the shared exports (item 3).
 5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
    convention is `Glyph`. Rename when it next moves.
-6. **The `glyphs/` folder holds four assets** against a shipped vocabulary of
+6. **The `glyphs/` folder holds six assets** against a shipped vocabulary of
    roughly forty. This entry closes the documentation gap; extracting
    framework-neutral SVGs for the core-action set into `glyphs/` (and
    registering them in `design-system.json`) remains open.

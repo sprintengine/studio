@@ -7,6 +7,7 @@ import {
   FLEET_CREATE_TERMINAL_CHANNEL,
   FLEET_DETACH_TERMINAL_CHANNEL,
   FLEET_FORGET_CHANNEL,
+  FLEET_GET_LIVE_STATE_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
@@ -53,6 +54,9 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   }
 
   ipcMain.handle(FLEET_LIST_CONNECTIONS_CHANNEL, () => service.fleet().listConnections())
+  // The initial read behind `fleet:event`: what is attached right now, so a
+  // reloaded window is not stuck on "paired" until the next link change.
+  ipcMain.handle(FLEET_GET_LIVE_STATE_CHANNEL, () => service.fleet().getLiveState())
   ipcMain.handle(FLEET_PAIR_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input)
     return service.fleet().pair({ pairingUrl: record?.pairingUrl, deviceName: record?.deviceName })

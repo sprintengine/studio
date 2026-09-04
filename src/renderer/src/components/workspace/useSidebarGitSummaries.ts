@@ -7,11 +7,15 @@ import type { WorkspaceChangeSummary } from '../../../../shared/electron-api'
 //
 // Deliberately a slow, visible-only poll rather than a watcher fleet, shaped
 // by its adversarial review:
-// - fetches are per WORKSPACE. The old folder dedupe ("ten chats on one repo
-//   are one summary") was correct only because every chat in a repo got the
-//   same answer — which is exactly the bug the owner caught, ten rows on
-//   `multicode` all reading `+246 −94`. A checkpoint-scoped read is a
-//   ref-to-ref diff rather than a worktree scan, so per-row stays cheap;
+// - fetches are per WORKSPACE. The old renderer-side folder dedupe ("ten
+//   chats on one repo are one summary") was correct only because every chat
+//   in a repo got the same answer — which is exactly the bug the owner caught,
+//   ten rows on `multicode` all reading `+246 −94`. A checkpoint-scoped read
+//   is a ref-to-ref diff rather than a worktree scan, so per-row stays cheap —
+//   and the rows that DO fall back to the folder scan share ONE scan per
+//   folder per sweep in main (`createFolderSummaryShare`,
+//   workspace-change-summary.ts). Entries are swept folder by folder so a
+//   folder's rows land inside that share's hold window;
 // - one sweep at a time: a sweep hung on a spun-down volume delays the next
 //   tick instead of stacking subprocesses under it;
 // - results MERGE over what is known (ids no longer present are pruned), so
@@ -47,6 +51,27 @@ function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<str
   return true
 }
 
+/**
+ * The rows one sweep asks main about, in the order it asks. Parsed back out
+ * of the NUL-joined membership string (first space only: ids never contain
+ * one, paths may) and ordered folder-contiguously, so the un-checkpointed rows
+ * of one folder ask within one hold window and get one worktree scan between
+ * them (`createFolderSummaryShare`, main). Ids keep their order within a
+ * folder so a sweep is deterministic.
+ */
+export function sweepEntriesFrom(membership: string): Array<{ id: string; folderPath: string }> {
+  return membership
+    .split('\u0000')
+    .filter(Boolean)
+    .map((row) => {
+      const separator = row.indexOf(' ')
+      return { id: row.slice(0, separator), folderPath: row.slice(separator + 1) }
+    })
+    .sort((a, b) =>
+      a.folderPath < b.folderPath ? -1 : a.folderPath > b.folderPath ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    )
+}
+
 export function useSidebarGitSummaries(
   workspaces: ReadonlyArray<SummaryInput>
 ): Record<string, WorkspaceChangeSummary> {
@@ -66,14 +91,7 @@ export function useSidebarGitSummaries(
   useEffect(() => {
     let cancelled = false
     let inFlight = false
-    const entries = membership
-      .split('\u0000')
-      .filter(Boolean)
-      .map((row) => {
-        // First space only: ids never contain one, paths may.
-        const separator = row.indexOf(' ')
-        return { id: row.slice(0, separator), folderPath: row.slice(separator + 1) }
-      })
+    const entries = sweepEntriesFrom(membership)
     async function sweep(): Promise<void> {
       if (cancelled || inFlight || document.hidden) return
       inFlight = true

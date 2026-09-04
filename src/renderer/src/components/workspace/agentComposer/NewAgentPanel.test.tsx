@@ -33,6 +33,8 @@ anyGlobal.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
 anyGlobal.Node = dom.window.Node
 anyGlobal.MouseEvent = dom.window.MouseEvent
 anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
+anyGlobal.FileReader = dom.window.FileReader
+anyGlobal.File = dom.window.File
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 class ResizeObserverStub {
@@ -58,9 +60,30 @@ anyGlobal.cancelAnimationFrame = (id: number) => dom.window.clearTimeout(id)
 const previewCalls: Array<Record<string, unknown>> = []
 const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
 
+// The fleet the remote-machine tests drive (remote-sessions-ux /
+// new-chat-on-a-remote-machine). Reassigned per check.
+let fleetConnections: Array<Record<string, unknown>> = []
+let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () => ({
+  connectionId: 'c',
+  reachable: true,
+  unreachableReason: null,
+  unauthorized: false,
+  scopes: [],
+  terminalAccess: 'full',
+  workspaces: [],
+  terminals: [],
+  gaps: [],
+})
+
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
   platform: 'darwin',
   getGitRepoRoot: async () => '/proj',
+  fleetListConnections: async () => fleetConnections,
+  fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
+  onFleetEvent: () => () => {},
+  defaultWorkspaceParentDir: async () => '/w',
+  getPathForFile: () => '/tmp/shot.png',
+  saveDroppedImage: async () => '/tmp/shot.png',
   agentLaunchPreview: async (input: Record<string, unknown>) => {
     previewCalls.push(input)
     return {
@@ -109,9 +132,15 @@ async function main(): Promise<void> {
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const NewAgentPanel = (await import('./NewAgentPanel')).default
+  const { resetRememberedMachineForTests, sortMachines } = await import('./NewAgentPanel')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const { useToastStore } = await import('../../../store/toastStore')
 
   let failures = 0
+  // Every mounted harness, so a check that throws before its own unmount
+  // cannot leave a stale panel (and its open popovers) in the document for
+  // the next check to query.
+  const liveViews = new Set<{ unmount: () => void }>()
   const check = async (name: string, fn: () => Promise<void>): Promise<void> => {
     try {
       await fn()
@@ -120,6 +149,8 @@ async function main(): Promise<void> {
       failures += 1
       console.error(`not ok - ${name}`)
       console.error(error)
+    } finally {
+      for (const view of [...liveViews]) view.unmount()
     }
   }
 
@@ -197,9 +228,10 @@ async function main(): Promise<void> {
     await act(async () => {
       await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
     })
-    return {
+    const harness: Harness = {
       container,
       unmount: () => {
+        liveViews.delete(harness)
         act(() => root.unmount())
         container.remove()
       },
@@ -211,6 +243,8 @@ async function main(): Promise<void> {
           predicate(el as HTMLElement),
         ) as HTMLElement | undefined,
     }
+    liveViews.add(harness)
+    return harness
   }
 
   // 1. The row carries the usual decisions; the rare ones stay behind ⋯.
@@ -787,6 +821,293 @@ async function main(): Promise<void> {
       'but offers no choice it cannot honour',
     )
     fixed.unmount()
+  })
+
+
+  // ── Remote machines (remote-sessions-ux / new-chat-on-a-remote-machine) ──
+
+  const machine = (id: string, machineName: string): Record<string, unknown> => ({
+    id,
+    machineName,
+    endpoint: `${id}.tail:7777`,
+    deviceId: `d-${id}`,
+    deviceName: 'this-mac',
+    scopes: ['workspace:read', 'workspace:operate'],
+  })
+  const workspace = (id: string, name: string, folderPath: string | null = `/home/${name}`) => ({
+    id,
+    name,
+    mode: 'standard',
+    folderPath,
+  })
+  const settle = async () => {
+    await act(async () => {
+      await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+    })
+  }
+  const click = async (el: Element | null | undefined) => {
+    assert.ok(el, 'the element to click exists')
+    await act(async () => {
+      el!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+  }
+  const buttonWithText = (root: ParentNode, text: string) =>
+    [...root.querySelectorAll('button')].find((button) => (button.textContent ?? '').trim().startsWith(text))
+  const machineTrigger = (view: Harness) =>
+    view.container.querySelector<HTMLButtonElement>('[data-machine-trigger="true"]') ?? undefined
+  const openMachineMenu = async (view: Harness) => {
+    await click(machineTrigger(view))
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Machine this chat runs on"]')
+    assert.ok(menu, 'the machine menu opens on the popover surface')
+    return menu!
+  }
+  const pickMachine = async (view: Harness, name: string) => {
+    const menu = await openMachineMenu(view)
+    await click(buttonWithText(menu, name))
+    await settle()
+  }
+  const remoteRender = async (props: Record<string, unknown> = {}) =>
+    render({ folderPath: '/proj', projectOptions: [{ path: '/proj', label: 'proj' }], onSelectProject: () => {}, onLaunchRemote: async () => {}, ...props })
+
+  await check('the machine dropdown lists This Mac first and default, paired machines alphabetically after', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
+    assert.deepEqual(sortMachines(fleetConnections as never).map((m) => m.machineName), ['Air', 'mini', 'Studio'])
+    const view = await remoteRender()
+    await settle()
+    const trigger = machineTrigger(view)
+    assert.ok(trigger, 'the dropdown is offered once a machine is paired')
+    assert.equal(trigger?.textContent?.trim(), 'This Mac', 'and opens on This Mac — never a remote on first open')
+    assert.equal(trigger?.querySelector('svg.icon-xs.shrink-0'), null, 'no machine glyph on the trigger while local')
+    const menu = await openMachineMenu(view)
+    const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map(
+      (row) => (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
+    )
+    assert.equal(rows[0], 'This Mac', 'This Mac heads the list')
+    assert.deepEqual(rows.slice(1), ['Air', 'mini', 'Studio'], 'then the machines, sorted')
+    assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role: the surface, no nested menu')
+    view.unmount()
+  })
+
+  await check('picking a remote machine shows the glyph, requires an explicit project unless there is exactly one, and is remembered for the session', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: [],
+      terminalAccess: 'full',
+      workspaces: id === 'm1' ? [workspace('w1', 'alpha'), workspace('w2', 'beta')] : [workspace('w9', 'solo')],
+      terminals: [],
+      gaps: [],
+    })
+    const view = await remoteRender()
+    await settle()
+    await pickMachine(view, 'Air')
+    const trigger = machineTrigger(view)
+    assert.ok(trigger?.textContent?.includes('Air'), 'the trigger names the machine')
+    assert.ok(trigger?.querySelector('svg'), 'and wears the shared machine glyph only when remote')
+    assert.ok(view.text().includes('Choose a project'), 'two projects → nobody picks for you')
+    const projectTrigger = buttonWithText(view.container, 'Choose a project')
+    await click(projectTrigger)
+    const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')
+    assert.ok(projects, 'the remote project list opens')
+    assert.equal(projects!.querySelectorAll('[role="menu"]').length, 0, 'no nested menu role')
+    await click(buttonWithText(projects!, 'beta'))
+    assert.ok(buttonWithText(view.container, 'beta'), 'an explicit pick is shown')
+    view.unmount()
+
+    // One project on the Mini: it is the only possible answer, so it is picked.
+    const again = await remoteRender()
+    await settle()
+    assert.ok(machineTrigger(again)?.textContent?.includes('Air'), 'reopening keeps the session’s last machine')
+    await pickMachine(again, 'Mini')
+    assert.ok(buttonWithText(again.container, 'solo'), 'a lone project is chosen without a click')
+    await pickMachine(again, 'This Mac')
+    again.unmount()
+    const fresh = await remoteRender()
+    await settle()
+    assert.equal(machineTrigger(fresh)?.textContent?.trim(), 'This Mac', 'choosing This Mac forgets the remote')
+    fresh.unmount()
+  })
+
+  await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('down', 'Down'), machine('revoked', 'Revoked'), machine('gap', 'Gap')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id,
+      reachable: id !== 'down',
+      unreachableReason: id === 'down' ? 'Down is asleep.' : null,
+      unauthorized: id === 'revoked',
+      scopes: [],
+      terminalAccess: 'full',
+      workspaces: [],
+      terminals: [],
+      gaps: id === 'gap' ? [{ part: 'workspaces', code: 'scope', message: 'This pairing may not list workspaces.' }] : [],
+    })
+    const view = await remoteRender()
+    await settle()
+    const reasonFor = async (name: string) => {
+      await pickMachine(view, name)
+      await click(buttonWithText(view.container, 'Unavailable'))
+      const menu = dom.window.document.querySelector(`[role="menu"][aria-label="Project on ${name}"]`)
+      const text = menu?.textContent ?? ''
+      await act(async () => {
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      return text
+    }
+    assert.ok((await reasonFor('Down')).includes('Down is asleep.'), 'unreachable carries the machine’s reason')
+    assert.ok(/refused this pairing/.test(await reasonFor('Revoked')), 'unauthorized says re-pair')
+    assert.ok((await reasonFor('Gap')).includes('may not list workspaces'), 'a scope gap is the gap’s message, never "no workspaces"')
+    view.unmount()
+  })
+
+  await check('a remote launch refuses what cannot travel — attached images included — and refuses a second submit while one is in flight', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes: [],
+      terminalAccess: 'full', workspaces: [workspace('w1', 'alpha', '/srv/alpha')], terminals: [], gaps: [],
+    })
+    const remoteLaunches: Array<Record<string, unknown>> = []
+    let release: () => void = () => {}
+    const view = await remoteRender({
+      onLaunchRemote: (launch: Record<string, unknown>) => {
+        remoteLaunches.push(launch)
+        return new Promise<void>((resolve) => {
+          release = resolve
+        })
+      },
+    })
+    await settle()
+    await pickMachine(view, 'Air')
+    const textarea = view.container.querySelector('textarea')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+      setter.call(textarea, 'fix the build')
+      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+
+    // Drop an image: its chip stays on screen, so the refusal must name it.
+    useToastStore.setState({ toasts: [] })
+    const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
+    const box = textarea.closest('[class*="relative"]')!
+    const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: { types: ['Files'], items: [{ kind: 'file', getAsFile: () => file }], files: [file] },
+    })
+    await act(async () => {
+      box.dispatchEvent(dropEvent)
+    })
+    await settle()
+    await settle()
+    const enter = () =>
+      act(async () => {
+        textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+    await enter()
+    assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
+    const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That launch cannot travel yet')
+    assert.ok(refusal, 'the stranded refusal is announced')
+    assert.ok(refusal?.description?.includes('the attached images'), `it names the images; got: ${refusal?.description}`)
+
+    // Remove the image and launch: one Enter starts, the second is refused
+    // while the first is still in flight.
+    const remove = [...view.container.querySelectorAll('button')].find((button) =>
+      /remove/i.test(button.getAttribute('aria-label') ?? ''),
+    )
+    await click(remove)
+    await enter()
+    await enter()
+    assert.equal(remoteLaunches.length, 1, 'a second submit during an in-flight remote create is refused')
+    assert.equal(remoteLaunches[0]?.remoteWorkspaceRoot, '/srv/alpha', 'the launch carries the remote folder for provenance')
+    assert.equal(remoteLaunches[0]?.remoteWorkspaceName, 'alpha')
+    await act(async () => {
+      release()
+    })
+    await settle()
+    await enter()
+    assert.equal(remoteLaunches.length, 2, 'and is accepted once the first settles')
+    view.unmount()
+  })
+
+  await check('a remote target disables the presets its gateway refuses and moves the choice with a note', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes: [],
+      terminalAccess: 'full', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
+    })
+    const changes: string[] = []
+    const view = await remoteRender({
+      permissionPreset: 'bypass',
+      onChangePermissionPreset: (preset: string) => changes.push(preset),
+    })
+    await settle()
+    await pickMachine(view, 'Air')
+    assert.deepEqual(changes, ['auto'], 'Bypass moves to the nearest supported preset, Auto')
+    assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
+    view.unmount()
+
+    const local = await remoteRender({ permissionPreset: 'auto' })
+    await settle()
+    await pickMachine(local, 'Air')
+    await click(buttonWithText(local.container, 'Auto'))
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Permissions: Auto"]')
+    assert.ok(menu, 'the access menu opens on the surface')
+    assert.equal(menu!.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
+    const rows = [...menu!.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+    assert.deepEqual(rows.map((row) => row.disabled), [true, false, false, true], 'CLI default and Bypass are disabled for a remote')
+    assert.equal((menu!.textContent ?? '').match(/Not available on a remote machine/g)?.length, 2, 'each with the one-line reason')
+    // Roving skips the disabled rows and wraps.
+    const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
+    assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
+    assert.equal(checked.tabIndex, 0, 'which is the one tab stop')
+    const key = (el: Element, k: string) =>
+      act(async () => {
+        el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+      })
+    await key(checked, 'ArrowDown')
+    assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown from Auto wraps past Bypass and CLI default to Manual')
+    await key(rows[1]!, 'End')
+    assert.equal(dom.window.document.activeElement, rows[2], 'End lands on the last enabled row')
+    await key(rows[2]!, 'Home')
+    assert.equal(dom.window.document.activeElement, rows[1], 'Home on the first enabled row')
+    local.unmount()
+  })
+
+  await check('the local access menu walks with the arrows and selects on Enter', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = []
+    const changes: string[] = []
+    const view = await render({ permissionPreset: 'manual', onChangePermissionPreset: (p: string) => changes.push(p) })
+    await click(buttonWithText(view.container, 'Manual'))
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Permissions: Manual"]')!
+    const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+    assert.equal(rows.length, 4)
+    assert.ok(menu.textContent?.includes('Default'), 'the CLI-default row wears the Default chip')
+    assert.ok(menu.querySelector('.rounded-xs'), 'on the token chip radius')
+    assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
+    const key = (el: Element, k: string) =>
+      act(async () => {
+        el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+      })
+    await key(rows[1]!, 'ArrowUp')
+    assert.equal(dom.window.document.activeElement, rows[0])
+    await key(rows[0]!, 'ArrowUp')
+    assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
+    await key(rows[3]!, 'Enter')
+    assert.deepEqual(changes, ['bypass'], 'Enter selects the focused row')
+    view.unmount()
   })
 
   if (failures > 0) {

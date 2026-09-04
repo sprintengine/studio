@@ -43,8 +43,16 @@ import CliIcon from '../../CliIcon'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from './agentSpawnShared'
-import { ProjectSourceMenu } from './ProjectSourceMenu'
+import {
+  AGENT_SPAWN_PERMISSION_OPTIONS,
+  focusActivePresetRow,
+  menuRadioRowKeyDown,
+  nearestRemotePermissionPreset,
+  PermissionPresetMenuRows,
+  REMOTE_PERMISSION_PRESETS,
+  REMOTE_PRESET_DISABLED_REASONS,
+} from './agentSpawnShared'
+import { ProjectSourceMenu, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
@@ -113,7 +121,13 @@ export type NewAgentPanelProps = {
    * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
    * routes a remote launch here instead of `onLaunch`.
    */
-  onLaunchRemote?: (launch: RemoteNewChatLaunch) => void | Promise<void>
+  onLaunchRemote?: (launch: RemoteNewChatLaunch) => Promise<void>
+  /**
+   * Door-only: clone a repository for the project selector's Import-from-Git
+   * source. The HOST runs the clone so a finish after the selector closed
+   * still adopts the project; absent, the panel clones for itself.
+   */
+  onCloneProject?: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
 }
 
 /** What a remote launch carries: the target, and the launch identity. */
@@ -122,6 +136,8 @@ export type RemoteNewChatLaunch = {
   machineName: string
   remoteWorkspaceId: string
   remoteWorkspaceName: string
+  /** The project's folder on that machine, as the gateway disclosed it. */
+  remoteWorkspaceRoot: string | null
   prompt: string
   cli?: AgentCli
   cliModel?: string | null
@@ -138,6 +154,22 @@ const GREETINGS: ReadonlyArray<(name: string | null) => string> = [
   (name) => (name ? `Ready when you are, ${name}.` : 'Ready when you are.'),
   (name) => (name ? `Where do you want to start, ${name}?` : 'Where do you want to start?'),
 ]
+
+// The machine picked last, for THIS session only (never persisted): reopening
+// New chat keeps the target a person just used, while a fresh app start opens
+// on This Mac — a remote is never preselected on first open.
+let lastPickedMachineId: string | null = null
+
+/** Test seam: forget the session's remembered machine. */
+export function resetRememberedMachineForTests(): void {
+  lastPickedMachineId = null
+}
+
+// This Mac first, then paired machines alphabetically — a list that reorders as pairings
+// come and go is one nobody can learn.
+export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
+  return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
+}
 
 /**
  * The launch surface behind the tab strip's "+" (MC-2147, v2).
@@ -172,6 +204,7 @@ export default function NewAgentPanel({
   onClose,
   showCloseButton = false,
   onLaunchRemote,
+  onCloneProject,
 }: NewAgentPanelProps) {
   const composer = useAgentComposer({
     showTerminal: true,
@@ -228,7 +261,12 @@ export default function NewAgentPanel({
   // another machine, and a second Enter during that window must read as
   // "starting", never as a second agent.
   const [remoteLaunching, setRemoteLaunching] = React.useState(false)
+  // A note the panel writes when it moves a choice on the person's behalf —
+  // a preset the remote cannot take, say. Shown under the box, not toasted.
+  const [remoteNote, setRemoteNote] = React.useState<string | null>(null)
   const remoteCapable = Boolean(onLaunchRemote)
+  // The remembered machine is applied once, when the list first arrives.
+  const rememberedApplied = React.useRef(false)
   React.useEffect(() => {
     if (!remoteCapable) return
     let cancelled = false
@@ -236,7 +274,14 @@ export default function NewAgentPanel({
       void window.api
         .fleetListConnections()
         .then((connections) => {
-          if (!cancelled) setRemoteMachines(connections)
+          if (cancelled) return
+          const sorted = sortMachines(connections)
+          setRemoteMachines(sorted)
+          if (!rememberedApplied.current) {
+            rememberedApplied.current = true
+            const remembered = lastPickedMachineId ? sorted.find((machine) => machine.id === lastPickedMachineId) : null
+            if (remembered) pickRemoteMachineRef.current(remembered)
+          }
         })
         .catch(() => {})
     }
@@ -258,6 +303,7 @@ export default function NewAgentPanel({
     if (!remoteSelectable) setRemoteTarget(null)
   }, [remoteSelectable])
   const pickRemoteMachine = (connection: FleetConnection | null): void => {
+    lastPickedMachineId = connection?.id ?? null
     if (!connection) {
       setRemoteTarget(null)
       return
@@ -286,7 +332,15 @@ export default function NewAgentPanel({
           if (browse.workspaces.length === 0 && workspaceGap) {
             return { ...current, workspaces: [], error: workspaceGap.message }
           }
-          return { ...current, workspaces: browse.workspaces, picked: browse.workspaces[0] ?? null }
+          // An explicit choice, not the first row: a project picked by list
+          // order is a launch into the wrong repo waiting to happen. The one
+          // exception is a machine with exactly one project, where there is
+          // nothing to choose.
+          return {
+            ...current,
+            workspaces: browse.workspaces,
+            picked: browse.workspaces.length === 1 ? browse.workspaces[0]! : null,
+          }
         })
       })
       .catch((error: unknown) => {
@@ -297,6 +351,28 @@ export default function NewAgentPanel({
         )
       })
   }
+  const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
+  pickRemoteMachineRef.current = pickRemoteMachine
+  // A remote target takes exactly what its gateway accepts (manual, auto).
+  // The moment one is picked, a preset it would refuse — or silently replace
+  // with the other machine's default — moves to the nearest supported one and
+  // says so; the unsupported rows stay listed, dimmed, with the reason.
+  const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
+  const remoteMachineName = remoteTarget?.connection.machineName ?? null
+  React.useEffect(() => {
+    // Keyed on the MACHINE, not the target object: the browse resolving
+    // replaces the object, and the move must happen once per pick.
+    if (!remoteMachineName) return
+    if (REMOTE_PERMISSION_PRESETS.has(permissionPreset)) return
+    const next = nearestRemotePermissionPreset(permissionPreset)
+    const from = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === permissionPreset)?.label ?? permissionPreset
+    const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
+    onChangePermissionPreset(next)
+    setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
+  }, [onChangePermissionPreset, permissionPreset, remoteMachineName])
+  React.useEffect(() => {
+    if (!remoteTarget) setRemoteNote(null)
+  }, [remoteTarget])
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
@@ -504,12 +580,17 @@ export default function NewAgentPanel({
       // screen: skills install locally, MCP servers were synced into the LOCAL
       // workspace config, worktrees branch the LOCAL checkout, debug drives the
       // local state machine, and a specialist's soul brief is composed locally.
+      // Images too: a local path means nothing on another machine, and there
+      // is no upload path to the remote today (uploading them into the remote
+      // environment is the future path; until it exists the refusal names them
+      // rather than dropping them while their chips stay on screen).
       const stranded = [
         confirm.kind === 'specialist' ? 'the specialist role' : null,
         confirm.skills?.length ? 'the skills' : null,
         confirm.mcpServers?.length ? 'the MCP servers' : null,
         confirm.worktree ? 'the worktree' : null,
         debugMode ? 'debug mode' : null,
+        images.length > 0 ? 'the attached images' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
         showToast({
@@ -519,21 +600,25 @@ export default function NewAgentPanel({
         })
         return
       }
-      // Local image paths mean nothing on another machine, so they stay out
-      // of a remote prompt rather than riding as dead strings.
+      // Never a value the gateway will refuse after a round-trip: the effect
+      // above already moved the choice, and this is the belt to its braces.
+      if (!REMOTE_PERMISSION_PRESETS.has(permissionPreset)) return
       setRemoteLaunching(true)
-      void Promise.resolve(
-        onLaunchRemote({
-          connectionId: remoteTarget.connection.id,
-          machineName: remoteTarget.connection.machineName,
-          remoteWorkspaceId: remoteTarget.picked.id,
-          remoteWorkspaceName: remoteTarget.picked.name,
-          prompt: text.trim(),
-          cli: confirm.cli,
-          cliModel: confirm.model ?? null,
-          permissionPreset,
-        })
-      ).finally(() => setRemoteLaunching(false))
+      onLaunchRemote({
+        connectionId: remoteTarget.connection.id,
+        machineName: remoteTarget.connection.machineName,
+        remoteWorkspaceId: remoteTarget.picked.id,
+        remoteWorkspaceName: remoteTarget.picked.name,
+        remoteWorkspaceRoot: remoteTarget.picked.folderPath,
+        prompt: text.trim(),
+        cli: confirm.cli,
+        cliModel: confirm.model ?? null,
+        permissionPreset,
+      })
+        .finally(() => setRemoteLaunching(false))
+        // The host reports its own failures as toasts; a throw past its catch
+        // (an add-workspace fault) must not surface as an unhandled rejection.
+        .catch(() => {})
       return
     }
     // The attached images ride along as paths after the text, quoted only when
@@ -673,6 +758,7 @@ export default function NewAgentPanel({
                 selectedPath={workspaceRoot}
                 onSelect={(path) => onSelectProject?.(path)}
                 onBrowse={onBrowseProject}
+                onClone={onCloneProject}
               />
             ) : projectLabel ? (
               <p className="text-meta text-[color:var(--text-subtle)]">
@@ -847,6 +933,10 @@ export default function NewAgentPanel({
                 ariaLabel={`Permissions: ${accessLabel}`}
                 popupRole="menu"
                 placement="bottom-start"
+                // One menu role: the surface IS the list (nesting a second
+                // `role="menu"` inside it announced two menus).
+                surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
+                onOpenAutoFocus={focusActivePresetRow}
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
                   <button
                     ref={ref}
@@ -865,17 +955,17 @@ export default function NewAgentPanel({
                   </button>
                 )}
               >
-                <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Permissions">
-                  {/* The same stacked rows the chat composer's pill opens
-                      (agentSpawnShared) — one choice, one rendering. */}
-                  <PermissionPresetMenuRows
-                    value={permissionPreset}
-                    onSelect={(preset) => {
-                      onChangePermissionPreset(preset)
-                      setAccessOpen(false)
-                    }}
-                  />
-                </div>
+                {/* The same stacked rows the chat composer's pill opens
+                    (agentSpawnShared) — one choice, one rendering. */}
+                <PermissionPresetMenuRows
+                  value={permissionPreset}
+                  disabledReasons={remotePresetReasons}
+                  onSelect={(preset) => {
+                    onChangePermissionPreset(preset)
+                    setRemoteNote(null)
+                    setAccessOpen(false)
+                  }}
+                />
               </Popover>
             )}
 
@@ -957,6 +1047,7 @@ export default function NewAgentPanel({
                 ariaLabel="More launch options"
                 popupRole="menu"
                 placement="bottom-start"
+                surfaceClassName={`w-[264px] ${MENU_LIST_CLASS}`}
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
                   <button
                     ref={ref}
@@ -1041,6 +1132,11 @@ export default function NewAgentPanel({
             {attachNote}
           </p>
         ) : null}
+        {remoteNote ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
+            {remoteNote}
+          </p>
+        ) : null}
 
         {isTerminalLaunch ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
@@ -1114,6 +1210,19 @@ function MachineScopePicker({
   onSelect: (connection: FleetConnection | null) => void
 }) {
   const [open, setOpen] = React.useState(false)
+  const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
+    menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
+  const focusChecked = React.useCallback((surface: HTMLElement) => {
+    const target =
+      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]')
+      ?? surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]')
+    target?.focus()
+    if (target && document.activeElement !== target) {
+      requestAnimationFrame(() => {
+        if (surface.isConnected) target.focus()
+      })
+    }
+  }, [])
   return (
     <Popover
       open={open}
@@ -1121,11 +1230,14 @@ function MachineScopePicker({
       ariaLabel="Machine this chat runs on"
       popupRole="menu"
       placement="bottom-start"
+      surfaceClassName={`w-[240px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
           type="button"
           onClick={togglePopover}
+          data-machine-trigger="true"
           className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >
@@ -1135,37 +1247,45 @@ function MachineScopePicker({
         </button>
       )}
     >
-      <div className={`w-[240px] ${MENU_LIST_CLASS}`} role="menu" aria-label="Machines">
+      {/* The surface is the menu; these are its rows. The leading slot is
+          all-or-nothing per the menu spec, so This Mac renders an empty slot
+          the width of the machine glyph rather than sliding its label left. */}
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={selected === null}
+        data-machine-option="true"
+        tabIndex={selected === null ? 0 : -1}
+        onKeyDown={(event) => rowKey(event, () => { onSelect(null); setOpen(false) })}
+        onClick={() => {
+          onSelect(null)
+          setOpen(false)
+        }}
+        className={`${MENU_ITEM_CLASS} ${selected === null ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+      >
+        <span aria-hidden="true" className="icon-xs shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-left">This Mac</span>
+      </button>
+      {machines.map((machine) => (
         <button
+          key={machine.id}
           type="button"
           role="menuitemradio"
-          aria-checked={selected === null}
+          aria-checked={selected?.id === machine.id}
+          data-machine-option="true"
+          tabIndex={selected?.id === machine.id ? 0 : -1}
+          onKeyDown={(event) => rowKey(event, () => { onSelect(machine); setOpen(false) })}
           onClick={() => {
-            onSelect(null)
+            onSelect(machine)
             setOpen(false)
           }}
-          className={`${MENU_ITEM_CLASS} ${selected === null ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+          className={`${MENU_ITEM_CLASS} ${selected?.id === machine.id ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
         >
-          This Mac
+          <RemoteMachineGlyph className="icon-xs shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">{machine.machineName}</span>
+          <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
         </button>
-        {machines.map((machine) => (
-          <button
-            key={machine.id}
-            type="button"
-            role="menuitemradio"
-            aria-checked={selected?.id === machine.id}
-            onClick={() => {
-              onSelect(machine)
-              setOpen(false)
-            }}
-            className={`${MENU_ITEM_CLASS} ${selected?.id === machine.id ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
-          >
-            <RemoteMachineGlyph className="icon-xs shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left">{machine.machineName}</span>
-            <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
-          </button>
-        ))}
-      </div>
+      ))}
     </Popover>
   )
 }
@@ -1212,6 +1332,7 @@ function RemoteProjectPicker({
       ariaLabel={`Project on ${target.connection.machineName}`}
       popupRole="menu"
       placement="bottom-start"
+      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -1225,7 +1346,7 @@ function RemoteProjectPicker({
         </button>
       )}
     >
-      <div className={`w-[280px] ${MENU_LIST_CLASS}`} role="menu" aria-label={`Projects on ${target.connection.machineName}`}>
+      <>
         {target.workspaces !== null && target.workspaces.length > 0 && !target.error ? (
           // The same search-first shape the local selector opens on.
           <div className="px-1.5 pb-1">
@@ -1276,7 +1397,7 @@ function RemoteProjectPicker({
             </button>
           ))
         )}
-      </div>
+      </>
     </Popover>
   )
 }
@@ -1289,6 +1410,7 @@ function ProjectScopePicker({
   selectedPath,
   onSelect,
   onBrowse,
+  onClone,
 }: {
   label: string
   branch: string | null
@@ -1296,14 +1418,68 @@ function ProjectScopePicker({
   selectedPath: string | null
   onSelect: (path: string) => void
   onBrowse?: () => void
+  onClone?: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
 }) {
+  // Projects this app knows beyond the ones open in this window: the recent
+  // folders the workspace hub lists. Searching the selector covers them too,
+  // so a repo opened last week is one keystroke away rather than a Browse.
+  const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
+  const recentOptions = React.useMemo<NewAgentProjectOption[]>(() => {
+    const open = new Set(options.map((option) => folderPathKey(option.path)))
+    const seen = new Set<string>()
+    const recents: NewAgentProjectOption[] = []
+    for (const path of storedRecentFolders) {
+      const trimmed = path?.trim()
+      if (!trimmed) continue
+      const key = folderPathKey(trimmed)
+      if (open.has(key) || seen.has(key)) continue
+      seen.add(key)
+      recents.push({ path: trimmed, label: basename(trimmed) || trimmed })
+    }
+    return recents
+  }, [options, storedRecentFolders])
+  // Cold start: nothing open and nothing recent still needs somewhere for a
+  // clone to land, so the app's default parent (the hub's own fallback) is
+  // asked for once rather than telling the person to open a project first.
+  const [fallbackParent, setFallbackParent] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    let active = true
+    void window.api.defaultWorkspaceParentDir?.()
+      .then((dir) => {
+        if (active) setFallbackParent(dir)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
   // Where an imported repository lands: beside the current project, else
-  // beside the first offered one — the same smart-parent idea the workspace
-  // hub uses, without asking a question this small surface has no room for.
+  // beside the first offered one, else beside a recent one, else the app's
+  // default — the same smart-parent resolver the workspace hub uses.
   const defaultParent = resolveDefaultParentPath({
     folderPath: selectedPath,
-    recentFolders: options.map((option) => option.path),
+    recentFolders: [...options.map((option) => option.path), ...storedRecentFolders],
+    fallbackParent,
   })
+  // A host that runs the clone itself outlives this popover; without one the
+  // panel clones in place (the tab-strip host offers no picker, so in practice
+  // this is the door with an older host).
+  const runClone = React.useCallback(
+    async (request: ProjectCloneRequest): Promise<ProjectCloneResult> => {
+      if (onClone) return onClone(request)
+      const cloned = await window.api
+        .cloneGitHubRepo(request)
+        .catch((caught: unknown): { ok: false; message: string } => ({
+          ok: false,
+          message: caught instanceof Error ? caught.message : 'Could not clone the repository.',
+        }))
+      if (!cloned.ok) return cloned
+      showToast({ tone: 'good', title: `Cloned ${basename(cloned.path) || cloned.path}`, description: cloned.path })
+      onSelect(cloned.path)
+      return { ok: true, path: cloned.path }
+    },
+    [onClone, onSelect],
+  )
   const [open, setOpen] = React.useState(false)
   return (
     <Popover
@@ -1332,10 +1508,12 @@ function ProjectScopePicker({
           dialog stacked on the first. */}
       <ProjectSourceMenu
         options={options}
+        recentOptions={recentOptions}
         selectedPath={selectedPath}
         defaultParent={defaultParent}
         onSelect={(path) => onSelect(path)}
         onBrowse={onBrowse}
+        onClone={runClone}
         onClose={() => setOpen(false)}
       />
     </Popover>
@@ -1373,8 +1551,10 @@ function MoreMenu({
 }) {
   const worktreeRef = React.useRef<HTMLInputElement>(null)
 
+  // The Popover surface is the menu and carries the list class; this is its
+  // content, not a second menu.
   return (
-    <div className={`w-[264px] ${MENU_LIST_CLASS}`} role="menu" aria-label="More launch options">
+    <>
       {/* What is being launched. An agent is the answer nearly every time, so it
           stays the default and lives here rather than on the row — but a plain
           shell and a conversation agent have to be reachable somewhere, and this
@@ -1464,7 +1644,7 @@ function MoreMenu({
         hint="The agent instruments your code, works the debug loop, then cleans up"
         onClick={onToggleDebug}
       />
-    </div>
+    </>
   )
 }
 
@@ -1500,6 +1680,12 @@ function MenuValueRow({
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = ConversationImageAttachment & { path: string }
+
+// One key per folder whatever the separator or trailing slash, so an open
+// project and its recent-folders twin count once.
+function folderPathKey(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
 
 // Quoted only when the path needs it, matching the terminal drop idiom.
 function quotePath(path: string): string {
