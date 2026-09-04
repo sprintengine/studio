@@ -93,6 +93,29 @@ export const agentRuntimeRendererModule: RendererModule = {
     core: true,
   },
   registerRenderer(host) {
+    // Open on the bell rows the hosted feed writes (new models, a CLI update,
+    // an app update ready): each carries `{ kind: 'settings', ref: <tab> }`
+    // and lands on that Settings tab. Registered through the always-on core so
+    // the rows always have their Open.
+    for (const source of ['models', 'cli', 'update'] as const) {
+      host.registerNotificationActionProvider({
+        source,
+        resolveActions: ({ notification }) => {
+          const target = notification.navigationTarget
+          if (target?.kind !== 'settings') return []
+          return [
+            {
+              id: `${source}.open-settings`,
+              label: 'Open',
+              run: async () => {
+                const { useWorkspaceStore } = await import('../store/workspaceStore')
+                useWorkspaceStore.getState().openSettingsOverlay({ initialTab: target.ref || 'agents' })
+              },
+            },
+          ]
+        },
+      })
+    }
     // The Plugins modal (doors→modals, 2026-09-01; the Extensions door,
     // MC-1847, before that): registered through the always-on core so the
     // marketplace surface is always reachable. The trigger glyph leads the

@@ -11,11 +11,14 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { cliRuntimeForPlugin, resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
+import { hostedModelAdditions } from '../../../../shared/hosted-model-feed'
+import type { CliVersionAdvisory } from '../../../../shared/electron-api'
+import { cliUpdateNotice, newModelsNotice, retiredModelNotices, updateReadyNotice } from '../../utils/feedNotifications'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
@@ -92,7 +95,7 @@ import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
-import { showToast } from '../../store/toastStore'
+import { showToast, useToastStore } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -323,6 +326,91 @@ function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] 
   }
 
   return selected
+}
+
+// The CLI-update toast (owner ruling 2026-09-04): the CLI's glyph,
+// "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
+// which runs the same command the Settings row runs and reports in place.
+// The ONE toast with actions; main sends each (cli, version) pair once.
+function showCliUpdateToast(advisory: CliVersionAdvisory): void {
+  const store = useWorkspaceStore.getState()
+  const displayName = (cli: string): string =>
+    store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
+  const name = displayName(advisory.cli)
+  const notice = cliUpdateNotice(advisory, displayName)
+  const id = `cli-update:${advisory.cli}`
+  publishDiagnosticSync({
+    level: 'info',
+    source: 'cli',
+    title: notice.title,
+    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : notice.description,
+    navigationTarget: { kind: 'settings', ref: 'agents' },
+  })
+  const dismiss = (): void => useToastStore.getState().dismissToast(id)
+  showToast({
+    id,
+    tone: 'neutral',
+    cli: advisory.cli,
+    title: notice.title,
+    description: notice.description,
+    autoDismissMs: false,
+    actions: [
+      {
+        id: 'settings',
+        label: 'Settings',
+        run: () => {
+          dismiss()
+          useWorkspaceStore.getState().openSettingsOverlay({ initialTab: 'agents' })
+        },
+      },
+      {
+        id: 'update',
+        label: 'Update',
+        primary: true,
+        run: () => {
+          void runCliUpdateFromToast(advisory.cli, name, id)
+        },
+      },
+    ],
+  })
+}
+
+async function runCliUpdateFromToast(cli: string, name: string, id: string): Promise<void> {
+  const api = window.api
+  if (typeof api.cliUpdate !== 'function') return
+  const store = useWorkspaceStore.getState()
+  const runtime = cliRuntimeForPlugin(cli, store.appSettings.cliRuntimes)
+  const before = store.cliAvailability[cli]?.version ?? null
+  showToast({ id, tone: 'neutral', cli, title: `Updating ${name}…`, autoDismissMs: false })
+  try {
+    const result = await api.cliUpdate(cli, runtime)
+    if (result.ok && result.version && result.version.trim() !== (before ?? '').trim()) {
+      showToast({ id, tone: 'good', cli, title: `${name} updated to ${result.version.trim()}` })
+    } else if (result.ok) {
+      showToast({
+        id,
+        tone: 'warn',
+        cli,
+        title: `${name} did not update`,
+        description: `The update finished but the version is still ${before ?? 'the same'}. Settings › Agent CLIs has the command to run by hand.`,
+      })
+    } else {
+      showToast({ id, tone: 'warn', cli, title: `${name} did not update`, description: result.error ?? 'The update did not finish.' })
+    }
+  } catch (error) {
+    showToast({ id, tone: 'warn', cli, title: `${name} did not update`, description: error instanceof Error ? error.message : String(error) })
+  }
+  const after = useWorkspaceStore.getState()
+  await after.refreshCliAvailability({ force: true, cliRuntimes: after.appSettings.cliRuntimes })
+  void after.refreshCliVersionAdvisories({ force: true, cliRuntimes: after.appSettings.cliRuntimes })
+}
+
+// "general-agent" → "General agent": the specialist ids are kebab-case slugs
+// and the retired-model notice names who used the model.
+function humanizeSpecialistId(id: string): string {
+  const words = id.split(/[-_]+/).filter(Boolean)
+  if (words.length === 0) return id
+  return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(' ')
 }
 
 export default function WorkspaceManager() {
@@ -1460,9 +1548,74 @@ export default function WorkspaceManager() {
   useEffect(() => {
     const store = useWorkspaceStore.getState()
     void store.loadHostedModelFeed()
-    return subscribeHostedModelFeedChanges((result) =>
-      useWorkspaceStore.getState().applyHostedModelFeedResult(result),
-    )
+    return subscribeHostedModelFeedChanges((result) => {
+      const current = useWorkspaceStore.getState()
+      const previous = current.hostedModelFeed
+      current.applyHostedModelFeedResult(result)
+      // The notices (rules table in backlog/2026-09-04-hosted-update-and-model-
+      // feed.md): only a fetch that replaced a LIVE copy is news. The first
+      // fetch after install or after the release that ships the feed replaces
+      // the seed, and seed → live is not news.
+      if (!result.ok || !result.changed || !previous?.ok || previous.source === 'seed') return
+      const displayName = (cli: string): string =>
+        current.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
+      const installed = new Set(
+        Object.values(current.cliAvailability)
+          .filter((entry) => entry?.installed)
+          .map((entry) => entry!.cli),
+      )
+      const added = newModelsNotice({
+        additions: hostedModelAdditions(previous.feed, result.feed),
+        installed,
+        userModels: (cli) => current.appSettings.cliRuntimes?.[cli]?.models ?? [],
+        displayName,
+      })
+      if (added) {
+        showToast({ tone: 'accent', title: added.title, description: added.description })
+        publishDiagnosticSync({
+          level: 'info',
+          source: 'models',
+          title: added.title,
+          message: added.description,
+          navigationTarget: { kind: 'settings', ref: 'agents' },
+        })
+      }
+      const remembered = Object.entries(current.appSettings.specialistModelDefaults ?? {}).flatMap(([who, selection]) =>
+        selection?.model ? [{ who: humanizeSpecialistId(who), cli: selection.cli, model: selection.model }] : [],
+      )
+      for (const notice of retiredModelNotices({ previous: previous.feed, next: result.feed, remembered, displayName })) {
+        showToast({ tone: 'warn', title: notice.title, description: notice.description })
+        publishDiagnosticSync({
+          level: 'warning',
+          source: 'models',
+          title: notice.title,
+          message: notice.description,
+          navigationTarget: { kind: 'settings', ref: 'agents' },
+        })
+      }
+    })
+  }, [])
+
+  // The app update, once downloaded: one good toast and one bell row. The
+  // Settings banner is unchanged; autoInstallOnAppQuit does the rest.
+  useEffect(() => {
+    const api = typeof window === 'undefined' ? null : window.api
+    if (!api || typeof api.onUpdateStateChanged !== 'function') return
+    let last: string | null = null
+    return api.onUpdateStateChanged((state) => {
+      if (state.status === 'downloaded' && last !== 'downloaded') {
+        const notice = updateReadyNotice('Sprint Engine Studio', state.updateVersion)
+        showToast({ tone: 'good', title: notice.title, description: notice.description })
+        publishDiagnosticSync({
+          level: 'info',
+          source: 'update',
+          title: notice.title,
+          message: notice.description,
+          navigationTarget: { kind: 'settings', ref: 'general' },
+        })
+      }
+      last = state.status
+    })
   }, [])
 
   // CLI version advisories: the Settings switch is mirrored into main (which
@@ -1479,9 +1632,12 @@ export default function WorkspaceManager() {
   }, [checkCliVersions])
   useEffect(
     () =>
-      subscribeCliVersionAdvisoryChanges((result) =>
-        useWorkspaceStore.getState().applyCliVersionAdvisories(result),
-      ),
+      subscribeCliVersionAdvisoryChanges((result) => {
+        const store = useWorkspaceStore.getState()
+        store.applyCliVersionAdvisories(result)
+        if (!result.ok || !result.newlyOutdated?.length) return
+        for (const advisory of result.newlyOutdated) showCliUpdateToast(advisory)
+      }),
     [],
   )
 

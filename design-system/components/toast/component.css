@@ -152,3 +152,25 @@
     background: var(--sem-color-bg-surface-raised);
   }
 }
+
+/* The action-row variant (owner ruling 2026-09-04): ONE toast in
+ * the system carries buttons — "Update available: Codex 0.153.3" with
+ * Settings and Update — and an agent CLI's glyph in place of the tone dot.
+ * Every other toast stays button-free; a second consumer of this variant is a
+ * design decision, not a styling choice. Persistence follows the buttons: a
+ * toast asking for an action never auto-dismisses. */
+.ds-toast-glyph {
+  flex: none;
+  /* ds-lint-allow: the glyph is the app's 16px small icon; the system has no icon-size token and one belongs in the token source, not here */
+  width: 16px;
+  height: 16px;
+  margin-top: 1px; /* ds-lint-allow: optical alignment of a 16px glyph with the title's cap height; no space token is one pixel */
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-md);
+}

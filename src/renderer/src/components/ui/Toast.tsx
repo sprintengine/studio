@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import CliIcon from '../CliIcon'
+import { GhostButton, PrimaryButton } from './Buttons'
 import { TONE_COLOR_VAR, type Tone } from './tokens'
 
 const TOAST_ROLE: Record<Tone, 'status' | 'alert'> = {
@@ -39,6 +41,11 @@ type ToastProps = {
    *  tone default. */
   autoDismissMs?: number | false
   className?: string
+  /** An agent CLI's glyph in place of the tone dot — the CLI-update toast. */
+  cli?: string
+  /** The action row. The CLI-update toast is the ONE toast that carries one
+   *  (owner ruling 2026-09-04); the toast spec's action-row variant. */
+  actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; run: () => void }>
 }
 
 export function Toast({
@@ -48,6 +55,8 @@ export function Toast({
   onDismiss,
   autoDismissMs,
   className,
+  cli,
+  actions,
 }: ToastProps) {
   const resolved = autoDismissMs ?? TOAST_AUTO_DISMISS_MS[tone]
 
@@ -84,17 +93,36 @@ export function Toast({
         className ?? '',
       ].join(' ')}
     >
-      <span
-        aria-hidden="true"
-        // design-tokens-allow: canonical tone bullet inside Toast; intentionally not delegated to StatusDot because Toast's bullet sits inline with text and uses the same TONE_COLOR_VAR lookup
-        className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-        style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
-      />
+      {cli ? (
+        <CliIcon cli={cli} className="mt-px size-icon-sm shrink-0 text-[color:var(--text-default)]" />
+      ) : (
+        <span
+          aria-hidden="true"
+          // design-tokens-allow: canonical tone bullet inside Toast; intentionally not delegated to StatusDot because Toast's bullet sits inline with text and uses the same TONE_COLOR_VAR lookup
+          className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
+        />
+      )}
       <div className="min-w-0 flex-1">
         <div className="font-medium leading-tight text-[color:var(--text-strong)]">{title}</div>
         {description ? (
           <div className="mt-0.5 break-words text-micro leading-snug text-[color:var(--text-muted)]">
             {description}
+          </div>
+        ) : null}
+        {actions && actions.length > 0 ? (
+          <div className="mt-2 flex justify-end gap-1.5">
+            {actions.map((action) =>
+              action.primary ? (
+                <PrimaryButton key={action.id} size="xs" onClick={action.run}>
+                  {action.label}
+                </PrimaryButton>
+              ) : (
+                <GhostButton key={action.id} size="xs" onClick={action.run}>
+                  {action.label}
+                </GhostButton>
+              ),
+            )}
           </div>
         ) : null}
       </div>

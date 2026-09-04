@@ -14,6 +14,17 @@ import type { Tone } from '../components/ui/tokens'
 // Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error never)
 // — the store only holds what is showing and removes what was dismissed.
 
+// A button on a toast. ONE toast carries these: the CLI-update toast (owner
+// ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
+// Update). Every other toast stays button-free; the design-system toast
+// spec names this variant and the lint pins it.
+export type ToastAction = {
+  id: string
+  label: string
+  primary?: boolean
+  run: () => void
+}
+
 export type AppToast = {
   id: string
   tone: Tone
@@ -21,6 +32,11 @@ export type AppToast = {
   description?: string
   /** True when the producer supplied the id (it may retract); such toasts never title-dedupe. */
   stableId?: boolean
+  actions?: ToastAction[]
+  /** An agent CLI's glyph in place of the tone dot (the CLI-update toast). */
+  cli?: string
+  /** Override the tone's auto-dismiss: `false` keeps the toast until acted on. */
+  autoDismissMs?: number | false
 }
 
 export type ShowToastInput = {
@@ -36,6 +52,9 @@ export type ShowToastInput = {
    * clock is NOT restarted by a re-show; producers that retract use warn.
    */
   id?: string
+  actions?: ToastAction[]
+  cli?: string
+  autoDismissMs?: number | false
 }
 
 interface ToastStore {

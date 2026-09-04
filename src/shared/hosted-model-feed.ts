@@ -131,12 +131,17 @@ export function hostedModelFeedUpdatedAtMs(feed: Pick<HostedModelFeed, 'updatedA
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-export function isNewHostedModel(model: HostedModel, now: Date, days = HOSTED_MODEL_NEW_FOR_DAYS): boolean {
-  if (!model.releasedAt || model.alias === true || model.retired === true) return false
-  const released = Date.parse(model.releasedAt)
+export function isRecentRelease(releasedAt: string | null | undefined, now: Date, days = HOSTED_MODEL_NEW_FOR_DAYS): boolean {
+  if (!releasedAt) return false
+  const released = Date.parse(releasedAt)
   if (Number.isNaN(released)) return false
   const age = now.getTime() - released
   return age >= 0 && age < days * 24 * 60 * 60 * 1000
+}
+
+export function isNewHostedModel(model: HostedModel, now: Date, days = HOSTED_MODEL_NEW_FOR_DAYS): boolean {
+  if (model.alias === true || model.retired === true) return false
+  return isRecentRelease(model.releasedAt, now, days)
 }
 
 export function hostedModelsByCli(feed: HostedModelFeed | null | undefined): HostedCliModelCatalogs {

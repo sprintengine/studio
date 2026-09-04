@@ -23,6 +23,7 @@ import type { AgentCli } from '../../types/workspace'
 
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
 export { meaningfulModelId } from './cliRuntimeCatalog'
+import { isRecentRelease } from '../../../../shared/hosted-model-feed'
 
 // The model popover: a provider rail down the left, search over a flat list of
 // models on the right. It replaces a grouped listbox whose every CLI header and
@@ -118,6 +119,8 @@ type ModelRow = {
   /** The catalog id this row selects; null selects the CLI's own default model. */
   model: string | null
   family?: CliModelFamily
+  /** The hosted feed released this model within HOSTED_MODEL_NEW_FOR_DAYS. */
+  isNew?: boolean
 }
 
 // Hosted models (manifest-derived `hostedVia`, e.g. Kimi K3 and Z.AI GLM riding
@@ -159,6 +162,7 @@ export function buildModelRows(
         monoId: meaningfulModelId(family.defaultId, family.label),
         model: family.defaultId,
         family,
+        ...(isRecentRelease(family.releasedAt, new Date()) ? { isNew: true } : {}),
       })
     }
     // A persisted model no longer in the catalog still launches with that id;
@@ -993,6 +997,14 @@ function ModelRowView({
           {roleTag ? (
             <span className="shrink-0 whitespace-nowrap rounded-[3px] border border-[color:var(--accent-primary)]/40 bg-[color:var(--accent-primary-soft)] px-1.5 text-micro leading-[1.5] text-[color:var(--accent-primary)]">
               {roleTag}
+            </span>
+          ) : null}
+          {/* "New": the hosted feed released this model in the last 30 days —
+              the same rule the website uses. A chip, not a hoist: the row stays
+              where the catalog put it so a muscle-memory pick still lands. */}
+          {row.isNew ? (
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-[color:var(--accent-primary-soft)] px-1.5 text-micro font-medium leading-[1.5] text-[color:var(--accent-primary)]">
+              New
             </span>
           ) : null}
         </span>

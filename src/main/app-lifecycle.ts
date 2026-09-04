@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
@@ -13,6 +13,9 @@ import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './bac
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
 import type { MulticodeUpdateService } from './update-service'
+import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
+import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
+import { readCliVersionAdvisories } from './cli-version-advisory-service'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
@@ -134,6 +137,8 @@ export function registerAppLifecycle({
     handleAuthCallback([callbackUrl])
   })
 
+  let hostedFeedPoller: HostedFeedPoller | null = null
+
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
@@ -196,6 +201,22 @@ export function registerAppLifecycle({
       },
     }).finally(() => markStartup('main.discovery-settled'))
 
+    // What the studio pulls on its own after boot: the hosted model feed and
+    // the CLI version advisories 15 s after the window is up and then hourly,
+    // app updates every four minutes. The boot leg above
+    // keeps the one immediate update check; the poller's first update check
+    // waits a full interval so it is not repeated. Skipped while offline.
+    hostedFeedPoller = createHostedFeedPoller({
+      checkUpdates: async () => {
+        if (!app.isPackaged) return
+        await updateService.checkForUpdates(false)
+      },
+      refreshFeed: () => readHostedModelFeed(),
+      refreshVersions: () => readCliVersionAdvisories(),
+      isOnline: () => net.isOnline(),
+    })
+    hostedFeedPoller.start()
+
     // One-shot cleanup of the retired checkpoint machinery
     // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
     // awaited and deliberately after the window exists: it walks repos with
@@ -249,6 +270,7 @@ export function registerAppLifecycle({
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
+      hostedFeedPoller?.stop()
       sprintRuntime?.shutdown()
       await automationService?.shutdown()
       await agentStateService?.shutdown()

@@ -675,7 +675,15 @@ export type CliVersionAdvisoriesInput = {
 }
 
 export type CliVersionAdvisoriesResult =
-  | { ok: true; advisories: CliVersionAdvisoryMap; checkedAt: string }
+  | {
+      ok: true
+      advisories: CliVersionAdvisoryMap
+      checkedAt: string
+      // Outdated CLIs this install has not been told about at this version
+      // yet: the toast fires once per (cli, latestVersion). Main records the
+      // pairs it has announced, so a restart does not repeat them.
+      newlyOutdated?: CliVersionAdvisory[]
+    }
   | { ok: false; message: string }
 
 // The hosted model feed (src/shared/hosted-model-feed.ts) as the main-process
@@ -1906,7 +1914,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'marketplace' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'cli' | 'filesystem' | 'git' | 'marketplace' | 'models' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
