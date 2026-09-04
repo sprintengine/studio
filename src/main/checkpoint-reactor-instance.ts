@@ -1,6 +1,6 @@
 import { app } from 'electron'
 
-import { createCheckpointIndex } from './checkpoint-index'
+import { createCheckpointIndex, type CheckpointIndex } from './checkpoint-index'
 import { createCheckpointReactor, type CheckpointReactor } from './checkpoint-reactor'
 import { captureCheckpoint, deleteCheckpointRefs } from './checkpoint-store'
 
@@ -16,11 +16,23 @@ import { captureCheckpoint, deleteCheckpointRefs } from './checkpoint-store'
  * Lazy because `app.getPath('userData')` is not answerable until the app is
  * ready, and the module graph is loaded well before that.
  */
-let shared: CheckpointReactor | null = null
+let sharedIndex: CheckpointIndex | null = null
+let sharedReactor: CheckpointReactor | null = null
+
+/**
+ * The index is shared with the read side (`workspace-change-summary`), which
+ * needs the same timeline the reactor writes. One instance, so a capture and
+ * the row that renders it can never disagree about which turns exist.
+ */
+export function getCheckpointIndex(): CheckpointIndex {
+  return (sharedIndex ??= createCheckpointIndex({
+    resolveUserDataDir: () => app.getPath('userData'),
+  }))
+}
 
 export function getCheckpointReactor(): CheckpointReactor {
-  return (shared ??= createCheckpointReactor({
-    index: createCheckpointIndex({ resolveUserDataDir: () => app.getPath('userData') }),
+  return (sharedReactor ??= createCheckpointReactor({
+    index: getCheckpointIndex(),
     captureCheckpoint,
     deleteCheckpointRefs,
     now: () => Date.now(),

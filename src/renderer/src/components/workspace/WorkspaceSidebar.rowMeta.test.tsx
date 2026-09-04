@@ -76,6 +76,21 @@ run('branch is mono; the diff stat sits against it in tone ink, spoken in words'
   assert.match(markup, /min-w-0 shrink items-center gap-1 font-mono/)
 })
 
+run('a folder-scoped reading never claims to be the agent’s work', () => {
+  // No turn has closed in this chat yet, so the numbers are the repo's. They
+  // still show — that is the honest thing to say — but quieter, and both the
+  // tooltip and the spoken label say whose they are.
+  const folder = meta({ branch: 'main', additions: 246, deletions: 94, diffScope: 'folder' })
+  assert.match(folder, /246 added, 94 removed in this folder/)
+  assert.match(folder, /opacity-60/, 'drawn quieter than the agent’s own work')
+  assert.match(folder, /no completed turns yet/)
+
+  const own = meta({ branch: 'main', additions: 12, deletions: 3, diffScope: 'workspace' })
+  assert.match(own, /12 added, 3 removed by this chat/)
+  assert.doesNotMatch(own, /opacity-60/)
+  assert.doesNotMatch(own, /this folder/)
+})
+
 run('the trailing seat rides line 2, and coexists with the diff rather than replacing it', () => {
   const markup = meta({
     branch: 'main',

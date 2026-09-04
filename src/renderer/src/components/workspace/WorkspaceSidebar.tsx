@@ -556,6 +556,7 @@ export function WorkspaceRowMeta({
   branch,
   additions,
   deletions,
+  diffScope = 'workspace',
   trailing,
 }: {
   sessions: ReadonlyArray<{ sessionId: string; cli?: string }>
@@ -563,6 +564,8 @@ export function WorkspaceRowMeta({
   branch: string | null
   additions: number
   deletions: number
+  /** Whose changes the ±lines are — this workspace's agents, or the repo's. */
+  diffScope?: 'workspace' | 'folder'
   trailing?: React.ReactNode
 }) {
   const shown = sessions.slice(0, 3)
@@ -630,10 +633,26 @@ export function WorkspaceRowMeta({
         // Beside the branch, not at the far edge: the two are one fact —
         // "this branch, this much changed" — and the trailing seat is spoken
         // for by the status.
-        <span className="shrink-0 font-mono text-micro tabular-nums">
+        <span
+          className={`shrink-0 font-mono text-micro tabular-nums ${
+            // A folder-scoped reading is the repo's state, not this agent's
+            // work, so it is drawn quieter and says which it is on hover. The
+            // row must never present the repo's numbers as the agent's.
+            diffScope === 'folder' ? 'opacity-60' : ''
+          }`}
+          title={
+            diffScope === 'folder'
+              ? 'Uncommitted changes in this folder — this chat has no completed turns yet'
+              : 'Changed by this chat’s agents'
+          }
+        >
           <span className="text-[color:var(--tone-good)]">+{additions}</span>
           <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
-          <span className="sr-only">{`${additions} added, ${deletions} removed`}</span>
+          <span className="sr-only">
+            {diffScope === 'folder'
+              ? `${additions} added, ${deletions} removed in this folder`
+              : `${additions} added, ${deletions} removed by this chat`}
+          </span>
         </span>
       ) : null}
       {trailing}
@@ -1421,6 +1440,11 @@ export default function WorkspaceSidebar({
     const rowBranch = gitSummary?.branch ?? null
     const rowAdditions = gitSummary?.additions ?? 0
     const rowDeletions = gitSummary?.deletions ?? 0
+    // 'folder' means no turn has closed here yet, so these are the REPO's
+    // numbers, not this workspace's agents' (the-diff-an-agent-made). The row
+    // still shows them — they are the honest thing to say — but never as the
+    // agent's work.
+    const rowDiffScope = gitSummary?.scope ?? 'folder'
     const metaHasSubstance =
       rowSessions.length > 0 || fleetMachines.length > 0 || rowBranch !== null || rowAdditions > 0 || rowDeletions > 0
 
@@ -1673,6 +1697,7 @@ export default function WorkspaceSidebar({
             branch={rowBranch}
             additions={rowAdditions}
             deletions={rowDeletions}
+            diffScope={rowDiffScope}
             trailing={statusSeat}
           />
         ) : null}

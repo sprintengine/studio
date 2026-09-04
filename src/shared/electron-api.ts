@@ -1533,6 +1533,24 @@ export type GitRowSummary = {
   deletions: number
 }
 
+/**
+ * What a WORKSPACE's agents changed, as opposed to what its folder looks like
+ * (the-diff-an-agent-made / workspace-scoped-row-diff).
+ *
+ * `scope` is load-bearing, not diagnostic. `workspace` means the numbers are
+ * the span between this workspace's baseline checkpoint and its latest one —
+ * the agents' own work, with the person's pre-existing dirt cancelled out.
+ * `folder` means no turn has closed here yet and these are the repo's numbers,
+ * which the row must not present as the agent's.
+ */
+export type WorkspaceChangeSummary = {
+  branch: string | null
+  additions: number
+  deletions: number
+  changedFiles: number
+  scope: 'workspace' | 'folder'
+}
+
 export type GitStashEntry = {
   /** Git's selector for the entry, e.g. `stash@{0}`. */
   ref: string
@@ -3254,6 +3272,10 @@ export type ElectronApi = {
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   getGitRowSummary: (repoRoot: string) => Promise<GitRowSummary>
+  getWorkspaceChangeSummary: (
+    workspaceId: string,
+    folderPath: string
+  ) => Promise<WorkspaceChangeSummary>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>

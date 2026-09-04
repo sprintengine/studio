@@ -1,4 +1,6 @@
 import type { IpcMain } from 'electron'
+import { getCheckpointIndex } from '../checkpoint-reactor-instance'
+import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import {
   abortGitOperation,
@@ -67,6 +69,19 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
       getGitRowSummary(repoRoot)
     )
   })
+
+  ipcMain.handle(
+    'git:get-workspace-change-summary',
+    async (_, workspaceId: string, folderPath: string) => {
+      return diagnostics.withIpcDiagnostics(
+        'GitIPC',
+        'get-workspace-change-summary',
+        { workspaceId, folderPath },
+        () =>
+          getWorkspaceChangeSummary({ workspaceId, folderPath }, { index: getCheckpointIndex() })
+      )
+    }
+  )
 
   ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-status', { repoRoot }, async () => {
