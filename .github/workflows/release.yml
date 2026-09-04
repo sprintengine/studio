@@ -130,7 +130,12 @@ jobs:
       - name: Package app
         run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Releases are published to the PUBLIC sprintengine/studio-releases
+          # repo (build.publish in package.json), which electron-updater and the
+          # website read without auth. The workflow's own GITHUB_TOKEN cannot
+          # write to another repo, so this is a fine-grained PAT with Contents
+          # read/write on studio-releases only. Source never goes there.
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           # NO signing variables here on purpose. `${{ secrets.X }}` for a secret
           # that does not exist still DEFINES the variable as an empty string,
           # and electron-builder reads "CSC_LINK is present" as "sign this",
