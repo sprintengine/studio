@@ -416,6 +416,19 @@ void (async () => {
     assert.equal(snapshot.scope, row.scope, 'one rule, two surfaces')
   })
 
+  await run('and they agree when the checkout cannot be read at all', async () => {
+    const source = repo()
+    const bare = mkdtempSync(join(tmpdir(), 'multicode-steps-bare-'))
+    created.push(bare)
+    execFileSync('git', ['clone', '--quiet', '--bare', source, bare])
+    // No working tree: the row clamps to `folder`, so the strip must too, or the
+    // panel would claim exactness over a list it could not build.
+    const snapshot = await listBranchSteps(bare)
+    const row = await getWorkspaceChangeSummary({ checkoutPath: bare })
+    assert.equal(row.scope, 'folder')
+    assert.equal(snapshot.scope, 'folder', 'neither surface claims what it cannot read')
+  })
+
   // ---- the diff sides -----------------------------------------------------
 
   await run('readFileAtRev returns content, and `absent` for a file not there', async () => {

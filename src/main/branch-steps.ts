@@ -87,7 +87,17 @@ export async function listBranchSteps(cwd: string): Promise<BranchStepsSnapshot>
   const dirty = await runGitCommand(cwd, ['status', '--porcelain', '-z', '--untracked-files=all'])
   const hasUncommitted = dirty.ok && dirty.stdout.trim().length > 0
 
-  return { branch: facts.branch, baseOid: facts.baseOid, scope, steps, hasUncommitted }
+  return {
+    branch: facts.branch,
+    baseOid: facts.baseOid,
+    // The row clamps to `folder` when it could not read its diff, and the two
+    // surfaces must not disagree about what they may claim. A checkout whose
+    // `git status` fails has no readable working tree at all — a bare repo, a
+    // locked index — so it claims nothing here either.
+    scope: dirty.ok ? scope : 'folder',
+    steps,
+    hasUncommitted,
+  }
 }
 
 async function readLog(cwd: string, baseOid: string): Promise<BranchStep[]> {
