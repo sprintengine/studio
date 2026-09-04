@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { createAppMenu } from './app-menu'
+import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { runBootDiscovery } from './boot-discovery'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
@@ -194,6 +195,26 @@ export function registerAppLifecycle({
         await updateService.checkForUpdates(false)
       },
     }).finally(() => markStartup('main.discovery-settled'))
+
+    // One-shot cleanup of the retired checkpoint machinery
+    // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
+    // awaited and deliberately after the window exists: it walks repos with
+    // `git update-ref -d`, and a cleanup that cannot finish must never be
+    // something a launch waits on. With no checkpoint index on disk it returns
+    // immediately, which is every machine that never ran those builds.
+    // MIGRATION — remove this call and src/main/checkpoint-sweep.ts one release
+    // after it ships (target: 2026-10).
+    void sweepRetiredCheckpoints(app.getPath('userData'))
+      .then((result) => {
+        if (result.refsDeleted > 0 || result.indexRemoved) {
+          console.log(
+            `[checkpoint-sweep] removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`
+          )
+        }
+      })
+      .catch(() => {
+        // The index survives a failure, so the next launch tries again.
+      })
 
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.

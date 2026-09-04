@@ -1,5 +1,4 @@
 import type { IpcMain } from 'electron'
-import { getCheckpointReactor } from '../checkpoint-reactor-instance'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import {
@@ -67,15 +66,6 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
   ipcMain.handle('git:get-row-summary', async (_, repoRoot: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-row-summary', { repoRoot }, () =>
       getGitRowSummary(repoRoot)
-    )
-  })
-
-  ipcMain.handle('git:forget-workspace-checkpoints', async (_, workspaceId: string) => {
-    return diagnostics.withIpcDiagnostics(
-      'GitIPC',
-      'forget-workspace-checkpoints',
-      { workspaceId },
-      () => getCheckpointReactor().forgetWorkspace(workspaceId)
     )
   })
 

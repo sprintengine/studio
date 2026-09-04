@@ -2016,17 +2016,6 @@ export default function WorkspaceManager() {
     runFirstRunAgentConfigAdoption(folderPath)
   }
 
-  // Checkpoint cleanup, quiet by design: a host without the git bridge (or an
-  // older preload) simply has nothing to prune, and a failure here must never
-  // block a delete the person asked for.
-  const forgetWorkspaceCheckpoints = useCallback(async (workspaceId: string) => {
-    try {
-      await window.api.forgetWorkspaceCheckpoints?.(workspaceId)
-    } catch {
-      // The refs stay; the workspace still goes.
-    }
-  }, [])
-
   const deleteWorkspaceWithState = useCallback(
     async (id: string) => {
       const workspace = workspaces.find((candidate) => candidate.id === id)
@@ -2058,13 +2047,9 @@ export default function WorkspaceManager() {
           })
         }
       }
-      // Epic decision 8: a deleted workspace's checkpoint refs go with it.
-      // Nothing else prunes them, so without this up to 50 snapshot refs per
-      // workspace accumulate in the user's repo forever.
-      await forgetWorkspaceCheckpoints(id)
       removeWorkspace(id)
     },
-    [workspaces, removeWorkspace, forgetWorkspaceCheckpoints]
+    [workspaces, removeWorkspace]
   )
 
   const handleForgetFolder = useCallback(
@@ -2077,14 +2062,11 @@ export default function WorkspaceManager() {
           // Nothing on disk is touched afterwards, so the kills run in the
           // background rather than holding the folder out of the sidebar.
           void terminateWorkspaceTerminals(workspace)
-          // And the checkpoints go with the workspace (epic decision 8), for
-          // the same reason as delete: nothing else ever prunes them.
-          void forgetWorkspaceCheckpoints(workspace.id)
         }
       })
       forgetFolder(folderPath)
     },
-    [workspaces, forgetFolder, forgetWorkspaceCheckpoints]
+    [workspaces, forgetFolder]
   )
 
   const moveWorkspaceToNewWindow = useCallback(
