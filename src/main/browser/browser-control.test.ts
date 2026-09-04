@@ -52,15 +52,21 @@ class FakeWebContents extends EventEmitter {
 function fixture() {
   const wc = new FakeWebContents()
   let epoch = 0
+  let inputDepth = 0
   const badges: string[] = []
+  const inputDepths: number[] = []
   const control = createBrowserControl({
     webContentsOf: (tabId) => (tabId === 't1' ? (wc as unknown as WebContents) : null),
     epochOf: () => epoch,
     noteAgentActivity: (tabId) => {
       badges.push(tabId)
     },
+    noteAgentInput: (_tabId, delta) => {
+      inputDepth += delta
+      inputDepths.push(inputDepth)
+    },
   })
-  return { wc, control, badges, bump: () => (epoch += 1) }
+  return { wc, control, badges, inputDepths, bump: () => (epoch += 1) }
 }
 
 function evaluation(value: unknown) {
@@ -179,6 +185,45 @@ async function main(): Promise<void> {
     assert.match(!stale.ok ? stale.message : '', /snapshot/)
     const noTarget = await control.click('t1', {})
     assert.equal(!noTarget.ok && noTarget.code, 'invalid')
+  })
+
+  await run('type with clear yields BEFORE emptying the field when the person took over', async () => {
+    const { wc, control, bump } = fixture()
+    wc.debugger.respond = (method) => {
+      if (method === 'Runtime.evaluate') {
+        bump()
+        return evaluation({ x: 5, y: 5 })
+      }
+      return {}
+    }
+    const result = await control.type('t1', { ref: 'e1' }, 'hello', { clear: true })
+    assert.equal(!result.ok && result.code, 'interrupted')
+    assert.equal(wc.debugger.commands.some((c) => c.method.startsWith('Input.')), false, 'nothing was dispatched to the page')
+  })
+
+  await run('synthetic input is bracketed so the manager does not count it as a human', async () => {
+    const { wc, control, inputDepths } = fixture()
+    wc.debugger.respond = () => ({})
+    await control.press('t1', 'Enter')
+    assert.deepEqual(inputDepths, [1, 0, 1, 0], 'each dispatch enters and leaves the bracket')
+    const weird = await control.press('t1', 'constructor')
+    assert.equal(!weird.ok && weird.code, 'invalid')
+  })
+
+  await run('an expression that never settles times out instead of holding the call', async () => {
+    const { wc, control } = fixture()
+    wc.debugger.respond = (method) => (method === 'Runtime.evaluate' ? new Promise(() => {}) : {})
+    // The deadline is the control's own; the test cannot wait 30s, so it
+    // races a 60ms deadline through the same helper by faking the clock.
+    const originalSetTimeout = globalThis.setTimeout
+    ;(globalThis as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void, ms?: number) =>
+      originalSetTimeout(fn, ms && ms >= 30_000 ? 20 : ms)) as typeof setTimeout
+    try {
+      const result = await control.evaluate('t1', 'new Promise(() => {})')
+      assert.equal(!result.ok && result.code, 'timeout')
+    } finally {
+      ;(globalThis as { setTimeout: typeof setTimeout }).setTimeout = originalSetTimeout
+    }
   })
 
   await run('type inserts text as one IME commit and submits with Enter when asked', async () => {

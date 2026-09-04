@@ -42,16 +42,15 @@ export function WorkspacePaneColumn({
   )
   const ids = mountedIds ? mountedIds.split('\n') : []
 
-  // browser.open from an agent when the workspace has no browser tab (or asked
-  // for a new one): the window showing that workspace opens it and shows the
-  // pane, so the person sees what the agent is about to do. A workspace open in
-  // two windows would open a tab in each; one workspace per window is the
-  // shape the app has.
-  const renderedKey = renderedWorkspaceIds.join('\n')
+  // browser.open from an agent: the window SHOWING that workspace answers —
+  // opens the tab, shows the pane — so the person sees what the agent is
+  // about to do. A window that merely retains the workspace off screen stays
+  // out of it, so no orphan tabs appear in a second window; with no window
+  // showing it, the tool reports that honestly.
   useEffect(
     () =>
       window.api.onBrowserOpenRequest(({ workspaceId, url, tabId }) => {
-        if (!renderedKey.split('\n').includes(workspaceId)) return
+        if (workspaceId !== activeWorkspaceId) return
         const store = useWorkspaceStore.getState()
         const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
         if (tabId) {
@@ -64,7 +63,7 @@ export function WorkspacePaneColumn({
         }
         store.setPaneOpen(workspaceId, true)
       }),
-    [renderedKey],
+    [activeWorkspaceId],
   )
 
   return (

@@ -164,6 +164,13 @@ async function ensureSkillTests(): Promise<void> {
     cliPendingInput: 'Use the review-guide skill. Use the backlog skill. ',
   })
   assert.deepEqual(skillsSpawnAgentPatch([review], CLAUDE_INTEGRATION), { cliPendingInput: '/review-guide ' })
+  // codex's sentence form composes, so each skill keeps its native invocation.
+  const codexBacklog: WorkspaceSkill = { ...backlog, harnesses: ['codex'] }
+  const codexReview: WorkspaceSkill = { ...review, harnesses: ['codex'] }
+  assert.deepEqual(skillsSpawnAgentPatch([codexReview, codexBacklog], CODEX_INTEGRATION), {
+    spawnSkillId: 'backlog',
+    cliPendingInput: 'Use $review-guide. Use $backlog. ',
+  })
 
   console.log('skillInvocation tests passed')
 }

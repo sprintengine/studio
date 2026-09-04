@@ -276,6 +276,46 @@ async function main(): Promise<void> {
     assert.equal((structured(unknown).error as { code: string }).code, 'invalid')
   })
 
+  await run('console and network results are trimmed from the oldest to fit one socket line', async () => {
+    const { boundedEntries } = await import('./browser-tools')
+    const entries = Array.from({ length: 200 }, (_, i) => ({ level: 'log', text: `${i}:${'x'.repeat(2000)}`, location: null, at: i }))
+    const bounded = boundedEntries(entries)
+    assert.ok(bounded.dropped > 0, 'something was dropped')
+    assert.ok(Buffer.byteLength(JSON.stringify(bounded.entries)) <= 200_000)
+    assert.equal(bounded.entries[bounded.entries.length - 1]?.at, 199, 'the newest survive')
+    assert.deepEqual(boundedEntries([{ a: 1 }]), { entries: [{ a: 1 }], dropped: 0 })
+  })
+
+  await run('a page that never finishes loading is a timeout, and active means what the person sees', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'about:blank') })
+    h.tabs.set('t2', { workspaceId: 'ws-1', state: tabState('t2', 'about:blank') })
+    h.active.set('ws-1', 't2')
+    h.manager.navigate = (tabId, url) => {
+      const tab = h.tabs.get(tabId)!
+      tab.state = { ...tab.state, url, loading: true }
+      return true
+    }
+    // `now` jumps past the load deadline on the second look.
+    let clock = 0
+    const stuck = createBrowserTools({
+      manager: h.manager,
+      control: {} as never,
+      hasWorkspace: () => true,
+      now: () => (clock += 20_000),
+      sleep: async () => {},
+    }).find((tool) => tool.name === 'browser.navigate')!
+    const result = await stuck.handler({ tabId: 't1', url: 'http://localhost:5173/' }, bound)
+    assert.equal((structured(result).error as { code: string }).code, 'timeout')
+    h.manager.navigate = (tabId, url) => {
+      const tab = h.tabs.get(tabId)!
+      tab.state = { ...tab.state, url, loading: false }
+      return true
+    }
+    const done = await h.tools.get('browser.navigate')!.handler({ tabId: 't1', url: 'http://localhost:5173/' }, bound)
+    assert.equal((structured(done).tab as { active: boolean }).active, false, 't1 is not the tab the person is looking at')
+  })
+
   await run('set_appearance validates the scheme and lights the badge', async () => {
     const h = harness()
     h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })

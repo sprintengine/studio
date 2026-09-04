@@ -1,16 +1,15 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, MENU_ITEM_STACKED_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, PanelHeader, Popover, PrimaryButton, roveMenuFocus, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, MENU_ITEM_STACKED_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, PanelHeader, Popover, PrimaryButton, roveMenuFocus, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { PermissionPresetChips, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
 import { CliInstallRosterRow } from '../cliInstallRoute'
-import { ConnectorPickerPopover } from './ConnectorPickerPopover'
+import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import {
   useAgentComposer,
   rowMatchesSelection,
@@ -91,10 +90,8 @@ export default function AgentComposer({
   })
   const { selection, visibleRows } = composer
   const searchRef = React.useRef<HTMLInputElement>(null)
-  // "+ Skill" attachment: the picker lists the folder the chat will land in
-  // (a null folderPath inherits the active workspace's folder at spawn time).
-  const [skillPickerOpen, setSkillPickerOpen] = React.useState(false)
-  const [connectorPickerOpen, setConnectorPickerOpen] = React.useState(false)
+  // The Skills & MCPs picker lists the folder the chat will land in (a null
+  // folderPath inherits the active workspace's folder at spawn time).
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
@@ -353,33 +350,6 @@ export default function AgentComposer({
                   </button>
                 </span>
               ))}
-              {!skillWorkspaceRoot ? null : (
-                <SkillPickerPopover
-                  open={skillPickerOpen}
-                  onOpenChange={setSkillPickerOpen}
-                  workspaceRoot={skillWorkspaceRoot}
-                  // A conversation agent is not a CLI, so no CLI is the honest
-                  // answer for it and the workspace-wide inventory is what it
-                  // gets; `selectionCli` would name the engine default, which is
-                  // not what runs. Every other selection launches that CLI.
-                  pluginId={selection.kind === 'conversation' ? null : composer.selectionCli}
-                  onPick={(skill: WorkspaceSkill) => {
-                    if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
-                  }}
-                  placement="top-start"
-                  renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                    <button
-                      ref={ref}
-                      type="button"
-                      onClick={togglePopover}
-                      className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-                      {...triggerProps}
-                    >
-                      + Skill
-                    </button>
-                  )}
-                />
-              )}
               {composer.mcpServers.map((server) => (
                 <span
                   key={`mcp-${server.id}`}
@@ -397,25 +367,20 @@ export default function AgentComposer({
                   </button>
                 </span>
               ))}
-              <ConnectorPickerPopover
-                open={connectorPickerOpen}
-                onOpenChange={setConnectorPickerOpen}
-                onPick={(server) => {
-                  if (composer.mcpServers.some((entry) => entry.id === server.id)) return
-                  composer.setMcpServers([...composer.mcpServers, { id: server.id, name: server.name, icon: server.icon }])
-                }}
+              {/* The one picker the New chat composer uses: install and add
+                  happen on pick, against the folder the chat will land in. */}
+              <SkillsAndMcpsPicker
+                workspaceRoot={skillWorkspaceRoot}
+                // A conversation agent is not a CLI, so the workspace-wide
+                // inventory is what it gets; every other selection launches
+                // that CLI.
+                pluginId={selection.kind === 'conversation' ? null : composer.selectionCli}
+                skills={composer.skills}
+                onSkillsChange={composer.setSkills}
+                mcpServers={composer.mcpServers}
+                onMcpServersChange={composer.setMcpServers}
                 placement="top-start"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <button
-                    ref={ref}
-                    type="button"
-                    onClick={togglePopover}
-                    className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-                    {...triggerProps}
-                  >
-                    + MCP server
-                  </button>
-                )}
+                triggerClassName={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
               />
             </div>
           ) : null}

@@ -1392,7 +1392,6 @@ async function main(): Promise<void> {
     'components/workspace/AppTitleBar.tsx',
     'components/workspace/SidebarAccountBar.tsx',
     'components/workspace/SidebarChrome.tsx',
-    'components/workspace/agentComposer/ConnectorPickerPopover.tsx',
     'components/workspace/topbar',
   ]
 

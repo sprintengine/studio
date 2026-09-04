@@ -566,7 +566,9 @@ function isSafeDroppedPath(pathValue: string): boolean {
 }
 
 export function bracketedPaste(text: string): string {
-  return `\x1b[200~${text}\x1b[201~`
+  // A paste-end inside the text would close the bracket early and turn the
+  // remainder into typed input; nothing a paste carries may contain one.
+  return `\x1b[200~${text.replace(/\x1b\[201~/g, '')}\x1b[201~`
 }
 
 function quotePathForTerminal(pathValue: string, style: TerminalPathStyle): string {

@@ -61,7 +61,11 @@ export function createGatewayAuditStore(options: {
           outcome: input.error || input.result?.isError ? 'failure' : 'success',
           ...(code ? { errorCode: code } : {}),
           targets: safeIdentifiers(input.args),
-          affected: safeIdentifiers(input.result?.structuredContent ?? canonicalContent(input.result)),
+          // A browser tool's result is the page's word (evaluate returns
+          // arbitrary JSON); nothing in it may pose as an app identifier.
+          affected: input.tool.startsWith('browser.')
+            ? {}
+            : safeIdentifiers(input.result?.structuredContent ?? canonicalContent(input.result)),
         }
         const line = `${JSON.stringify(record)}\n`
         rotateIfNeeded(path, Buffer.byteLength(line), maxBytes, backups)

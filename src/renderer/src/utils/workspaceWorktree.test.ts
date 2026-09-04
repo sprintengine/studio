@@ -3,9 +3,7 @@ import assert from 'node:assert/strict'
 import {
   agentWorktreePaths,
   connectorMcpSettings,
-  connectorStartupPrompt,
   connectorWorktreeBranch,
-  connectorWorktreePaths,
   connectorWorktreeSlug,
   findHealthyWorktreeScope,
   resolveWorkspaceTerminalCwd,
@@ -261,13 +259,6 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 //     also uses).
 {
   assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
-  const paths = connectorWorktreePaths('/Users/example/project', 'railway', 'a1b2c3d4')
-  assert.deepEqual(paths, {
-    containerPath: '/Users/example/.multicode-worktrees/project',
-    destinationPath: '/Users/example/.multicode-worktrees/project/railway-a1b2c3d4',
-    slug: 'railway-a1b2c3d4',
-    branchName: 'connector/railway-a1b2c3d4',
-  })
 }
 
 // 20. connectorMcpSettings wraps exactly one server with sync ON — never a second
@@ -318,16 +309,6 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
   const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }], invocation: {} }
   assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
-}
-
-// 23. Startup prompt leads with the invocation (when present) then the instruction;
-//     without an invocation it is the bare instruction.
-{
-  assert.equal(
-    connectorStartupPrompt('/use-railway', 'Show me my Railway environment and flag anything failing.'),
-    '/use-railway\n\nShow me my Railway environment and flag anything failing.',
-  )
-  assert.equal(connectorStartupPrompt(undefined, 'Show me my Railway environment.'), 'Show me my Railway environment.')
 }
 
 // --- agent spawn worktrees ---

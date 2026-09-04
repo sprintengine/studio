@@ -17,6 +17,7 @@ import {
   StarGlyph,
   useWorkspaceSkills,
   type PopoverPlacement,
+  type PopoverProps,
 } from '../../ui'
 import type { AgentComposerConnector } from './useAgentComposer'
 
@@ -28,11 +29,14 @@ import type { AgentComposerConnector } from './useAgentComposer'
 // its first turn (owner: "install them there and then before they create the
 // agent").
 //
-// Keyboard model is the combobox ruling (design-system/components/combobox):
-// the search field keeps focus, ↑↓ move a highlight named by
-// aria-activedescendant, ⏎ toggles the highlighted row, Escape closes (the
-// Popover owns it). Rows commit on pointerdown-guarded click so the field
-// never loses focus to a row.
+// Keyboard model follows the combobox ruling (design-system/components/
+// combobox) for its keys — the search field keeps focus, ↑↓ move a highlight
+// named by aria-activedescendant, ⏎ toggles, Escape closes (the Popover owns
+// it), Home/End only while the field is empty — but the surface is NOT a
+// combobox: rows toggle rather than commit, so the field is a search box
+// naming a multi-select listbox through aria-controls, the shape the ruling
+// gives NewSprintDialog. Rows commit on pointerdown-guarded click so the
+// field never loses focus to a row.
 
 type SkillRow = {
   key: string
@@ -176,7 +180,9 @@ export type SkillsAndMcpsPickerProps = {
   mcpServers: AgentComposerConnector[]
   onMcpServersChange: (next: AgentComposerConnector[]) => void
   placement?: PopoverPlacement
-  triggerClassName: string
+  triggerClassName?: string
+  /** A custom trigger (a menu row, say); the default is the ghost chip. */
+  renderTrigger?: PopoverProps['renderTrigger']
 }
 
 export function SkillsAndMcpsPicker({
@@ -187,7 +193,8 @@ export function SkillsAndMcpsPicker({
   mcpServers,
   onMcpServersChange,
   placement = 'bottom-start',
-  triggerClassName,
+  triggerClassName = '',
+  renderTrigger,
 }: SkillsAndMcpsPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -197,12 +204,14 @@ export function SkillsAndMcpsPicker({
   // Skills installed from this popover, so their row moves group without a refetch.
   const [installedHere, setInstalledHere] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const listId = useId()
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, pluginId, open)
   const mcpCatalog = useMcpCatalog(open)
   const installedServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
+  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
 
   const rows = useMemo<PickerRow[]>(() => {
@@ -227,6 +236,17 @@ export function SkillsAndMcpsPicker({
   const groupsPresent = useMemo(() => new Set(rows.map((row) => row.group)), [rows])
   const actionable = useMemo(() => rows.filter((row) => !(row.kind === 'mcp' && row.state === 'included')), [rows])
   const highlighted = actionable[Math.min(highlight, Math.max(0, actionable.length - 1))] ?? null
+
+  // The highlight is a moving mark the field owns; it must stay in view like
+  // every other picker's (CommandPalette, CliModelPicker, Select).
+  const highlightedKey = highlighted?.key ?? null
+  useEffect(() => {
+    if (!highlightedKey || !listRef.current) return
+    // Keys are `skill:<id>` / `mcp:<id>`; ids are attribute-safe once quotes
+    // are out (jsdom in tests has no `CSS.escape`).
+    const row = listRef.current.querySelector<HTMLElement>(`[data-picker-row="${highlightedKey.replace(/["\\]/g, '')}"]`)
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [highlightedKey])
 
   const isChecked = useCallback(
     (row: PickerRow) =>
@@ -298,6 +318,10 @@ export function SkillsAndMcpsPicker({
     }
     setBusyKey(row.key)
     setError(row.key, null)
+    // The app's settings are written first so the sync reads them; a sync
+    // that fails puts them back, so a refused pick leaves no server enabled
+    // behind it for every other workspace to inherit.
+    const previous = useWorkspaceStore.getState().appSettings.mcp?.servers?.[row.id]
     try {
       upsertMcpServer({
         ...base,
@@ -306,10 +330,19 @@ export function SkillsAndMcpsPicker({
       })
       const settings = useWorkspaceStore.getState().appSettings.mcp
       if (!settings) throw new Error('MCP settings are unavailable.')
-      const result = await window.api.mcpSync({ workspaceRoot, settings })
+      if (!settings.syncEnabled) throw new Error('MCP sync is turned off in Settings; turn it on to add servers.')
+      // The sync is scoped to the CLI that will launch; the default client
+      // list (codex + claude-code) would silently skip any other CLI.
+      const result = await window.api.mcpSync({ workspaceRoot, settings, ...(pluginId ? { clients: [pluginId] } : {}) })
       if (!result.ok) throw new Error(result.message)
+      // A sync that wrote no file for this CLI, or wrote one without this
+      // server in it, did not make the pick real.
+      const written = result.targets.some((target) => target.serverIds.includes(row.id))
+      if (!written) throw new Error('Nothing was written to the workspace config for this CLI.')
       onMcpServersChange([...mcpServers, pick])
     } catch (error) {
+      if (previous) upsertMcpServer(previous)
+      else removeMcpServer(row.id)
       setError(row.key, error instanceof Error ? error.message : 'Unable to add the MCP server.')
     } finally {
       setBusyKey(null)
@@ -357,13 +390,16 @@ export function SkillsAndMcpsPicker({
       ariaLabel="Skills and MCPs"
       popupRole="dialog"
       placement={placement}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button ref={ref} type="button" onClick={togglePopover} className={triggerClassName} {...triggerProps}>
-          <StarGlyph filled={false} className="icon-xs" />
-          Skills &amp; MCPs
-          {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}
-        </button>
-      )}
+      renderTrigger={
+        renderTrigger
+        ?? (({ ref, triggerProps, togglePopover }) => (
+          <button ref={ref} type="button" onClick={togglePopover} className={triggerClassName} {...triggerProps}>
+            <StarGlyph filled={false} className="icon-xs" />
+            Skills &amp; MCPs
+            {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}
+          </button>
+        ))
+      }
     >
       <div className="flex max-h-[420px] w-[360px] flex-col overflow-hidden">
         <div className="flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5">
@@ -374,10 +410,8 @@ export function SkillsAndMcpsPicker({
           <input
             ref={inputRef}
             autoFocus
-            role="combobox"
-            aria-expanded="true"
+            type="search"
             aria-controls={listId}
-            aria-autocomplete="list"
             aria-activedescendant={highlighted ? rowDomId(highlighted) : undefined}
             value={query}
             onChange={(event) => {
@@ -390,8 +424,8 @@ export function SkillsAndMcpsPicker({
             className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
-        <div id={listId} role="listbox" aria-multiselectable="true" aria-label="Skills and MCP servers" className="min-h-0 flex-1 overflow-y-auto py-1">
-          {skillInventory.loading && mcpCatalog.loading && rows.length === 0 ? (
+        <div ref={listRef} id={listId} role="listbox" aria-multiselectable="true" aria-label="Skills and MCP servers" className="min-h-0 flex-1 overflow-y-auto py-1">
+          {(skillInventory.loading || mcpCatalog.loading) && rows.length === 0 ? (
             <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
               <Spinner />
               Loading…

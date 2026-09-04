@@ -30,6 +30,10 @@ export const BROWSER_MUTATION_TOOL_NAMES: readonly string[] = [
 const OPEN_WAIT_MS = 8_000
 const LOAD_WAIT_MS = 15_000
 const POLL_MS = 100
+// A result is one line on the gateway socket (MAX_LINE_BYTES 1MiB) and is
+// serialised twice (text block + structuredContent); the entry lists are
+// trimmed from the oldest until the JSON fits well inside that.
+const MAX_ENTRIES_JSON_BYTES = 200_000
 
 export type BrowserToolsManager = {
   listTabs(workspaceId: string): BrowserTabState[]
@@ -78,6 +82,15 @@ function failure(code: string, message: string): McpToolResult {
 
 function controlFailure(error: BrowserControlError): McpToolResult {
   return failure(error.code, error.message)
+}
+
+/** The newest entries whose JSON fits the budget; `dropped` says how many older ones did not. */
+export function boundedEntries<T>(entries: T[], maxBytes = MAX_ENTRIES_JSON_BYTES): { entries: T[]; dropped: number } {
+  let kept = entries
+  while (kept.length > 0 && Buffer.byteLength(JSON.stringify(kept), 'utf8') > maxBytes) {
+    kept = kept.slice(Math.max(1, Math.floor(kept.length / 4)))
+  }
+  return { entries: kept, dropped: entries.length - kept.length }
 }
 
 function str(args: Record<string, unknown>, key: string): string | null {
@@ -151,7 +164,7 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     }
     const active = manager.activeTab(workspaceId)
     if (!active) {
-      return failure('no_tab', 'No browser tab is open in this workspace. browser.open starts one.')
+      return failure('no_tab', 'No browser tab is open in this workspace. browser.open starts one (the workspace must be showing in a window).')
     }
     return { tabId: active.tabId, workspaceId }
   }
@@ -166,15 +179,17 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
   }
 
   /** Waits for a navigation the manager just started to settle (loading → false). */
-  async function settle(tabId: string): Promise<McpToolResult> {
+  async function settle(tabId: string, workspaceId: string): Promise<McpToolResult> {
     // The guest flips `loading` on within a tick; give it a moment so a fast
     // page that has already finished is not mistaken for one that never started.
     await sleep(POLL_MS)
-    await waitUntil(LOAD_WAIT_MS, () => manager.state(tabId)?.loading === false)
+    const loaded = await waitUntil(LOAD_WAIT_MS, () => manager.state(tabId)?.loading === false)
     const state = manager.state(tabId)
     if (!state) return failure('no_tab', 'The browser tab closed while loading.')
     if (state.error) return failure('load_failed', `${state.error.description} (${state.error.url})`)
-    return success({ tab: describeTab(state, true) })
+    if (!loaded) return failure('timeout', `The page was still loading after ${LOAD_WAIT_MS}ms.`)
+    // `active` is what the person is looking at, not what the tool touched.
+    return success({ tab: describeTab(state, manager.activeTab(workspaceId)?.tabId === tabId) })
   }
 
   const tools: McpToolRegistration[] = [
@@ -221,7 +236,7 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
           // The person should see what the agent opened: a collapsed pane is
           // revealed and the tab selected, in whichever window shows the workspace.
           manager.requestOpen(workspaceId, null, active.tabId)
-          return settle(active.tabId)
+          return settle(active.tabId, workspaceId)
         }
         const before = new Set(manager.listTabs(workspaceId).map((tab) => tab.tabId))
         manager.requestOpen(workspaceId, url)
@@ -229,11 +244,11 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         // the manager on dom-ready. Until then there is nothing to wait on.
         const appeared = await waitUntil(OPEN_WAIT_MS, () => manager.listTabs(workspaceId).some((tab) => !before.has(tab.tabId)))
         if (!appeared) {
-          return failure('pane_unavailable', 'No window showing this workspace opened a browser tab. Is the workspace open in the app?')
+          return failure('pane_unavailable', 'No window is showing this workspace, so no browser tab could open. Switch to it in the app first.')
         }
         const tab = manager.listTabs(workspaceId).find((candidate) => !before.has(candidate.tabId))!
         manager.noteAgentActivity(tab.tabId)
-        return settle(tab.tabId)
+        return settle(tab.tabId, workspaceId)
       },
     },
     {
@@ -266,7 +281,7 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         else return failure('invalid', 'Give `url` or one of the actions.')
         if (!ok) return failure('unavailable', action === 'back' || action === 'forward' ? `Nothing to go ${action} to.` : 'The tab could not navigate.')
         manager.noteAgentActivity(resolved.tabId)
-        return settle(resolved.tabId)
+        return settle(resolved.tabId, resolved.workspaceId)
       },
     },
     {
@@ -475,7 +490,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if ('content' in resolved) return resolved
         const level = str(args, 'level') as 'log' | 'info' | 'warn' | 'error' | 'debug' | null
         const result = await control.console(resolved.tabId, { clear: bool(args, 'clear'), level: level ?? undefined })
-        return result.ok ? success({ entries: result.entries }) : controlFailure(result)
+        if (!result.ok) return controlFailure(result)
+        const bounded = boundedEntries(result.entries)
+        return success({ entries: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
       },
     },
     {
@@ -495,7 +512,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const resolved = resolveTab(args, context)
         if ('content' in resolved) return resolved
         const result = await control.network(resolved.tabId, { clear: bool(args, 'clear'), failedOnly: bool(args, 'failedOnly') })
-        return result.ok ? success({ entries: result.entries }) : controlFailure(result)
+        if (!result.ok) return controlFailure(result)
+        const bounded = boundedEntries(result.entries)
+        return success({ entries: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
       },
     },
     {

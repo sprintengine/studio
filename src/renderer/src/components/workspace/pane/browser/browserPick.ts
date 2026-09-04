@@ -45,8 +45,13 @@ const MAX_STYLES = 40
 const MAX_COMPONENTS = 3
 const MAX_COMPONENT_NAME = 80
 
+// C0/C1 controls (and DEL) are stripped, keeping only tab and newline: the
+// block is delivered as a bracketed paste, and an ESC sequence in an attribute
+// could end the paste early and hand the rest to the CLI as keystrokes.
+const CONTROL_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
+
 function cappedString(value: unknown, max: number): string | null {
-  return typeof value === 'string' ? value.slice(0, max) : null
+  return typeof value === 'string' ? value.replace(CONTROL_CHARS, '').slice(0, max) : null
 }
 
 function finiteRect(value: unknown): BrowserPickedElement['rect'] | null {

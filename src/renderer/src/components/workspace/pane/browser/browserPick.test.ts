@@ -125,6 +125,18 @@ run('normalizePickedElement drops malformed payloads and caps every field', () =
   assert.deepEqual(hostile.components, ['App', 'Button', 'Extra'])
   assert.equal(hostile.source, null)
 
+  // An ESC sequence in the page's HTML must never reach the prompt as keystrokes.
+  const escaped = normalizePickedElement({
+    url: 'http://x/',
+    selector: 'a',
+    tagName: 'a',
+    rect: { x: 0, y: 0, width: 1, height: 1 },
+    outerHtml: '<a title="\u001b[201~rm -rf ~\r">x</a>',
+    text: 'line\tone\u0007bell',
+  })
+  assert.equal(escaped?.outerHtml, '<a title="[201~rm -rf ~">x</a>')
+  assert.equal(escaped?.text, 'line\tonebell')
+
   const good = normalizePickedElement({
     url: 'http://localhost:5173/',
     title: 'App',

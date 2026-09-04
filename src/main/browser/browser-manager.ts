@@ -99,6 +99,9 @@ type BrowserTab = {
   // Bumped on every human action (a chord in the guest, a toolbar command):
   // an agent action in flight compares its epoch and yields (browser-control).
   epoch: number
+  // > 0 while the agent control layer is dispatching synthetic input: those
+  // keystrokes reach `before-input-event` too and must not count as a human.
+  agentInputDepth: number
   agentActiveTimer: NodeJS.Timeout | null
 }
 
@@ -432,7 +435,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       shift: boolean
     }) => {
       if (input.type !== 'keyDown') return
-      tab.epoch += 1
+      if (tab.agentInputDepth === 0) tab.epoch += 1
       const primary = process.platform === 'darwin' ? input.meta : input.control
       if (!primary) return
       const key = input.key.toLowerCase()
@@ -560,6 +563,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         },
         dispose: () => {},
         epoch: 0,
+        agentInputDepth: 0,
         agentActiveTimer: null,
       }
       tab.dispose = attach(tab)
@@ -636,6 +640,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
 
     epochOf(tabId: string): number {
       return requireTab(tabId)?.epoch ?? -1
+    },
+
+    /** Bracket the agent's synthetic input so it does not read as a human taking over. */
+    noteAgentInput(tabId: string, delta: 1 | -1): void {
+      const tab = requireTab(tabId)
+      if (tab) tab.agentInputDepth = Math.max(0, tab.agentInputDepth + delta)
     },
 
     /** Tabs a workspace owns, for the agent tools (browser-tools child). */
@@ -908,12 +918,14 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
 
     /** For tests and shutdown. */
     disposeAll(): void {
+      const ids = [...tabs.keys()]
       for (const tab of tabs.values()) {
         if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
         tab.dispose()
       }
       tabs.clear()
       activeTabByWorkspace.clear()
+      for (const tabId of ids) for (const listener of unregisterListeners) listener(tabId)
     },
   }
 }

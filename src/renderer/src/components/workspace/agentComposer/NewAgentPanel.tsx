@@ -187,6 +187,15 @@ export default function NewAgentPanel({
   // An explicit scope wins: skills, the worktree probe and the scope line all
   // have to describe the folder the agent will actually run in.
   const workspaceRoot = folderPath !== undefined ? folderPath : activeWorkspaceRoot
+  // Picks were installed and synced into ONE project; a change of project
+  // after picking would launch the agent somewhere they are not.
+  const pickedForRoot = React.useRef(workspaceRoot)
+  React.useEffect(() => {
+    if (pickedForRoot.current === workspaceRoot) return
+    pickedForRoot.current = workspaceRoot
+    composer.setSkills([])
+    composer.setMcpServers([])
+  }, [composer, workspaceRoot])
   // The PROJECT, not the workspace: a solo-chat workspace is called things like
   // "new chat panel", which says nothing about where the agent will run. The
   // folder it opens in is the fact worth showing, so a wrong-project spawn is

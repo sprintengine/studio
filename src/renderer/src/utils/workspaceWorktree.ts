@@ -1,4 +1,4 @@
-import { isAbsoluteFilePath, joinFilePath, pathJoin, pathSeparatorFor, samePath } from './paths'
+import { isAbsoluteFilePath, joinFilePath, pathSeparatorFor, samePath } from './paths'
 import {
   agentWorktreePaths,
   slugifyWorktreeName,
@@ -298,26 +298,6 @@ export function connectorWorktreeSlug(connectorId: string, uid: string): string 
 }
 
 /**
- * Resolve the git worktree location for a new connector chat off `repoRoot`,
- * placing it under the same container the Worktree manager uses so every
- * worktree for a repo lives in one folder.
- */
-export function connectorWorktreePaths(
-  repoRoot: string,
-  connectorId: string,
-  uid: string,
-): { containerPath: string; destinationPath: string; slug: string; branchName: string } {
-  const slug = connectorWorktreeSlug(connectorId, uid)
-  const containerPath = worktreeContainerPath(repoRoot)
-  return {
-    containerPath,
-    destinationPath: pathJoin(containerPath, slug),
-    slug,
-    branchName: connectorWorktreeBranch(connectorId, uid),
-  }
-}
-
-/**
  * Wrap a single connector MCP server as a spawn-scoped McpSettings: sync ON (the
  * spawn writes the worktree .mcp.json from it) and exactly that one server — this
  * carries no other MCP, so the spawn's per-worktree config never syncs anything
@@ -327,8 +307,3 @@ export function connectorWorktreePaths(
  * AgentLaunchService writes the identical isolated config headless.
  */
 export { connectorMcpSettings } from '../../../shared/connector-launch'
-
-/** The seeded first turn: the skill invocation (when available) then the instruction. */
-export function connectorStartupPrompt(invocation: string | undefined, instruction: string): string {
-  return invocation ? `${invocation}\n\n${instruction}` : instruction
-}

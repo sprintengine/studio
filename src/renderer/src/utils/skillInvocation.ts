@@ -78,11 +78,12 @@ export function skillSpawnAgentPatch(
   }
 }
 
-// The same for the Skills & MCPs picks (browser-pane epic, child 7). One skill
-// keeps the CLI-native form (`/backlog`); two or more cannot share a line of
-// slash commands, so each becomes the plain mention every agent follows, in
-// pick order. The first builtin still rides spawnSkillId for the launch
-// boundary's ensure-install.
+// The same for the Skills & MCPs picks (browser-pane epic, child 7), in pick
+// order. A CLI whose native form is a slash command (`/backlog`) cannot take
+// two on one line, so with several skills each becomes the plain mention; a
+// CLI whose native form is a sentence (`Use $backlog.`) keeps it for each.
+// The picker installed every pick already; the first builtin still rides
+// spawnSkillId for the launch boundary's own ensure-install.
 export function skillsSpawnAgentPatch(
   skills: readonly WorkspaceSkill[],
   integration: SkillIntegrationLike | undefined,
@@ -90,9 +91,15 @@ export function skillsSpawnAgentPatch(
   if (skills.length === 0) return {}
   if (skills.length === 1) return skillSpawnAgentPatch(skills[0], integration)
   const firstBuiltin = skills.find((skill) => skill.source === 'builtin')
+  const slashForm = integration?.invocation?.nativeSlashCommand === true
+  const invocations = skills.map((skill) =>
+    slashForm
+      ? plainSkillInvocation(skill.id)
+      : renderSkillInvocation({ skill, integration, nativeInstalled: skillInstalledForHarness(skill, integration) }),
+  )
   return {
     ...(firstBuiltin ? { spawnSkillId: firstBuiltin.id } : {}),
-    cliPendingInput: `${skills.map((skill) => plainSkillInvocation(skill.id)).join(' ')} `,
+    cliPendingInput: `${invocations.join(' ')} `,
   }
 }
 

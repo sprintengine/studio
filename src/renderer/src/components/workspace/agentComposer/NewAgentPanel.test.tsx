@@ -95,11 +95,14 @@ const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
   }),
   mcpSync: async (input: Record<string, unknown>) => {
     syncCalls.push(input)
-    return { ok: true, targets: [], issues: [] }
+    if (syncFailure) return { ok: false, message: syncFailure }
+    const settings = input.settings as { servers: Record<string, unknown> }
+    return { ok: true, targets: [{ client: 'claude-code', path: '/proj/.mcp.json', serverIds: Object.keys(settings.servers) }], issues: [] }
   },
 }
 const attachCalls: Array<Record<string, unknown>> = []
 const syncCalls: Array<Record<string, unknown>> = []
+let syncFailure: string | null = null
 
 async function main(): Promise<void> {
   const React = (await import('react')).default
@@ -619,8 +622,10 @@ async function main(): Promise<void> {
     }
     const listbox = surface()!.querySelector('[role="listbox"]')
     assert.equal(listbox?.getAttribute('aria-multiselectable'), 'true', 'the list is a multi-select listbox')
-    const input = surface()!.querySelector('[role="combobox"]') as HTMLInputElement | null
-    assert.ok(input, 'the search field is the combobox')
+    const input = surface()!.querySelector('input[aria-controls]') as HTMLInputElement | null
+    assert.ok(input, 'the search field names the list it drives')
+    assert.equal(input!.getAttribute('aria-controls'), listbox?.id, 'through aria-controls')
+    assert.equal(input!.getAttribute('role'), null, 'and is not a combobox: rows toggle, they do not commit')
 
     // Pointer: an installed skill toggles straight to a chip.
     const backlogRow = surface()!.querySelector('[data-picker-row="skill:backlog"]') as HTMLElement | null
@@ -658,6 +663,7 @@ async function main(): Promise<void> {
     assert.ok(synced.settings.servers.linear?.enabled, 'with the server enabled')
     assert.ok(synced.settings.servers.linear?.clients.includes('claude-code'), 'reaching the launch CLI')
     assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), 'and it became a chip')
+    assert.deepEqual(synced.clients, ['claude-code'], 'the sync is scoped to the launch CLI')
 
     // The picks ride the confirm in pick order.
     const start = view.find((el) => el.tagName === 'BUTTON' && el.getAttribute('aria-label') === 'Start agent')
@@ -667,6 +673,43 @@ async function main(): Promise<void> {
     const launch = view.launches[0] as { skills?: Array<{ id: string }>; mcpServers?: Array<{ id: string }> } | undefined
     assert.deepEqual(launch?.skills?.map((skill) => skill.id), ['backlog', 'design-system'])
     assert.deepEqual(launch?.mcpServers?.map((server) => server.id), ['linear'])
+    view.unmount()
+  })
+
+  // 5c. A sync that fails leaves nothing behind: the app's MCP settings are
+  //     put back and the row says why.
+  await check('a failed MCP sync rolls the settings back and stays on the row', async () => {
+    seedStore()
+    // The previous check added Linear to the app's settings; this one needs
+    // it back in the catalog-only state.
+    useWorkspaceStore.getState().removeMcpServer('linear')
+    syncCalls.length = 0
+    syncFailure = 'EACCES: .mcp.json is read-only'
+    const view = await render()
+    const trigger = view.find((el) => el.tagName === 'BUTTON' && /Skills & MCPs/.test(el.textContent ?? ''))
+    await act(async () => {
+      trigger!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+      })
+    }
+    const surface = dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement
+    const linearRow = surface.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement
+    await act(async () => {
+      linearRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+      })
+    }
+    assert.equal(syncCalls.length, 1)
+    assert.ok((surface.textContent ?? '').includes('EACCES'), 'the row carries the error')
+    assert.equal(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), undefined, 'no chip')
+    assert.equal(useWorkspaceStore.getState().appSettings.mcp?.servers?.linear, undefined, 'the settings were put back')
+    syncFailure = null
     view.unmount()
   })
 

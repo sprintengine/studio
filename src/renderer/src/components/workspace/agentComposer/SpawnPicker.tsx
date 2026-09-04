@@ -14,7 +14,7 @@ import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, ConversationProviderIcon, TerminalSessionIcon } from './agentSpawnShared'
-import { ConnectorPickerPopover } from './ConnectorPickerPopover'
+import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { CliInstallRosterRow } from '../cliInstallRoute'
 import type { ConversationProviderRow } from '../conversationSpawnOptions'
 import { useAgentComposer, type AgentComposerConfirm, type AgentComposerSelection } from './useAgentComposer'
@@ -284,6 +284,7 @@ export default function SpawnPicker({
             {(close) => (
               <MoreMenuItems
                 composer={composer}
+                workspaceRoot={activeWorkspaceRoot}
                 worktreeAvailable={workspaceIsGitRepo}
                 debugMode={debugMode}
                 onChangeDebugMode={onChangeDebugMode}
@@ -344,18 +345,19 @@ function permissionLabel(preset: SprintEngineCliPermissionPreset): string {
 // the level the next spawn on that role actually launches with.
 function MoreMenuItems({
   composer,
+  workspaceRoot,
   worktreeAvailable,
   debugMode,
   onChangeDebugMode,
   close,
 }: {
   composer: ReturnType<typeof useAgentComposer>
+  workspaceRoot: string | null
   worktreeAvailable: boolean
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   close: () => void
 }): JSX.Element {
-  const [connectorPickerOpen, setConnectorPickerOpen] = React.useState(false)
   const cli = composer.cliForSelection(composer.selection)
   const levels = composer.agentCliOptions.find((option) => option.value === cli)?.reasoningSelection?.levels ?? []
   const reasoning = composer.reasoningForSelection(composer.selection, cli)
@@ -400,32 +402,33 @@ function MoreMenuItems({
           Start in worktree
         </MenuItem>
       ) : null}
-      <ConnectorPickerPopover
-        open={connectorPickerOpen}
-        onOpenChange={setConnectorPickerOpen}
-        onPick={(server) => {
-          if (!composer.mcpServers.some((entry) => entry.id === server.id)) {
-            composer.setMcpServers([...composer.mcpServers, { id: server.id, name: server.name, ...(server.icon ? { icon: server.icon } : {}) }])
-          }
-          close()
-        }}
+      {/* The same picker New chat has — install and add happen on pick, so a
+          spawn from here starts with its skills and servers in place too. */}
+      <SkillsAndMcpsPicker
+        workspaceRoot={workspaceRoot}
+        pluginId={composer.selection.kind === 'conversation' ? null : cli}
+        skills={composer.skills}
+        onSkillsChange={composer.setSkills}
+        mcpServers={composer.mcpServers}
+        onMcpServersChange={composer.setMcpServers}
         placement="top-start"
-        renderTrigger={({ ref, triggerProps, togglePopover }) => (
-          <button
-            ref={ref}
-            type="button"
-            data-menu-item="true"
-            tabIndex={-1}
-            onClick={togglePopover}
-            className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
-            {...triggerProps}
-          >
-            <span className="min-w-0 flex-1 truncate">
-              {composer.mcpServers.length > 0 ? composer.mcpServers.map((server) => server.name).join(', ') : 'Add MCP server…'}
-            </span>
-            {composer.mcpServers.length > 0 ? <MenuTick shown /> : null}
-          </button>
-        )}
+        renderTrigger={({ ref, triggerProps, togglePopover }) => {
+          const picked = [...composer.skills.map((skill) => skill.name), ...composer.mcpServers.map((server) => server.name)]
+          return (
+            <button
+              ref={ref}
+              type="button"
+              data-menu-item="true"
+              tabIndex={-1}
+              onClick={togglePopover}
+              className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+              {...triggerProps}
+            >
+              <span className="min-w-0 flex-1 truncate">{picked.length > 0 ? picked.join(', ') : 'Skills & MCPs…'}</span>
+              {picked.length > 0 ? <MenuTick shown /> : null}
+            </button>
+          )
+        }}
       />
       <MenuItem
         checked={debugMode}

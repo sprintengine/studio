@@ -233,7 +233,20 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
 
 function respond(socket: Socket, payload: Record<string, unknown>): void {
   if (socket.destroyed) return
-  socket.write(`${JSON.stringify(payload)}\n`)
+  let line = JSON.stringify(payload)
+  // The cap is the wire's, in both directions: a result too large for one
+  // line becomes an explicit tool error rather than a frame a bridge or a
+  // tailnet peer refuses and drops the connection over.
+  if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES && 'id' in payload) {
+    const message = `The result was too large to send (${Buffer.byteLength(line, 'utf8')} bytes; the limit is ${MAX_LINE_BYTES}). Ask for less.`
+    const structured = { error: { code: 'result_too_large', message } }
+    line = JSON.stringify({
+      jsonrpc: '2.0',
+      id: payload.id,
+      result: { content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured, isError: true },
+    })
+  }
+  socket.write(`${line}\n`)
 }
 
 function idOf(value: unknown): JsonRpcId {
