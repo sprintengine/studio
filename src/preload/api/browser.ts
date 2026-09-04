@@ -50,7 +50,7 @@ export const browserApi = {
     ipcRenderer.invoke('browser:local-servers', { workspaceId }),
   browserNoteActive: (workspaceId: string, tabId: string | null): Promise<void> =>
     ipcRenderer.invoke('browser:note-active', { workspaceId, tabId }),
-  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null }) => void): (() => void) =>
+  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void): (() => void) =>
     subscribe('browser:open-request', cb),
   onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void): (() => void) =>
     subscribe('browser:viewport-request', cb),

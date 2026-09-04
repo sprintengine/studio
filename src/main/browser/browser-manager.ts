@@ -605,9 +605,14 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       return [...tabs.values()].find((candidate) => candidate.workspaceId === workspaceId && !candidate.wc.isDestroyed()) ?? null
     },
 
-    /** Ask the windows hosting a workspace to open (or navigate) a browser tab. */
-    requestOpen(workspaceId: string, url: string | null): void {
-      deps.broadcast('browser:open-request', { workspaceId, url })
+    /**
+     * Ask the windows hosting a workspace to show the agent's work: with a
+     * `tabId`, reveal the pane and select that tab; with a `url`, open a new
+     * tab on it; with neither, make sure a browser tab exists and the pane is
+     * open.
+     */
+    requestOpen(workspaceId: string, url: string | null, tabId: string | null = null): void {
+      deps.broadcast('browser:open-request', { workspaceId, url, tabId })
     },
 
     /** Ask the renderer to change a tab's device viewport (renderer-owned state). */

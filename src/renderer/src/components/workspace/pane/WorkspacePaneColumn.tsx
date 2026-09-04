@@ -50,12 +50,16 @@ export function WorkspacePaneColumn({
   const renderedKey = renderedWorkspaceIds.join('\n')
   useEffect(
     () =>
-      window.api.onBrowserOpenRequest(({ workspaceId, url }) => {
+      window.api.onBrowserOpenRequest(({ workspaceId, url, tabId }) => {
         if (!renderedKey.split('\n').includes(workspaceId)) return
         const store = useWorkspaceStore.getState()
-        if (url) {
+        const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
+        if (tabId) {
+          // The agent navigated an existing tab: bring it to the front.
+          if (pane?.tabs.some((tab) => tab.id === tabId)) store.setActivePaneTab(workspaceId, tabId)
+        } else if (url) {
           if (!openUrlInPane(workspaceId, url, { forceNewTab: true })) return
-        } else if (!store.workspaces.find((w) => w.id === workspaceId)?.paneState?.tabs.some((tab) => tab.kind === 'browser')) {
+        } else if (!pane?.tabs.some((tab) => tab.kind === 'browser')) {
           store.openPaneTab(workspaceId, { kind: 'browser' })
         }
         store.setPaneOpen(workspaceId, true)

@@ -3006,7 +3006,7 @@ export type ElectronApi = {
   /** Tell main which tab the person is looking at in a workspace's pane (agent tools target it). */
   browserNoteActive: (workspaceId: string, tabId: string | null) => Promise<void>
   /** An agent asked for a URL in this workspace's pane (browser.open); the renderer opens or navigates a tab. */
-  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null }) => void) => () => void
+  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void) => () => void
   /** An agent asked for a device viewport on a tab (browser.resize); the renderer owns viewport state. */
   onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void) => () => void
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void

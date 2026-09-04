@@ -41,7 +41,7 @@ type Harness = {
   active: Map<string, string>
   calls: string[]
   viewports: Array<{ tabId: string; viewport: BrowserViewport }>
-  openRequests: Array<{ workspaceId: string; url: string | null }>
+  openRequests: Array<{ workspaceId: string; url: string | null; tabId?: string | null }>
   manager: BrowserToolsManager
 }
 
@@ -60,8 +60,8 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
       const first = [...tabs.entries()].find(([, tab]) => tab.workspaceId === workspaceId)
       return first ? { tabId: first[0] } : null
     },
-    requestOpen: (workspaceId, url) => {
-      openRequests.push({ workspaceId, url })
+    requestOpen: (workspaceId, url, tabId = null) => {
+      openRequests.push({ workspaceId, url, tabId })
     },
     requestViewport: (tabId, viewport) => {
       viewports.push({ tabId, viewport })
@@ -176,7 +176,8 @@ async function main(): Promise<void> {
     assert.equal(result.isError, undefined)
     assert.deepEqual(h.calls, ['navigate:t1:http://localhost:5173/', 'badge:t1'])
     assert.equal((structured(result).tab as { url: string }).url, 'http://localhost:5173/')
-    assert.deepEqual(h.openRequests, [])
+    // No new tab, but the pane is asked to show the one that navigated.
+    assert.deepEqual(h.openRequests, [{ workspaceId: 'ws-1', url: null, tabId: 't1' }])
   })
 
   await run('browser.open with no tab asks the renderer and waits for the tab to register', async () => {
@@ -190,7 +191,7 @@ async function main(): Promise<void> {
     }
     const result = await open.handler({ url: 'http://localhost:5173/' }, bound)
     assert.equal(result.isError, undefined)
-    assert.deepEqual(h.openRequests, [{ workspaceId: 'ws-1', url: 'http://localhost:5173/' }])
+    assert.deepEqual(h.openRequests, [{ workspaceId: 'ws-1', url: 'http://localhost:5173/', tabId: null }])
     assert.equal((structured(result).tab as { tabId: string }).tabId, 't-new')
   })
 

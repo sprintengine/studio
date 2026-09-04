@@ -35,7 +35,7 @@ export type BrowserToolsManager = {
   listTabs(workspaceId: string): BrowserTabState[]
   state(tabId: string): BrowserTabState | null
   activeTab(workspaceId: string): { tabId: string } | null
-  requestOpen(workspaceId: string, url: string | null): void
+  requestOpen(workspaceId: string, url: string | null, tabId?: string | null): void
   requestViewport(tabId: string, viewport: BrowserViewport): void
   navigate(tabId: string, url: string): boolean
   back(tabId: string): boolean
@@ -218,6 +218,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if (active && !bool(args, 'newTab')) {
           if (!manager.navigate(active.tabId, url)) return failure('no_tab', 'The active browser tab could not navigate.')
           manager.noteAgentActivity(active.tabId)
+          // The person should see what the agent opened: a collapsed pane is
+          // revealed and the tab selected, in whichever window shows the workspace.
+          manager.requestOpen(workspaceId, null, active.tabId)
           return settle(active.tabId)
         }
         const before = new Set(manager.listTabs(workspaceId).map((tab) => tab.tabId))
