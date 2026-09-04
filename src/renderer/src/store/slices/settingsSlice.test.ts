@@ -738,6 +738,36 @@ assert.deepEqual(
   {},
   'an explicit null clears the whole selection, level included',
 )
+// Retiring a custom model id must retire it as a remembered launch default too:
+// a surface still naming it would pass `--model <deleted id>` and the agent dies
+// on a model nothing offers.
+store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'fable-5.1' })
+store.setSpecialistModelDefault('__general__' as never, { cli: 'claude-code', model: 'fable-5.1' })
+store.setSpecialistModelDefault('frontend-design-review', { cli: 'codex', model: 'fable-5.1' })
+store.forgetCliModels('claude-code', ['fable-5.1'])
+assert.deepEqual(
+  specialistModelDefaults(),
+  { 'frontend-design-review': { cli: 'codex', model: 'fable-5.1' } },
+  'every default naming the retired id for that CLI falls back to the CLI default; another CLI is untouched',
+)
+store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'fable-5.1' })
+store.setSpecialistReasoningDefault('architect', 'claude-code', 'high')
+store.forgetCliModels('claude-code', ['  fable-5.1  '])
+assert.deepEqual(
+  specialistModelDefaults()['architect'],
+  { cli: 'claude-code', model: '', reasoning: 'high' },
+  'the level survives — it was chosen for the CLI, not for the model that went away',
+)
+store.forgetCliModels('claude-code', ['', '   '])
+assert.deepEqual(
+  specialistModelDefaults()['architect'],
+  { cli: 'claude-code', model: '', reasoning: 'high' },
+  'a blank id forgets nothing',
+)
+store.setSpecialistModelDefault('architect', null)
+store.setSpecialistModelDefault('frontend-design-review', null)
+store.setSpecialistModelDefault('__general__' as never, null)
+
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],

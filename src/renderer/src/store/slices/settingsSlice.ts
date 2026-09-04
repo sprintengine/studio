@@ -1244,6 +1244,22 @@ export interface SettingsSliceActions {
    */
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   /**
+   * Drop `modelIds` from every remembered launch default for `cli`, so a
+   * surface whose default named one of them falls back to the CLI's own default
+   * model (no `--model` flag) rather than launching an id nothing offers.
+   *
+   * Called when the user RETIRES an id from `cliRuntimes[cli].models` and no
+   * other catalog layer still supplies it. Deliberately not driven by the
+   * catalog going quiet: discovery under-reports (see mergeModelCatalog), and a
+   * persisted model the discovered layer merely stopped listing keeps launching
+   * — that is the "Not listed" row in CliModelPicker. An explicit removal is a
+   * different fact from an under-reporting probe, and only it forgets.
+   *
+   * A reasoning-effort level survives, per the per-CLI effort ruling: the level
+   * was chosen for the CLI, not for the model that just went away.
+   */
+  forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
+  /**
    * Write (or clear with `null`) a surface's reasoning-effort level for `cli`,
    * keeping the model already chosen for that CLI. A level set while a
    * different CLI is stored replaces the selection, since levels do not
@@ -1609,6 +1625,22 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           cli: selection.cli,
           model,
           ...(reasoning ? { reasoning } : {}),
+        }
+      }),
+
+    forgetCliModels: (cli, modelIds) =>
+      set((state) => {
+        const retired = new Set(modelIds.map((id) => id.trim()).filter(Boolean))
+        if (retired.size === 0) return
+        const defaults = state.appSettings.specialistModelDefaults
+        if (!defaults) return
+        for (const [specialistId, stored] of Object.entries(defaults)) {
+          if (!stored || stored.cli !== cli || !retired.has(stored.model.trim())) continue
+          // Same shape the model setter writes for "the CLI's own default
+          // model": an entry with no model and no level is nothing at all.
+          const reasoning = stored.reasoning?.trim()
+          if (reasoning) defaults[specialistId as SpecialistActionId] = { cli, model: '', reasoning }
+          else delete defaults[specialistId as SpecialistActionId]
         }
       }),
 

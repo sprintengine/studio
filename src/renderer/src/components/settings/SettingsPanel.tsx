@@ -1083,6 +1083,9 @@ export default function SettingsPanel({
   const doorBack = useSurfaceBackNav(onClose)
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  // The discovered layer, read here only to answer "does anything still offer
+  // this id?" when the user retires one of their own.
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
@@ -1139,6 +1142,7 @@ export default function SettingsPanel({
   )
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
@@ -2356,7 +2360,25 @@ export default function SettingsPanel({
                         <PluginModelSettings
                           displayName={plugin.displayName}
                           userModels={userModels}
-                          onUserModelsChange={(models) => setCliRuntime(plugin.id, { models })}
+                          onUserModelsChange={(models) => {
+                            setCliRuntime(plugin.id, { models })
+                            // Retiring an id must also retire it as a remembered
+                            // launch default, or every spawn surface that named
+                            // it keeps passing `--model <deleted id>` and the
+                            // agent dies on a model nothing offers. Only ids no
+                            // layer still supplies are forgotten: an id the
+                            // manifest seeds or the CLI reported is still a real
+                            // model, and the user only removed their own copy.
+                            const remaining = new Set(models)
+                            const stillOffered = new Set([
+                              ...declaredModels.map((option) => option.id),
+                              ...(cliModelCatalog?.[plugin.id]?.models ?? []).map((model) => model.id),
+                            ])
+                            const retired = userModels.filter(
+                              (id) => !remaining.has(id) && !stillOffered.has(id),
+                            )
+                            if (retired.length > 0) forgetCliModels(plugin.id, retired)
+                          }}
                         />
                       ) : null}
 

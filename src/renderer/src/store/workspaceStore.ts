@@ -244,6 +244,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Work
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  /** Drop retired model ids from every remembered launch default for `cli`. */
+  forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
   setSpecialistReasoningDefault: (
     specialistId: SpecialistActionId,
     cli: AgentCli,
