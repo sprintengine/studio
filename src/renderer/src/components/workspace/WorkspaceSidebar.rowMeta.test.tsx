@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { fleetMachineNamesOf, WorkspaceRowMeta } from './WorkspaceSidebar'
+import { AttentionPulse, fleetMachineNamesOf, WorkingElapsed, WorkspaceRowMeta } from './WorkspaceSidebar'
 import type { Workspace } from '../../types/workspace'
 
 // The two-line session row's second line (remote-sessions-ux /
-// two-line-session-rows): agent heads · provenance · branch · diff. Pure
+// two-line-session-rows): agent heads · provenance · branch · diff, with the
+// status seat on the trailing edge since the owner ruling of 2026-09-04. Pure
 // props in, markup out — the sidebar's own suites cover the tree semantics.
 
 let failures = 0
@@ -29,7 +30,6 @@ function meta(overrides: Partial<Parameters<typeof WorkspaceRowMeta>[0]> = {}) {
       branch={null}
       additions={0}
       deletions={0}
-      idleText=""
       {...overrides}
     />
   )
@@ -59,7 +59,7 @@ run('remote provenance shows the machine; a local row shows no mark at all', () 
   assert.doesNotMatch(local, /Remote:/, 'local is the unmarked default (epic decision 7)')
 })
 
-run('branch is mono; the diff stat holds the trailing edge in tone ink, spoken in words', () => {
+run('branch is mono; the diff stat sits against it in tone ink, spoken in words', () => {
   const markup = meta({ branch: 'feat/relay-snapshots', additions: 86, deletions: 12 })
   assert.match(markup, /feat\/relay-snapshots/)
   assert.match(markup, /font-mono/, 'branch reads in the mono voice')
@@ -68,16 +68,46 @@ run('branch is mono; the diff stat holds the trailing edge in tone ink, spoken i
   assert.match(markup, /86 added, 12 removed/)
   assert.match(markup, /--tone-good/, 'additions in the good tone')
   assert.match(markup, /--tone-error/, 'deletions in the danger tone')
-  assert.match(markup, /ml-auto/, 'the stat is pushed to the trailing edge')
+  // Owner ruling 2026-09-04: the trailing edge belongs to the status seat, so
+  // the diff no longer claims it — it sits with the branch it describes.
+  assert.doesNotMatch(markup, /ml-auto/, 'the stat no longer pushes to the edge')
   // Truncation order: the branch is the flexible segment (min-w-0 shrink);
   // the provenance span is capped, not flexible.
   assert.match(markup, /min-w-0 shrink items-center gap-1 font-mono/)
 })
 
-run('with a clean tree the trailing edge falls back to idle recency', () => {
-  const markup = meta({ branch: 'main', idleText: '2h' })
+run('the trailing seat rides line 2, and coexists with the diff rather than replacing it', () => {
+  const markup = meta({
+    branch: 'main',
+    additions: 4,
+    deletions: 1,
+    trailing: <span className="ml-auto">2h</span>,
+  })
+  assert.match(markup, /2h/, 'the seat renders where the row put it')
+  assert.match(markup, /\+4/, 'and the diff still reads beside the branch')
+})
+
+run('with a clean tree the seat is all the trailing edge carries', () => {
+  const markup = meta({ branch: 'main', trailing: <span className="ml-auto">2h</span> })
   assert.match(markup, /2h/)
   assert.doesNotMatch(markup, /--tone-good/, 'no phantom +0')
+})
+
+run('the working counter counts seconds first, then relaxes to the coarse scale', () => {
+  const now = Date.now()
+  const seconds = renderToStaticMarkup(<WorkingElapsed since={now - 4_000} />)
+  assert.match(seconds, /4s/, 'a four-second turn reads in seconds, not as a blank')
+  assert.match(seconds, /aria-label="Working for 4s"/, 'the duration says what it measures')
+  assert.match(seconds, /--accent-primary/, 'accent ink binds it to the dots beside it')
+  const minutes = renderToStaticMarkup(<WorkingElapsed since={now - 5 * 60_000} />)
+  assert.match(minutes, /5m/, 'past a minute it joins the sidebar\'s usual scale')
+})
+
+run('the attention flash is one-shot: nothing on first paint, and never on the way out', () => {
+  // The first render never pulses — a row that is ALREADY waiting when the
+  // sidebar paints must not flash; motion means "just changed".
+  assert.equal(renderToStaticMarkup(<AttentionPulse active resetKey="w1" />), '')
+  assert.equal(renderToStaticMarkup(<AttentionPulse active={false} resetKey="w1" />), '')
 })
 
 run('fleetMachineNamesOf finds fleet-terminal tabs anywhere in the layout, deduplicated', () => {

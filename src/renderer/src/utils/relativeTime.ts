@@ -38,3 +38,14 @@ export function relativeFromNow(at: number, now: number): string {
   if (abs < 86400) return RELATIVE.format(Math.round(deltaSec / 3600), 'hour')
   return RELATIVE.format(Math.round(deltaSec / 86400), 'day')
 }
+
+// Elapsed-since, for a duration that is genuinely in flight. Unlike
+// formatRelativeMs — which blanks under a minute, because "now" conflates
+// active work with something that merely became idle — a running turn's first
+// seconds are the most interesting part of it, so this one counts them.
+export function formatElapsedMs(since: number | null | undefined, now: number): string {
+  if (typeof since !== 'number' || !Number.isFinite(since)) return ''
+  const diff = Math.max(0, now - since)
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s`
+  return formatRelativeMs(since, now)
+}

@@ -6,6 +6,7 @@ import {
   deriveWorkspaceIdleSince,
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
+  deriveWorkspaceWorkingSince,
   describeExecutionTerminal,
   findLiveSession,
   getTerminalSessionsSignature,
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
   assertWorkspaceDisplayActivityPriority()
   assertAwaitingInputHookSurfacesAsNeedsInput()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
+  assertWorkingSinceOnlyCountsAHookReportedTurn()
   assertTerminalTabRecencyUsesIdleTransition()
   assertAgentTabRecencyFallbackChain()
   await assertSharedStoreUsesOneUnderlyingSubscription()
@@ -105,6 +107,65 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
   ]
   assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(executionChanged))
+}
+
+// The sidebar row's "working for 4m" clock. Owner report 2026-09-04: resuming a
+// suspended terminal started it with nothing asked of the agent, because every
+// session is born `working` in the lifecycle phase `starting`.
+function assertWorkingSinceOnlyCountsAHookReportedTurn(): void {
+  // A session freshly resumed: born working, phase 'starting', stamped by the
+  // lifecycle rather than reported by a hook. No turn, so no clock.
+  const resumed = session({
+    sessionId: 'resumed',
+    startedAt: 5_000,
+    activity: { kind: 'working', since: 5_000 },
+    agentState: { phase: 'starting', since: 5_000, source: 'lifecycle' },
+  })
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [resumed]), null)
+
+  // Awaiting the person is not working either, however live the row looks.
+  const awaiting = session({
+    sessionId: 'awaiting',
+    activity: { kind: 'working', since: 5_000 },
+    agentState: { phase: 'awaiting_input', since: 6_000, source: 'hook' },
+  })
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [awaiting]), null)
+
+  // A genuine turn on a settled agent reads from the pinned activity `since`,
+  // which marks the turn rather than the current thinking/tool_use step.
+  const working = session({
+    sessionId: 'working',
+    activity: { kind: 'working', since: 9_000 },
+    agentState: { phase: 'tool_use', since: 11_000, source: 'hook' },
+  })
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [working]), 9_000)
+
+  // The first real turn after a resume: `activity.since` still carries the
+  // launch seed (the runtime declines to re-stamp an already-working session),
+  // so the prompt the person actually submitted overtakes it.
+  const promptedAfterResume = session({
+    sessionId: 'prompted',
+    startedAt: 5_000,
+    activity: { kind: 'working', since: 5_000 },
+    agentState: { phase: 'thinking', since: 30_000, source: 'hook' },
+    lastPrompt: { text: 'go', at: 29_000 },
+  })
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [promptedAfterResume]), 29_000)
+
+  // A prompt left over from an earlier turn never pulls the clock backwards.
+  const stalePrompt = session({
+    sessionId: 'stale-prompt',
+    activity: { kind: 'working', since: 40_000 },
+    agentState: { phase: 'thinking', since: 40_000, source: 'hook' },
+    lastPrompt: { text: 'earlier', at: 1_000 },
+  })
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [stalePrompt]), 40_000)
+
+  // Two turns in one workspace: the longest-running one holds the row.
+  assert.equal(deriveWorkspaceWorkingSince('workspace_1', [stalePrompt, working]), 9_000)
+
+  // Another workspace's turn is not this row's clock.
+  assert.equal(deriveWorkspaceWorkingSince('workspace_2', [working]), null)
 }
 
 function assertProcessAliveHelpersUseLivenessOnly(): void {
@@ -663,6 +724,7 @@ function session(
     lastVisibleAt: input.lastVisibleAt ?? null,
     activity: input.activity ?? { kind: 'idle', since: 0 },
     agentState: input.agentState,
+    lastPrompt: input.lastPrompt,
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,
     retainedOutputBytes: input.retainedOutputBytes ?? 0,

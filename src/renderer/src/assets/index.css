@@ -1913,6 +1913,32 @@ samp,
   }
 }
 
+/* One-shot "this row has just started needing you" flash, for the sidebar's
+   needs-input rows. Same grammar as .status-icon-pulse above — the "just
+   changed" half of what motion is allowed to mean — but a row is a surface
+   rather than an icon, so it flashes its own tint and edge instead of ink and
+   a drop shadow. It plays ONCE on arrival and then stops: the gold fill, rail
+   and title ink are what keep the row loud while it waits, because motion is
+   not emphasis and an ambient loop stops meaning anything
+   (design-system/components/liveness). Rendered as a keyed, pointer-inert
+   sibling so replaying it never remounts a row mid-drag. */
+@keyframes attention-row-pulse {
+  0% {
+    background-color: color-mix(in oklab, var(--tone-warn) 45%, transparent);
+    box-shadow: 0 0 0 1px var(--tone-warn);
+  }
+}
+
+.attention-row-pulse {
+  animation: attention-row-pulse var(--motion-pulse) var(--motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-row-pulse {
+    animation: none;
+  }
+}
+
 .interactive {
   transition-property: background-color, border-color, color, transform, box-shadow, opacity;
   transition-duration: var(--motion-fast);

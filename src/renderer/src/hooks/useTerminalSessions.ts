@@ -181,6 +181,59 @@ export function workspaceTerminalAwaitingInput(
   )
 }
 
+// A phase the CLI's own hooks have reported as a turn genuinely in flight.
+//
+// 'starting' is deliberately NOT one of them, even though it derives to
+// `working`: every agent session is BORN in it (`createInitialAgentState`), and
+// it is a lifecycle stamp rather than a hook's word — `source` says which. A
+// duration keyed off it starts counting the moment a suspended terminal is
+// resumed, before the person has asked for anything.
+function isHookReportedTurnInFlight(session: TerminalSessionSnapshot): boolean {
+  const state = session.agentState
+  if (!state || state.source !== 'hook') return false
+  return state.phase === 'thinking' || state.phase === 'tool_use'
+}
+
+/**
+ * When the turn currently in flight began — the clock behind the sidebar row's
+ * "working for 4m" — or null when nothing in the workspace is mid-turn.
+ *
+ * Deliberately narrower than `deriveWorkspaceTerminalActivity`'s `working`.
+ * That one answers "is this row live", and is right to include a starting
+ * agent or a noisy plain shell: a dot claims nothing about how long. A
+ * duration does, so it is only claimed where hooks have said a turn is
+ * running ([[agent-state-hooks-only]] — the pane and the lifecycle stamp are
+ * not evidence of a turn).
+ *
+ * The start is the later of two facts, which is right in every case:
+ * - `activity.since` marks the turn, not the step: the runtime pins it across
+ *   thinking↔tool_use churn rather than bumping it per frame.
+ * - but it is SEEDED at process start (`createInitialTerminalActivity`), and
+ *   that seed survives into the first real turn of a freshly resumed session,
+ *   because the same pinning declines to re-stamp an already-working session.
+ *   `lastPrompt.at` — the UserPromptSubmit hook, i.e. when the person actually
+ *   asked — overtakes the stale seed there.
+ * Taking the later of the two also means a turn with no prompt behind it (an
+ * automation, a resumed continuation) still reads from `activity.since`, and a
+ * prompt left over from a previous turn can never pull the clock backwards.
+ */
+export function deriveWorkspaceWorkingSince(
+  workspaceId: string,
+  sessions: TerminalSessionSnapshot[]
+): number | null {
+  let since: number | null = null
+  for (const session of sessions) {
+    if (session.workspaceId !== workspaceId) continue
+    if (session.activity.kind !== 'working') continue
+    if (!isHookReportedTurnInFlight(session)) continue
+    const promptAt = typeof session.lastPrompt?.at === 'number' ? session.lastPrompt.at : 0
+    const startedTurnAt = Math.max(session.activity.since, promptAt)
+    // The longest-running turn holds the row: one workspace, one clock.
+    if (since === null || startedTurnAt < since) since = startedTurnAt
+  }
+  return since
+}
+
 export function deriveWorkspaceDisplayActivity(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],

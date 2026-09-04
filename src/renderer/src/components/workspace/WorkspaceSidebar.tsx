@@ -55,7 +55,8 @@ import {
   type TabDragPayload,
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
-import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
+import { useChangePulse } from '../../hooks/useChangePulse'
+import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
@@ -65,7 +66,14 @@ import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisi
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
-type TerminalRecency = { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null }
+type TerminalRecency = {
+  hasRunning: boolean
+  idleSince: number | null
+  lastInputAt: number | null
+  // When the current turn started, for the row's working counter. Null whenever
+  // nothing in the workspace is working.
+  workingSince: number | null
+}
 
 type WorkspaceDetachPlacement = {
   screenX: number
@@ -444,11 +452,103 @@ export function fleetMachineNamesOf(workspace: Workspace): string[] {
   return [...names]
 }
 
+// Needs-input is the loudest thing a row can say, so it now takes the row's
+// whole surface rather than a 6px dot in its corner (owner ruling 2026-09-04):
+// a gold tint, a gold edge all the way round, and the title in warn ink. The
+// dot is gone with it — status-dot's own spec calls a dot beside a surface
+// already saying the same thing a reject-on-sight, and a dot is the weakest
+// possible carrier for the one state that actually wants you to look.
+//
+// The edge is a RING, not a left rail. A tone-coloured left bar is a ruled
+// rejection in this system (designSystemAxes' LEFT_TONE_BAR), and the 4px left
+// slot already belongs to a different vocabulary here — the user's highlight
+// colour, which is identity rather than severity. The base row's transparent
+// 4px border is left untouched so nothing shifts sideways.
+//
+// Selection still reads underneath: an attention row that is also the active
+// one carries the heavier edge, so the pane's one selected row stays findable
+// without inventing a second gold.
+function attentionRowClass(active: boolean): string {
+  return [
+    'bg-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn-soft)]',
+    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
+    'ring-[color:var(--tone-warn)]',
+    'text-[color:var(--tone-warn-on-tint)]',
+  ].join(' ')
+}
+
+/**
+ * The one-shot flash a row plays when it STARTS needing you.
+ *
+ * Motion here means "just changed" — the other of the two things this system
+ * lets motion mean — and then it stops. What holds the row loud while it waits
+ * is ink: the gold fill, rail and title. An ambient shimmer was considered and
+ * ruled out (owner, 2026-09-04): `components/liveness` is explicit that motion
+ * is not emphasis and that a mark which is always moving stops meaning
+ * anything, and three waiting rows would have been three loops running beside
+ * the terminals.
+ *
+ * It renders as a keyed, pointer-inert sibling rather than on the row itself,
+ * so replaying the animation never remounts a row mid-drag or steals its focus.
+ * `mode: 'increase'` fires on the way in only; `resetKey` keeps a row that
+ * merely swaps identity from flashing.
+ */
+export function AttentionPulse({ active, resetKey }: { active: boolean; resetKey: string }) {
+  const token = useChangePulse(active ? 1 : 0, { mode: 'increase', resetKey })
+  if (token === 0) return null
+  return (
+    <span
+      key={token}
+      aria-hidden="true"
+      className="attention-row-pulse pointer-events-none absolute inset-0 rounded-md"
+    />
+  )
+}
+
+/**
+ * How long the turn in flight has been running, beside the working dots (owner
+ * direction 2026-09-04): the dots say work
+ * is ongoing, this says for how long. The word is dropped — the dots already
+ * carry it and the aria-label spells it out — because a 276px rail has no room
+ * to repeat itself.
+ *
+ * It owns its own tick rather than riding the sidebar's shared `useRelativeNow`:
+ * that runs at 30s and so cannot count seconds, and dropping IT to 1s would
+ * re-render the whole tree once a second. Here one text node re-renders, and the
+ * tick relaxes to 30s once the turn is past a minute and the seconds stop
+ * mattering.
+ */
+export function WorkingElapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  const withinFirstMinute = now - since < 60_000
+  useEffect(() => {
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), withinFirstMinute ? 1_000 : 30_000)
+    return () => window.clearInterval(id)
+  }, [since, withinFirstMinute])
+  const text = formatElapsedMs(since, now)
+  if (!text) return null
+  return (
+    // Accent ink, matching the dots it sits beside, so the pair reads as one
+    // status token rather than a mark plus an unrelated number.
+    <span className="tabular-nums text-[color:var(--accent-primary)]" aria-label={`Working for ${text}`}>
+      {text}
+    </span>
+  )
+}
+
 /**
  * The row's second line (remote-sessions-ux / two-line-session-rows): agent
- * heads · provenance · branch, with the diff stat (or, failing that, the idle
- * recency) holding the trailing edge. Line 1 keeps the title and the status
- * cluster; this line answers who is working here, where, and on what.
+ * heads · provenance · branch · diff, with the status seat holding the trailing
+ * edge. Line 1 is now the title alone.
+ *
+ * Owner ruling 2026-09-04: the status cluster used to sit on line 1, where its
+ * permanently reserved 44px cost every title a fifth of the sidebar's content
+ * column for a mark that is usually a single dot. It moved here — `trailing` is
+ * that seat, passed in by the row so this component stays pure — and the diff
+ * stat, which used to hold this edge, moved left to sit against the branch it
+ * describes. Line-row's rule now holds on line 1: the title is the row's one
+ * priority and it claims the width.
  */
 export function WorkspaceRowMeta({
   sessions,
@@ -456,14 +556,14 @@ export function WorkspaceRowMeta({
   branch,
   additions,
   deletions,
-  idleText,
+  trailing,
 }: {
   sessions: ReadonlyArray<{ sessionId: string; cli?: string }>
   fleetMachines: string[]
   branch: string | null
   additions: number
   deletions: number
-  idleText: string
+  trailing?: React.ReactNode
 }) {
   const shown = sessions.slice(0, 3)
   const overflow = sessions.length - shown.length
@@ -527,14 +627,16 @@ export function WorkspaceRowMeta({
         </span>
       ) : null}
       {hasDiff ? (
-        <span className="ml-auto shrink-0 pl-2 font-mono text-micro tabular-nums">
+        // Beside the branch, not at the far edge: the two are one fact —
+        // "this branch, this much changed" — and the trailing seat is spoken
+        // for by the status.
+        <span className="shrink-0 font-mono text-micro tabular-nums">
           <span className="text-[color:var(--tone-good)]">+{additions}</span>
           <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
           <span className="sr-only">{`${additions} added, ${deletions} removed`}</span>
         </span>
-      ) : idleText ? (
-        <span className="ml-auto shrink-0 pl-2 tabular-nums">{idleText}</span>
       ) : null}
+      {trailing}
     </div>
   )
 }
@@ -1295,6 +1397,8 @@ export default function WorkspaceSidebar({
       && !!recency
       && !recency.hasRunning
       && !!idleRecencyText
+    // The row that wants you: it wears the gold treatment instead of a dot.
+    const needsAttention = activity === 'needs-input'
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
@@ -1319,6 +1423,103 @@ export default function WorkspaceSidebar({
     const rowDeletions = gitSummary?.deletions ?? 0
     const metaHasSubstance =
       rowSessions.length > 0 || fleetMachines.length > 0 || rowBranch !== null || rowAdditions > 0 || rowDeletions > 0
+
+    // The row's status seat: run glyph / working dots + elapsed / tone dot /
+    // idle recency, with the hover-revealed row actions layered over it.
+    //
+    // Owner ruling 2026-09-04: this used to live on line 1, where its
+    // permanently reserved 44px plus its gap cost every title a fifth of the
+    // sidebar's content column. It now rides line 2's trailing edge whenever
+    // there IS a line 2, so the title claims the full width the way list-row
+    // says it should; a row with no meta to show keeps the seat exactly where
+    // it was, and stays exactly the height it was.
+    const statusSeat = (
+      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+        <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+          {runGlyph && runGlyphLabel ? (
+            <Tooltip content={runGlyphLabel}>
+              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+            </Tooltip>
+          ) : null}
+          {/* Active work earns the three-dot working marker; the other
+              attention states keep the tone dot. */}
+          {/* An attention row renders NO dot: the row's own gold surface is the
+              mark, and status-dot's spec calls a dot beside something already
+              saying the same thing a reject-on-sight. Working and failed keep
+              their marks — neither tints the row. */}
+          {!runGlyph && tone && !needsAttention ? (
+            activity === 'working' ? (
+              <>
+                <AgentWorkingDots label={activityLabel(activity)} />
+                {/* How long the turn has been running. The workspace-level
+                    activity above decides WHETHER work is in flight (hooks are
+                    the authority on that); the terminal snapshot only supplies
+                    the timestamp, and a turn without one simply shows the dots
+                    alone. */}
+                {typeof recency?.workingSince === 'number' ? (
+                  <WorkingElapsed since={recency.workingSince} />
+                ) : null}
+              </>
+            ) : (
+              <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
+            )
+          ) : null}
+          {showRecencyText ? (
+            <span
+              className="text-meta tabular-nums text-[color:var(--text-subtle)]"
+              title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
+              aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
+            >
+              {idleRecencyText}
+            </span>
+          ) : null}
+        </span>
+        {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
+            (group-focus-within) so they are reachable and never a focus trap
+            on an invisible control. The seat's min-w is the width they reserve
+            (list-row's `data-actions` rule), so revealing never reflows — and
+            reserving it here rather than on line 1 is the whole point of the
+            move. */}
+        <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <Tooltip content="More actions">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setContextMenu({
+                  workspaceId: workspace.id,
+                  x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                  y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                })
+              }}
+              className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              aria-label="Workspace actions"
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+                <circle cx="3.5" cy="8" r="1.2" />
+                <circle cx="8" cy="8" r="1.2" />
+                <circle cx="12.5" cy="8" r="1.2" />
+              </svg>
+            </button>
+          </Tooltip>
+          <Tooltip content="Close workspace">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                handleClose(workspace.id)
+              }}
+              className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              aria-label={`Close ${workspace.name}`}
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </Tooltip>
+        </span>
+      </span>
+    )
 
     return (
       <div
@@ -1370,15 +1571,18 @@ export default function WorkspaceSidebar({
         // + status cluster, line 2 the meta (heads · provenance · branch ·
         // diff). min-h keeps a metaless row exactly the height it always was.
         className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
-          active
-            ? activeRowClass(workspace)
-            : highlighted
-              ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
-              : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+          needsAttention
+            ? attentionRowClass(active)
+            : active
+              ? activeRowClass(workspace)
+              : highlighted
+                ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
+                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
         } ${folderMissing ? 'opacity-70' : ''}`}
         role="treeitem"
         aria-current={active ? 'true' : undefined}
       >
+        <AttentionPulse active={needsAttention} resetKey={workspace.id} />
         {dropMark === 'before' ? (
           <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
         ) : null}
@@ -1432,9 +1636,17 @@ export default function WorkspaceSidebar({
             <TruncatedText
               as="span"
               text={workspace.name}
-              className={`min-w-0 flex-1 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
+              className={`min-w-0 flex-1 ${
+                // The resident bolding keeps its weight on an attention row but
+                // gives up its ink: text-strong would cancel the warn ink the
+                // whole row is wearing.
+                resident ? `font-semibold ${needsAttention ? '' : 'text-[color:var(--text-strong)]'}` : ''
+              }`}
             />
             {resident ? <span className="sr-only"> (agents resident)</span> : null}
+            {/* The gold surface is the visible mark; this is the same meaning
+                in words, since no state may be carried by colour alone. */}
+            {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
           </span>
         )}
 
@@ -1450,74 +1662,9 @@ export default function WorkspaceSidebar({
           </svg>
         ) : null}
 
-        <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
-          <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-            {runGlyph && runGlyphLabel ? (
-              <Tooltip content={runGlyphLabel}>
-                <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-              </Tooltip>
-            ) : null}
-            {/* Active work earns the three-dot working marker; the other
-                attention states keep the tone dot. */}
-            {!runGlyph && tone ? (
-              activity === 'working' ? (
-                <AgentWorkingDots label={activityLabel(activity)} />
-              ) : (
-                <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
-              )
-            ) : null}
-            {showRecencyText && !metaHasSubstance ? (
-              <span
-                className="text-meta tabular-nums text-[color:var(--text-subtle)]"
-                title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
-                aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
-              >
-                {idleRecencyText}
-              </span>
-            ) : null}
-          </span>
-          {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
-              (group-focus-within) so they are reachable and never a focus trap
-              on an invisible control. */}
-          <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            <Tooltip content="More actions">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setContextMenu({
-                    workspaceId: workspace.id,
-                    x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                    y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                  })
-                }}
-                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-                aria-label="Workspace actions"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
-                  <circle cx="3.5" cy="8" r="1.2" />
-                  <circle cx="8" cy="8" r="1.2" />
-                  <circle cx="12.5" cy="8" r="1.2" />
-                </svg>
-              </button>
-            </Tooltip>
-            <Tooltip content="Close workspace">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  handleClose(workspace.id)
-                }}
-                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-                aria-label={`Close ${workspace.name}`}
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            </Tooltip>
-          </span>
-        </span>
+        {/* A metaless row has no second line to carry the seat, so it keeps it
+            here — the one-liner it always was. */}
+        {metaHasSubstance ? null : statusSeat}
         </div>
         {metaHasSubstance ? (
           <WorkspaceRowMeta
@@ -1526,7 +1673,7 @@ export default function WorkspaceSidebar({
             branch={rowBranch}
             additions={rowAdditions}
             deletions={rowDeletions}
-            idleText={showRecencyText ? idleRecencyText : ''}
+            trailing={statusSeat}
           />
         ) : null}
       </div>

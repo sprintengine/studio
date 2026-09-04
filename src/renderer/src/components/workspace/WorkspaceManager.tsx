@@ -21,6 +21,7 @@ import {
   deriveWorkspaceIdleSince,
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
+  deriveWorkspaceWorkingSince,
   getTerminalSessionsSignature,
   refreshTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
@@ -2279,7 +2280,10 @@ export default function WorkspaceManager() {
   )
 
   const terminalRecencyByWorkspaceId = useMemo(() => {
-    const map: Record<string, { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null }> = {}
+    const map: Record<
+      string,
+      { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
+    > = {}
     for (const workspace of workspaces) {
       const persistedLastInputAt = typeof workspace.lastTerminalActivityAt === 'number'
         ? workspace.lastTerminalActivityAt
@@ -2288,7 +2292,13 @@ export default function WorkspaceManager() {
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
       const idleSince = deriveWorkspaceIdleSince(workspace.id, terminalSessions, persistedLastInputAt)
       const lastInputAt = deriveWorkspaceLastInputAt(workspace.id, terminalSessions, persistedLastInputAt)
-      map[workspace.id] = { hasRunning, idleSince, lastInputAt }
+      // When the turn started, for the sidebar row's "how long has it been
+      // working" counter. NOT `activity.kind === 'working' && activity.since`:
+      // that is true of a session merely STARTING, so resuming a suspended
+      // terminal started the clock with nothing asked of the agent (owner,
+      // 2026-09-04). The dedicated derivation asks the hooks instead.
+      const workingSince = deriveWorkspaceWorkingSince(workspace.id, terminalSessions)
+      map[workspace.id] = { hasRunning, idleSince, lastInputAt, workingSince }
     }
     return map
   }, [workspaces, terminalSessions])
