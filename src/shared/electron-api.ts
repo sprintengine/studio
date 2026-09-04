@@ -1548,21 +1548,26 @@ export type GitRowSummary = {
 }
 
 /**
- * What a WORKSPACE's agents changed, as opposed to what its folder looks like
- * (the-diff-an-agent-made / workspace-scoped-row-diff).
+ * What a workspace's row reports as changed
+ * (the-diff-an-agent-made / branch-scoped-row-diff).
  *
- * `scope` is load-bearing, not diagnostic. `workspace` means the numbers are
- * the span between this workspace's baseline checkpoint and its latest one —
- * the agents' own work, with the person's pre-existing dirt cancelled out.
- * `folder` means no turn has closed here yet and these are the repo's numbers,
- * which the row must not present as the agent's.
+ * The numbers are the span `merge-base(HEAD, <default branch>) → working tree`
+ * taken in the checkout the workspace's agents actually work in, so a pull, a
+ * merge or a commit landing under the agent cannot inflate them.
+ *
+ * `scope` is load-bearing, not diagnostic — it says how much the UI is entitled
+ * to claim, and the row's tooltip and spoken label are derived from it:
+ * `worktree` (a linked worktree, exclusive to this chat), `branch` (a shared
+ * checkout ahead of the default branch — the BRANCH's work, which may include a
+ * person's commits), and `folder` (a shared checkout level with the default
+ * branch, so only its uncommitted state can be reported).
  */
 export type WorkspaceChangeSummary = {
   branch: string | null
   additions: number
   deletions: number
   changedFiles: number
-  scope: 'workspace' | 'folder'
+  scope: 'worktree' | 'branch' | 'folder'
 }
 
 export type GitStashEntry = {
@@ -3324,10 +3329,12 @@ export type ElectronApi = {
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   getGitRowSummary: (repoRoot: string) => Promise<GitRowSummary>
-  getWorkspaceChangeSummary: (
-    workspaceId: string,
-    folderPath: string
-  ) => Promise<WorkspaceChangeSummary>
+  /**
+   * The branch reading for one checkout — the worktree the workspace's agents
+   * run in when it has one, else its folder. Resolved by the caller, because
+   * only the renderer holds the workspace's worktree record.
+   */
+  getWorkspaceChangeSummary: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
   /**
    * Drop a workspace's checkpoint refs from its repo and its index entry
    * (the-diff-an-agent-made, epic decision 8). Called when a workspace is

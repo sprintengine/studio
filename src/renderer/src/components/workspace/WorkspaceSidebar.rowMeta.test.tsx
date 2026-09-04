@@ -111,20 +111,37 @@ run('truncation is an ordered give-way: branch first, then machine, never heads 
   assert.match(markup, /overflow-hidden/, 'line 2 clips rather than spilling past the gutter')
 })
 
-run('a folder-scoped reading never claims to be the agent’s work', () => {
-  // No turn has closed in this chat yet, so the numbers are the repo's. They
-  // still show — that is the honest thing to say — but quieter, and both the
-  // tooltip and the spoken label say whose they are.
+run('each scope claims exactly what its checkout supports', () => {
+  // `folder` — a shared checkout level with the default branch. The numbers are
+  // the repo's uncommitted state. They still show, which is the honest thing to
+  // say, but quieter, and both the tooltip and the spoken label say whose.
   const folder = meta({ branch: 'main', additions: 246, deletions: 94, diffScope: 'folder' })
   assert.match(folder, /246 added, 94 removed in this folder/)
-  assert.match(folder, /opacity-60/, 'drawn quieter than the agent’s own work')
+  assert.match(folder, /opacity-60/, 'drawn quieter than attributable work')
+  assert.doesNotMatch(folder, /by this chat/, 'never claims the repo’s numbers as the chat’s')
   // The kit's Tooltip — content rendered on hover, never a native title.
   assert.doesNotMatch(folder, /title=/, 'no native title attribute anywhere on the stat')
 
-  const own = meta({ branch: 'main', additions: 12, deletions: 3, diffScope: 'workspace' })
+  // `worktree` — its own checkout, so the work is this chat's and says so.
+  const own = meta({ branch: 'feat/x', additions: 12, deletions: 3, diffScope: 'worktree' })
   assert.match(own, /12 added, 3 removed by this chat/)
   assert.doesNotMatch(own, /opacity-60/)
   assert.doesNotMatch(own, /this folder/)
+
+  // `branch` — attributable to the BRANCH, not to this chat alone. Full
+  // strength, because it is real branch work, with the qualification carried in
+  // the words rather than in the ink.
+  const shared = meta({ branch: 'feat/y', additions: 40, deletions: 8, diffScope: 'branch' })
+  assert.match(shared, /40 added, 8 removed on feat\/y/)
+  assert.doesNotMatch(shared, /opacity-60/, 'branch work is not a degraded reading')
+  assert.doesNotMatch(shared, /removed by this chat/, 'a shared checkout never claims sole authorship')
+})
+
+run('a branch-scoped row with no branch name still reads', () => {
+  // scope `branch` implies a branch, but the row must not render "on null" if a
+  // read ever disagrees with itself.
+  const markup = meta({ branch: null, additions: 5, deletions: 1, diffScope: 'branch' })
+  assert.match(markup, /5 added, 1 removed on this branch/)
 })
 
 run('the trailing seat rides line 2, and coexists with the diff rather than replacing it', () => {

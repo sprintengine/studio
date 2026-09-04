@@ -683,7 +683,7 @@ export function WorkspaceRowMeta({
   branch,
   additions,
   deletions,
-  diffScope = 'workspace',
+  diffScope = 'folder',
   unseenDone = false,
   trailing,
 }: {
@@ -693,8 +693,12 @@ export function WorkspaceRowMeta({
   branch: string | null
   additions: number
   deletions: number
-  /** Whose changes the ±lines are — this workspace's agents, or the repo's. */
-  diffScope?: 'workspace' | 'folder'
+  /**
+   * How much the ±lines may claim (the-diff-an-agent-made / branch-scoped-row-diff):
+   * `worktree` this chat's own checkout, `branch` a shared checkout's branch —
+   * which may carry a person's commits — or `folder` the repo's uncommitted state.
+   */
+  diffScope?: 'worktree' | 'branch' | 'folder'
   /** A turn finished here while the person was elsewhere, and they have not looked since. */
   unseenDone?: boolean
   trailing?: React.ReactNode
@@ -777,26 +781,33 @@ export function WorkspaceRowMeta({
         // whose changes they are on hover.
         <Tooltip
           content={
-            diffScope === 'folder'
-              ? 'Uncommitted changes in this folder — this chat has no completed turns yet'
-              : 'Changed by this chat’s agents'
+            diffScope === 'worktree'
+              ? 'Changed by this chat — it has its own worktree'
+              : diffScope === 'branch'
+                ? `Changed on ${branch ?? 'this branch'} — this chat shares the checkout, so a person or another chat may have made some of it`
+                : 'Uncommitted changes in this folder — this chat has no branch of its own'
           }
           wrapperClassName="inline-flex shrink-0"
         >
           <span
             className={`shrink-0 font-mono text-micro tabular-nums ${
-              // A folder-scoped reading is the repo's state, not this agent's
+              // A folder-scoped reading is the repo's state, not this chat's
               // work, so it is drawn quieter and says which it is on hover. The
-              // row must never present the repo's numbers as the agent's.
+              // row must never present the repo's numbers as the agent's. A
+              // `branch` reading IS attributable work — to the branch rather
+              // than to this chat alone — so it draws at full strength and
+              // carries the qualification in its words instead.
               diffScope === 'folder' ? 'opacity-60' : ''
             }`}
           >
             <span className="text-[color:var(--tone-good)]">+{additions}</span>
             <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
             <span className="sr-only">
-              {diffScope === 'folder'
-                ? `${additions} added, ${deletions} removed in this folder`
-                : `${additions} added, ${deletions} removed by this chat`}
+              {diffScope === 'worktree'
+                ? `${additions} added, ${deletions} removed by this chat`
+                : diffScope === 'branch'
+                  ? `${additions} added, ${deletions} removed on ${branch ?? 'this branch'}`
+                  : `${additions} added, ${deletions} removed in this folder`}
             </span>
           </span>
         </Tooltip>
