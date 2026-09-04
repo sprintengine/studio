@@ -134,6 +134,9 @@
   --sem-focus-ring-width: 2px;
   --sem-focus-ring-offset: 2px;
   --sem-focus-ring: 2px solid var(--sem-color-border-focus);
+  --sem-glass-blur: 12px;
+  --sem-glass-opacity: 0.8;
+  --sem-glass-saturation: 1.14;
   --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
@@ -181,6 +184,8 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-glass-blur: 16px;
+  --sem-glass-saturation: 1.08;
 }
 </style>
 <style>
@@ -222,6 +227,8 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-glass-blur: 16px;
+  --sem-glass-saturation: 1.08;
 }
 #ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {
   --sem-color-bg-app: var(--ref-color-mist-100);
@@ -260,6 +267,8 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
   --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
+  --sem-glass-blur: 12px;
+  --sem-glass-saturation: 1.14;
 }
 </style>
 <style>
@@ -4434,6 +4443,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   border-bottom: 0;
 }
 
+/* …and then the tab must NOT pull itself a pixel past its own box: the line it
+ * would be reaching for belongs to a band it is only a passenger in, and that
+ * band's overflow container clips the overhang — which is exactly the pixel the
+ * active underline lives in. A borderless strip's underline sits on the tab's
+ * own bottom edge. */
+.ds-tabs--borderless .ds-tab {
+  margin-bottom: 0;
+}
+
 /* Each tab overlaps the row hairline by 1px so its underline draws ON the
  * border rather than stacking a second line above it. */
 .ds-tab {
@@ -4506,6 +4524,79 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 .ds-tab[aria-selected='true'] .ds-tab-underline {
   background: var(--sem-color-accent-primary);
+}
+
+/* ── Icon-only ───────────────────────────────────────────────────────────
+ * A strip whose choices have settled glyphs, on a band that cannot spend the
+ * width on words — a panel's own chrome row, shared with its actions. The
+ * label does not disappear: it becomes the tab's accessible name AND its
+ * tooltip, so the word is one hover (or one focus) away and is still what
+ * assistive tech reads.
+ *
+ * This is the ONE licensed way to drop a tab's label. A tab with no label and
+ * no tooltip is a blank button, and a strip that drops labels merely to look
+ * tidier has traded a name for nothing. */
+.ds-tabs--icon-only .ds-tab {
+  width: var(--sem-size-control-sm);
+  justify-content: center;
+  padding: 0;
+}
+
+/* Icon-only tabs step the glyph up to the toolbar size: here the glyph IS the
+ * control, not a mark beside the word that is. */
+.ds-tabs--icon-only .ds-tab-icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* An icon-only tab draws no count. A number pinned to a 30px glyph covers the
+ * mark it is badging as soon as it reaches two digits, and a row of five badged
+ * glyphs is a row of alarms — so every count goes in the tooltip beside the
+ * name ("Log · 3,057 commits"). */
+.ds-tabs--icon-only .ds-tab-count {
+  display: none;
+}
+
+/* ── Overflow ────────────────────────────────────────────────────────────
+ * A strip that can outgrow its band scrolls sideways inside this wrapper. It
+ * never draws a scrollbar: a scrollbar under the tabs is a second horizontal
+ * line in a band that already has one, and on a 36px strip it eats a third of
+ * the row. The overflow says so itself instead — each edge with content past
+ * it fades to transparent, so a clipped tab reads as "there is more this way"
+ * rather than as a tab that has been cut in half.
+ *
+ * The fade is a MASK, not a gradient painted over the row: the strip sits on
+ * three different backgrounds across the product, and an overlay would have to
+ * know which one.
+ *
+ * The host also routes a plain vertical wheel to `scrollLeft` — a horizontal
+ * row has no vertical axis to spend the gesture on, and a wheel over a row of
+ * tabs is the gesture people actually make. */
+.ds-tabs-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ds-tabs-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+/* Set by the host on the edges that actually overflow; an edge with nothing
+ * past it must not fade, or the row looks clipped when it is complete. The
+ * gradient stops are a mask's alpha channel (opaque / transparent), not ink,
+ * so no colour token can express them. */
+.ds-tabs-scroller--fade-start {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-start.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
 }
 
 /* ── Panel ───────────────────────────────────────────────────────────────
@@ -4670,7 +4761,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   padding: var(--sem-space-sm) var(--sem-space-lg);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
-  background: var(--sem-color-bg-surface-raised);
+  /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * toast is the one surface allowed to blur — a corner, not a viewport. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  box-shadow: var(--sem-shadow-popover);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -4770,6 +4868,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 @media (prefers-reduced-motion: reduce) {
   .ds-toast {
     animation: none;
+  }
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-toast {
+    background: var(--sem-color-bg-surface-raised);
   }
 }
 
@@ -7396,6 +7500,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.blur</code><code class="catalog-token-value">12px</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Backdrop blur radius of the one glass surface — the toast card. The toast card only (owner ruling 2026-09-04): a corner-sized surface whose blur area is a fraction of the viewport. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane. <strong>Do not:</strong> Any scrim, modal, drawer, popover, menu, or full-width surface — blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim. The conformance lint pins glass to the toast.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.opacity</code><code class="catalog-token-value">0.8</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">How much of bg.surface-raised the glass keeps; the rest is the page showing through. The toast card's ground: color-mix(bg.surface-raised, glass.opacity) over the blur. Where backdrop-filter is unsupported the card falls back to solid bg.surface-raised. <strong>Do not:</strong> Tinting any other surface translucent.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.saturation</code><code class="catalog-token-value">1.14</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Saturation boost applied with the blur so what shows through stays lively rather than grey. Paired with glass.blur in the toast's backdrop-filter. Dark mode boosts less: near-black grounds have little to saturate and over-boosting shows as colour fringing. <strong>Do not:</strong> Anywhere glass.blur is not.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.base</code><code class="catalog-token-value">0</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Default in-flow content. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.pane</code><code class="catalog-token-value">20</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay. The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins. <strong>Do not:</strong> Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder.</p></div></div>
@@ -7490,9 +7597,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
 <h4>Motion</h4>
-<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow.</li></ul>
+<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. The toast card is the one sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned to the toast by the conformance lint.</li></ul>
 <h4>Accessibility</h4>
-<p>A gate, not a preference. No design system supplies it for you.</p>
+<p>A gate, not a preference. No design system supplies it for you. The toast card is the one sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned to the toast by the conformance lint.</p>
 <ul><li>WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.</li><li>Body text clears AA on its own surface. <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone. The ink ramp orders identically in both modes — <code>default</code> darker than <code>muted</code> darker than <code>subtle</code> darker than <code>disabled</code> — so a token means the same thing in either theme.</li><li>Visible focus on everything focusable, in a sensible order, never removed.</li><li>Status conveyed by shape or label, never by color alone.</li><li>Real labels on controls; <code>aria-label</code> on every icon-only button. Icons that duplicate adjacent text are <code>aria-hidden</code>.</li><li>Overlays: Escape closes the topmost surface only, focus is restored to the trigger, and a modal traps focus while open.</li><li>Design the states, not the happy path. Every data surface distinguishes populated, empty, loading, error, unavailable, and permission-denied. A failed dependency must never render identically to an empty list.</li></ul>
 <h4>Modes</h4>
 <ul><li>Light and dark ship from the same semantic tokens. Consumers style with <code>--sem-*</code> only and never write a per-mode override.</li><li>Dark surfaces are neutral to slightly warm. Blue-shifted darks (<code>#0a0d18</code>, <code>#0c1020</code>) read as generated-dashboard defaults and are out.</li><li>Dark values keep the anti-dither discipline: solid channel values, no pure black surfaces.</li></ul>
@@ -11898,7 +12005,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The four SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The six SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *who is working on it* (role), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -11933,7 +12040,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>CLI / runtime marks (<code>CliIcon.tsx</code>)</h5>
 <p><code>CliIcon(cli)</code> resolves an agent CLI to one of eight marks: <code>claude-code</code> (the brand starburst — the one glyph with its own fill), <code>codex</code> (the knot mark, <code>currentColor</code>), <code>opencode</code>, and four original rounded-square tile marks (<code>zai</code>, <code>grok</code>, <code>kimi</code>, <code>cursor</code> — placeholders until official brand SVGs are bundled; both Kimi runtimes share one mark so they read as one provider), with <code>terminal</code> as the fallback. Tile marks keep the 24-grid discipline: 1.7 frame, 1.9 letterform.</p>
 <h5>Utility marks (16-grid)</h5>
-<p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) |</p>
+<p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
 <p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>RolesSettingsIcon</code> (badge card), <code>SpecialistPacksSettingsIcon</code> (package cube), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>LearnSettingsIcon</code> (open book). All at <code>iconStroke</code> so the rail reads as one set.</p>
 <h4>States</h4>
@@ -11944,7 +12051,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>RoleGlyph</code>/<code>RoleAvatar</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator — the one narrow exception is merged-vs-unmerged on the branch fork, where a distinct merge shape read as noise at 16 px and the label carries the difference.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
 <p>Shipped divergences from the conventions above, with their backlog homes. Cite these rather than matching the code you happen to be nearest.</p>
-<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Sprints, Roadmap, and Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds four assets</strong> against a shipped vocabulary of roughly forty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open.</p>
+<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Sprints, Roadmap, and Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds six assets</strong> against a shipped vocabulary of roughly forty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/glyphs/component.css</summary><pre><code>/* Glyphs — the sizing and ink contract for the icon vocabulary.
@@ -21557,10 +21664,10 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p>The view switcher inside a panel: a row of peers, exactly one active, the active one marked by an accent hairline underline and an ink lift — never an accent fill. Extracted from the shipped <code>Tabs</code> primitive (<code>src/renderer/src/components/ui/Tabs.tsx</code>), whose underline treatment the conformance tests lock: the only elements allowed to carry accent fill are 1px hairlines.</p>
 <p>Use tabs when the choices are views of the same content region. Use a segmented control when they are values of a setting, and the context rail when they are destinations.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Tab list | <code>.ds-tabs</code> | yes — <code>role=&quot;tablist&quot;</code> with an <code>aria-label</code>, one bottom hairline | | Tab | <code>.ds-tab</code> | yes — <code>role=&quot;tab&quot;</code> buttons, <code>font.size.meta</code> | | Icon | <code>.ds-tab-icon</code> | no — a leading glyph, <code>aria-hidden</code> | | Count | <code>.ds-tab-count</code> | no — canonical count, tabular, <code>font.size.micro</code> | | Underline | <code>.ds-tab-underline</code> | yes — the 1px active marker, <code>aria-hidden</code> | | Panel | <code>.ds-tab-panel</code> | yes — <code>role=&quot;tabpanel&quot;</code>, a focusable scroll region |</p>
+<p>| Part | Class | Required | |---|---|---| | Scroller | <code>.ds-tabs-scroller</code> | no — the overflow wrapper: scrolls sideways, never draws a scrollbar, fades each overflowing edge | | Tab list | <code>.ds-tabs</code> | yes — <code>role=&quot;tablist&quot;</code> with an <code>aria-label</code>, one bottom hairline | | Tab | <code>.ds-tab</code> | yes — <code>role=&quot;tab&quot;</code> buttons, <code>font.size.meta</code> | | Icon | <code>.ds-tab-icon</code> | no — a leading glyph, <code>aria-hidden</code> | | Count | <code>.ds-tab-count</code> | no — canonical count, tabular, <code>font.size.micro</code> | | Underline | <code>.ds-tab-underline</code> | yes — the 1px active marker, <code>aria-hidden</code> | | Panel | <code>.ds-tab-panel</code> | yes — <code>role=&quot;tabpanel&quot;</code>, a focusable scroll region |</p>
 <p>Tabs sit <code>size.control.sm</code> (30px) tall at <code>space.lg</code> inline padding, spaced by <code>space.3xs</code>. Each tab overlaps the row's hairline by 1px so the active underline draws <strong>on</strong> the border, not above it — one line, two meanings. The underline is inset <code>space.sm</code> from each end of its tab: it marks the label, not the hit area.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line.</li></ul>
+<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line. Its tabs also drop the 1px overlap: the line they would reach for is a band they are passengers in, and the band's overflow container clips the overhang — which is the pixel the active underline lives in, so the overlap costs a borderless strip its selection marker entirely.</li><li><strong><code>--icon-only</code></strong> — each tab renders its glyph alone on a <code>size.control.sm</code> square, the glyph steps up to <code>icon.size.sm</code>, and the label becomes the tab's accessible name *and* its tooltip. For a strip on a band that cannot spend width on words — a panel's own chrome row, shared with that panel's actions. Every item must carry an icon.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | <code>text.muted</code>, transparent underline | | Hover | Ink lifts to <code>text.primary</code>. No background — the underline idiom marks tabs, not a fill | | Active | <code>text.primary</code> + the accent hairline underline. Never an accent fill or a pill | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> |</p>
 <h4>Usage</h4>
@@ -21568,14 +21675,16 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p><strong>Selection follows focus.</strong> Arrow keys move focus *and* activate: Left/Right step through enabled tabs with wraparound, Home/End jump to the ends. This is the correct model when switching panels is cheap; if a panel is expensive to mount, keep roving focus but activate on Enter/Space instead — pick one model per product and hold to it.</p>
 <p><strong>Roving tabindex.</strong> Exactly one tab is in the tab order at any time — the active one. Tab from the active tab lands in the panel, not on the next tab.</p>
 <p><strong>Counts are canonical.</strong> A count on a tab is the count of that view. Do not repeat it inside the panel where the two could disagree.</p>
+<p><strong>An icon-only tab keeps its name, it just stops drawing it.</strong> The label becomes <code>aria-label</code> and the tooltip, so the word is one hover or one focus away and unchanged for assistive tech. Dropping the label without either is a blank button, and it is the only thing this variant can get wrong. It draws no count at all: a number pinned to a 30px glyph covers the mark it is badging as soon as it reaches two digits, and five badged glyphs is a row of alarms. Put the count in the tooltip beside the name (&quot;Log · 3,057 commits&quot;).</p>
+<p><strong>A strip that can outgrow its band scrolls, it does not squeeze.</strong> Wrap it in <code>.ds-tabs-scroller</code>: tabs stay <code>shrink-0</code>, the row scrolls sideways, and the overflowing edges fade. Never a scrollbar — under a 36px band it is a second horizontal line and a third of the row's height. The host routes a plain vertical wheel to <code>scrollLeft</code>, because a horizontal row has no vertical axis to spend that gesture on.</p>
 <p><strong>The panel is a tab stop.</strong> It is usually a scroll container, so it takes <code>tabindex=&quot;0&quot;</code> — otherwise keyboard users cannot scroll it. Only the active panel is rendered; inactive panels are unmounted, not hidden.</p>
 <h4>Accessibility</h4>
-<ul><li>The tablist carries a required <code>aria-label</code> naming what the tabs switch (&quot;Inbox views&quot;). Tabs are <code>&lt;button role=&quot;tab&quot;&gt;</code> with <code>aria-selected</code> and <code>aria-controls</code> pointing at their panel's <code>id</code>.</li><li>The panel carries <code>role=&quot;tabpanel&quot;</code> and <code>aria-labelledby</code> pointing back at its tab, so its accessible name is the tab's label.</li><li>The panel's focus indicator is the ring drawn <strong>inward</strong> (a negative <code>focus.ring-offset</code>): it sits at the edge of a scrolling region, where an outward ring is clipped. Without it a focusable panel falls back to the UA outline — the one treatment the system cannot theme.</li><li>Icons on tabs are <code>aria-hidden</code>; the label carries the name. An icon-only tab is not a variant this component has.</li><li>Disabled tabs keep their label readable (<code>opacity</code>, not an ink swap to <code>text.disabled</code> alone) and are skipped by arrow navigation.</li></ul>
+<ul><li>The tablist carries a required <code>aria-label</code> naming what the tabs switch (&quot;Inbox views&quot;). Tabs are <code>&lt;button role=&quot;tab&quot;&gt;</code> with <code>aria-selected</code> and <code>aria-controls</code> pointing at their panel's <code>id</code>.</li><li>The panel carries <code>role=&quot;tabpanel&quot;</code> and <code>aria-labelledby</code> pointing back at its tab, so its accessible name is the tab's label.</li><li>The panel's focus indicator is the ring drawn <strong>inward</strong> (a negative <code>focus.ring-offset</code>): it sits at the edge of a scrolling region, where an outward ring is clipped. Without it a focusable panel falls back to the UA outline — the one treatment the system cannot theme.</li><li>Icons on tabs are <code>aria-hidden</code>; the label carries the name. On the <code>--icon-only</code> variant the glyph stays <code>aria-hidden</code> and the label moves to the tab's <code>aria-label</code>, so the accessible name is identical in both variants — the tooltip is the sighted user's version of the same string, and it opens on focus as well as hover.</li><li>An icon-only tab's count lives in its tooltip and its <code>aria-label</code>, not in a badge, so the number is announced once and read once.</li><li>Disabled tabs keep their label readable (<code>opacity</code>, not an ink swap to <code>text.disabled</code> alone) and are skipped by arrow navigation.</li></ul>
 <h4>Known drift</h4>
 <p>All in <code>src/renderer/src/components/ui/Tabs.tsx</code>:</p>
 <ul><li>~~Tabs render 32px tall (<code>h-8</code>); the control ramp has no 32px step. Canon is <code>size.control.sm</code> (30px) — the default for a labeled control.~~ <strong>Resolved 2026-09-02:</strong> <code>h-control-sm</code>.</li><li>~~Tab icons render at 14px (<code>h-3.5</code>); the icon ramp has no 14px step. Canon is <code>icon.size.xs</code> (13px).~~ <strong>Resolved 2026-09-02:</strong> <code>size-icon-xs</code>.</li><li>~~Disabled tabs ship <code>opacity-45</code>; the system-wide disabled treatment (list-row, task-card) is 0.5.~~ <strong>Resolved 2026-09-02:</strong> <code>disabled:opacity-50</code>, the row-family value — a tab is a row in a strip, not a button.</li></ul>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/Tabs.tsx</code>, exporting <code>Tabs</code> (the strip) and <code>TabPanel</code> (the panel bound to it by <code>aria-controls</code> / <code>aria-labelledby</code>).</p>
+<p><code>src/renderer/src/components/ui/Tabs.tsx</code>, exporting <code>Tabs</code> (the strip, with the <code>iconOnly</code> prop and the per-item <code>tooltip</code>), <code>TabPanel</code> (the panel bound to it by <code>aria-controls</code> / <code>aria-labelledby</code>), and <code>TabsScroller</code> (the overflow wrapper — it owns the wheel routing and measures which edges actually overflow before it fades them).</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/tabs/component.css</summary><pre><code>/* Tabs — the view switcher inside a panel. Extracted from the shipped Tabs
@@ -21598,6 +21707,15 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
  * its band with trailing inline controls. One chrome band, one line. */
 .ds-tabs--borderless {
   border-bottom: 0;
+}
+
+/* …and then the tab must NOT pull itself a pixel past its own box: the line it
+ * would be reaching for belongs to a band it is only a passenger in, and that
+ * band's overflow container clips the overhang — which is exactly the pixel the
+ * active underline lives in. A borderless strip's underline sits on the tab's
+ * own bottom edge. */
+.ds-tabs--borderless .ds-tab {
+  margin-bottom: 0;
 }
 
 /* Each tab overlaps the row hairline by 1px so its underline draws ON the
@@ -21672,6 +21790,79 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 
 .ds-tab[aria-selected='true'] .ds-tab-underline {
   background: var(--sem-color-accent-primary);
+}
+
+/* ── Icon-only ───────────────────────────────────────────────────────────
+ * A strip whose choices have settled glyphs, on a band that cannot spend the
+ * width on words — a panel's own chrome row, shared with its actions. The
+ * label does not disappear: it becomes the tab's accessible name AND its
+ * tooltip, so the word is one hover (or one focus) away and is still what
+ * assistive tech reads.
+ *
+ * This is the ONE licensed way to drop a tab's label. A tab with no label and
+ * no tooltip is a blank button, and a strip that drops labels merely to look
+ * tidier has traded a name for nothing. */
+.ds-tabs--icon-only .ds-tab {
+  width: var(--sem-size-control-sm);
+  justify-content: center;
+  padding: 0;
+}
+
+/* Icon-only tabs step the glyph up to the toolbar size: here the glyph IS the
+ * control, not a mark beside the word that is. */
+.ds-tabs--icon-only .ds-tab-icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* An icon-only tab draws no count. A number pinned to a 30px glyph covers the
+ * mark it is badging as soon as it reaches two digits, and a row of five badged
+ * glyphs is a row of alarms — so every count goes in the tooltip beside the
+ * name (&quot;Log · 3,057 commits&quot;). */
+.ds-tabs--icon-only .ds-tab-count {
+  display: none;
+}
+
+/* ── Overflow ────────────────────────────────────────────────────────────
+ * A strip that can outgrow its band scrolls sideways inside this wrapper. It
+ * never draws a scrollbar: a scrollbar under the tabs is a second horizontal
+ * line in a band that already has one, and on a 36px strip it eats a third of
+ * the row. The overflow says so itself instead — each edge with content past
+ * it fades to transparent, so a clipped tab reads as &quot;there is more this way&quot;
+ * rather than as a tab that has been cut in half.
+ *
+ * The fade is a MASK, not a gradient painted over the row: the strip sits on
+ * three different backgrounds across the product, and an overlay would have to
+ * know which one.
+ *
+ * The host also routes a plain vertical wheel to `scrollLeft` — a horizontal
+ * row has no vertical axis to spend the gesture on, and a wheel over a row of
+ * tabs is the gesture people actually make. */
+.ds-tabs-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ds-tabs-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+/* Set by the host on the edges that actually overflow; an edge with nothing
+ * past it must not fade, or the row looks clipped when it is complete. The
+ * gradient stops are a mask's alpha channel (opaque / transparent), not ink,
+ * so no colour token can express them. */
+.ds-tabs-scroller--fade-start {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-start.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
 }
 
 /* ── Panel ───────────────────────────────────────────────────────────────
@@ -22271,7 +22462,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>A toast never carries a question (that is a modal), never carries the only route to an action (a surface that must be acted on is a banner or an inline notice, which stay put), and never dumps the operation's inventory — file counts, hashes, byte sizes are stored, not displayed.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Region | <code>.ds-toast-region</code> | yes — the fixed corner stack at <code>z.toast</code>; one per document | | Surface | <code>.ds-toast</code> | yes — <code>role</code> and <code>aria-live</code> chosen by tone (below) | | Tone dot | <code>.ds-toast-dot</code> | yes — the 6px status idiom, <code>aria-hidden</code> | | Content | <code>.ds-toast-content</code> | yes — title <code>.ds-toast-title</code>, optional description <code>.ds-toast-description</code> | | Dismiss | <code>.ds-toast-dismiss</code> | no — trailing icon button, <code>aria-label=&quot;Dismiss&quot;</code> |</p>
-<p>The surface separates from the page with a <code>border.default</code> hairline on <code>bg.surface-raised</code>. <strong>No shadow</strong>: no elevation token names the toast (the ramp's three steps are popover, drawer, modal), and the shipped toast ships none — a small surface at the viewport's edge is not anchored to anything a shadow would lift it from.</p>
+<p>The surface is <strong>glass</strong> (owner ruling 2026-09-04): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, a <code>border.default</code> hairline, and <code>shadow.popover</code> drawing the edge over whatever shows through. Where <code>backdrop-filter</code> is unsupported the card is solid <code>bg.surface-raised</code>.</p>
+<p>This is the one surface in the system allowed to blur. The blur ban (<code>principles.md</code>, the modal and drawer specs) exists because a full-viewport scrim re-samples every terminal pane under it every frame; a toast's area is a corner, a fraction of that cost. The conformance lint pins the glass to this component — any other surface that blurs, or borrows the toast's utility, is a violation.</p>
 <p>The tone is carried by the dot's shape-plus-color and by the words — never by tinting the surface. A toast that survives greyscale is the test.</p>
 <h4>Variants</h4>
 <p>Five tones, each deciding color, politeness, and persistence:</p>
@@ -22285,12 +22477,13 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p><strong>Report the result, not the inventory.</strong> &quot;Sprint archived&quot; — not the branch, the commit count, and the layout the archiver chose. The description line is for the one fact the person cannot see from where they are (where a file was written, which workspace adopted the change).</p>
 <p><strong>A toast is not the state.</strong> Whatever it announces must also be readable somewhere persistent — the row's status, the detail pane. A person who missed the toast lost nothing they cannot find.</p>
 <p><strong>The dismiss affordance is optional on polite tones, mandatory on persistent ones.</strong> A toast that never auto-dismisses without a dismiss button is a squatter.</p>
-<p><strong>Rebuilding it in a framework:</strong> what must survive is the tone table — the role/live/persistence mapping is the component's actual contract — plus the single region and the hit-target floor on the dismiss button.</p>
+<p><strong>Rebuilding it in a framework:</strong> what must survive is the tone table — the role/live/persistence mapping is the component's actual contract — plus the single region, the hit-target floor on the dismiss button, and the glass staying the toast's alone.</p>
 <h4>Accessibility</h4>
 <ul><li>Politeness follows severity: <code>role=&quot;status&quot;</code> + <code>aria-live=&quot;polite&quot;</code> for neutral, good, and accent; <code>role=&quot;alert&quot;</code> + <code>aria-live=&quot;assertive&quot;</code> for warn and danger. A success must not interrupt; a failure must.</li><li>A toast <strong>never takes focus</strong>. Announcement is the live region's job; stealing focus from the person's task to report on it is the interruption the polite/assertive split exists to avoid.</li><li>The dot is <code>aria-hidden</code>; the words carry the tone for a screen reader, and shape-plus-color carries it visually — never color alone.</li><li>The dismiss button carries <code>aria-label=&quot;Dismiss&quot;</code> and pads its 10px glyph out to <code>size.hit-target-min</code> with a transparent hit area — the glyph shrinks, the target does not.</li><li>The entrance animation honours <code>prefers-reduced-motion: reduce</code>.</li><li>Persistent tones remain until explicitly dismissed, so an assistive-tech user navigating slowly is never raced by a timer.</li></ul>
 <h4>Known drift</h4>
 <p>None. Both entries that stood here were spent on 2026-08-05 (<strong>MC-2138</strong>):</p>
-<ul><li>The dismiss target was 20px, under <code>--sem-size-hit-target-min</code>. <code>Toast.tsx</code> now takes its floor from that token directly, keeping the 10px glyph and the flow advance the smaller target had.</li><li>The placement note pointed at <strong>MC-2110</strong>, which had already shipped. It was never drift: the shipped product has no corner stack. Its one toast host renders the surface IN FLOW, at the top of a scrolling pane, where the toast belongs to the panel that produced it and stacks nothing. <code>.ds-toast-region</code> and <code>--sem-z-toast</code> stay in this spec as the reference placement for a host that does need a corner — unconsumed on purpose, not pending.</li></ul>
+<ul><li>The dismiss target was 20px, under <code>--sem-size-hit-target-min</code>. <code>Toast.tsx</code> now takes its floor from that token directly, keeping the 10px glyph and the flow advance the smaller target had.</li><li>The placement note pointed at <strong>MC-2110</strong>, which had already shipped.</li></ul>
+<p>*2026-09-04:* the corner region is consumed. The remote-sessions-ux epic's <code>toast-host-region</code> child shipped <code>.ds-toast-region</code>'s product counterpart — one bottom-trailing stack at <code>z.toast</code>, newest at the bottom, <code>space.sm</code> apart — and every producer (pair requests, remote-create failures, stranded attachments) routes through it. The older in-flow toast host at the top of a scrolling pane remains where a toast belongs to the panel that produced it; it stacks nothing and is not the region.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/toast/component.css</summary><pre><code>/* Toast — the transient report. Extracted from the source product's Toast
@@ -22332,7 +22525,14 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   padding: var(--sem-space-sm) var(--sem-space-lg);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
-  background: var(--sem-color-bg-surface-raised);
+  /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * toast is the one surface allowed to blur — a corner, not a viewport. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  box-shadow: var(--sem-shadow-popover);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -22432,6 +22632,12 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 @media (prefers-reduced-motion: reduce) {
   .ds-toast {
     animation: none;
+  }
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-toast {
+    background: var(--sem-color-bg-surface-raised);
   }
 }
 </code></pre></details>

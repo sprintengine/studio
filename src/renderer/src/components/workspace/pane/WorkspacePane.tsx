@@ -8,7 +8,7 @@ import type {
   WorkspacePaneTab,
   WorkspacePaneTabKind,
 } from '../../../types/workspace'
-import { ContextMenu, IconButton, MenuItem, Tabs, Tooltip, type TabItem } from '../../ui'
+import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
 import { PANE_KINDS, paneKindDefinition } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
@@ -150,7 +150,11 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
           opt out. Tabs sit on the strip's bottom edge so the active underline
           draws ON the hairline, as the tabs component specifies. */}
       <div className="app-drag flex h-[36px] shrink-0 items-end border-b border-[color:var(--border-default)] pl-1.5 pr-1">
-        <div className="flex min-w-0 flex-1 items-end self-stretch overflow-x-auto overflow-y-hidden">
+        {/* Scrolls sideways with no scrollbar and a fade at each overflowing
+            edge (TabsScroller): a 10px bar under a 36px strip is a second line
+            in a band that already has one, and a plain vertical wheel is the
+            gesture people make over a row of tabs. */}
+        <TabsScroller className="flex min-w-0 flex-1 items-end self-stretch">
           {tabs.length > 0 && activeTabId ? (
             <Tabs
               ariaLabel="Pane tabs"
@@ -173,7 +177,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
               borderless
             />
           ) : null}
-        </div>
+        </TabsScroller>
         <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
           <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} />
           <Tooltip content={maximised ? 'Restore pane' : 'Maximise pane'} placement="bottom">

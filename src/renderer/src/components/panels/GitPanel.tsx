@@ -13,7 +13,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, EmptyState, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
+import { ContextMenu, EmptyState, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -113,6 +113,86 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
     <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-xs" fill="none">
       <path
         d={direction === 'down' ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5' : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// The five view glyphs for the panel's icon-only Tabs strip. Drawn on the same
+// 16px grid at the same 1.4 stroke as SyncArrowIcon above, so the strip and the
+// sync affordances beside it read as one set of marks rather than two families
+// sharing a band. Each answers "which view is this" and nothing else; the name
+// and the count ride the tooltip.
+function ChangesViewGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <path
+        d="M4.25 2.5v4.75M1.875 4.875h4.75M1.875 11.5h4.75M9.5 13.5l4.25-11"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function WorktreesViewGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <circle cx="3.75" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="9" y="1.9" width="5.25" height="4" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="9" y="10.1" width="5.25" height="4" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M3.75 5.1v6.9c0 .1.1.2.2.2H9M3.75 5.1V3.9h5.25"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function LogViewGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <path d="M4 2.4v11.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="4" cy="4.25" r="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4" cy="11.75" r="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M7.25 4.25h6.5M7.25 11.75h6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function StashesViewGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <path
+        d="M1.9 5.6h12.2v6.4a1.1 1.1 0 0 1-1.1 1.1H3a1.1 1.1 0 0 1-1.1-1.1z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M2.6 2.9h10.8a.7.7 0 0 1 .7.7v2H1.9v-2a.7.7 0 0 1 .7-.7z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M6.5 8.75h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function TerminalViewGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
+      <rect x="1.9" y="2.9" width="12.2" height="10.2" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M4.9 6.5 6.9 8.5 4.9 10.5M8.6 10.6h2.6"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -1546,33 +1626,79 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   // The view strip is the kit's `Tabs` (one tab stop, arrow keys, `aria-controls`
   // onto real `tabpanel`s) rather than the panel's own `role="tab"` buttons,
-  // which had no keyboard model at all (2026-09-02 audit). Counts ride the
-  // item, so the strip reads exactly as before.
+  // which had no keyboard model at all (2026-09-02 audit).
+  //
+  // Glyph-only since 2026-09-04 (owner): the strip IS the panel's chrome row
+  // now, so it has to fit five views and the sync affordances in one 36px band.
+  // Every name AND every count rides the tooltip — a badge on the Changes glyph
+  // was tried and cut: at two digits it covered the mark it was badging, and a
+  // row of five glyphs cannot carry a counter without becoming a row of alarms.
   const gitTabsIdPrefix = `git-panel-${workspaceId}`
   const gitViewTabs: TabItem<GitPanelView>[] = [
-    { id: 'changes', label: 'Changes', count: allEntries.length },
-    { id: 'worktrees', label: 'Worktrees', count: worktreeCount },
-    { id: 'log', label: 'Log', count: totalCommitCount },
-    { id: 'stashes', label: 'Stashes', count: stashes.length },
-    { id: 'terminal', label: 'Terminal' },
+    {
+      id: 'changes',
+      label: 'Changes',
+      icon: ChangesViewGlyph,
+      tooltip: allEntries.length === 1 ? 'Changes \u00b7 1 file' : `Changes \u00b7 ${allEntries.length} files`,
+    },
+    {
+      id: 'worktrees',
+      label: 'Worktrees',
+      icon: WorktreesViewGlyph,
+      tooltip: worktreeCount === 1 ? 'Worktrees \u00b7 1' : `Worktrees \u00b7 ${worktreeCount}`,
+    },
+    {
+      id: 'log',
+      label: 'Log',
+      icon: LogViewGlyph,
+      tooltip:
+        totalCommitCount === 1
+          ? 'Log \u00b7 1 commit'
+          : `Log \u00b7 ${totalCommitCount.toLocaleString()} commits`,
+    },
+    {
+      id: 'stashes',
+      label: 'Stashes',
+      icon: StashesViewGlyph,
+      tooltip: stashes.length === 1 ? 'Stashes \u00b7 1' : `Stashes \u00b7 ${stashes.length}`,
+    },
+    { id: 'terminal', label: 'Terminal', icon: TerminalViewGlyph },
   ]
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
       {/*
-       * Contextual header on the shared PanelHeader so Git reads with the same
-       * identity row as every other panel. Title is "Git"; the subtitle carries
-       * sync state the usual editor way — scope health when the checkout
-       * is unhealthy, otherwise the ahead/behind summary. Pull/Push stay live
-       * affordances (not dead text) in the header actions; the captioned Branch /
-       * Worktree dropdowns follow in the secondary strip (GitHub Desktop) so each
-       * reads without guessing.
+       * The panel's one chrome row: the view strip on the left, the sync
+       * affordances on the right (owner, 2026-09-04).
+       *
+       * It used to be a PanelHeader reading "Git \u00b7 Up to date" with the view
+       * tabs on a second row below it. Both halves of that title were already
+       * on screen: the pane tab this panel lives in is labelled "Git", and
+       * "Up to date" is what the ABSENCE of the Pull/Push buttons beside it
+       * means. So the identity row was a band of chrome that said nothing the
+       * surface did not, stacked above the band that did — and the two of them
+       * spent 72px of a narrow pane before the first file.
+       *
+       * One band, and the strip earns it. The views go glyph-only to fit
+       * beside the sync cluster; names and counts ride the tooltips. Scope
+       * health was the one thing the subtitle carried that nothing else says,
+       * so it moves to the notice below rather than being dropped — it is
+       * exceptional (Missing / Prunable / Locked), and a warning belongs in a
+       * notice, not in a subtitle nobody reads twice.
        */}
-      <PanelHeader
-        title="Git"
-        subtitle={scopeHealth?.label ?? syncSummary ?? undefined}
-        overflow={
-          <>
+      <div className="flex h-[36px] shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] pl-1.5 pr-1.5">
+        <TabsScroller className="flex min-w-0 flex-1 items-end self-stretch">
+          <Tabs<GitPanelView>
+            ariaLabel="Git panel views"
+            idPrefix={gitTabsIdPrefix}
+            items={gitViewTabs}
+            value={activeView}
+            onChange={setActiveView}
+            iconOnly
+            borderless
+          />
+        </TabsScroller>
+        <div className="flex shrink-0 items-center gap-1">
             {behind > 0 ? (
               <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
                 <GhostButton size="xs" onClick={() => void handlePull()} disabled={Boolean(busy)} className="tabular-nums">
@@ -1589,7 +1715,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 </GhostButton>
               </Tooltip>
             ) : null}
-            <Tooltip content="Fetch remotes and refresh Git status" placement="bottom">
+            {/* The resting sync line the retired header subtitle carried
+                ("Up to date", "No upstream", "Checking branch") rides this
+                tooltip: it states the calm cases, which are exactly the cases
+                where the Pull/Push buttons beside it are absent, so it is
+                already next to the thing it explains. */}
+            <Tooltip
+              content={
+                syncSummary
+                  ? `Fetch remotes and refresh Git status \u00b7 ${syncSummary}`
+                  : 'Fetch remotes and refresh Git status'
+              }
+              placement="bottom"
+            >
               <IconButton
                 aria-label="Fetch remotes and refresh Git status"
                 onClick={() => void handleFetch()}
@@ -1598,9 +1736,22 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
-          </>
-        }
-      />
+        </div>
+      </div>
+      {/*
+       * The checkout is not healthy — missing, prunable, or locked. This was
+       * the PanelHeader subtitle's one irreplaceable job, and it is a warning,
+       * so it lands where the panel already puts warnings.
+       */}
+      {scopeHealth ? (
+        <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-3 py-2">
+          <InlineNotice tone="warn">
+            <span className="font-medium">{scopeHealth.label}</span>
+            {' \u2014 '}
+            <span>this worktree cannot be worked in until it is restored.</span>
+          </InlineNotice>
+        </div>
+      ) : null}
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
           {/*
            * A sprint spanning projects works one project at a time, in that
@@ -1704,23 +1855,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
 
+      {/* The strip that switches these panels is the panel's chrome row at the
+          top; only the bodies live here. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        {/*
-         * Scrolls horizontally: the strip already overflowed a narrow panel at
-         * four tabs (Terminal clipped past the right edge), and Stashes made it
-         * five. Tabs stay shrink-0 so they scroll rather than squeeze.
-         */}
-        <div className="shrink-0 overflow-x-auto bg-[color:var(--bg-surface)]">
-          <Tabs<GitPanelView>
-            ariaLabel="Git panel views"
-            idPrefix={gitTabsIdPrefix}
-            items={gitViewTabs}
-            value={activeView}
-            onChange={setActiveView}
-            className="px-3"
-          />
-        </div>
-
         <TabPanel idPrefix={gitTabsIdPrefix} tabId="changes" active={activeView === 'changes'} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (

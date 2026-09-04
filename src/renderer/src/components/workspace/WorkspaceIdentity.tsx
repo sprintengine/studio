@@ -10,7 +10,7 @@
 // draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { FOCUS_RING_CLASS, OutlineButton, SplitButton, StarGlyph, Tooltip, type SplitButtonItem } from '../ui'
+import { FOCUS_RING_CLASS, OutlineButton, OverflowMenu, SplitButton, StarGlyph, Tooltip, type OverflowMenuItem, type SplitButtonItem } from '../ui'
 import { CursorErrorPopover, type CursorAnchor } from '../ui/CursorErrorPopover'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -30,6 +30,7 @@ import {
   offersFolderOpenMenu,
   resolveFolderOpenPrimary,
 } from './openInEditorTargets'
+import { useTitleBarFold } from './titleBarFold'
 import type { Workspace } from '../../types/workspace'
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
@@ -94,30 +95,42 @@ function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
   )
 }
 
+// Open the workspace's active checkout in an external tool. Three rules the
+// surface depends on, whichever spelling it wears:
+// - **Probe-hide, not probe-disable.** An editor that is not installed is
+//   absent from the menu, the same rule the agent pickers follow for
+//   uninstalled CLIs. A disabled row for a missing editor is a fake affordance.
+// - **The active checkout, not the project root.** A worktree-backed workspace
+//   opens its worktree, resolved through `resolveWorkspaceWorktree` exactly as
+//   the Git view and the branch chip above do — opening the parent checkout
+//   would show the operator a different branch than the one their agents run on.
+// - **A failed launch is visible and stops there.** The typed failure from the
+//   IPC is surfaced on the control; nothing silently retries in another editor.
+export type FolderOpenTargets = {
+  /** Every target that actually resolved on this machine. */
+  available: FolderOpenTargetId[]
+  /** The target the primary half runs; null while nothing has resolved yet. */
+  primaryTarget: FolderOpenTargetId | null
+  /** `remember` re-points the primary half — only ever on a launch that worked. */
+  openTarget: (target: FolderOpenTargetId, remember: boolean) => Promise<void>
+  /** Re-probe on menu open, so an editor installed since boot appears. */
+  reprobe: (open: boolean) => void
+  isMac: boolean
+  primaryRef: React.MutableRefObject<HTMLButtonElement | null>
+  /** The failure popover, already positioned. Render it once, beside the row. */
+  failureNode: React.ReactNode
+}
+
 /**
- * Open the workspace's active checkout in an external tool. Primary half runs
- * the last-used target; the chevron half lists every target that actually
- * resolves and re-points the primary (item 1990).
+ * The probe + launch + remembered-primary state behind "Open".
  *
- * Three rules the surface depends on:
- * - **Probe-hide, not probe-disable.** An editor that is not installed is
- *   absent from the menu, the same rule the agent pickers follow for
- *   uninstalled CLIs. A disabled row for a missing editor is a fake affordance.
- * - **The active checkout, not the project root.** A worktree-backed workspace
- *   opens its worktree, resolved through `resolveWorkspaceWorktree` exactly as
- *   the Git view and the branch chip above do — opening the parent checkout
- *   would show the operator a different branch than the one their agents run on.
- * - **A failed launch is visible and stops there.** The typed failure from the
- *   IPC is surfaced on the control; nothing silently retries in another editor.
+ * A hook rather than state inside the button because the control has two
+ * spellings — the inline SplitButton and, once the strip folds (titleBarFold
+ * stage 2), a set of rows in the identity cluster's overflow menu. One hook
+ * instance, called once by `WorkspaceIdentity`, is what keeps those two from
+ * each registering the `Primary+O` listener and revealing the folder twice.
  */
-export function OpenWorkspaceFolderButton({
-  workspaceId,
-  openPath,
-}: {
-  workspaceId: string | null
-  /** The checkout to open — already worktree-resolved by the caller. */
-  openPath: string
-}) {
+export function useFolderOpenTargets(workspaceId: string | null, openPath: string): FolderOpenTargets {
   const isMac = window.api.platform === 'darwin'
   const lastTarget = useWorkspaceStore((state) => state.appSettings.lastFolderOpenTarget)
   const setLastTarget = useWorkspaceStore((state) => state.setLastFolderOpenTarget)
@@ -174,6 +187,10 @@ export function OpenWorkspaceFolderButton({
 
   const openTarget = React.useCallback(
     async (target: FolderOpenTargetId, remember: boolean) => {
+      // No resolved checkout means there is nothing to open. The hook runs for
+      // every workspace (it owns the `Primary+O` listener), so this is the
+      // guard that used to be "the button does not render".
+      if (!openPath) return
       let result
       try {
         result = await window.api.openFolderInTarget({ target, path: openPath })
@@ -213,6 +230,44 @@ export function OpenWorkspaceFolderButton({
     return () => window.removeEventListener('multicode:panel-command', onPanelCommand)
   }, [openTarget, workspaceId])
 
+  // Re-probed whenever the menu opens: an editor installed while the app was
+  // running should appear without a restart, and one uninstalled since boot
+  // should stop being offered.
+  const reprobe = React.useCallback(
+    (open: boolean) => {
+      if (open) void probe().then((result) => result && setAvailability(result))
+    },
+    [probe],
+  )
+
+  return {
+    available,
+    primaryTarget,
+    openTarget,
+    reprobe,
+    isMac,
+    primaryRef,
+    failureNode: failure ? (
+      <CursorErrorPopover
+        key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}
+        message={failure.message}
+        anchor={failure.anchor}
+        onDismiss={() => setFailure(null)}
+      />
+    ) : null,
+  }
+}
+
+/**
+ * The inline spelling of "Open": the one bordered control in the identity
+ * cluster. Primary half runs the last-used target; the chevron half lists every
+ * target that resolved and re-points the primary (item 1990). Renders nothing
+ * until the probe has answered — it does not guess a primary and then correct
+ * itself.
+ */
+function OpenWorkspaceFolderButton({ targets }: { targets: FolderOpenTargets }) {
+  const { available, primaryTarget, openTarget, reprobe, isMac, primaryRef } = targets
+
   const items = React.useMemo<SplitButtonItem[]>(
     () =>
       available.map((target) => ({
@@ -227,13 +282,6 @@ export function OpenWorkspaceFolderButton({
   )
 
   if (!primaryTarget) return null
-
-  // Re-probed whenever the menu opens: an editor installed while the app was
-  // running should appear without a restart, and one uninstalled since boot
-  // should stop being offered.
-  const reprobe = (open: boolean) => {
-    if (open) void probe().then((result) => result && setAvailability(result))
-  }
 
   return (
     <>
@@ -264,14 +312,6 @@ export function OpenWorkspaceFolderButton({
           primaryRef={primaryRef}
         />
       )}
-      {failure ? (
-        <CursorErrorPopover
-          key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}
-          message={failure.message}
-          anchor={failure.anchor}
-          onDismiss={() => setFailure(null)}
-        />
-      ) : null}
     </>
   )
 }
@@ -353,6 +393,17 @@ export function WorkspaceIdentity({
   const toggleGitPanel = React.useCallback(() => {
     if (activeWorkspaceId) togglePaneKind(activeWorkspaceId, 'git')
   }, [activeWorkspaceId, togglePaneKind])
+  // How much room the strip has left (see titleBarFold): 0 everything inline,
+  // 1 the chips keep their glyphs and lose their words, 2 "Open" folds into the
+  // overflow menu, 3 the chips fold in with it. Nothing is ever deleted — every
+  // stage moves a segment, and the menu is where it moves to.
+  const fold = useTitleBarFold()
+  // The checkout an external editor should open: the mounted worktree when the
+  // workspace has one, else the project root — the same resolution the branch
+  // chip and the Git view use, so all three name one tree. Called
+  // unconditionally (hooks) and for both spellings of the control at once, so
+  // the `Primary+O` reveal listener is registered exactly once.
+  const folderTargets = useFolderOpenTargets(activeWorkspaceId, gitProbePath ?? '')
 
   if (!activeWorkspace) return null
 
@@ -406,6 +457,59 @@ export function WorkspaceIdentity({
         return (idx >= 0 ? trimmed.slice(idx + 1) : trimmed) || trimmed
       })()
     : null
+
+  // The ladder, read once. Each flag is "this segment is still on the strip".
+  const showChipWords = fold < 1
+  const openInline = fold < 2
+  const chipsInline = fold < 3
+
+  // Everything the ladder has taken off the strip, in the order it left. A row
+  // here does exactly what the segment it replaces did — the project row toggles
+  // Files, the branch row toggles Git — so folding changes where a control is,
+  // never what it does. The branch row spells its ±lines out in words: a menu
+  // row has the width the chip did not, and this is the one place the count can
+  // be read rather than glanced at.
+  const overflowItems: OverflowMenuItem[] = []
+  if (!chipsInline) {
+    if (folderPath && filesPanelEnabled && projectName) {
+      overflowItems.push({
+        id: 'identity-files',
+        label: `Files — ${projectName}`,
+        icon: <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />,
+        onSelect: toggleFilesPanel,
+      })
+    }
+    if (branchIsRepo && gitPanelEnabled) {
+      const branchRowLabel = branchName ?? 'detached'
+      overflowItems.push({
+        id: 'identity-git',
+        label: gitHasLineCounts
+          ? `Git — ${branchRowLabel} (+${gitLineCounts.additions} −${gitLineCounts.deletions})`
+          : gitHasChanges
+            ? `Git — ${branchRowLabel} (${gitChangeCount} changed)`
+            : `Git — ${branchRowLabel}`,
+        icon: <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />,
+        onSelect: toggleGitPanel,
+      })
+    }
+  }
+  if (!openInline && openPath && folderTargets.primaryTarget) {
+    if (overflowItems.length > 0) overflowItems.push({ kind: 'separator', id: 'identity-open-separator' })
+    for (const target of folderTargets.available) {
+      overflowItems.push({
+        id: `identity-open-${target}`,
+        // Named in full: "Open" alone was legible next to its own editor mark
+        // on the strip, and a menu row has neither that adjacency nor the
+        // chevron that listed the alternatives.
+        label: `Open in ${folderOpenTargetLabel(target, folderTargets.isMac)}`,
+        icon: <TargetGlyph target={target} />,
+        shortcut: target === 'finder' ? (folderTargets.isMac ? '⌘O' : 'Ctrl+O') : undefined,
+        // Remembered, exactly as picking it from the split button's menu is:
+        // choosing a target here is the same choice.
+        onSelect: () => void folderTargets.openTarget(target, true),
+      })
+    }
+  }
 
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -493,14 +597,15 @@ export function WorkspaceIdentity({
        * spaced peers rather than one dot sitting between only the first pair.
        * Both segments are subtle chips (hover fill, not a resting border) and opt
        * out of the drag region so they stay clickable.
+       *
+       * At fold 1 they keep the glyph and the ±lines and drop the WORDS — the
+       * tooltip was already carrying the full path and the full branch name, so
+       * nothing needs a new home yet. At fold 3 they leave the strip entirely
+       * for the overflow menu below.
        */}
-      {folderPath ? (
+      {chipsInline && folderPath ? (
         filesPanelEnabled ? (
-          <Tooltip
-            content={folderPath}
-            placement="bottom"
-            wrapperClassName="hidden min-w-0 shrink-[100] md:flex"
-          >
+          <Tooltip content={folderPath} placement="bottom" wrapperClassName="flex min-w-0 shrink-[100]">
             <button
               type="button"
               onClick={toggleFilesPanel}
@@ -508,22 +613,22 @@ export function WorkspaceIdentity({
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-              <span className="min-w-0 truncate">{projectName}</span>
+              {showChipWords ? <span className="min-w-0 truncate">{projectName}</span> : null}
             </button>
           </Tooltip>
         ) : (
-          <span className="hidden min-w-0 shrink-[100] items-center gap-1 text-meta text-[color:var(--text-muted)] md:inline-flex">
+          <span className="flex min-w-0 shrink-[100] items-center gap-1 text-meta text-[color:var(--text-muted)]">
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            <span className="min-w-0 truncate">{projectName}</span>
+            {showChipWords ? <span className="min-w-0 truncate">{projectName}</span> : null}
           </span>
         )
       ) : null}
-      {branchIsRepo ? (
+      {chipsInline && branchIsRepo ? (
         gitPanelEnabled ? (
           <Tooltip
             content={branchName ?? 'Detached HEAD'}
             placement="bottom"
-            wrapperClassName="hidden min-w-0 shrink-[10] sm:flex"
+            wrapperClassName="flex min-w-0 shrink-[10]"
           >
             <button
               type="button"
@@ -532,14 +637,16 @@ export function WorkspaceIdentity({
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-              <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
+              {showChipWords ? (
+                <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
+              ) : null}
               {gitCountBadge}
             </button>
           </Tooltip>
         ) : (
-          <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-meta text-[color:var(--text-muted)] sm:inline-flex">
+          <span className="flex min-w-0 shrink-[10] items-center gap-1 text-meta text-[color:var(--text-muted)]">
             <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
+            {showChipWords ? <span className="min-w-0 truncate">{branchName ?? 'detached'}</span> : null}
             {gitCountBadge}
             {/* aria-hidden on the badge above: the numbers read visually, and
                 the words ride along here for AT — the same split the sidebar
@@ -555,9 +662,21 @@ export function WorkspaceIdentity({
        * It sits last, next to the branch it will open — the checkout is what the
        * project and branch segments were describing.
        */}
-      {openPath ? (
-        <OpenWorkspaceFolderButton workspaceId={activeWorkspaceId} openPath={openPath} />
+      {openInline && openPath ? <OpenWorkspaceFolderButton targets={folderTargets} /> : null}
+      {/*
+       * Where every folded segment goes. The strip's answer to "too narrow" is
+       * this menu, never a deleted control: at fold 2 it holds the editor
+       * targets, at fold 3 the project and branch rows join them. It is absent
+       * at fold 0/1 because it would hold nothing.
+       */}
+      {overflowItems.length > 0 ? (
+        <span className="app-no-drag inline-flex shrink-0">
+          <OverflowMenu ariaLabel="More workspace controls" triggerTooltip="More" items={overflowItems} />
+        </span>
       ) : null}
+      {/* Rendered here rather than inside the button so a launch that failed
+          from a MENU row still reports itself. */}
+      {folderTargets.failureNode}
     </div>
   )
 }

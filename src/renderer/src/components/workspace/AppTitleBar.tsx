@@ -17,6 +17,7 @@ import { FOCUS_RING_CLASS, IconButton, Popover, Tooltip } from '../ui'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
+import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
 import { WindowControls } from './WindowControls'
 import type { WorkspaceId } from '../../types/workspace'
 
@@ -241,6 +242,11 @@ export function AppTitleBar<MenuItem extends string>({
   // macOS keeps the traffic lights in the strip except in fullscreen, where
   // they vanish and the reserved gutter must collapse with them.
   const reserveTrafficLights = isMac && !isFullScreen
+  // How much room the left+centre block actually has. The identity cluster reads
+  // this to decide how much of itself to fold into its overflow menu — measured
+  // here rather than off the window because THIS block is what narrows when the
+  // sidebar opens, and the identity cluster is the only thing that can give.
+  const [fold, foldRef] = useMeasuredTitleBarFold()
   return (
     <div
       className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch border-b border-[color:var(--border-default)] bg-[color:var(--bg-title-strip)]`}
@@ -248,7 +254,7 @@ export function AppTitleBar<MenuItem extends string>({
       {/* Left + centre: window navigation then the workspace identity cluster.
           The block flex-grows so its unused tail is the strip's drag spacer;
           on macOS the traffic-light gutter leads. */}
-      <div className="flex min-w-0 flex-1 items-center">
+      <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
         {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
         <div className="flex shrink-0 items-center gap-0.5 px-1.5">
           <SidebarCollapseButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
@@ -259,7 +265,9 @@ export function AppTitleBar<MenuItem extends string>({
         {!isMac ? <WindowsMenuBar menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
         {/* Workspace identity cluster (min-w-0 so it truncates before the
             right-side controls are reached). */}
-        <div className="flex min-w-0 items-center pl-1 pr-2">{centerSlot}</div>
+        <div className="flex min-w-0 items-center pl-1 pr-2">
+          <TitleBarFoldProvider fold={fold}>{centerSlot}</TitleBarFoldProvider>
+        </div>
       </div>
 
       {/* Right: workspace controls, then global search + app-level surface

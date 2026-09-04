@@ -15,6 +15,7 @@ import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQu
 import { PanelSwitches } from './PanelSwitches'
 import { AppMenuButton } from './SidebarChrome'
 import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
+import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
 import type { WorkspaceId } from '../../types/workspace'
 
 type WorkspaceHeaderProps<MenuItem extends string> = {
@@ -133,11 +134,16 @@ export function WorkspaceHeader<MenuItem extends string>({
   // traffic-light inset (mac) / app-menu (win-linux) and the open-sidebar /
   // search / New Agent launcher relocate to the header's left.
   const reserveTrafficLights = sidebarCollapsed && isMac && !isFullScreen
+  // How much room the left block actually has, so the identity cluster knows how
+  // much of itself to fold into its overflow menu. Measured off THIS block
+  // rather than the window: it is what narrows when the sidebar opens, and the
+  // identity cluster is the only thing in the strip that can give.
+  const [fold, foldRef] = useMeasuredTitleBarFold()
   return (
     <div className="app-drag flex h-[36px] shrink-0 items-center border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
       {/* Left: (collapsed) window launcher, then panel switches + identity. */}
-      <div className="flex min-w-0 flex-1 items-center">
+      <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
         {sidebarCollapsed ? (
           <div className="flex shrink-0 items-center gap-0.5 pl-1.5">
             {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
@@ -165,7 +171,9 @@ export function WorkspaceHeader<MenuItem extends string>({
             <div className={`flex shrink-0 items-center gap-0.5 ${sidebarCollapsed ? '' : 'pl-1.5'}`}>
               <PanelSwitches activeWorkspaceId={activeWorkspaceId} leadingDivider={sidebarCollapsed} />
             </div>
-            <div className="flex min-w-0 items-center pl-1.5 pr-2">{identitySlot}</div>
+            <div className="flex min-w-0 items-center pl-1.5 pr-2">
+              <TitleBarFoldProvider fold={fold}>{identitySlot}</TitleBarFoldProvider>
+            </div>
           </>
         )}
       </div>

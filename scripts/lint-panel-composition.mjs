@@ -67,7 +67,7 @@ const ALLOW_LIST = new Map([
   ['PlainTerminalPanel.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['FleetTerminalPanel.tsx', 'Hosts xterm attached to ANOTHER machine (MC-2167). Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.'],
   ['FileExplorer.tsx', 'Tree surface with a bespoke folder-root + search bar header. Chrome was tokenised in T23 (hex=0); a deeper rebuild around PanelHeader + Tabs is still scheduled in the app-wide audit plan.'],
-  ['GitPanel.tsx', 'Git workspace surface still owns branch/status/filter chrome directly; scheduled for the Git panel rebuild before enforcing PanelHeader.'],
+  ['GitPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-04): the icon-only view Tabs strip AND the sync affordances share ONE band, in place of a PanelHeader identity row above them. Both halves of that title were already on screen — the pane tab this panel lives in is labelled "Git", and "Up to date" is what the absence of the Pull/Push buttons means — so the header cost 36px of a narrow pane to say nothing new. Mirrors SwitchboardWorkspacePanel/SprintEngineBoardPanel: the surface owns richer chrome than PanelHeader allows.'],
   ['GitGraphView.tsx', 'Graph sub-view rendered inside GitPanel; the parent panel owns the operational chrome.'],
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],

@@ -65,7 +65,7 @@ export type { CliProbeStatus, CliProviderHealth, CliProviderState } from './cliP
 export { SplitButton } from './SplitButton'
 export type { SplitButtonItem, SplitButtonProps } from './SplitButton'
 export { PointerPopover } from './PointerPopover'
-export { Tabs, TabPanel } from './Tabs'
+export { Tabs, TabPanel, TabsScroller } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'
 export type { TaskCardProps, TaskCardVariant } from './TaskCard'

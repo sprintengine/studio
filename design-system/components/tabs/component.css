@@ -20,6 +20,15 @@
   border-bottom: 0;
 }
 
+/* …and then the tab must NOT pull itself a pixel past its own box: the line it
+ * would be reaching for belongs to a band it is only a passenger in, and that
+ * band's overflow container clips the overhang — which is exactly the pixel the
+ * active underline lives in. A borderless strip's underline sits on the tab's
+ * own bottom edge. */
+.ds-tabs--borderless .ds-tab {
+  margin-bottom: 0;
+}
+
 /* Each tab overlaps the row hairline by 1px so its underline draws ON the
  * border rather than stacking a second line above it. */
 .ds-tab {
@@ -92,6 +101,79 @@
 
 .ds-tab[aria-selected='true'] .ds-tab-underline {
   background: var(--sem-color-accent-primary);
+}
+
+/* ── Icon-only ───────────────────────────────────────────────────────────
+ * A strip whose choices have settled glyphs, on a band that cannot spend the
+ * width on words — a panel's own chrome row, shared with its actions. The
+ * label does not disappear: it becomes the tab's accessible name AND its
+ * tooltip, so the word is one hover (or one focus) away and is still what
+ * assistive tech reads.
+ *
+ * This is the ONE licensed way to drop a tab's label. A tab with no label and
+ * no tooltip is a blank button, and a strip that drops labels merely to look
+ * tidier has traded a name for nothing. */
+.ds-tabs--icon-only .ds-tab {
+  width: var(--sem-size-control-sm);
+  justify-content: center;
+  padding: 0;
+}
+
+/* Icon-only tabs step the glyph up to the toolbar size: here the glyph IS the
+ * control, not a mark beside the word that is. */
+.ds-tabs--icon-only .ds-tab-icon svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* An icon-only tab draws no count. A number pinned to a 30px glyph covers the
+ * mark it is badging as soon as it reaches two digits, and a row of five badged
+ * glyphs is a row of alarms — so every count goes in the tooltip beside the
+ * name ("Log · 3,057 commits"). */
+.ds-tabs--icon-only .ds-tab-count {
+  display: none;
+}
+
+/* ── Overflow ────────────────────────────────────────────────────────────
+ * A strip that can outgrow its band scrolls sideways inside this wrapper. It
+ * never draws a scrollbar: a scrollbar under the tabs is a second horizontal
+ * line in a band that already has one, and on a 36px strip it eats a third of
+ * the row. The overflow says so itself instead — each edge with content past
+ * it fades to transparent, so a clipped tab reads as "there is more this way"
+ * rather than as a tab that has been cut in half.
+ *
+ * The fade is a MASK, not a gradient painted over the row: the strip sits on
+ * three different backgrounds across the product, and an overlay would have to
+ * know which one.
+ *
+ * The host also routes a plain vertical wheel to `scrollLeft` — a horizontal
+ * row has no vertical axis to spend the gesture on, and a wheel over a row of
+ * tabs is the gesture people actually make. */
+.ds-tabs-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ds-tabs-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+/* Set by the host on the edges that actually overflow; an edge with nothing
+ * past it must not fade, or the row looks clipped when it is complete. The
+ * gradient stops are a mask's alpha channel (opaque / transparent), not ink,
+ * so no colour token can express them. */
+.ds-tabs-scroller--fade-start {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
+}
+
+.ds-tabs-scroller--fade-start.ds-tabs-scroller--fade-end {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); /* ds-lint-allow: mask alpha channel, not ink */
 }
 
 /* ── Panel ───────────────────────────────────────────────────────────────

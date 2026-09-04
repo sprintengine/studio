@@ -15,6 +15,7 @@ when they are destinations.
 
 | Part | Class | Required |
 |---|---|---|
+| Scroller | `.ds-tabs-scroller` | no — the overflow wrapper: scrolls sideways, never draws a scrollbar, fades each overflowing edge |
 | Tab list | `.ds-tabs` | yes — `role="tablist"` with an `aria-label`, one bottom hairline |
 | Tab | `.ds-tab` | yes — `role="tab"` buttons, `font.size.meta` |
 | Icon | `.ds-tab-icon` | no — a leading glyph, `aria-hidden` |
@@ -34,7 +35,15 @@ label, not the hit area.
   `border.default` hairline.
 - **`--borderless`** — no hairline; a parent container owns the row's border.
   Needed when the tab row shares its band with trailing inline controls —
-  one chrome band, one line.
+  one chrome band, one line. Its tabs also drop the 1px overlap: the line they
+  would reach for is a band they are passengers in, and the band's overflow
+  container clips the overhang — which is the pixel the active underline lives
+  in, so the overlap costs a borderless strip its selection marker entirely.
+- **`--icon-only`** — each tab renders its glyph alone on a
+  `size.control.sm` square, the glyph steps up to `icon.size.sm`, and the
+  label becomes the tab's accessible name *and* its tooltip. For a strip on a
+  band that cannot spend width on words — a panel's own chrome row, shared
+  with that panel's actions. Every item must carry an icon.
 
 ## States
 
@@ -64,6 +73,21 @@ active one. Tab from the active tab lands in the panel, not on the next tab.
 **Counts are canonical.** A count on a tab is the count of that view. Do not
 repeat it inside the panel where the two could disagree.
 
+**An icon-only tab keeps its name, it just stops drawing it.** The label
+becomes `aria-label` and the tooltip, so the word is one hover or one focus
+away and unchanged for assistive tech. Dropping the label without either is a
+blank button, and it is the only thing this variant can get wrong. It draws no
+count at all: a number pinned to a 30px glyph covers the mark it is badging as
+soon as it reaches two digits, and five badged glyphs is a row of alarms. Put
+the count in the tooltip beside the name ("Log · 3,057 commits").
+
+**A strip that can outgrow its band scrolls, it does not squeeze.** Wrap it in
+`.ds-tabs-scroller`: tabs stay `shrink-0`, the row scrolls sideways, and the
+overflowing edges fade. Never a scrollbar — under a 36px band it is a second
+horizontal line and a third of the row's height. The host routes a plain
+vertical wheel to `scrollLeft`, because a horizontal row has no vertical axis
+to spend that gesture on.
+
 **The panel is a tab stop.** It is usually a scroll container, so it takes
 `tabindex="0"` — otherwise keyboard users cannot scroll it. Only the active
 panel is rendered; inactive panels are unmounted, not hidden.
@@ -79,8 +103,13 @@ panel is rendered; inactive panels are unmounted, not hidden.
   `focus.ring-offset`): it sits at the edge of a scrolling region, where an
   outward ring is clipped. Without it a focusable panel falls back to the UA
   outline — the one treatment the system cannot theme.
-- Icons on tabs are `aria-hidden`; the label carries the name. An icon-only
-  tab is not a variant this component has.
+- Icons on tabs are `aria-hidden`; the label carries the name. On the
+  `--icon-only` variant the glyph stays `aria-hidden` and the label moves to
+  the tab's `aria-label`, so the accessible name is identical in both
+  variants — the tooltip is the sighted user's version of the same string,
+  and it opens on focus as well as hover.
+- An icon-only tab's count lives in its tooltip and its `aria-label`, not in a
+  badge, so the number is announced once and read once.
 - Disabled tabs keep their label readable (`opacity`, not an ink swap to
   `text.disabled` alone) and are skipped by arrow navigation.
 
@@ -99,5 +128,8 @@ All in `src/renderer/src/components/ui/Tabs.tsx`:
 
 ## Shipped implementation
 
-`src/renderer/src/components/ui/Tabs.tsx`, exporting `Tabs` (the strip) and
-`TabPanel` (the panel bound to it by `aria-controls` / `aria-labelledby`).
+`src/renderer/src/components/ui/Tabs.tsx`, exporting `Tabs` (the strip, with
+the `iconOnly` prop and the per-item `tooltip`), `TabPanel` (the panel bound to
+it by `aria-controls` / `aria-labelledby`), and `TabsScroller` (the overflow
+wrapper — it owns the wheel routing and measures which edges actually overflow
+before it fades them).

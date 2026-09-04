@@ -125,7 +125,15 @@ export function WorkspaceAsideColumn({
       // tab order: focus stranded in hidden chrome types into a hidden terminal.
       {...(collapsed ? ({ inert: '' } as Record<string, string>) : {})}
       className={[
-        'flex shrink-0 flex-col overflow-hidden bg-[color:var(--bg-canvas)]',
+        'flex shrink-0 flex-col overflow-hidden',
+        // Docked, the column is a gutter beside the card and sits on the app
+        // ground with the workspace sidebar. FILLING, it is not a gutter — it
+        // covers the card, so it has to be the card's own opaque surface.
+        // `--bg-canvas` is `transparent` under the glass window material (the
+        // canvas layers go clear so the OS frost shows and the tint is painted
+        // once, on body), which is why a maximised pane on glass showed the
+        // workspace's FlexLayout tab strip straight through its own tab strip.
+        fill ? 'bg-[color:var(--bg-surface)]' : 'bg-[color:var(--bg-canvas)]',
         // Filling: the column floats over the card row (the caller's
         // `relative` wrapper) below the 36px WorkspaceHeader rather than
         // growing beside the content, so the header's controls stay reachable

@@ -3082,6 +3082,22 @@ body:has([data-selection-pane]:focus-within)
   border: 2px solid transparent;
 }
 
+/* A horizontal strip that scrolls without ever drawing a scrollbar (the pane
+   tab row, the Git view strip). A 10px bar under a 36px band of chrome is a
+   second horizontal line the band did not ask for and cost the strip a third of
+   its height; the edge fade the scroller paints says "there is more" instead.
+   Firefox/standard first, WebKit second — Electron needs the second. */
+.strip-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.strip-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .app-drag {
   -webkit-app-region: drag;
 }
