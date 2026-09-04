@@ -20,6 +20,7 @@ import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
 import { marketplaceApi } from './api/marketplace'
+import { hostedModelFeedApi } from './api/hosted-model-feed'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
@@ -65,6 +66,7 @@ const api = {
   ...builtinSkillsApi,
   ...clipboardApi,
   ...cliRuntimeApi,
+  ...hostedModelFeedApi,
   ...mobileBridgeApi,
   ...filesystemApi,
   ...soulsApi,

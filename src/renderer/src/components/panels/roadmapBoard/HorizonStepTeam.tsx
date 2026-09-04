@@ -86,6 +86,7 @@ export function HorizonStepTeam({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
+  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const registry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
@@ -98,6 +99,7 @@ export function HorizonStepTeam({
         appCliRuntimes,
         { map: cliAvailability, status: cliAvailabilityStatus },
         cliModelCatalog,
+        hostedModelCatalogs,
       ),
     [
       pluginCatalogStatus,
@@ -106,6 +108,7 @@ export function HorizonStepTeam({
       cliAvailability,
       cliAvailabilityStatus,
       cliModelCatalog,
+      hostedModelCatalogs,
     ],
   )
 

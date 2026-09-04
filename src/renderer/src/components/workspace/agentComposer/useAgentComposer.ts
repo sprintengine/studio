@@ -183,6 +183,8 @@ type UseAgentComposerOptions = {
   // MCP servers to open with already picked (the connector "New chat" entry
   // points). Seeds the picks only; each stays removable like a hand-picked one.
   initialMcpServers?: AgentComposerConnector[] | null
+  /** Skills a parked New chat draft carried; absent starts with none. */
+  initialSkills?: WorkspaceSkill[] | null
 }
 
 // Shared state + store-derived data for every AgentComposer surface (the New
@@ -196,6 +198,7 @@ export function useAgentComposer({
   conversationAvailable,
   initialSelection,
   initialMcpServers,
+  initialSkills,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const specialistCliDefaults = useWorkspaceStore(
@@ -213,6 +216,7 @@ export function useAgentComposer({
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
 
   const specialistActions = useSpecialistRoster()
   const agentCliOptions = React.useMemo(
@@ -220,8 +224,8 @@ export function useAgentComposer({
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
+      }, undefined, hostedModelCatalogs),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, hostedModelCatalogs],
   )
   // General offers the same CLI + model catalog as specialists; it is just
   // another keyed agent, its defaults living under GENERAL_AGENT_ENGINE_KEY.
@@ -245,7 +249,7 @@ export function useAgentComposer({
   )
   // The Skills & MCPs picks, carried onto the confirm in pick order; state
   // dies with the composer when the surface closes.
-  const [skills, setSkills] = React.useState<WorkspaceSkill[]>([])
+  const [skills, setSkills] = React.useState<WorkspaceSkill[]>(() => initialSkills ?? [])
   // Optional "+ Worktree" attachment: null = off; a string (possibly empty =
   // auto-name) means the spawn should create a worktree and run the agent there.
   const [worktreeName, setWorktreeName] = React.useState<string | null>(null)

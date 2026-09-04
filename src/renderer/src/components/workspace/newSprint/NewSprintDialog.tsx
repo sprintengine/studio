@@ -255,6 +255,7 @@ export default function NewSprintDialog({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
+  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const lastSpawnPermissionPreset = useWorkspaceStore(
@@ -291,7 +292,7 @@ export default function NewSprintDialog({
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }, cliModelCatalog),
+      }, cliModelCatalog, hostedModelCatalogs),
     [
       pluginCatalogStatus,
       pluginCatalogEntries,
@@ -299,6 +300,7 @@ export default function NewSprintDialog({
       cliAvailability,
       cliAvailabilityStatus,
       cliModelCatalog,
+      hostedModelCatalogs,
     ],
   )
 

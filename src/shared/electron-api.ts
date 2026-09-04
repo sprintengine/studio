@@ -3357,6 +3357,12 @@ export type ElectronApi = {
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
+  // The hosted model feed (src/shared/hosted-model-feed.ts). `get` is the disk
+  // copy with no network; `refresh` may fetch (the client's TTL decides unless
+  // forced); `changed` fires after any read that replaced the feed.
+  hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
+  hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
+  onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>

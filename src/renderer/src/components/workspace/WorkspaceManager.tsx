@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from '../../store/onboardingState'
+import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { EmptyState as KitEmptyState, PrimaryButton } from '../ui'
 import { Modal } from '../ui/Modal'
@@ -14,6 +14,7 @@ import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../
 import { resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
+import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
@@ -39,13 +40,9 @@ import type {
   AgentExecution,
   AppNotification,
   FuturePlanWorkspaceSource,
-  LayoutTemplate,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
-  SprintEngineRoleId,
-  SprintEngineRoleModelOverrides,
   Workspace,
-  WorkspaceMode,
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../../types/workspace'
@@ -65,7 +62,6 @@ import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToA
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import {
   type AgentComposerConfirm,
   type AgentComposerConnector,
@@ -94,6 +90,7 @@ import { SidebarChrome } from './SidebarChrome'
 import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
 import { showToast } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
@@ -116,8 +113,6 @@ import { isWorkspacePaneFocused } from './pane/paneFocus'
 import { closePaneTabAndItsTerminal, paneTerminalSessionId } from './pane/paneTerminals'
 import {
   claimSprintCreationForDoor,
-  consumeSprintCreationDoorClaim,
-  noteSprintDoorSelection,
   releaseSprintCreationDoorClaim,
   subscribeCloseSprintWorkspaceRequests,
   subscribeNewSprintRequests,
@@ -138,6 +133,7 @@ import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
   recordNavigationVisit,
+  NEW_CHAT_NAV_ENTRY,
   stepNavigationHistory,
   type NavHistoryEntry,
   type WorkspaceNavigationHistory,
@@ -175,14 +171,16 @@ import type { PaletteScope } from '../commandPaletteSearch'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
-// Lazy so the (large) new-workspace wizard — and everything it pulls in
-// (GuidedBriefFlow, the markdown renderer) — is code-split out of the eager boot
-// chunk and only fetched when the user opens "new workspace". Rendered only when
-// showNewWorkspacePanel is true.
-const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
-// until the user starts the chat. Code-split like NewWorkspacePanel; rendered
-// only when the New chat door or the tab strip's "+" asks for it.
+// until the user starts the chat. Code-split out of the eager boot chunk;
+// rendered only when the New chat door or the tab strip's "+" asks for it.
+//
+// This is the ONE way in (owner, 2026-09-04). The New workspace hub — the
+// five-tab creation modal whose Workspace tab minted the old Editor-plus-one-
+// agent layout — is gone: New chat searches the projects, browses the disk,
+// imports from Git and picks the engine, which is everything the wizard asked
+// for. Sprints are created from the Sprints door; Design Wizard and
+// Switchboard get a door when they ship, not a creation entry before.
 //
 // One surface, two destinations (MC-2147): pressing "+" retypes a tab into the
 // agent's terminal; New chat creates a solo workspace in the picked project.
@@ -224,7 +222,7 @@ function newChatFolderLabel(path: string): string {
 }
 
 // Automations is a content-area destination (not a modal): it renders inside the
-// workspace card in place of workspace content, like the new-workspace panel.
+// workspace card in place of workspace content, like the New chat door.
 // Lazy so the control center + schema-driven editor stay out of the boot chunk.
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
@@ -407,6 +405,7 @@ export default function WorkspaceManager() {
   // keeps whatever owns it underneath.
   const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
   const closeModalSurface = useWorkspaceStore((s) => s.closeModalSurface)
+  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
@@ -427,6 +426,7 @@ export default function WorkspaceManager() {
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
+  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -546,20 +546,6 @@ export default function WorkspaceManager() {
       cancelled = true
     }
   }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry])
-  const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
-  const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
-  // The one way the creation hub goes away. Every route out of it — cancelling,
-  // Cmd-W, switching workspace, opening New chat, the palette, and creating a
-  // workspace — runs through here, because each of them also ends the Sprints
-  // door's claim on the next sprint creation (item 1811). A route that only hid
-  // the panel left the claim armed, and the next sprint started from anywhere
-  // bounced back to the door. Creation reads the claim first (handleCreate); this
-  // releases it for everyone else.
-  const dismissNewWorkspacePanel = useCallback(() => {
-    setShowNewWorkspacePanel(false)
-    setNewWorkspacePanelInitialState(null)
-    releaseSprintCreationDoorClaim()
-  }, [])
   // The pre-creation New Chat panel's scope. Present while the panel is open;
   // folderPath is the project the chat lands in (null → inherit active),
   // folderLabel names it in the panel's scoping chip, and connector is the
@@ -645,10 +631,10 @@ export default function WorkspaceManager() {
   const appliedTerminalVisibilityRef = useRef<Map<string, boolean>>(new Map())
   const collapsedStaleDetachedWindowsRef = useRef(false)
   // A full-canvas pre-creation surface owns the window: the workspace under it
-  // is not what the chrome is describing any more. The New chat door counts for
-  // the same reason the New workspace panel does — and the tab strip's "+" does
-  // NOT, because that one lives inside a workspace whose header is still true.
-  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel && !newChatPanelOpen
+  // is not what the chrome is describing any more. The New chat door counts —
+  // and the tab strip's "+" does NOT, because that one lives inside a workspace
+  // whose header is still true.
+  const workspaceActionsEnabled = activeWorkspace && !newChatPanelOpen
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
   // Per-window visit history backing mouse back/forward workspace navigation.
   // Transient shell state: a ref (not store state) because navigation must not
@@ -892,15 +878,12 @@ export default function WorkspaceManager() {
   //     have any agent CLI", and refuses to answer until the probe resolves;
   //   - the region check keeps it out of the way of whatever the user is
   //     already looking at.
-  // Deliberately NOT gated on having a workspace: a user who dismisses the
-  // creation hub on an empty profile still deserves the answer. The hub itself
-  // no longer races it on a fresh profile — the auto-open below waits on the
-  // same probe (MC-2094) — so `!showNewWorkspacePanel` stops being the thing
-  // that made this card unreachable and goes back to being what it reads as.
+  // Deliberately NOT gated on having a workspace: a user who closes New chat
+  // on an empty profile still deserves the answer. New chat does not race it
+  // on a fresh profile — the auto-open below waits on the same probe (MC-2094).
   const showFirstRunCliCard =
     shouldShowFirstRunCliCard({ cliAvailabilityStatus, cliAvailability, firstRunCliCardDismissed })
     && !activeGlobalSurfaceEntry
-    && !showNewWorkspacePanel
     && !newChatPanelOpen
 
   // The open door's human name, for the rail's accessible name and the error
@@ -1019,32 +1002,6 @@ export default function WorkspaceManager() {
     return () => window.removeEventListener('keydown', onKey)
   }, [activeGlobalSurfaceEntry, surfaceRegionEl, leaveGlobalSurface])
 
-  // The one way the creation hub opens, on whatever the caller preselected.
-  //
-  // Every opener closes the active door surface: the hub mounts inside the
-  // workspace-card container, which is inert and painted over while a door is
-  // active — without this the click is a visible no-op and the armed panel pops
-  // up later (same contract as openNewChatPanel / the New-sprint door flow).
-  //
-  // Opening also releases the Sprints door's claim on the next sprint creation
-  // (item 1811): the wizard now on screen is the one this caller opened. The door
-  // re-claims immediately after asking for its own, so the claim always belongs to
-  // the wizard the operator is actually looking at.
-  const presentNewWorkspacePanel = useCallback((initialState: NewWorkspacePanelInitialState | null) => {
-    setNewWorkspacePanelInitialState(initialState)
-    setShowNewWorkspacePanel(true)
-    releaseSprintCreationDoorClaim()
-    closeGlobalSurface()
-    // closeModalSurface also clears the settings request — it is the whole of
-    // "no modal, clean settings" here.
-    closeModalSurface()
-    setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeModalSurface])
-
-  const openNewWorkspacePanel = useCallback(() => {
-    presentNewWorkspacePanel(null)
-  }, [presentNewWorkspacePanel])
-
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
     const existingNames = new Set(folderWorkspaces.map((workspace) => workspace.name.trim().toLowerCase()))
@@ -1066,7 +1023,7 @@ export default function WorkspaceManager() {
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }, cliModelCatalog),
+      }, cliModelCatalog, hostedModelCatalogs),
     [
       pluginCatalogStatus,
       pluginCatalogEntries,
@@ -1074,6 +1031,7 @@ export default function WorkspaceManager() {
       cliAvailability,
       cliAvailabilityStatus,
       cliModelCatalog,
+      hostedModelCatalogs,
     ],
   )
   // The CLI a new spawn should launch: the remembered one when it is installed,
@@ -1146,6 +1104,103 @@ export default function WorkspaceManager() {
     [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
   )
   const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
+  // Bring over an existing Claude Code / Codex setup, silently, at the first
+  // workspace creation. This used to be a question on the wizard's essentials
+  // step — "we found N, adopt them?" — whose answer was replayed here. There is
+  // no card now, so it adopts everything it finds, once per profile.
+  //
+  // It cannot run any earlier: `agent-config-import.ts` requires a real
+  // `workspaceRoot` that passes `isDirectory()`, and until this moment there is
+  // no folder. The outcome is read out as one line in Settings → Agents — and a
+  // failure says so, because silently dropping an adoption is worse than
+  // admitting it failed.
+  const runFirstRunAgentConfigAdoption = useCallback(
+    (workspaceRoot: string | null) => {
+      // Early-out before the detect IPC, not just before the write: a profile
+      // that already adopted should not probe the user's home directory again on
+      // every workspace it ever creates.
+      if (hasAdoptedAgentConfig) return
+      // No root, nothing to adopt into: a chat started with no project picked
+      // (or on a remote machine) is not a failure to report — the flag stays
+      // unset and the next rooted creation adopts.
+      if (!workspaceRoot) return
+      // The persisted flag is only set once the adopt IPC returns, so two creates
+      // in quick succession would both pass the check above and adopt twice. The
+      // ref closes that window synchronously.
+      if (adoptionInFlightRef.current) return
+      adoptionInFlightRef.current = true
+      void (async () => {
+        try {
+          let detected: { mcpServerKeys: string[]; skillKeys: string[] } | null = null
+          try {
+            const detection = await window.api.detectExistingAgentConfig()
+            if (!detection.ok) {
+              // Detection itself failed. Report it and leave the profile
+              // un-adopted so the next workspace creation tries again — claiming
+              // "adopted" here would bury a real failure under a flag.
+              setAgentConfigAdoptionResult({ status: 'failed', message: detection.message })
+              return
+            }
+            detected = {
+              mcpServerKeys: detection.mcpServers.map((server) => server.key),
+              // Non-adoptable skills (custom ones) are visible in Settings but
+              // never travel through this path.
+              skillKeys: detection.skills.filter((skill) => skill.adoptable).map((skill) => skill.key),
+            }
+          } catch (error) {
+            setAgentConfigAdoptionResult({
+              status: 'failed',
+              message: error instanceof Error ? error.message : String(error),
+            })
+            return
+          }
+
+          const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig, workspaceRoot, detected })
+          if (plan.kind === 'skip') return
+          if (plan.kind === 'nothing-detected') {
+            // A real answer, and a silent one: a user who never had Claude Code
+            // or Codex has nothing to be told about. The profile is still marked
+            // so the detect probe never runs again.
+            markAgentConfigAdopted()
+            return
+          }
+          if (plan.kind === 'missing-root') {
+            setAgentConfigAdoptionResult(plan.result)
+            return
+          }
+
+          setAgentConfigAdoptionResult({ status: 'adopting' })
+          try {
+            const result = await window.api.adoptAgentConfig({
+              workspaceRoot: plan.workspaceRoot,
+              mcpServerKeys: plan.mcpServerKeys,
+              skillKeys: plan.skillKeys,
+            })
+            if (result.ok) {
+              markAgentConfigAdopted()
+              setAgentConfigAdoptionResult({
+                status: 'adopted',
+                mcpServerCount: result.adoptedMcpServers.length,
+                skillCount: result.adoptedSkills.length,
+                warnings: result.warnings,
+              })
+            } else {
+              setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
+            }
+          } catch (error) {
+            setAgentConfigAdoptionResult({
+              status: 'failed',
+              message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        } finally {
+          adoptionInFlightRef.current = false
+        }
+      })()
+    },
+    [hasAdoptedAgentConfig, markAgentConfigAdopted, setAgentConfigAdoptionResult],
+  )
+
   // Create a fresh single-agent "solo chat" workspace. `folderPath === undefined`
   // inherits the active workspace's folder (the plain New chat default); an
   // explicit value (sidebar) targets that folder. `seedAgent` opens a specific
@@ -1180,15 +1235,19 @@ export default function WorkspaceManager() {
       seedAgent: opts.seedAgent,
       ...(opts.worktree ? { worktree: opts.worktree } : {}),
     })
-    dismissNewWorkspacePanel()
+    // A real workspace root now exists — for a fresh profile this is the first
+    // one — which is the earliest point an existing agent config can be
+    // adopted. Guarded once-per-profile inside; a chat with no project, or a
+    // remote one, has no local root and passes null, which is skipped quietly.
+    runFirstRunAgentConfigAdoption(targetFolderPath)
     closeSettingsOverlay()
     setNotificationsOpen(false)
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
-    dismissNewWorkspacePanel,
     pickNewChatName,
+    runFirstRunAgentConfigAdoption,
     workspaceWindowId,
   ])
 
@@ -1264,27 +1323,25 @@ export default function WorkspaceManager() {
       folderPath: targetFolderPath,
       windowId: workspaceWindowId,
     })
-    dismissNewWorkspacePanel()
+    // Same first-root adoption as the solo chat: the launch surface in the tab
+    // creates the agent later, but the root exists now.
+    runFirstRunAgentConfigAdoption(targetFolderPath)
     closeSettingsOverlay()
     setNotificationsOpen(false)
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
-    dismissNewWorkspacePanel,
     pickNewChatName,
+    runFirstRunAgentConfigAdoption,
     workspaceWindowId,
   ])
 
-  const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
-    presentNewWorkspacePanel({ folderPath })
-  }, [presentNewWorkspacePanel])
-
   // The one way the New sprint dialog opens (MC-2062) — the sidebar's New
   // sprint, the Sprints door's New sprint, and every plan-sourced entry
-  // (`initialFuturePlan`) all land here. Mirrors presentNewWorkspacePanel: the
-  // dialog overlays the workspace card region, so whatever owns that region
-  // steps aside, and the Sprints-door claim resets to whoever opened this one.
+  // (`initialFuturePlan`) all land here. The dialog overlays the workspace card
+  // region, so whatever owns that region steps aside, and the Sprints-door claim
+  // resets to whoever opened this one.
   const openNewSprintDialog = useCallback(
     (initial?: { folderPath?: string | null; source?: FuturePlanWorkspaceSource | null }) => {
       setNewSprintDialogState({
@@ -1295,9 +1352,10 @@ export default function WorkspaceManager() {
           ?? null,
         initialSource: initial?.source ?? null,
       })
-      // One dismissal route for the creation hub (item 1811), so opening the
-      // dialog releases whatever claim came before, exactly like the wizard.
-      dismissNewWorkspacePanel()
+      // Opening releases whatever claim came before (item 1811): the dialog now
+      // on screen is the one this caller opened, and the door re-claims
+      // immediately after asking for its own.
+      releaseSprintCreationDoorClaim()
       setNewChatPanelState(null)
       closeGlobalSurface()
       // The New sprint dialog is a Modal of its own: an open modal surface
@@ -1306,18 +1364,8 @@ export default function WorkspaceManager() {
       closeModalSurface()
       setNotificationsOpen(false)
     },
-    [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel],
+    [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface],
   )
-
-  // Open the creation hub preselected on a type — the sidebar "+" menu rows.
-  // Sprint creation is no longer a wizard flow: its row opens the dialog.
-  const openNewWorkspacePanelWithMode = useCallback((mode: WorkspaceMode) => {
-    if (mode === 'sprintengine') {
-      openNewSprintDialog()
-      return
-    }
-    presentNewWorkspacePanel({ mode })
-  }, [openNewSprintDialog, presentNewWorkspacePanel])
 
   // "New sprint" on the Sprints door (item 1763). A door-routed surface is
   // zero-prop by contract, so it signals instead of calling — and because the
@@ -1330,7 +1378,6 @@ export default function WorkspaceManager() {
   // before) and released again by every route back out of it (item 1811).
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
-    dismissNewWorkspacePanel()
     // Primary+, is a global shortcut, so it fires through the New sprint
     // dialog's focus trap: that dialog closes (claim released, item 1811)
     // rather than stacking a second Modal under the Settings one — one Escape
@@ -1340,7 +1387,7 @@ export default function WorkspaceManager() {
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [closeNewSprintDialog, dismissNewWorkspacePanel, openSettingsOverlay])
+  }, [closeNewSprintDialog, openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
@@ -1359,10 +1406,10 @@ export default function WorkspaceManager() {
         // as the per-project panel's own action does; the rail's bare "New
         // sprint" opens it with nothing chosen.
         if (source) openFuturePlanWorkspace(source)
-        else openNewWorkspacePanelWithMode('sprintengine')
+        else openNewSprintDialog()
         claimSprintCreationForDoor()
       }),
-    [closeGlobalSurface, openFuturePlanWorkspace, openNewWorkspacePanelWithMode],
+    [closeGlobalSurface, openFuturePlanWorkspace, openNewSprintDialog],
   )
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
@@ -1374,7 +1421,7 @@ export default function WorkspaceManager() {
     // The one-shot startup tip. It used to wait for the onboarding wizard to
     // finish, then suppress itself for the session that walked it — the wizard is
     // gone, but the reason for that suppression is not: a profile with no
-    // workspaces yet is mid-setup, with the creation hub open over everything,
+    // workspaces yet is mid-setup, with New chat open over everything,
     // and the tip modal (which has no focus trap) would stack on top of it and
     // leak Tab to the surface behind. So a first-run session decides "no tip" and
     // stays decided; the tip returns on the next launch, once a workspace exists.
@@ -1406,6 +1453,17 @@ export default function WorkspaceManager() {
   // so plugins installed or removed while the user was away show up without an
   // app reload. Background mode avoids a loading flicker; refreshPluginCatalog
   // dedups concurrent calls during rapid focus changes.
+  // The hosted model feed: the disk copy at boot so pickers never wait on the
+  // network, then every push from main (the poller, or Settings "Check now")
+  // replaces the hosted layer and every picker re-derives its rows.
+  useEffect(() => {
+    const store = useWorkspaceStore.getState()
+    void store.loadHostedModelFeed()
+    return subscribeHostedModelFeedChanges((result) =>
+      useWorkspaceStore.getState().applyHostedModelFeedResult(result),
+    )
+  }, [])
+
   useEffect(
     () =>
       subscribePluginCatalogRefreshOnFocus(() => {
@@ -1667,25 +1725,28 @@ export default function WorkspaceManager() {
     return () => window.clearTimeout(timeout)
   }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
-  // Auto-open the new-workspace panel when there are no workspaces — unless the
-  // first-run CLI question still owns that window (MC-2094). Precedence lives
-  // HERE, at the opener, not on the card: the card's own "don't fight for the
-  // region" gate below stays exactly as it is, and it is satisfied because the
-  // hub simply has not opened yet. A scalar boolean, not the availability map, is
-  // what the effect depends on — a background re-probe hands back a fresh map
-  // object every time, and depending on that would re-open a hub the user closed.
-  const autoOpenCreationHub = shouldAutoOpenCreationHub({
+  // Auto-open New chat when there are no workspaces — unless the first-run CLI
+  // question still owns that window (MC-2094). Precedence lives HERE, at the
+  // opener, not on the card: the card's own "don't fight for the region" gate
+  // above stays exactly as it is, and it is satisfied because New chat simply
+  // has not opened yet. A scalar boolean, not the availability map, is what the
+  // effect depends on — a background re-probe hands back a fresh map object
+  // every time, and depending on that would re-open a panel the user closed.
+  const autoOpenNewChat = shouldAutoOpenNewChat({
     workspaceCount: railWorkspaces.length,
     cliAvailabilityStatus,
     cliAvailability,
     firstRunCliCardDismissed,
   })
+  // Read through a ref: the presenter's identity follows the active folder,
+  // and the effect must fire on the boolean's transition alone. Present, not
+  // open: the auto-open never closes a door or modal the person is in.
+  const presentNewChatPanelRef = useRef<(folderPath?: string | null) => void>(() => {})
 
   useEffect(() => {
-    if (autoOpenCreationHub) {
-      setShowNewWorkspacePanel(true)
-    }
-  }, [autoOpenCreationHub])
+    // No explicit folder: a parked draft's project resumes, else no project.
+    if (autoOpenNewChat) presentNewChatPanelRef.current()
+  }, [autoOpenNewChat])
 
   useEffect(() => {
     let disposed = false
@@ -1879,142 +1940,6 @@ export default function WorkspaceManager() {
     [closeWorkspaceById],
   )
 
-  // Bring over an existing Claude Code / Codex setup, silently, at the first
-  // workspace creation. This used to be a question on the wizard's essentials
-  // step — "we found N, adopt them?" — whose answer was replayed here. There is
-  // no card now, so it adopts everything it finds, once per profile.
-  //
-  // It cannot run any earlier: `agent-config-import.ts` requires a real
-  // `workspaceRoot` that passes `isDirectory()`, and until this moment there is
-  // no folder. The outcome is read out as one line in Settings → Agents — and a
-  // failure says so, because silently dropping an adoption is worse than
-  // admitting it failed.
-  const runFirstRunAgentConfigAdoption = useCallback(
-    (workspaceRoot: string | null) => {
-      // Early-out before the detect IPC, not just before the write: a profile
-      // that already adopted should not probe the user's home directory again on
-      // every workspace it ever creates.
-      if (hasAdoptedAgentConfig) return
-      // The persisted flag is only set once the adopt IPC returns, so two creates
-      // in quick succession would both pass the check above and adopt twice. The
-      // ref closes that window synchronously.
-      if (adoptionInFlightRef.current) return
-      adoptionInFlightRef.current = true
-      void (async () => {
-        try {
-          let detected: { mcpServerKeys: string[]; skillKeys: string[] } | null = null
-          try {
-            const detection = await window.api.detectExistingAgentConfig()
-            if (!detection.ok) {
-              // Detection itself failed. Report it and leave the profile
-              // un-adopted so the next workspace creation tries again — claiming
-              // "adopted" here would bury a real failure under a flag.
-              setAgentConfigAdoptionResult({ status: 'failed', message: detection.message })
-              return
-            }
-            detected = {
-              mcpServerKeys: detection.mcpServers.map((server) => server.key),
-              // Non-adoptable skills (custom ones) are visible in Settings but
-              // never travel through this path.
-              skillKeys: detection.skills.filter((skill) => skill.adoptable).map((skill) => skill.key),
-            }
-          } catch (error) {
-            setAgentConfigAdoptionResult({
-              status: 'failed',
-              message: error instanceof Error ? error.message : String(error),
-            })
-            return
-          }
-
-          const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig, workspaceRoot, detected })
-          if (plan.kind === 'skip') return
-          if (plan.kind === 'nothing-detected') {
-            // A real answer, and a silent one: a user who never had Claude Code
-            // or Codex has nothing to be told about. The profile is still marked
-            // so the detect probe never runs again.
-            markAgentConfigAdopted()
-            return
-          }
-          if (plan.kind === 'missing-root') {
-            setAgentConfigAdoptionResult(plan.result)
-            return
-          }
-
-          setAgentConfigAdoptionResult({ status: 'adopting' })
-          try {
-            const result = await window.api.adoptAgentConfig({
-              workspaceRoot: plan.workspaceRoot,
-              mcpServerKeys: plan.mcpServerKeys,
-              skillKeys: plan.skillKeys,
-            })
-            if (result.ok) {
-              markAgentConfigAdopted()
-              setAgentConfigAdoptionResult({
-                status: 'adopted',
-                mcpServerCount: result.adoptedMcpServers.length,
-                skillCount: result.adoptedSkills.length,
-                warnings: result.warnings,
-              })
-            } else {
-              setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
-            }
-          } catch (error) {
-            setAgentConfigAdoptionResult({
-              status: 'failed',
-              message: error instanceof Error ? error.message : String(error),
-            })
-          }
-        } finally {
-          adoptionInFlightRef.current = false
-        }
-      })()
-    },
-    [hasAdoptedAgentConfig, markAgentConfigAdopted, setAgentConfigAdoptionResult],
-  )
-
-  const handleCreate = ({
-    template,
-    name,
-    folderPath,
-    sprintEngineState,
-    sprintEngineContext,
-    sprintEngineRoleCliDefaults,
-    sprintEngineAgentCliOverrides,
-    sprintEngineRoleModelOverrides,
-    sprintEngineInitialSpawnRoles,
-    sprintEngineAutoState,
-    guidedBriefState,
-    mode,
-  }: {
-    template: LayoutTemplate
-    name: string
-    folderPath: string | null
-    sprintEngineState?: Workspace['sprintEngineState']
-    sprintEngineContext?: Workspace['sprintEngineContext']
-    sprintEngineRoleCliDefaults?: Workspace['sprintEngineRoleCliDefaults'] | null
-    sprintEngineAgentCliOverrides?: Record<string, AgentCli> | null
-    sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
-    sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
-    sprintEngineAutoState?: Partial<Workspace['sprintEngineAutoState']> | null
-    guidedBriefState?: Workspace['guidedBriefState'] | null
-    mode?: Workspace['mode']
-  }) => {
-    addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
-    // Read the door's claim before dismissing the wizard — dismissal releases it.
-    const cameFromSprintsDoor = consumeSprintCreationDoorClaim()
-    dismissNewWorkspacePanel()
-    // Started at the Sprints door: return there on the run that was just created
-    // (item 1765). The workspace is still made and still resident — it holds the
-    // terminals — but reading the run is the door's job, and "Open agents" on the
-    // canvas is the deliberate way into the workspace.
-    if (cameFromSprintsDoor && mode === 'sprintengine' && sprintEngineContext?.statePath) {
-      noteSprintDoorSelection(sprintEngineContext.statePath)
-      openGlobalSurface('sprints')
-    }
-    // A real workspace root now exists, which is the earliest point an existing
-    // agent config can be adopted. Guarded once-per-profile inside.
-    runFirstRunAgentConfigAdoption(folderPath)
-  }
 
   const deleteWorkspaceWithState = useCallback(
     async (id: string) => {
@@ -2246,7 +2171,7 @@ export default function WorkspaceManager() {
     // terminal (same node, same place) and the user's prompt rides along.
     placement?: AgentSpawnPlacement,
   ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (!windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -2314,7 +2239,7 @@ export default function WorkspaceManager() {
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
   ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (!windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -2376,7 +2301,7 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     placement?: AgentSpawnPlacement,
   ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (!windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -2434,7 +2359,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewTerminal = (placement?: AgentSpawnPlacement) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
+    if (!windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
     // From a new-agent tab, the shell opens in that tab rather than beside it.
     if (
@@ -2570,20 +2495,48 @@ export default function WorkspaceManager() {
   // scopes the chat to that project (folder/workspace-row menus). `connector`
   // opens the composer with that connector attached (the connector "New chat"
   // entry points). Nothing is created here — the panel's confirm does that.
-  const openNewChatPanel = useCallback((
+  //
+  // A parked draft resumes (new-chat-survives-back-and-forward): with no
+  // explicit folder, the door reopens on the project the draft was scoped to,
+  // and the panel seeds itself from the draft under `workspaceWindowId`. An
+  // explicit folder (a context-menu "New chat in project") wins for the
+  // project, and the draft is rescoped onto it — words and images travel,
+  // project-bound picks do not.
+  //
+  // `presentNewChatPanel` is the state half alone — the panel is set, nothing
+  // else is disturbed. The first-run auto-open uses it: that fires whenever
+  // this window's workspace count reaches zero, and closing the door or modal
+  // the person is in at that moment (closing the last project from the Sprints
+  // door, opening Settings before the CLI probe resolves) is not what an
+  // auto-open may do. The panel simply waits under whatever is open.
+  const presentNewChatPanel = useCallback((
     folderPath?: string | null,
     connector?: AgentComposerConnector | null,
   ) => {
-    const resolved = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
+    // A draft with nothing in it — no words, no images, no picks — is not a
+    // draft, and resuming it would only pin the project and engine of the last
+    // open onto every New chat after it. It is dropped here; the reopen scopes
+    // to the active workspace like a first open.
+    let parked = readNewChatDraft(workspaceWindowId)
+    if (parked && !newChatDraftHasContent(parked)) {
+      clearNewChatDraft(workspaceWindowId)
+      parked = null
+    }
+    const resolved =
+      folderPath === undefined ? parked?.folderPath ?? activeWorkspace?.folderPath ?? null : folderPath
+    rescopeNewChatDraft(workspaceWindowId, resolved)
     setNewChatPanelState({
       folderPath: resolved,
       folderLabel: resolved ? newChatFolderLabel(resolved) : null,
       connector: connector ?? null,
     })
-    // The New Chat panel renders only in the non-hub branch: leaving the
-    // creation hub open would make this click a visible no-op and leave the
-    // armed panel to pop up later (first-run keeps the hub pinned open).
-    dismissNewWorkspacePanel()
+  }, [activeWorkspace?.folderPath, workspaceWindowId])
+  presentNewChatPanelRef.current = presentNewChatPanel
+  const openNewChatPanel = useCallback((
+    folderPath?: string | null,
+    connector?: AgentComposerConnector | null,
+  ) => {
+    presentNewChatPanel(folderPath, connector)
     // The panel mounts inside the workspace-card container, which is inert and
     // painted over while a door surface is active — the door closes first or
     // this click is a visible no-op (same contract as the New-sprint flow). An
@@ -2593,10 +2546,22 @@ export default function WorkspaceManager() {
     closeGlobalSurface()
     closeModalSurface()
     setNotificationsOpen(false)
-  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel])
-  const closeNewChatPanel = () => {
+  }, [closeGlobalSurface, closeModalSurface, presentNewChatPanel])
+  // Closing ON PURPOSE — ×, Escape, or the chat starting — is the one thing
+  // besides launch that forgets the draft. Every other way off the door
+  // (Back, a sidebar click, a door, the New sprint dialog) only parks it:
+  // `setNewChatPanelState(null)` alone.
+  const closeNewChatPanel = useCallback(() => {
     setNewChatPanelState(null)
-  }
+    clearNewChatDraft(workspaceWindowId)
+  }, [workspaceWindowId])
+  // The project the door is scoped to rides with the draft, so a reopen lands
+  // on the project the person last picked — Browse, the selector, or a clone.
+  const newChatPanelFolderPath = newChatPanelState?.folderPath
+  useEffect(() => {
+    if (newChatPanelFolderPath === undefined) return
+    writeNewChatDraft(workspaceWindowId, { folderPath: newChatPanelFolderPath })
+  }, [newChatPanelFolderPath, workspaceWindowId])
 
   // The Extensions door's host-action seam (MC-1847 B1): the door is a
   // zero-prop registered surface, so the shell's three connector routes are
@@ -2630,9 +2595,21 @@ export default function WorkspaceManager() {
       )
     },
     onUseInAutomation: () => {
-      // The route to author a connector automation; the connector
-      // pre-selection lands in T8. openNewWorkspacePanel closes the door.
-      openNewWorkspacePanel()
+      // The route to author a connector automation is the Automations modal
+      // (doors→modals, 2026-09-01); the connector pre-selection lands in T8.
+      // Plugins is itself a modal, so the hop is modal→modal and whatever door
+      // is underneath stays. The button renders whether or not the module is
+      // on, and the modal host resolves a disabled module to nothing — say so
+      // rather than let the click land silently.
+      if (!selectModuleEnabled(moduleEnablement, 'automations')) {
+        showToast({
+          tone: 'warn',
+          title: 'Automations is turned off',
+          description: 'Turn the Automations module on in Settings → Modules to use a connector in an automation.',
+        })
+        return
+      }
+      openModalSurface('automations')
     },
   }
   useEffect(() => {
@@ -2696,16 +2673,23 @@ export default function WorkspaceManager() {
     })
     return { ok: true, path: cloned.path }
   }, [])
-  // Switching workspaces dismisses the pre-creation panel: the user has moved
-  // on, and the panel would otherwise sit over the newly revealed workspace.
+  // Switching workspaces parks the pre-creation panel: the user has moved on,
+  // and the panel would otherwise sit over the newly revealed workspace. The
+  // draft stays parked — Forward, or the next New chat, resumes it.
   useEffect(() => {
     setNewChatPanelState(null)
   }, [windowActiveWorkspaceId])
+  // So does opening a door. Left mounted under the door's inert canvas the
+  // panel kept its window-level Escape listener, and Escape meant to leave the
+  // door closed the panel ON PURPOSE instead — draft gone, door still up.
+  // Parked, it comes back through history (Back from the door lands on it).
+  useEffect(() => {
+    if (activeGlobalSurfaceEntry) setNewChatPanelState(null)
+  }, [activeGlobalSurfaceEntry])
   // Map the composer's confirm to the existing new-chat spawn handlers (which
   // persist lastNewChatAgent and seed the solo workspace), then close the panel.
-  // `folderPathOverride` lets the embedded composer in the unified New Agent panel
-  // (the 'chat' pseudo-type) spawn in the wizard's chosen folder rather than the
-  // standalone panel's; omitting it keeps the standalone New chat behavior.
+  // `folderPathOverride` is the project the door's own selector picked;
+  // omitting it falls back to the panel's scope.
   const confirmNewChat = (
     confirm: AgentComposerConfirm,
     folderPathOverride?: string | null,
@@ -2833,7 +2817,6 @@ export default function WorkspaceManager() {
     if (commandId === 'commandPalette.open' || commandId === 'search.files.open') {
       setPaletteScope(commandId === 'search.files.open' ? 'files' : 'all')
       setShowPalette(true)
-      dismissNewWorkspacePanel()
       setSessionsOpen(false)
       setAttentionQueueOpen(false)
       setViewMenuOpen(false)
@@ -2842,10 +2825,6 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'diagnostics.open') {
       setDiagnosticsOpen(true)
-      return true
-    }
-    if (commandId === 'workspace.new') {
-      openNewWorkspacePanel()
       return true
     }
     if (commandId === 'chat.new') {
@@ -2884,9 +2863,18 @@ export default function WorkspaceManager() {
             const surface = getRendererHost().getGlobalSurface(entry.id)
             return surface !== undefined && selectModuleEnabled(moduleEnablement, surface.moduleId)
           }
-          // A workspace entry is the current location only when no door overlays
-          // it; otherwise Back from a door to its own underlying workspace is valid.
-          if (!activeGlobalSurface && entry.id === windowActiveWorkspaceId) return false
+          // The New chat door is a place (new-chat-survives-back-and-forward):
+          // reachable while it is not the one showing AND something is parked
+          // there — after × or a launch there is nothing to return to, and an
+          // empty New chat is not a place worth a Back. It needs no workspace;
+          // it opens over the empty stage too.
+          if (entry.kind === 'new-chat') {
+            return !newChatPanelOpen && newChatDraftHasContent(readNewChatDraft(workspaceWindowId))
+          }
+          // A workspace entry is the current location only when nothing
+          // overlays it; otherwise Back from a door — or from New chat — to its
+          // own underlying workspace is valid.
+          if (!activeGlobalSurface && !newChatPanelOpen && entry.id === windowActiveWorkspaceId) return false
           // Assignment, not rail membership: history holds places the operator
           // actually visited, and a rail-hidden workspace is reached by explicit
           // activation (the Sprints door's "Open agents"). Gating on the rail
@@ -2896,9 +2884,17 @@ export default function WorkspaceManager() {
       )
       if (!step) return false
       workspaceNavigationHistoryRef.current = step.history
-      dismissNewWorkspacePanel()
-      // Opening the door sets the surface without touching the underlying
-      // workspace; activating a workspace clears any open door as a side effect.
+      if (step.entry.kind === 'new-chat') {
+        // Reopen on the parked draft (openNewChatPanel closes any door itself).
+        openNewChatPanel()
+        return true
+      }
+      // Stepping off New chat parks it — explicitly, because Back to the very
+      // workspace it sits over changes no workspace id and would otherwise
+      // leave the panel showing. Opening the door sets the surface without
+      // touching the underlying workspace; activating a workspace clears any
+      // open door as a side effect.
+      setNewChatPanelState(null)
       if (step.entry.kind === 'surface') {
         openGlobalSurface(step.entry.id)
       } else {
@@ -2913,7 +2909,6 @@ export default function WorkspaceManager() {
         commandId === 'workspace.switch.previous' ? -1 : 1,
       )
       if (!nextWorkspaceId) return false
-      dismissNewWorkspacePanel()
       setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
       return true
     }
@@ -2921,7 +2916,6 @@ export default function WorkspaceManager() {
       const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
       const workspace = railWorkspaces[workspaceIndex]
       if (!workspace) return false
-      dismissNewWorkspacePanel()
       setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
       return true
     }
@@ -2930,10 +2924,6 @@ export default function WorkspaceManager() {
       return cycleActiveLayoutTab(windowActiveWorkspaceId, commandId === 'layout.tab.previous' ? -1 : 1)
     }
     if (commandId === 'layout.tab.close') {
-      if (showNewWorkspacePanel) {
-        if (railWorkspaces.length > 0) dismissNewWorkspacePanel()
-        return true
-      }
       if (!windowActiveWorkspaceId) return false
       // Primary+W closes the pane's active tab while the pane owns focus; the
       // binding keeps its FlexLayout meaning everywhere else. Read live, not
@@ -3051,8 +3041,8 @@ export default function WorkspaceManager() {
     return false
   }, [
     openSettings,
-    openNewWorkspacePanel,
     openNewChatPanel,
+    newChatPanelOpen,
     sidebarCollapsed,
     setSidebarCollapsed,
     windowActiveWorkspaceId,
@@ -3063,7 +3053,6 @@ export default function WorkspaceManager() {
     visibleWorkspaceIdSet,
     setActiveWorkspaceForWindow,
     workspaceWindowId,
-    showNewWorkspacePanel,
     terminalSessions,
     moduleEnablement,
     addNewSpecialist,
@@ -3112,14 +3101,16 @@ export default function WorkspaceManager() {
   ])
 
   // The window's current navigation location: a door surface takes precedence
-  // over the workspace it overlays (the door is what you're looking at), so
-  // opening or leaving a door is itself a visit. Resolves to null only before
-  // anything is active.
+  // over the workspace it overlays (the door is what you're looking at), then
+  // the New chat door over its workspace for the same reason, so opening or
+  // leaving either is itself a visit. Resolves to null only before anything is
+  // active.
   const currentNavLocation = useMemo<NavHistoryEntry | null>(() => {
     if (activeGlobalSurfaceEntry && activeGlobalSurface) return { kind: 'surface', id: activeGlobalSurface }
+    if (newChatPanelOpen) return NEW_CHAT_NAV_ENTRY
     if (windowActiveWorkspaceId) return { kind: 'workspace', id: windowActiveWorkspaceId }
     return null
-  }, [activeGlobalSurfaceEntry, activeGlobalSurface, windowActiveWorkspaceId])
+  }, [activeGlobalSurfaceEntry, activeGlobalSurface, newChatPanelOpen, windowActiveWorkspaceId])
 
   // Record every change of location, whatever caused it (sidebar click, palette,
   // switch commands, opening a door, sync events). Back/forward navigation moves
@@ -3137,15 +3128,8 @@ export default function WorkspaceManager() {
     const onMouseUp = (event: MouseEvent) => {
       // Chromium reports the mouse back button as 3 and forward as 4.
       if (event.button !== 3 && event.button !== 4) return
-      // With the pre-creation New Chat panel open, back means "leave the
-      // panel": dismiss it and stay on the workspace underneath, never
-      // navigate history through the overlay.
-      if (event.button === 3 && newChatPanelOpen) {
-        event.preventDefault()
-        event.stopPropagation()
-        closeNewChatPanel()
-        return
-      }
+      // The New chat door is a history location of its own (its draft parks),
+      // so the mouse buttons walk history through it like anywhere else.
       const commandId = event.button === 3 ? 'workspace.history.back' : 'workspace.history.forward'
       // A command disabled through the Shortcuts tab opts the buttons out
       // entirely; the untouched event then reaches whatever surface wants it.
@@ -3159,7 +3143,7 @@ export default function WorkspaceManager() {
     }
     window.addEventListener('mouseup', onMouseUp, true)
     return () => window.removeEventListener('mouseup', onMouseUp, true)
-  }, [runCommand, disabledCommandIds, newChatPanelOpen])
+  }, [runCommand, disabledCommandIds])
 
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {
@@ -3250,8 +3234,7 @@ export default function WorkspaceManager() {
   // staffs its own agents, and a hand-spawned terminal in that strip would read
   // as a run member without being one.
   const canOpenNewAgentTab =
-    !showNewWorkspacePanel
-    && Boolean(windowActiveWorkspaceId)
+    Boolean(windowActiveWorkspaceId)
     && activeWorkspace?.mode === 'standard'
 
   const openNewAgentTab = () => {
@@ -3372,7 +3355,6 @@ export default function WorkspaceManager() {
       })
     }
 
-    dismissNewWorkspacePanel()
     setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
     setSessionsOpen(false)
 
@@ -3538,7 +3520,9 @@ export default function WorkspaceManager() {
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
-          dismissNewWorkspacePanel()
+          // Park explicitly: selecting the very workspace New chat sits over
+          // changes no workspace id, and the id-keyed park would not fire.
+          setNewChatPanelState(null)
           setActiveWorkspaceForWindow(workspaceWindowId, id)
         }}
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
@@ -3546,10 +3530,7 @@ export default function WorkspaceManager() {
         onCloseWorkspace={closeWorkspaceById}
         onDeleteWorkspaceWithState={deleteWorkspaceWithState}
         onForgetFolder={handleForgetFolder}
-        onNewWorkspace={openNewWorkspacePanel}
-        onNewWorkspaceInFolder={openNewWorkspacePanelForFolder}
         onNewChat={() => openNewChatPanel()}
-        onNewWorkspaceMode={openNewWorkspacePanelWithMode}
         onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
         onRevealFolder={handleRevealFolder}
         onSetSidebarCollapsed={setSidebarCollapsed}
@@ -3581,7 +3562,7 @@ export default function WorkspaceManager() {
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
         onOpenSearch={() => runCommand('commandPalette.open')}
-        onNewAgent={openNewWorkspacePanel}
+        onNewChat={() => openNewChatPanel()}
         menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
         // The New chat door has no lifted bar of its own; passing it here drops
@@ -3665,29 +3646,8 @@ export default function WorkspaceManager() {
             ? ({ inert: '' } as Record<string, string>)
             : {})}
         >
-          {showNewWorkspacePanel ? (
-            <React.Suspense fallback={<SuspenseFallback label="Loading workspace setup" />}>
-              <NewWorkspacePanel
-                onCreate={handleCreate}
-                onClose={dismissNewWorkspacePanel}
-                workspaceWindowId={workspaceWindowId}
-                allowClose={railWorkspaces.length > 0}
-                initialState={newWorkspacePanelInitialState}
-                onOpenNewSprintDialog={(folderPath) => openNewSprintDialog({ folderPath })}
-                chatComposer={{
-                  projectOptions: newChatProjectOptions,
-                  initialSelection: lastNewChatAgent ?? { kind: 'general' },
-                  permissionPreset: agentSpawnPermissionPreset,
-                  onChangePermissionPreset: setAgentSpawnPermissionPreset,
-                  debugMode: agentSpawnDebugMode,
-                  onChangeDebugMode: setAgentSpawnDebugMode,
-                  onConfirm: confirmNewChat,
-                }}
-              />
-            </React.Suspense>
-          ) : (
-            <>
-              {railWorkspaces.length === 0 && !activeWorkspace && <EmptyState onNew={openNewWorkspacePanel} />}
+          <>
+              {railWorkspaces.length === 0 && !activeWorkspace && <EmptyState onNew={() => openNewChatPanel()} />}
               {renderedWorkspaceIds.map((workspaceId) => {
                 const active = workspaceId === windowActiveWorkspaceId
                 // Cold = retained but neither active nor warm. Cold layers keep
@@ -3751,8 +3711,8 @@ export default function WorkspaceManager() {
                       debugMode={agentSpawnDebugMode}
                       onChangeDebugMode={setAgentSpawnDebugMode}
                       onLaunch={({ prompt, ...confirm }) => {
+                        // confirmNewChat closes the panel (and forgets the draft) itself.
                         confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
-                        closeNewChatPanel()
                       }}
                       // The promise itself, not a void wrapper: the panel's
                       // one-launch-at-a-time guard waits on it, and a wrapper
@@ -3760,6 +3720,9 @@ export default function WorkspaceManager() {
                       onLaunchRemote={confirmRemoteNewChat}
                       onCloneProject={cloneNewChatProject}
                       onClose={closeNewChatPanel}
+                      // The parked draft lives per window; the panel seeds
+                      // from it and writes through, the host clears it.
+                      draftKey={workspaceWindowId}
                       // The door has no tab to close, so the surface carries the
                       // control itself.
                       showCloseButton
@@ -3767,8 +3730,7 @@ export default function WorkspaceManager() {
                   </React.Suspense>
                 </div>
               ) : null}
-            </>
-          )}
+          </>
         </div>
         {/* Fourth mount kind (global-surfaces epic 1704): a door-routed full-page
             surface pre-empts the workspace card region. It paints OVER the retained
@@ -3820,7 +3782,7 @@ export default function WorkspaceManager() {
           </div>
         ) : null}
         {/* The one first-run question the app cannot answer for itself. Held back
-            while anything else owns the region — a door, the creation hub, the new
+            while anything else owns the region — a door, the New chat door, the new
             chat panel — so it lands on a workspace the user has already reached
             rather than competing with the thing they opened. On a fresh profile
             nothing else has the region: the hub's auto-open waits for this
@@ -3921,7 +3883,6 @@ export default function WorkspaceManager() {
         <React.Suspense fallback={null}>
           <CommandPalette
             onClose={() => setShowPalette(false)}
-            onNewWorkspace={openNewWorkspacePanel}
             onNewChat={() => createNewChatWorkspace()}
             onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
             onSpawnSpecialist={handleSelectSpecialist}
@@ -4197,7 +4158,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <KitEmptyState
       title="No workspace open"
-      action={<PrimaryButton onClick={onNew}>New workspace</PrimaryButton>}
+      action={<PrimaryButton onClick={onNew}>New chat</PrimaryButton>}
     />
   )
 }
