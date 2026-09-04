@@ -37,12 +37,17 @@ export type DiscoveredCliModelCatalog = {
 }
 
 // Which layer a merged row came from. A row present in several layers reports
-// the strongest claim: user > discovered > manifest. Never rendered as words —
-// it drives layering here and the user-added glyph in the Settings CLI detail.
-export type CliModelOrigin = 'manifest' | 'discovered' | 'user'
+// the strongest claim: user > discovered > hosted > manifest. Never rendered as
+// words — it drives layering here and the user-added glyph in the Settings CLI
+// detail. `hosted` is the model feed fetched from GitHub
+// (src/shared/hosted-model-feed.ts): curated like the manifest, but live.
+export type CliModelOrigin = 'manifest' | 'hosted' | 'discovered' | 'user'
 
 export type MergedCliModelOption = PluginModelOption & {
   origin: CliModelOrigin
+  // From the hosted layer only. The picker's "New" chip reads it against
+  // HOSTED_MODEL_NEW_FOR_DAYS; manifest, discovered, and user rows have none.
+  releasedAt?: string
 }
 
 // The picker-facing catalog: PluginModelCatalog with every row source-tagged.

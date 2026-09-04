@@ -1,4 +1,5 @@
 import type { TailnetDevice, TailnetPairRequest, TailnetRemoteStatus } from '../../../../shared/tailnet'
+import type { TailnetPeer, TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import type { Tone } from '../ui'
 
 // The Remote (tailnet) settings panel's view model, kept DOM-free so the rules
@@ -123,39 +124,66 @@ export function outstandingPairingNote(pairing: { scopes: string[]; expiresAt: s
   return `A pairing code is already active — ${pairingExpiry(pairing.expiresAt, now).toLowerCase()}, granting ${pairing.scopes.length} scopes. It can only be shown once, so create a new one if you no longer have it.`
 }
 
-/**
- * Where a device came from, in the words a person can place it by
- * (pair-from-the-scan-and-stay-paired, phase 5). The agent case names the
- * agent: a test grant an agent left behind is the row nobody could place.
- */
-export function deviceOriginText(device: Pick<TailnetDevice, 'origin'>): string {
-  const { kind, by } = device.origin
-  switch (kind) {
-    case 'approval':
-      return by ? `Paired by approval from ${by}` : 'Paired by approval'
-    case 'code':
-      return 'Paired by code'
-    case 'agent':
-      return by ? `Created by an agent (${by})` : 'Created by an agent'
-    case 'reverse':
-      return by ? `Granted when this Mac asked to drive ${by}` : 'Granted when this Mac asked to drive it'
-    case 'unknown':
-      return 'Paired before origins were kept'
-  }
-}
-
-/** The device list's secondary line: where it came from, scopes granted, and where it was last seen. */
+/** The device list's secondary line: scopes granted, and where it was last seen. */
 export function deviceSummary(device: TailnetDevice, formatDate: (value: string) => string): string {
   const scopes = device.scopes.length > 0 ? `${device.scopes.length} scopes` : 'No scopes'
   const seen = device.lastSeenAt
     ? `Last seen ${formatDate(device.lastSeenAt)}${device.lastPeerNode ? ` from ${device.lastPeerNode}` : ''}`
     : 'Never connected'
-  return `${deviceOriginText(device)} · ${scopes} · ${seen}`
+  return `${scopes} · ${seen}`
 }
 
-// The peer list moved to `components/remote/peerPickerModel.ts` (pair-from-
-// the-scan-and-stay-paired, phase 1): one view for Settings and the Fleet,
-// with Connect on the rows that can take it.
+export type PeerListView = {
+  /** What the list area says when it has nothing to show. Null when it has peers. */
+  emptyMessage: string | null
+  /** Peers, self last: it is context, not a target. */
+  peers: TailnetPeer[]
+  /** Count of peers that answered as a Studio — the ones actually connectable. */
+  studioCount: number
+}
+
+/**
+ * The peer list, and what to say when it is empty.
+ *
+ * Each empty case gets its own sentence because each has a different fix, and a
+ * single "no machines found" would send a person looking in the wrong place.
+ */
+export function peerListView(scan: TailnetPeerScan | null, scanning: boolean): PeerListView {
+  if (scanning && !scan) {
+    return { emptyMessage: 'Looking for machines on your tailnet.', peers: [], studioCount: 0 }
+  }
+  if (!scan) {
+    return { emptyMessage: 'Scan to see the machines on your tailnet.', peers: [], studioCount: 0 }
+  }
+  if (!scan.tailscaleAvailable) {
+    return { emptyMessage: scan.unavailableReason ?? 'Tailscale is not available on this machine.', peers: [], studioCount: 0 }
+  }
+
+  const others = scan.peers.filter((peer) => !peer.isSelf)
+  if (others.length === 0) {
+    return {
+      emptyMessage: 'This is the only machine on your tailnet. Add another and it appears here.',
+      peers: [],
+      studioCount: 0,
+    }
+  }
+  return {
+    emptyMessage: null,
+    peers: others,
+    studioCount: others.filter((peer) => peer.studio !== null).length,
+  }
+}
+
+/** A peer row's state, in the words a person can act on. */
+export function peerStatus(peer: TailnetPeer, probedPort: number): { label: string; tone: Tone } {
+  if (peer.studio) return { label: `Studio on port ${probedPort}`, tone: 'good' }
+  if (!peer.online) return { label: 'Offline', tone: 'neutral' }
+  // Online but silent on the probed port. We genuinely cannot tell "listener
+  // off" from "listening elsewhere" from "not running Studio", so the label
+  // says what we know rather than picking one.
+  return { label: `No Studio answering on port ${probedPort}`, tone: 'neutral' }
+}
+
 
 /**
  * A waiting request's secondary line: who is asking, and from where.

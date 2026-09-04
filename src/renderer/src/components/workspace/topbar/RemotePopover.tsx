@@ -1,28 +1,24 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { GhostButton, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, OutlineButton, PanelHeader, StatusDot } from '../../ui'
+import {
+  GhostButton,
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  OutlineButton,
+  PanelHeader,
+  PrimaryButton,
+  StatusDot,
+} from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { formatElapsedMs, formatRelativeMsAgo } from '../../../utils/relativeTime'
-import type { TailnetLiveDevice } from '../../../../../shared/tailnet'
-import type { FleetConnection } from '../../../../../shared/tailnet-fleet'
+import type { TailnetLiveDevice, TailnetPairRequest, TailnetScope } from '../../../../../shared/tailnet'
+import type { FleetLiveAttachment, FleetLinkState } from '../../../../../shared/tailnet-fleet'
+import type { StatusTone } from '../../ui/tokens'
+import { pairRequestAnswerable } from '../../settings/tailnetPanelModel'
 import { showToast } from '../../../store/toastStore'
-import { PairRequestCard } from '../../remote/PairRequestCard'
-import { OutboundPairRequestCard } from '../../remote/OutboundPairRequestCard'
-import {
-  fleetMachinePhase,
-  MACHINE_PHASE_DOT,
-  machinePhaseText,
-  machineRowAction,
-  type FleetMachinePhase,
-} from '../../remote/machineRowModel'
-
-// The machine-row vocabulary lives in `remote/machineRowModel.ts` now (pair-
-// from-the-scan-and-stay-paired, phase 4), shared with the Fleet; re-exported
-// so the glyph's tests keep one import.
-export { fleetMachinePhase, machinePhaseText, type FleetMachinePhase }
 
 // The Remote glyph's surface (remote-sessions-ux / remote-glyph-topbar):
 // what this machine is serving and who is driving it, then the machines this
@@ -40,13 +36,10 @@ export function RemotePopover({
   onOpenFleet: (() => void) | null
   onOpenRemoteSettings: () => void
 }) {
-  const { status, live, fleet, fleetAttachments, fleetRequests, fleetReachability } = presence
+  const { status, live, fleet, fleetAttachments } = presence
   const now = useRelativeNow(1000)
   const openSettingsLabel = 'Remote settings'
   const machineCount = fleet.length
-  // Where "Add a machine…" and "Pair again" go: the Fleet when a workspace
-  // can dock it, else Settings → Remote, which draws the same picker.
-  const openPicker = onOpenFleet ?? onOpenRemoteSettings
   return (
     <div className="w-[360px]">
       <PanelHeader
@@ -81,29 +74,34 @@ export function RemotePopover({
 
         <div className={MENU_DIVIDER_CLASS} role="separator" />
         <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Machines</div>
-        {/* Requests THIS machine made, waiting: the code to read out lives
-            here as well as in the panel that asked (phase 3). */}
-        {fleetRequests.map((request) => (
-          <OutboundPairRequestCard key={request.requestId} request={request} now={now} />
-        ))}
-        {fleet.length === 0 && fleetRequests.length === 0 ? (
-          <div className="px-2.5 pb-1 text-micro text-[color:var(--text-subtle)]">No machines paired.</div>
+        {fleet.length === 0 ? (
+          <div className="px-2.5 pb-1 text-micro text-[color:var(--text-subtle)]">
+            No machines paired. Pair one from the Fleet.
+          </div>
         ) : (
-          fleet.map((connection) => (
-            <MachineRow
-              key={connection.id}
-              connection={connection}
-              phase={fleetMachinePhase(connection.id, fleetAttachments, fleetReachability)}
-              now={now}
-              onPairAgain={openPicker}
-            />
-          ))
+          fleet.map((connection) => {
+            const phase = fleetMachinePhase(connection.id, fleetAttachments)
+            const dot = MACHINE_PHASE_DOT[phase.phase]
+            return (
+              <div key={connection.id} className="flex items-center gap-2 px-2.5 py-1.5 text-meta">
+                {/* One glyph vocabulary for anything remote (epic decision 7). */}
+                <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate font-medium text-[color:var(--text-default)]">{connection.machineName}</span>
+                    <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
+                      {connection.endpoint}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
+                    <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} />
+                    <span className="truncate">{machinePhaseText(connection.machineName, phase)}</span>
+                  </span>
+                </span>
+              </div>
+            )
+          })
         )}
-        <div className="px-2.5 pb-1 pt-0.5">
-          <GhostButton size="sm" onClick={openPicker}>
-            Add a machine…
-          </GhostButton>
-        </div>
       </div>
       <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-1.5">
         {onOpenFleet ? (
@@ -193,64 +191,181 @@ export function deviceLivenessText(device: Pick<TailnetLiveDevice, 'connectedSin
   return 'Connected'
 }
 
+// ── Machines: a per-machine phase from its attachments ───────────────────
+//
+// The fleet holds no per-machine supervisor (the live-state child's recorded
+// drift), so the phase is DERIVED from the links this app holds to it, the
+// same source that supplies connection status:
+// any live link → connected; otherwise any link dialling → connecting or
+// reconnecting; otherwise a link that gave up → offline; no link → paired.
+// Reachability of a machine nothing is attached to is not claimed.
+
+export type FleetMachinePhase =
+  | { phase: 'paired' }
+  | { phase: 'connecting'; detail: string }
+  | { phase: 'reconnecting'; detail: string }
+  | { phase: 'offline'; detail: string }
+  | { phase: 'connected'; liveSessions: number }
+
+export function fleetMachinePhase(
+  connectionId: string,
+  attachments: ReadonlyMap<string, FleetLiveAttachment>
+): FleetMachinePhase {
+  const mine = [...attachments.values()].filter((attachment) => attachment.connectionId === connectionId)
+  const liveSessions = new Set(mine.filter((a) => a.state === 'live').map((a) => a.sessionId))
+  if (liveSessions.size > 0) return { phase: 'connected', liveSessions: liveSessions.size }
+  const first = (state: FleetLinkState): FleetLiveAttachment | undefined => mine.find((a) => a.state === state)
+  const reconnecting = first('reconnecting')
+  if (reconnecting) return { phase: 'reconnecting', detail: reconnecting.detail }
+  const connecting = first('connecting')
+  if (connecting) return { phase: 'connecting', detail: connecting.detail }
+  const offline = first('offline')
+  if (offline) return { phase: 'offline', detail: offline.detail }
+  return { phase: 'paired' }
+}
+
+/** Connection phases use consistent tones: good steady, warn with a halo while transitional, error when the peer stopped answering, muted otherwise. */
+const MACHINE_PHASE_DOT: Record<FleetMachinePhase['phase'], { tone: StatusTone; pulse: boolean; label: string }> = {
+  connected: { tone: 'good', pulse: false, label: 'Connected' },
+  connecting: { tone: 'warn', pulse: true, label: 'Connecting' },
+  reconnecting: { tone: 'warn', pulse: true, label: 'Reconnecting' },
+  offline: { tone: 'error', pulse: false, label: 'Not answering' },
+  paired: { tone: 'neutral', pulse: false, label: 'Paired' },
+}
+
+export function machinePhaseText(machineName: string, phase: FleetMachinePhase): string {
+  switch (phase.phase) {
+    case 'connected':
+      return phase.liveSessions === 1 ? 'a terminal attached' : `${phase.liveSessions} terminals attached`
+    case 'connecting':
+      return `Connecting to ${machineName}…`
+    case 'reconnecting':
+      return `Reconnecting to ${machineName}…`
+    case 'offline':
+      return `${machineName} is not answering`
+    case 'paired':
+      return 'paired'
+  }
+}
+
+// The scope choices the card offers, in the mockup's four combined rows:
+// operate implies read within a family (shared/tailnet's own rule), so one
+// checkbox per family grants the pair, and the terminal tier — arbitrary
+// shell — stays its own named line, never bundled.
+const PAIR_SCOPE_ROWS: Array<{ label: string; scopes: TailnetScope[]; note?: string; defaultOn: boolean }> = [
+  { label: 'Workspaces — read & operate', scopes: ['workspace:read', 'workspace:operate'], defaultOn: true },
+  { label: 'Sprints — read & operate', scopes: ['sprint:read', 'sprint:operate'], defaultOn: true },
+  { label: 'Backlog — read & operate', scopes: ['backlog:read', 'backlog:operate'], defaultOn: true },
+  { label: 'Horizons — read & operate', scopes: ['horizon:read', 'horizon:operate'], defaultOn: true },
+  { label: 'Terminals — control', scopes: ['terminal:observe', 'terminal:control'], note: 'arbitrary shell', defaultOn: false },
+]
+
 /**
- * One paired machine: its phase from the links this app holds to it, or —
- * with none — from main's reachability check (phase 4), and the one action
- * the phase earns: Retry for a machine that stopped answering, Pair again
- * for one that revoked us.
+ * The ACTING surface for a request from another machine (remote-sessions-ux /
+ * incoming-pair-request-prompt): the six-digit comparison code rendered
+ * large — the person must see the same digits on the asker's screen — the
+ * scopes chosen HERE, a live countdown, Allow and Decline. Approval and
+ * denial go through the exact IPC Settings uses; resolution reaches every
+ * surface over the push channel, so no double-approve is possible. The code
+ * lives ONLY here and in Settings — never in the announcing toast.
  */
-function MachineRow({
-  connection,
-  phase,
-  now,
-  onPairAgain,
-}: {
-  connection: FleetConnection
-  phase: FleetMachinePhase
-  now: number
-  onPairAgain: () => void
-}) {
-  const [retrying, setRetrying] = React.useState(false)
-  const dot = MACHINE_PHASE_DOT[phase.phase]
-  const action = machineRowAction(phase)
-  const retry = async (): Promise<void> => {
-    if (retrying) return
-    setRetrying(true)
+function PairRequestCard({ request, now }: { request: TailnetPairRequest; now: number }) {
+  const [granted, setGranted] = React.useState<ReadonlySet<string>>(
+    () => new Set(PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).map((row) => row.label))
+  )
+  const [busy, setBusy] = React.useState<'allow' | 'decline' | null>(null)
+  const msLeft = Math.max(0, Date.parse(request.expiresAt) - now)
+  const minutes = Math.floor(msLeft / 60_000)
+  const seconds = Math.floor((msLeft % 60_000) / 1000)
+  const scopes = PAIR_SCOPE_ROWS.filter((row) => granted.has(row.label)).flatMap((row) => row.scopes)
+  // Settings' own rule: a lapsed request stays on screen until the channel
+  // clears it, with its buttons dead and the reason stated — not failing.
+  const answerable = pairRequestAnswerable(request, now)
+  const disabled = busy !== null || !answerable.canAnswer
+
+  const answer = async (kind: 'allow' | 'decline'): Promise<void> => {
+    if (busy) return
+    setBusy(kind)
     try {
-      await window.api.fleetCheckReachability(connection.id)
-      // The push channel updates the row; nothing to do locally.
+      // Allow is disabled at zero scopes, so `scopes` is always a real grant.
+      if (kind === 'allow') {
+        const result = await window.api.tailnetApprovePairRequest(request.id, scopes)
+        // `request_not_found` is an answer, not an exception — answered
+        // elsewhere or lapsed under the cursor — and swallowing it would
+        // leave a person who pressed Allow believing they had paired.
+        if (!result.ok) {
+          showToast({ tone: 'error', title: 'Could not approve the pair request', description: result.message })
+        }
+      } else await window.api.tailnetDenyPairRequest(request.id)
+      // The push channel clears the card everywhere; nothing to do locally.
     } catch (error) {
       showToast({
         tone: 'error',
-        title: `Could not check ${connection.machineName}`,
+        title: kind === 'allow' ? 'Could not approve the pair request' : 'Could not decline the pair request',
         description: error instanceof Error ? error.message : String(error),
       })
     } finally {
-      setRetrying(false)
+      setBusy(null)
     }
   }
+
   return (
-    <div className="flex items-center gap-2 px-2.5 py-1.5 text-meta" data-machine-phase={phase.phase}>
-      {/* One glyph vocabulary for anything remote (epic decision 7). */}
-      <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate font-medium text-[color:var(--text-default)]">{connection.machineName}</span>
-          <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{connection.endpoint}</span>
+    <div className="mx-2.5 my-1.5 rounded-[7px] border border-[color:var(--border-default)] p-2.5">
+      <div className="flex items-center gap-2 text-meta">
+        <StatusDot tone="warn" pulse label="Pair request" />
+        <span className="min-w-0 flex-1 truncate font-medium text-[color:var(--text-default)]">
+          {request.peerNode ?? request.peerAddress}{' '}
+          <span className="font-normal text-[color:var(--text-subtle)]">asks to pair</span>
         </span>
-        <span className="flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
-          <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} />
-          <span className="truncate">{machinePhaseText(connection.machineName, phase, now)}</span>
+      </div>
+      {/* Both identities, labelled: the node is what the transport proved
+          (Tailscale's whois, or the bare address, unverified); the device
+          name is whatever the asker typed. The approver must know which is
+          which — the digits below are compared against the PROVEN machine. */}
+      <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-micro">
+        <dt className="text-[color:var(--text-subtle)]">{request.peerNode ? 'Tailnet node' : 'Address (unverified)'}</dt>
+        <dd className="truncate font-mono text-[color:var(--text-default)]">{request.peerNode ?? request.peerAddress}</dd>
+        <dt className="text-[color:var(--text-subtle)]">Calls itself</dt>
+        <dd className="truncate text-[color:var(--text-default)]">{request.deviceName}</dd>
+      </dl>
+      <div className="my-2 rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-1.5 text-center font-mono text-title tracking-[0.3em] text-[color:var(--text-strong)]">
+        {request.comparisonCode}
+      </div>
+      <div className="flex flex-col gap-1 pb-2">
+        {PAIR_SCOPE_ROWS.map((row) => (
+          <label key={row.label} className="flex cursor-pointer items-center gap-2 text-meta text-[color:var(--text-default)]">
+            <input
+              type="checkbox"
+              className="accent-[color:var(--accent-primary)]"
+              checked={granted.has(row.label)}
+              onChange={(event) => {
+                setGranted((current) => {
+                  const next = new Set(current)
+                  if (event.target.checked) next.add(row.label)
+                  else next.delete(row.label)
+                  return next
+                })
+              }}
+            />
+            {row.label}
+            {row.note ? <span className="text-[color:var(--text-subtle)]">({row.note})</span> : null}
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-micro tabular-nums text-[color:var(--tone-warn)]">
+          {answerable.canAnswer ? `${minutes}:${String(seconds).padStart(2, '0')}` : 'Lapsed'}
         </span>
-      </span>
-      {action === 'retry' ? (
-        <GhostButton size="sm" onClick={() => void retry()} disabled={retrying}>
-          {retrying ? 'Checking…' : 'Retry'}
-        </GhostButton>
-      ) : action === 'pair-again' ? (
-        <OutlineButton size="sm" onClick={onPairAgain}>
-          Pair again
+        <span className="flex-1" />
+        <OutlineButton size="sm" disabled={disabled} onClick={() => void answer('decline')}>
+          {busy === 'decline' ? 'Declining…' : 'Decline'}
         </OutlineButton>
+        <PrimaryButton size="sm" disabled={disabled || scopes.length === 0} onClick={() => void answer('allow')}>
+          {busy === 'allow' ? 'Allowing…' : 'Allow'}
+        </PrimaryButton>
+      </div>
+      {answerable.note ? (
+        <p className="mt-1.5 text-micro text-[color:var(--text-subtle)]">{answerable.note}</p>
       ) : null}
     </div>
   )
@@ -274,13 +389,9 @@ export function remoteGlyphState(presence: TailnetPresence): {
   const connected =
     presence.live.devices.length > 0
     || [...presence.fleetLiveSessions.values()].some((sessions) => sessions.size > 0)
-  const degraded =
-    [...presence.fleetAttachments.values()].some(
-      (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline'
-    )
-    // A machine that revoked us is degraded too: it will not fix itself, and
-    // the glyph is where a person would look before opening anything.
-    || [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
+  const degraded = [...presence.fleetAttachments.values()].some(
+    (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline'
+  )
   return {
     // Hidden entirely while the feature is off — absent, not present-but-empty
     // (epic cross-cutting acceptance). A fleet-only user still gets it: paired

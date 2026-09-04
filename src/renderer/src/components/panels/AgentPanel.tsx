@@ -20,7 +20,8 @@ import {
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { IconButton, PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
-import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
+import { revealNavRailComponent } from '../../utils/modelRegistry'
+import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { bracketedPaste } from '../../utils/terminalDrop'
 import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
 import {
@@ -299,11 +300,13 @@ export default function AgentPanel({
   }
 
   // The Backlog item this agent was handed, if any. Powers the glyph that
-  // navigates back to it in the workspace pane's Backlog tab.
+  // navigates back to it: reveal the Backlog panel, then latch the item so the
+  // panel selects it whether it was already open or mounts on reveal.
   const backlogItemRef = agent?.backlogItemRef
   const openLinkedBacklogItem = () => {
     if (!backlogItemRef) return
-    revealBacklogItemInPane(workspaceId, backlogItemRef.relativePath)
+    revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
+    dispatchBacklogReveal({ workspaceId, relativePath: backlogItemRef.relativePath })
   }
 
   return (
@@ -416,8 +419,8 @@ export default function AgentPanel({
                   aria-label={`Open Backlog item: ${backlogItemRef.title}`}
                   className="bg-[color:var(--bg-surface-raised)]"
                 >
-                  {/* The same glyph as the header's Backlog switch and the pane's
-                      Backlog tab, so the iconography reads as "the Backlog". */}
+                  {/* Matches the Backlog rail glyph (PanelRail) so the iconography
+                      reads as "the Backlog" at a glance. */}
                   <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                     <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     <circle cx="3" cy="4.5" r="1" fill="currentColor" />

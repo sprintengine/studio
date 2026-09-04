@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { TailnetLiveState, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type {
-  FleetConnection,
-  FleetLiveAttachment,
-  FleetMachineReachability,
-  FleetPairRequestView,
-} from '../../../../../shared/tailnet-fleet'
+import type { FleetConnection, FleetLiveAttachment } from '../../../../../shared/tailnet-fleet'
 
 // The Remote glyph's one data source (remote-sessions-ux /
 // remote-glyph-topbar): the pushed tailnet payloads plus the fleet's
@@ -27,10 +22,6 @@ export type TailnetPresence = {
   fleetAttachments: ReadonlyMap<string, FleetLiveAttachment>
   /** connectionId → remote session ids with a LIVE attachment in this app. Derived from `fleetAttachments`. */
   fleetLiveSessions: ReadonlyMap<string, ReadonlySet<string>>
-  /** Requests this machine made that are still waiting to be answered (phase 3). Main owns the wait. */
-  fleetRequests: readonly FleetPairRequestView[]
-  /** connectionId → main's last reachability answer for that machine (phase 4). */
-  fleetReachability: ReadonlyMap<string, FleetMachineReachability>
 }
 
 export const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
@@ -67,8 +58,6 @@ export function useTailnetPresence(): TailnetPresence {
   const [live, setLive] = useState<TailnetLiveState>(EMPTY_LIVE_STATE)
   const [fleet, setFleet] = useState<FleetConnection[]>([])
   const [fleetAttachments, setFleetAttachments] = useState<ReadonlyMap<string, FleetLiveAttachment>>(new Map())
-  const [fleetRequests, setFleetRequests] = useState<readonly FleetPairRequestView[]>([])
-  const [fleetReachability, setFleetReachability] = useState<ReadonlyMap<string, FleetMachineReachability>>(new Map())
   // The newest revision applied on each channel. Refs, not state: they gate
   // what becomes state and must be read synchronously inside callbacks.
   const tailnetRevision = useRef(0)
@@ -114,10 +103,6 @@ export function useTailnetPresence(): TailnetPresence {
         if (cancelled || initial.revision < fleetRevision.current) return
         fleetRevision.current = initial.revision
         setFleetAttachments(new Map(initial.attachments.map((attachment) => [attachment.attachId, attachment])))
-        // Tolerant of a main that predates these fields (a partial bridge in
-        // a test): an absent list is an empty one, not a throw at mount.
-        setFleetRequests(initial.requests ?? [])
-        setFleetReachability(new Map((initial.reachability ?? []).map((entry) => [entry.connectionId, entry])))
       })
       .catch(() => {})
 
@@ -146,30 +131,7 @@ export function useTailnetPresence(): TailnetPresence {
             }
             return next.size === current.size ? current : next
           })
-          setFleetReachability((current) => {
-            if (!current.has(event.connectionId)) return current
-            const next = new Map(current)
-            next.delete(event.connectionId)
-            return next
-          })
         }
-        return
-      }
-      if (event.kind === 'pair-request') {
-        // Only `waiting` is a request to show; every other phase ends it.
-        setFleetRequests((current) => {
-          const rest = current.filter((entry) => entry.requestId !== event.request.requestId)
-          return event.phase === 'waiting' ? [...rest, event.request] : rest
-        })
-        return
-      }
-      if (event.kind === 'machine-reachability') {
-        setFleetReachability((current) => {
-          const { kind: _kind, revision: _revision, ...entry } = event
-          const next = new Map(current)
-          next.set(entry.connectionId, entry)
-          return next
-        })
         return
       }
       // Keyed by attachId: two panes on one session are two links, and one
@@ -193,5 +155,5 @@ export function useTailnetPresence(): TailnetPresence {
   }, [])
 
   const fleetLiveSessions = useMemo(() => fleetLiveSessionsOf(fleetAttachments), [fleetAttachments])
-  return { status, live, fleet, fleetAttachments, fleetLiveSessions, fleetRequests, fleetReachability }
+  return { status, live, fleet, fleetAttachments, fleetLiveSessions }
 }

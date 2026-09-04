@@ -2,17 +2,11 @@ import { randomBytes } from 'crypto'
 import { request as httpRequest } from 'http'
 import { connect, type Socket } from 'net'
 
-import {
-  isTailnetScope,
-  type TailnetPairRequestOutcome,
-  type TailnetReverseGrant,
-  type TailnetScope,
-} from '../../../shared/tailnet'
+import { isTailnetScope, type TailnetPairRequestOutcome, type TailnetScope } from '../../../shared/tailnet'
 import {
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
-  TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
@@ -251,32 +245,19 @@ export async function requestPairingFromMachine(input: {
   }
 }
 
-/**
- * Poll a request we made. The device token comes back to exactly one call.
- *
- * A POST with a body rather than the original GET (phase 6): when this
- * machine offered the other one a device here, `reverse` rides on the poll,
- * and the approver's listener stores it in the same exchange that hands our
- * token over. Sent on every poll rather than only the last, because there is
- * no way to know which poll will be the one that finds the approval.
- */
+/** Poll a request we made. The device token comes back to exactly one call. */
 export async function collectPairingFromMachine(input: {
   endpoint: TailnetEndpoint
   requestId: string
   collectSecret: string
-  reverse?: TailnetReverseGrant | null
 }): Promise<RemoteCallOutcome<TailnetPairRequestOutcome>> {
   let answer: JsonAnswer
   try {
     answer = await requestTailnetJson({
       endpoint: input.endpoint,
-      method: 'POST',
-      path: TAILNET_PAIR_COLLECT_PATH,
-      body: {
-        id: input.requestId,
-        secret: input.collectSecret,
-        ...(input.reverse ? { reverse: input.reverse } : {}),
-      },
+      method: 'GET',
+      path: `${TAILNET_PAIR_REQUEST_PATH}?id=${encodeURIComponent(input.requestId)}`
+        + `&secret=${encodeURIComponent(input.collectSecret)}`,
     })
   } catch (error) {
     // A machine that has gone to sleep mid-wait is not a refusal: the caller
@@ -317,17 +298,10 @@ export async function collectPairingFromMachine(input: {
   return { ok: true, value: { status: status === 'denied' ? 'denied' : 'expired' } }
 }
 
-/**
- * What the remote says our device is and may do, right now.
- *
- * `timeoutMs` is for the reachability check (phase 4), which asks this of
- * every paired machine on a timer: a sleeping laptop should cost a few
- * seconds per interval, not the ten a person-driven browse can afford.
- */
+/** What the remote says our device is and may do, right now. */
 export async function readRemoteIdentity(input: {
   endpoint: TailnetEndpoint
   token: string
-  timeoutMs?: number
 }): Promise<RemoteCallOutcome<{ deviceId: string; deviceName: string; scopes: TailnetScope[] }>> {
   let answer: JsonAnswer
   try {
@@ -336,7 +310,6 @@ export async function readRemoteIdentity(input: {
       method: 'GET',
       path: TAILNET_IDENTITY_PATH,
       token: input.token,
-      timeoutMs: input.timeoutMs,
     })
   } catch (error) {
     return { ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }

@@ -441,17 +441,6 @@ export function WorkspaceActions({
   const remoteState = remoteGlyphState(remotePresence)
   const [remoteOpen, setRemoteOpen] = React.useState(false)
   const openRemoteSettings = useOpenRemoteSettings()
-  // An OS notification about a pair request or a machine's answer was
-  // clicked (pair-from-the-scan-and-stay-paired, phase 3): main brought the
-  // window forward; this opens the surface the banner pointed at.
-  React.useEffect(() => {
-    if (typeof window.api.onRemoteOpenRequested !== 'function') return
-    return window.api.onRemoteOpenRequested(() => {
-      setSessionsOpen(false)
-      setNotificationsOpen(false)
-      setRemoteOpen(true)
-    })
-  }, [])
   // The active workspace type's top-bar view set, from the registry and gated by
   // module enablement (was VIEWS_FOR_MODE). getWorkspaceType returns a stable
   // reference, so this memo only recomputes when the mode or enablement changes;

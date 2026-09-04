@@ -31,9 +31,9 @@ const WS = 'modelregistry-test-ws'
 const globalWithWindow = globalThis as unknown as { window?: { setTimeout: () => number } }
 if (!globalWithWindow.window) globalWithWindow.window = { setTimeout: () => 0 }
 
-// A workspace whose only open panel is the strip-less sidebar nav pane
-// (Knowledge Graph) — the regression case where a terminal/agent used to spawn
-// buried under the sidebar.
+// A workspace whose only open panel is the strip-less sidebar nav pane (Backlog
+// here) — the regression case where a terminal/agent used to spawn buried under
+// the sidebar.
 function navOnlyModel(): Model {
   const json: IJsonModel = {
     global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -45,7 +45,7 @@ function navOnlyModel(): Model {
           type: 'tabset',
           weight: 100,
           enableTabStrip: false,
-          children: [{ type: 'tab', name: 'Knowledge Graph', component: 'memory-graph' }],
+          children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }],
         },
       ],
     },
@@ -120,7 +120,7 @@ function tabNames(model: Model): string[] {
 }
 
 function navTabsets(model: Model): TabsetJson[] {
-  const nav = new Set(['memory-graph'])
+  const nav = new Set(['backlog', 'memory-graph'])
   return tabsets(model).filter((tabset) => componentsOf(tabset).some((c) => nav.has(c)))
 }
 
@@ -136,6 +136,20 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
+// Selecting another nav switch swaps it in (single-select) and keeps the strip
+// hidden — never two nav switches at once.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  unregisterModel(WS)
+}
+
 // Clicking the open switch again closes the nav pane.
 {
   const model = freshModel()
@@ -147,19 +161,38 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
-// Backlog is NOT a nav-rail component any more (store v74): it is a workspace
-// pane tab, and the rail refuses it rather than docking a tab the layout can
-// no longer render.
+// Backlog is a strip-less nav switch: first toggle docks the shared LEFT pane
+// with the strip hidden, exactly like Files / Git / Knowledge Graph.
 {
   const model = freshModel()
   registerModel(WS, model)
-  assert.equal(revealNavRailComponent(WS, 'backlog', 'Backlog'), false)
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  unregisterModel(WS)
+}
+
+// Backlog is exclusive with the other nav switches: opening Backlog over Git
+// swaps it in (single-select), and clicking Backlog again closes the pane.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
+  let nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
+  assert.equal(nav[0].enableTabStrip, false)
+  // Swapping back to Knowledge Graph keeps the pane single-select.
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
+  // Closing the open switch collapses the nav pane.
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(navTabsets(model).length, 0)
-  assert.ok(!tabNames(model).includes('Backlog'))
-  // The toggle path refuses it too, rather than falling through to the Editor's
-  // toggle and docking a 'backlog' document tab centre-stage.
-  assert.equal(togglePanelRailComponent(WS, 'backlog', 'Backlog'), false)
-  assert.ok(!allComponents(model).includes('backlog'))
   unregisterModel(WS)
 }
 
@@ -308,9 +341,9 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  revealNavRailComponent(WS, 'backlog', 'Backlog')
   assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['file-editor'], ['agent']])
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['file-editor'], ['agent']])
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
   assert.equal(nav[0].enableTabStrip, false)
@@ -326,6 +359,11 @@ function navTabsets(model: Model): TabsetJson[] {
   revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(allComponents(model).filter((c) => c === 'memory-graph').length, 1)
   assert.equal(navTabsets(model).length, 1)
+  // Revealing a different switch swaps it in (still single-select).
+  revealNavRailComponent(WS, 'backlog', 'Backlog')
+  const nav = navTabsets(model)
+  assert.equal(nav.length, 1)
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
   unregisterModel(WS)
 }
 
@@ -392,11 +430,11 @@ function navTabsets(model: Model): TabsetJson[] {
   const model = navOnlyModel()
   registerModel(WS, model)
   assert.equal(addTerminalTab(WS, 'term-1', 'Terminal'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['terminal']])
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['terminal']])
   // The nav pane stays a clean, strip-less sidebar — the terminal did not land in it.
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
   assert.equal(nav[0].enableTabStrip, false)
   unregisterModel(WS)
 }
@@ -407,10 +445,10 @@ function navTabsets(model: Model): TabsetJson[] {
   const model = navOnlyModel()
   registerModel(WS, model)
   assert.equal(addAgentTabTiled(WS, 'a-9', 'Spawned agent'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['agent']])
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['agent']])
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
   unregisterModel(WS)
 }
 

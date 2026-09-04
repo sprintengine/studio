@@ -66,10 +66,6 @@ export function fleetLossToastId(connectionId: string): string {
   return `fleet:${connectionId}`
 }
 
-export function fleetRevokedToastId(connectionId: string): string {
-  return `fleet-revoked:${connectionId}`
-}
-
 function useFleetToastBridge(): void {
   // Per-connection link memory, so N panes on one machine make one
   // announcement per outage, not N — and recovery is only news after one.
@@ -77,8 +73,6 @@ function useFleetToastBridge(): void {
   // persistent "Reconnecting." standing over a fresh "Reconnected" would
   // contradict itself, and warn tones never auto-dismiss on their own.
   const lostConnections = useRef(new Set<string>())
-  // Machines that revoked us, announced once each until they answer again.
-  const revokedConnections = useRef(new Set<string>())
 
   useEffect(() => {
     if (typeof window.api.onFleetEvent !== 'function') return
@@ -98,47 +92,11 @@ function useFleetToastBridge(): void {
       }
       if (event.kind === 'machine-forgotten') {
         retract(event.connectionId)
-        if (revokedConnections.current.delete(event.connectionId)) {
-          useToastStore.getState().dismissToast(fleetRevokedToastId(event.connectionId))
-        }
         showToast({
           tone: 'neutral',
           title: 'Machine removed',
           description: `${event.machineName} was removed from your fleet.`,
         })
-        return
-      }
-      if (event.kind === 'pair-request') {
-        // `approved` is announced by the `machine-paired` that precedes it;
-        // `waiting` and `cancelled` have the card as their surface. The three
-        // answers a person may have walked away from get a toast each.
-        const machine = event.request.machineName
-        if (event.phase === 'denied') {
-          showToast({ tone: 'error', title: `${machine} declined`, description: event.detail ?? 'Someone there said no.' })
-        } else if (event.phase === 'expired') {
-          showToast({ tone: 'neutral', title: `${machine} did not answer in time`, description: 'Ask again when someone is at it.' })
-        } else if (event.phase === 'failed') {
-          showToast({ tone: 'error', title: `Pairing with ${machine} did not complete`, description: event.detail ?? '' })
-        }
-        return
-      }
-      if (event.kind === 'machine-reachability') {
-        // Revoked over there is the one reachability answer worth a toast:
-        // it will not fix itself. Warn, so it persists; retracted the moment
-        // the machine answers again (a re-pair), never re-raised per retry.
-        const toastId = fleetRevokedToastId(event.connectionId)
-        if (event.unauthorized) {
-          if (revokedConnections.current.has(event.connectionId)) return
-          revokedConnections.current.add(event.connectionId)
-          showToast({
-            id: toastId,
-            tone: 'warn',
-            title: `${event.machineName} revoked this Mac`,
-            description: 'Its pairing was taken back over there. Pair again from the Fleet when you want it back.',
-          })
-        } else if (event.reachable && revokedConnections.current.delete(event.connectionId)) {
-          useToastStore.getState().dismissToast(toastId)
-        }
         return
       }
       if (event.kind === 'attachment') {

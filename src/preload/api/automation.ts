@@ -14,8 +14,6 @@ import {
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
-  TAILNET_SET_NOTIFICATIONS_CHANNEL,
-  REMOTE_OPEN_REQUESTED_CHANNEL,
   type TailnetApprovePairRequestView,
   type TailnetLiveState,
   type TailnetPairingOfferView,
@@ -49,17 +47,10 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_CANCEL_PAIRING_CHANNEL) as Promise<TailnetRemoteStatus>,
   tailnetRevokeDevice: (deviceId: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_REVOKE_DEVICE_CHANNEL, deviceId) as Promise<TailnetRemoteStatus>,
-  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string): Promise<TailnetApprovePairRequestView> =>
-    ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes, code) as Promise<TailnetApprovePairRequestView>,
+  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[]): Promise<TailnetApprovePairRequestView> =>
+    ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes) as Promise<TailnetApprovePairRequestView>,
   tailnetDenyPairRequest: (id: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_DENY_PAIR_REQUEST_CHANNEL, id) as Promise<TailnetRemoteStatus>,
-  tailnetSetNotifications: (enabled: boolean): Promise<TailnetRemoteStatus> =>
-    ipcRenderer.invoke(TAILNET_SET_NOTIFICATIONS_CHANNEL, enabled) as Promise<TailnetRemoteStatus>,
-  onRemoteOpenRequested: (cb: () => void): (() => void) => {
-    const handler = () => cb()
-    ipcRenderer.on(REMOTE_OPEN_REQUESTED_CHANNEL, handler)
-    return () => ipcRenderer.removeListener(REMOTE_OPEN_REQUESTED_CHANNEL, handler)
-  },
   tailnetListPeers: (): Promise<TailnetPeerScan> =>
     ipcRenderer.invoke(TAILNET_LIST_PEERS_CHANNEL) as Promise<TailnetPeerScan>,
   tailnetGetLiveState: (): Promise<TailnetLiveState> =>
@@ -83,8 +74,6 @@ export const automationApi = {
   | 'tailnetRevokeDevice'
   | 'tailnetApprovePairRequest'
   | 'tailnetDenyPairRequest'
-  | 'tailnetSetNotifications'
-  | 'onRemoteOpenRequested'
   | 'tailnetListPeers'
   | 'tailnetGetLiveState'
   | 'onTailnetEvent'

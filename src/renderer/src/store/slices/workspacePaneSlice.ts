@@ -20,7 +20,6 @@ export const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
   'files',
   'diff',
   'git',
-  'backlog',
 ]
 
 // Kinds a workspace opens at most once: opening them again focuses the tab
@@ -29,7 +28,6 @@ export const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new S
   'files',
   'diff',
   'git',
-  'backlog',
 ])
 
 const MAX_PANE_TABS = 24
@@ -155,25 +153,6 @@ function layoutHasComponent(layoutModel: unknown, component: string): boolean {
   return visit(layout)
 }
 
-type JsonTabsetNode = JsonLayoutNode & { selected?: number }
-
-// Whether the component's tab was the SELECTED tab of its tabset — on screen,
-// not parked behind the editor in a mixed tabset (a shape `hideNavRailTabStrip`
-// leaves alone on purpose). FlexLayout's default selection is the first tab.
-function layoutShowsComponent(layoutModel: unknown, component: string): boolean {
-  const layout = (layoutModel as { layout?: JsonLayoutNode } | null | undefined)?.layout
-  const visit = (node: JsonTabsetNode | undefined): boolean => {
-    if (!node) return false
-    const children = node.children ?? []
-    if (node.type === 'tabset') {
-      const selected = typeof node.selected === 'number' && node.selected >= 0 ? node.selected : 0
-      return children[selected]?.type === 'tab' && children[selected]?.component === component
-    }
-    return children.some(visit)
-  }
-  return visit(layout)
-}
-
 /**
  * The pane a retired rail layout implies (store v73): a persisted FlexLayout
  * that still had Files or Git docked left comes back with the same surfaces
@@ -184,54 +163,8 @@ export function paneStateFromLegacyLayout(layoutModel: unknown): WorkspacePaneSt
   const tabs: WorkspacePaneTab[] = []
   if (layoutHasComponent(layoutModel, 'explorer')) tabs.push({ id: nanoid(8), kind: 'files' })
   if (layoutHasComponent(layoutModel, 'git')) tabs.push({ id: nanoid(8), kind: 'git' })
-  if (layoutHasComponent(layoutModel, 'backlog')) tabs.push({ id: nanoid(8), kind: 'backlog' })
   if (tabs.length === 0) return undefined
-  // A lone Backlog parked behind the editor was not on screen; it comes back
-  // as a tab in a pane that stays closed (the Files/Git rail was always shown).
-  const open = tabs.some((tab) => tab.kind !== 'backlog') || layoutShowsComponent(layoutModel, 'backlog')
-  return { open, activeTabId: tabs[0].id, tabs }
-}
-
-/**
- * The Backlog rail's move into the pane (store v74). Unlike v73 this cannot
- * ride the seed above alone: a workspace whose pane was ever used carries a
- * pane record (v73 seeded one, `paneOf` mints one on first write), and a
- * layout that still docks `backlog` has to be adopted INTO that record rather
- * than seed a second one. The rail was on screen, so a closed pane opens on
- * the backlog tab; an open pane keeps the tab it was showing and gains the
- * backlog behind it. The same record back (by reference) when there is
- * nothing to do — the layout docks no backlog, or the pane already has one.
- */
-export function adoptLegacyBacklogTab(
-  layoutModel: unknown,
-  paneState: WorkspacePaneState,
-): WorkspacePaneState {
-  if (!layoutHasComponent(layoutModel, 'backlog')) return paneState
-  // The heal runs on raw persisted records before any normalization: a torn
-  // record without a tabs array is repaired here, never thrown on.
-  const pane = Array.isArray(paneState.tabs)
-    ? paneState
-    : normalizeWorkspacePaneState(paneState) ?? defaultWorkspacePaneState()
-  if (pane.tabs.some((tab) => tab.kind === 'backlog')) return pane
-  if (pane.tabs.length >= MAX_PANE_TABS) {
-    // The rail tab is still stripped by the caller; say so rather than lose
-    // the surface silently. A pane at the cap is not a shape the seed path
-    // (at most three tabs) can reach.
-    console.warn('[workspacePane] the pane is full; the Backlog rail was not adopted as a tab')
-    return pane
-  }
-  const tab: WorkspacePaneTab = { id: nanoid(8), kind: 'backlog' }
-  // Only a Backlog that was actually on screen (the selected tab of its
-  // tabset) takes the pane over: a rail tab parked behind the editor joins
-  // the pane quietly, behind whatever the pane was showing.
-  const railWasShowing = layoutShowsComponent(layoutModel, 'backlog')
-  const paneWasShowing = pane.open && pane.activeTabId !== null
-  return {
-    ...pane,
-    open: pane.open || railWasShowing,
-    activeTabId: paneWasShowing || !railWasShowing ? pane.activeTabId ?? tab.id : tab.id,
-    tabs: [...pane.tabs, tab],
-  }
+  return { open: true, activeTabId: tabs[0].id, tabs }
 }
 
 export type WorkspacePaneOpenInput = {

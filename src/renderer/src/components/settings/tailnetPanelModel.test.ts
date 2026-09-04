@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
 
 import type { TailnetRemoteStatus } from '../../../../shared/tailnet'
+import type { TailnetPeer, TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import {
-  deviceOriginText,
   deviceSummary,
   outstandingPairingNote,
   pairingExpiry,
+  peerListView,
   pairRequestAnswerable,
   pairRequestSummary,
+  peerStatus,
   tailnetReadiness,
 } from './tailnetPanelModel'
 
@@ -37,10 +39,23 @@ function status(overrides: Partial<TailnetRemoteStatus> = {}): TailnetRemoteStat
     port: 8471,
     tailnetAddress: '100.64.0.1',
     lastError: null,
-    notifications: true,
     devices: [],
     pairing: null,
     pairRequests: [],
+    ...overrides,
+  }
+}
+
+function peer(overrides: Partial<TailnetPeer> = {}): TailnetPeer {
+  return {
+    id: 'node-1',
+    hostName: 'studio-laptop',
+    dnsName: 'studio-laptop.tail1234.ts.net',
+    address: '100.64.0.2',
+    os: 'linux',
+    online: true,
+    isSelf: false,
+    studio: null,
     ...overrides,
   }
 }
@@ -131,18 +146,10 @@ check('a device that has never connected says so rather than showing a blank', (
   const format = (value: string): string => `[${value}]`
   assert.equal(
     deviceSummary(
-      {
-        id: 'd1',
-        name: 'Laptop',
-        scopes: ['sprint:read'],
-        createdAt: 'x',
-        lastSeenAt: null,
-        lastPeerNode: null,
-        origin: { kind: 'code', by: null },
-      },
+      { id: 'd1', name: 'Laptop', scopes: ['sprint:read'], createdAt: 'x', lastSeenAt: null, lastPeerNode: null },
       format
     ),
-    'Paired by code · 1 scopes · Never connected'
+    '1 scopes · Never connected'
   )
   assert.equal(
     deviceSummary(
@@ -153,19 +160,67 @@ check('a device that has never connected says so rather than showing a blank', (
         createdAt: 'x',
         lastSeenAt: '2026-08-07T10:00:00Z',
         lastPeerNode: 'laptop.tail1234.ts.net',
-        origin: { kind: 'approval', by: 'laptop.tail1234.ts.net' },
       },
       format
     ),
-    'Paired by approval from laptop.tail1234.ts.net · 2 scopes · Last seen [2026-08-07T10:00:00Z] from laptop.tail1234.ts.net'
+    '2 scopes · Last seen [2026-08-07T10:00:00Z] from laptop.tail1234.ts.net'
   )
 })
 
-check('a device says where it came from, so a test grant an agent left behind is recognisable as one', () => {
-  assert.equal(deviceOriginText({ origin: { kind: 'agent', by: 'agent-claude-code-qaOXA0' } }), 'Created by an agent (agent-claude-code-qaOXA0)')
-  assert.equal(deviceOriginText({ origin: { kind: 'agent', by: null } }), 'Created by an agent')
-  assert.equal(deviceOriginText({ origin: { kind: 'reverse', by: 'Mac mini' } }), 'Granted when this Mac asked to drive Mac mini')
-  assert.equal(deviceOriginText({ origin: { kind: 'unknown', by: null } }), 'Paired before origins were kept')
+check('each empty peer list gets the sentence that names its own fix', () => {
+  const scan = (overrides: Partial<TailnetPeerScan> = {}): TailnetPeerScan => ({
+    tailscaleAvailable: true,
+    unavailableReason: null,
+    probedPort: 8471,
+    peers: [],
+    ...overrides,
+  })
+
+  assert.match(peerListView(null, true).emptyMessage ?? '', /Looking for machines/u)
+  assert.match(peerListView(null, false).emptyMessage ?? '', /Scan to see/u)
+  assert.equal(
+    peerListView(scan({ tailscaleAvailable: false, unavailableReason: 'Tailscale did not answer.' }), false)
+      .emptyMessage,
+    'Tailscale did not answer.',
+    'the scanner’s own reason is passed through, not replaced'
+  )
+  assert.match(
+    peerListView(scan({ peers: [peer({ isSelf: true })] }), false).emptyMessage ?? '',
+    /only machine on your tailnet/u
+  )
+})
+
+check('this machine is context, never a target', () => {
+  const view = peerListView(
+    {
+      tailscaleAvailable: true,
+      unavailableReason: null,
+      probedPort: 8471,
+      peers: [
+        peer({ id: 'self', hostName: 'me', isSelf: true }),
+        peer({ id: 'a', hostName: 'laptop', studio: { product: 'x', transportVersion: 1, protocolVersions: [] } }),
+        peer({ id: 'b', hostName: 'nas' }),
+      ],
+    },
+    false
+  )
+  assert.equal(view.emptyMessage, null)
+  assert.deepEqual(view.peers.map((entry) => entry.hostName), ['laptop', 'nas'])
+  assert.equal(view.studioCount, 1)
+})
+
+check('a peer’s label states what we know, never a guess', () => {
+  assert.deepEqual(
+    peerStatus(peer({ studio: { product: 'x', transportVersion: 1, protocolVersions: [] } }), 8471),
+    { label: 'Studio on port 8471', tone: 'good' }
+  )
+  assert.deepEqual(peerStatus(peer({ online: false }), 8471), { label: 'Offline', tone: 'neutral' })
+  // Online and silent could be a listener that is off, one on another port, or
+  // a machine not running Studio at all. The label does not pick one.
+  assert.deepEqual(peerStatus(peer(), 8471), {
+    label: 'No Studio answering on port 8471',
+    tone: 'neutral',
+  })
 })
 
 check('a waiting request names who is asking, and says when it cannot vouch for the name', () => {

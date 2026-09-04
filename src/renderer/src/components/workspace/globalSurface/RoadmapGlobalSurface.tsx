@@ -40,7 +40,8 @@ import {
 } from '../../ui'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
-import { revealBacklogItemInPane } from '../pane/backlogPaneReveal'
+import { revealNavRailComponent } from '../../../utils/modelRegistry'
+import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
 import { SurfaceCanvasState } from './surfaceSubstrate'
 import { useSurfaceBackNav } from './surfaceBackNav'
 import {
@@ -264,7 +265,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       const workspace = candidates.find((candidate) => !candidate.sprintEngineContext) ?? candidates[0]
       if (!workspace) return
       setActiveWorkspace(workspace.id)
-      revealBacklogItemInPane(workspace.id, relativePath)
+      revealNavRailComponent(workspace.id, 'backlog', 'Backlog')
+      dispatchBacklogReveal({ workspaceId: workspace.id, relativePath })
     },
     [setActiveWorkspace],
   )

@@ -17,14 +17,7 @@ export const TAILNET_SETTINGS_FILENAME = 'tailnet-remote-settings.json'
  */
 export const DEFAULT_TAILNET_LISTENER_PORT = 8471
 
-/**
- * `notifications` (pair-from-the-scan-and-stay-paired, phase 3): whether a
- * pair request arriving, an answer to one this machine made, or a paired
- * machine revoking us raises an OS notification. On by default — the events
- * are rare and each is one a person is waiting on — and absent from an older
- * file reads as on.
- */
-export type TailnetSettings = { enabled: boolean; port: number; notifications: boolean }
+export type TailnetSettings = { enabled: boolean; port: number }
 
 export type TailnetSettingsReadResult = {
   settings: TailnetSettings
@@ -33,7 +26,7 @@ export type TailnetSettingsReadResult = {
 }
 
 export function readTailnetSettings(userDataDir: string): TailnetSettingsReadResult {
-  const defaults: TailnetSettings = { enabled: false, port: DEFAULT_TAILNET_LISTENER_PORT, notifications: true }
+  const defaults: TailnetSettings = { enabled: false, port: DEFAULT_TAILNET_LISTENER_PORT }
   let raw: string
   try {
     raw = readFileSync(join(userDataDir, TAILNET_SETTINGS_FILENAME), 'utf8')
@@ -47,12 +40,11 @@ export function readTailnetSettings(userDataDir: string): TailnetSettingsReadRes
     if (typeof parsed !== 'object' || parsed === null) {
       return { settings: defaults, error: `${TAILNET_SETTINGS_FILENAME} is malformed; tailnet remote control stays off.` }
     }
-    const record = parsed as { enabled?: unknown; port?: unknown; notifications?: unknown }
+    const record = parsed as { enabled?: unknown; port?: unknown }
     return {
       settings: {
         enabled: record.enabled === true,
         port: isUsablePort(record.port) ? record.port : DEFAULT_TAILNET_LISTENER_PORT,
-        notifications: record.notifications !== false,
       },
       error: null,
     }
@@ -66,11 +58,7 @@ export function readTailnetSettings(userDataDir: string): TailnetSettingsReadRes
 
 export function writeTailnetSettings(userDataDir: string, settings: TailnetSettings): void {
   const body = `${JSON.stringify(
-    {
-      enabled: settings.enabled === true,
-      port: isUsablePort(settings.port) ? settings.port : DEFAULT_TAILNET_LISTENER_PORT,
-      notifications: settings.notifications !== false,
-    },
+    { enabled: settings.enabled === true, port: isUsablePort(settings.port) ? settings.port : DEFAULT_TAILNET_LISTENER_PORT },
     null,
     2
   )}\n`

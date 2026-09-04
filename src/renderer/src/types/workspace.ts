@@ -895,11 +895,10 @@ export type WorkspaceGitPanelState = {
 }
 
 // The workspace pane (browser-pane epic): the full-height tabbed column on the
-// right that hosts a browser, terminals, Files, Git, Diff and the workspace's
-// Backlog. Tabs are a plain per-workspace record rather than a FlexLayout
-// tabset because the pane mixes kinds FlexLayout used to scatter across two
-// exclusive rails.
-export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog'
+// right that hosts a browser, terminals, Files, Git and Diff. Tabs are a plain
+// per-workspace record rather than a FlexLayout tabset because the pane mixes
+// kinds FlexLayout used to scatter across two exclusive rails.
+export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git'
 
 export type WorkspacePaneTab = {
   id: string

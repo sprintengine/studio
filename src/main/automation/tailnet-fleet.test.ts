@@ -694,11 +694,7 @@ function delay(ms: number): Promise<void> {
 test('the fleet broadcasts machine paired/forgotten and attachment link state, keyed by attachId, with a matching snapshot', async () => {
   const harness = await startHarness()
   try {
-    assert.deepEqual(
-      harness.fleet.getLiveState(),
-      { revision: 0, attachments: [], requests: [], reachability: [] },
-      'nothing attached, revision 0'
-    )
+    assert.deepEqual(harness.fleet.getLiveState(), { revision: 0, attachments: [] }, 'nothing attached, revision 0')
     const connectionId = await harness.pair(['terminal:control'])
     const paired = harness.events.find((event) => event.kind === 'machine-paired')
     assert.ok(paired && paired.kind === 'machine-paired', 'pairing is broadcast')

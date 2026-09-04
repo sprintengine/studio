@@ -5,9 +5,7 @@ import { join } from 'path'
 import { hashSecret } from '../../mobile/bridge/crypto'
 import {
   normalizeTailnetScopes,
-  PAIR_REQUEST_CODE_ATTEMPTS,
   type TailnetDevice,
-  type TailnetDeviceOrigin,
   type TailnetPairingState,
   type TailnetPairRequest,
   type TailnetPairRequestOutcome,
@@ -117,40 +115,12 @@ export type TailnetPairRequestResult =
 
 export type TailnetPairApprovalResult =
   | { ok: true; device: TailnetDevice }
-  | { ok: false; code: 'request_not_found' | 'code_required'; message: string }
-  /**
-   * The typed code did not match (pair-from-the-scan-and-stay-paired,
-   * phase 2). `attemptsLeft` is what the card may still offer; `declined`
-   * says the last allowed try was just spent and the request is gone.
-   */
-  | { ok: false; code: 'code_mismatch'; message: string; attemptsLeft: number; declined: boolean }
-
-/**
- * What the collect poll answers, plus — for the gateway only — who asked, so
- * an approved collect can carry the asker's reverse grant to the fleet. The
- * `asker` never reaches the wire.
- */
-export type TailnetCollectOutcome = TailnetPairRequestOutcome & {
-  asker?: { deviceName: string; peerNode: string | null; peerAddress: string }
-}
+  | { ok: false; code: 'request_not_found'; message: string }
 
 export type TailnetDeviceStore = {
   listDevices(): TailnetDevice[]
-  /**
-   * Replace any outstanding pairing with a fresh one (the Settings "regenerate"
-   * action). `origin` is what the redeemed device will record as where it came
-   * from — a carried code from Settings, or an agent that minted it.
-   */
-  offerPairing(input: { scopes: TailnetScope[]; ttlMs?: number; origin?: TailnetDeviceOrigin }): TailnetPairingOffer
-  /**
-   * Mint a device directly, with no exchange (phase 6): the reverse half of a
-   * both-ways pairing, granted by THIS machine to the one it is asking to
-   * drive. The token is returned once, to travel inside the collect.
-   */
-  mintDevice(input: { name: string; scopes: TailnetScope[]; origin: TailnetDeviceOrigin }): {
-    device: TailnetDevice
-    deviceToken: string
-  }
+  /** Replace any outstanding pairing with a fresh one (the Settings "regenerate" action). */
+  offerPairing(input: { scopes: TailnetScope[]; ttlMs?: number }): TailnetPairingOffer
   getPairingState(): TailnetPairingState | null
   cancelPairing(): void
   redeemPairing(input: { token: unknown; deviceName: unknown }): TailnetPairingResult
@@ -185,21 +155,14 @@ export type TailnetDeviceStore = {
    * should still hand the token over.
    */
   cancelPairRequests(): string[]
-  /**
-   * Approve one, minting the device with exactly the scopes named here.
-   *
-   * `code` is the six digits the asker's screen shows, typed by the person
-   * approving: it proves they can see that screen, which is the binding the
-   * comparison code was always for — now enforced rather than trusted. Three
-   * wrong codes decline the request.
-   */
-  approvePairRequest(input: { id: string; scopes: TailnetScope[]; code: unknown }): TailnetPairApprovalResult
+  /** Approve one, minting the device with exactly the scopes named here. */
+  approvePairRequest(input: { id: string; scopes: TailnetScope[] }): TailnetPairApprovalResult
   denyPairRequest(id: string): boolean
   /**
    * What the requester polls. Yields the device token to exactly one call, and
    * only to a caller presenting the secret whose hash the request carried.
    */
-  collectPairRequest(id: string, collectSecret: string): TailnetCollectOutcome
+  collectPairRequest(id: string, collectSecret: string): TailnetPairRequestOutcome
 }
 
 type StoredDevice = TailnetDevice & { tokenHash: string }
@@ -215,12 +178,7 @@ export function createTailnetDeviceStore(options: {
   const pairRequestTtlMs = Math.max(1, options.pairRequestTtlMs ?? DEFAULT_PAIR_REQUEST_TTL_MS)
   const revokeListeners = new Set<(deviceId: string) => void>()
   let devices: StoredDevice[] = readDevices(options.resolveUserDataDir(), options.log)
-  let pairing: {
-    tokenHash: string
-    scopes: TailnetScope[]
-    expiresAtMs: number
-    origin: TailnetDeviceOrigin
-  } | null = null
+  let pairing: { tokenHash: string; scopes: TailnetScope[]; expiresAtMs: number } | null = null
 
   // Pending pair requests, and the peers currently in a post-denial cooldown.
   // In memory for the same reason the offer is: a request is a live prompt, and
@@ -238,7 +196,7 @@ export function createTailnetDeviceStore(options: {
     | { kind: 'denied' }
   const pairRequests = new Map<
     string,
-    { request: TailnetPairRequest; collectHash: string; state: PendingState; codeAttempts: number }
+    { request: TailnetPairRequest; collectHash: string; state: PendingState }
   >()
   const deniedPeers = new Map<string, number>()
 
@@ -251,11 +209,7 @@ export function createTailnetDeviceStore(options: {
 
   // The one place a device and its token come into existence, so the two
   // pairing paths cannot drift in what they create.
-  function mintDevice(
-    name: string,
-    scopes: TailnetScope[],
-    origin: TailnetDeviceOrigin
-  ): { device: TailnetDevice; deviceToken: string } {
+  function mintDevice(name: string, scopes: TailnetScope[]): { device: TailnetDevice; deviceToken: string } {
     const deviceToken = `mctn_${randomBytes(32).toString('base64url')}`
     const stored: StoredDevice = {
       id: `tnd_${randomBytes(9).toString('base64url')}`,
@@ -264,7 +218,6 @@ export function createTailnetDeviceStore(options: {
       createdAt: now().toISOString(),
       lastSeenAt: null,
       lastPeerNode: null,
-      origin: { kind: origin.kind, by: origin.by ? origin.by.slice(0, 120) : null },
       tokenHash: hashSecret(deviceToken),
     }
     devices = [...devices, stored]
@@ -307,13 +260,8 @@ export function createTailnetDeviceStore(options: {
       const token = `mcpair_${randomBytes(24).toString('base64url')}`
       const scopes = normalizeTailnetScopes(input.scopes)
       const expiresAtMs = now().getTime() + Math.max(1000, input.ttlMs ?? DEFAULT_PAIRING_TTL_MS)
-      pairing = { tokenHash: hashSecret(token), scopes, expiresAtMs, origin: input.origin ?? { kind: 'code', by: null } }
+      pairing = { tokenHash: hashSecret(token), scopes, expiresAtMs }
       return { token, scopes, expiresAt: new Date(expiresAtMs).toISOString() }
-    },
-
-    mintDevice(input): { device: TailnetDevice; deviceToken: string } {
-      const name = input.name.trim().slice(0, 120) || 'Unnamed machine'
-      return mintDevice(name, input.scopes, input.origin)
     },
 
     getPairingState: () =>
@@ -344,11 +292,11 @@ export function createTailnetDeviceStore(options: {
       if (!name) {
         return { ok: false, code: 'invalid_device_name', message: 'A device name is required so the pairing is identifiable in Settings.' }
       }
-      const { scopes, origin } = pairing
+      const scopes = pairing.scopes
       // One-time by construction: the offer is consumed whether or not the
       // persist below succeeds, so a failed write cannot leave a live code.
       pairing = null
-      const minted = mintDevice(name, scopes, origin)
+      const minted = mintDevice(name, scopes)
       return { ok: true, device: minted.device, deviceToken: minted.deviceToken }
     },
 
@@ -452,7 +400,7 @@ export function createTailnetDeviceStore(options: {
         createdAt: new Date(nowMs).toISOString(),
         expiresAt: new Date(nowMs + pairRequestTtlMs).toISOString(),
       }
-      pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' }, codeAttempts: 0 })
+      pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' } })
       return { ok: true, request }
     },
 
@@ -487,57 +435,15 @@ export function createTailnetDeviceStore(options: {
           message: 'That pairing request is no longer waiting to be answered.',
         }
       }
-      // The typed code. Digits only, so "481 972" read off a screen with a
-      // space in it is the same answer as "481972".
-      const typed = typeof input.code === 'string' ? input.code.replace(/\D/gu, '') : ''
-      if (!typed) {
-        return {
-          ok: false,
-          code: 'code_required',
-          message: 'Type the six-digit code shown on the asking machine to allow it.',
-        }
-      }
-      if (!secretsMatch(typed, entry.request.comparisonCode)) {
-        entry.codeAttempts += 1
-        const attemptsLeft = Math.max(0, PAIR_REQUEST_CODE_ATTEMPTS - entry.codeAttempts)
-        if (attemptsLeft === 0) {
-          // The last allowed try: declined, with the same cooldown a Decline
-          // gives, so the asker is told "no" rather than left waiting on a
-          // request nobody can approve any more.
-          pairRequests.set(input.id, { ...entry, state: { kind: 'denied' } })
-          deniedPeers.set(entry.request.peerAddress, now().getTime() + DENY_COOLDOWN_MS)
-          return {
-            ok: false,
-            code: 'code_mismatch',
-            message: 'That code did not match. The request has been declined; ask again from the other machine.',
-            attemptsLeft: 0,
-            declined: true,
-          }
-        }
-        return {
-          ok: false,
-          code: 'code_mismatch',
-          message:
-            attemptsLeft === 1
-              ? 'That code did not match. One more try before the request is declined.'
-              : `That code did not match. ${attemptsLeft} tries left.`,
-          attemptsLeft,
-          declined: false,
-        }
-      }
       // The scopes are whatever the person ticked, NOT anything the requester
       // asked for: a peer must not be able to influence what approving it
       // grants. An empty tick-list is a real answer — a device with no scopes
       // can authenticate and call nothing.
       const scopes = normalizeTailnetScopes(input.scopes)
-      const minted = mintDevice(entry.request.deviceName, scopes, {
-        kind: 'approval',
-        by: entry.request.peerNode ?? entry.request.peerAddress ?? null,
-      })
+      const minted = mintDevice(entry.request.deviceName, scopes)
       pairRequests.set(input.id, {
         request: entry.request,
         collectHash: entry.collectHash,
-        codeAttempts: entry.codeAttempts,
         state: {
           kind: 'approved',
           deviceId: minted.device.id,
@@ -554,12 +460,12 @@ export function createTailnetDeviceStore(options: {
       prunePairRequests()
       const entry = pairRequests.get(id)
       if (!entry || entry.state.kind !== 'pending') return false
-      pairRequests.set(id, { ...entry, state: { kind: 'denied' } })
+      pairRequests.set(id, { request: entry.request, collectHash: entry.collectHash, state: { kind: 'denied' } })
       deniedPeers.set(entry.request.peerAddress, now().getTime() + DENY_COOLDOWN_MS)
       return true
     },
 
-    collectPairRequest(id, collectSecret): TailnetCollectOutcome {
+    collectPairRequest(id, collectSecret): TailnetPairRequestOutcome {
       prunePairRequests()
       const entry = pairRequests.get(id)
       // An unknown id reports expired rather than getting an answer of its own:
@@ -584,18 +490,7 @@ export function createTailnetDeviceStore(options: {
       // so a second poll — or anyone replaying the id — gets nothing.
       const { deviceId, deviceName, deviceToken, scopes } = entry.state
       pairRequests.delete(id)
-      return {
-        status: 'approved',
-        deviceId,
-        deviceName,
-        deviceToken,
-        scopes,
-        asker: {
-          deviceName: entry.request.deviceName,
-          peerNode: entry.request.peerNode,
-          peerAddress: entry.request.peerAddress,
-        },
-      }
+      return { status: 'approved', deviceId, deviceName, deviceToken, scopes }
     },
   }
 }
@@ -608,7 +503,6 @@ function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {
     createdAt: device.createdAt,
     lastSeenAt: device.lastSeenAt,
     lastPeerNode: device.lastPeerNode,
-    origin: { kind: device.origin.kind, by: device.origin.by },
   }
 }
 
@@ -654,22 +548,7 @@ function normalizeStored(value: StoredDevice): StoredDevice {
     createdAt: value.createdAt,
     lastSeenAt: typeof value.lastSeenAt === 'string' ? value.lastSeenAt : null,
     lastPeerNode: typeof value.lastPeerNode === 'string' ? value.lastPeerNode : null,
-    // A record from before origins were kept says so, rather than guessing
-    // one: "unknown" is a true statement about it and "code" would not be.
-    origin: readOrigin(value.origin),
     tokenHash: value.tokenHash,
-  }
-}
-
-const ORIGIN_KINDS: ReadonlySet<string> = new Set(['code', 'approval', 'agent', 'reverse', 'unknown'])
-
-function readOrigin(value: unknown): TailnetDeviceOrigin {
-  if (!isRecord(value) || typeof value.kind !== 'string' || !ORIGIN_KINDS.has(value.kind)) {
-    return { kind: 'unknown', by: null }
-  }
-  return {
-    kind: value.kind as TailnetDeviceOrigin['kind'],
-    by: typeof value.by === 'string' && value.by ? value.by.slice(0, 120) : null,
   }
 }
 

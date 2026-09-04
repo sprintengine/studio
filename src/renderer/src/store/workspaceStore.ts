@@ -53,7 +53,6 @@ import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlic
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
 import {
-  adoptLegacyBacklogTab,
   createWorkspacePaneSlice,
   type WorkspacePaneSliceActions,
 } from './slices/workspacePaneSlice'
@@ -65,7 +64,6 @@ import {
 import {
   createLayoutSlice,
   healRetiredRailLayout,
-  stripRetiredRailTabsFromLayout,
   hideNavRailTabStrip,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
@@ -1489,14 +1487,8 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
         backlogState: existing.backlogState,
         gitPanelState: existing.gitPanelState,
         // The pane record is window-owned view state like the three above:
-        // main never carries it, so a snapshot must not blank it. Main's
-        // layout can still dock the Backlog rail (store v74) while this
-        // window already has a pane: the heal above seeded a pane from the
-        // raw layout that the existing record would now discard, so adopt
-        // the rail into the record we keep instead.
-        paneState: existing.paneState
-          ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState)
-          : incoming.paneState,
+        // main never carries it, so a snapshot must not blank it.
+        paneState: existing.paneState ?? incoming.paneState,
         // Live-only fields main never persists: the projection cache the
         // supervisor re-reads from disk, and in-flight terminal metadata for
         // agents this window owns.
@@ -1550,9 +1542,7 @@ function initWorkspaceSyncClient(): void {
     applyWorkspaceLayoutUpdated: (apply) =>
       applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => ({
         ...workspace,
-        // A window on an older build can still broadcast a layout docking a
-        // retired rail tab; this window never renders one.
-        layoutModel: stripRetiredRailTabsFromLayout(apply.layoutModel) as Workspace['layoutModel'],
+        layoutModel: apply.layoutModel,
       }))),
     applyWorkspaceFieldsUpdated: (apply) =>
       applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {

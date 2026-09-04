@@ -3,15 +3,12 @@ import {
   normalizeTailnetScopes,
   TAILNET_STRUCTURED_SCOPES,
   type TailnetApprovePairRequestView,
-  type TailnetDevice,
-  type TailnetDeviceOrigin,
   type TailnetLiveState,
   type TailnetPairRequest,
   type TailnetPairRequestPhase,
   type TailnetPairingOfferView,
   type TailnetPushPayload,
   type TailnetRemoteStatus,
-  type TailnetReverseGrant,
   type TailnetScope,
 } from '../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../shared/tailnet-peers'
@@ -47,26 +44,8 @@ export type TailnetRemoteService = {
   initialize(): Promise<TailnetRemoteStatus>
   getStatus(): TailnetRemoteStatus
   setEnabled(enabled: boolean): Promise<TailnetRemoteStatus>
-  /** Whether pairing and reachability events raise OS notifications (phase 3). */
-  setNotifications(enabled: boolean): TailnetRemoteStatus
-  /**
-   * Mint a one-time pairing code. The token is returned once and never
-   * re-readable. `origin` is recorded on the device that redeems it: the
-   * Settings button passes nothing (a carried code); an agent passes itself.
-   */
-  offerPairing(input?: { scopes?: unknown; origin?: TailnetDeviceOrigin }): TailnetPairingOfferView
-  /**
-   * The reverse half of a both-ways pairing (phase 6): mint a device HERE for
-   * the machine this Studio is about to ask to drive, so the approval over
-   * there can carry a grant back. Null while nothing is listening — a token
-   * for a listener that is down would be a credential pointing at nothing —
-   * and the caller says so instead of offering it.
-   */
-  grantReverseDevice(input: { machineName: string; scopes: TailnetScope[] }): {
-    device: TailnetDevice
-    deviceToken: string
-    endpoint: string
-  } | null
+  /** Mint a one-time pairing code. The token is returned once and never re-readable. */
+  offerPairing(input?: { scopes?: unknown }): TailnetPairingOfferView
   cancelPairing(): TailnetRemoteStatus
   revokeDevice(deviceId: string): TailnetRemoteStatus
   /**
@@ -85,8 +64,6 @@ export type TailnetRemoteService = {
   approvePairRequest(input: {
     id: string
     scopes?: unknown
-    /** The six digits on the asker's screen, typed here (phase 2). */
-    code?: unknown
     via?: 'ipc' | 'tool'
   }): TailnetApprovePairRequestResult
   denyPairRequest(id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus
@@ -144,13 +121,6 @@ export type TailnetRemoteServiceOptions = {
    * consumer that stores the latest can never drift by missing one.
    */
   onEvent?: (payload: TailnetPushPayload) => void
-  /**
-   * An approved asker delivered the reverse half of a both-ways pairing
-   * (phase 6): a device it minted for this machine. Wired to the fleet, which
-   * stores it as a machine this Studio can drive. The gateway has already
-   * checked the grant's endpoint is the asker's own address.
-   */
-  onReverseGrant?: (input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }) => void
   /** Injected in tests. Production reads this machine's real interfaces. */
   resolveBindAddress?: () => string | null
   createPeerScanner?: () => TailnetPeerScanner
@@ -403,7 +373,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       // there is no listener to have cached one (the Settings knock).
       tailnetAddress: boundAddress ?? resolveBindAddress(),
       lastError,
-      notifications: current.notifications,
       devices: devices.listDevices(),
       pairing: devices.getPairingState(),
       pairRequests: devices.listPairRequests(),
@@ -443,23 +412,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       terminals: options.terminals,
       onToolCall: options.onToolCall,
       onPairRequested: () => announcePairRequests(),
-      onReverseGrant: (input) => {
-        options.onReverseGrant?.(input)
-        // A both-ways pairing lands a machine in the fleet on THIS side without
-        // any window having asked: the audit says so, like any other grant.
-        options.onToolCall?.({
-          context: {
-            metadata: {
-              kind: 'remote-tailnet',
-              deviceName: input.askerName,
-              ...(input.peerNode ? { peerNode: input.peerNode } : {}),
-            },
-          },
-          tool: 'tailnet.reverse_grant',
-          args: { endpoint: input.grant.endpoint, scopes: input.grant.scopes.join(', ') },
-          durationMs: 0,
-        })
-      },
       onActivity: (event) => handleActivity(event),
       log: options.log,
     })
@@ -505,21 +457,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     getStatus,
 
-    setNotifications(enabled): TailnetRemoteStatus {
-      const current = loadSettings()
-      settings = { ...current, notifications: enabled === true }
-      try {
-        writeTailnetSettings(options.resolveUserDataDir(), settings)
-      } catch (error) {
-        lastError = `Could not persist the tailnet notification setting: ${message(error)}`
-        options.log?.(lastError)
-      }
-      // The switch is status every window shows; `devices-changed` is the
-      // "re-read status" event and carries a fresh one.
-      emit({ kind: 'devices-changed' })
-      return getStatus()
-    },
-
     async setEnabled(enabled): Promise<TailnetRemoteStatus> {
       const current = loadSettings()
       settings = { ...current, enabled: enabled === true }
@@ -562,7 +499,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       // No scopes asked for means the structured-command set. The terminal tier
       // is never granted by default — it has to be asked for by name.
       const scopes = requested.length > 0 ? requested : [...TAILNET_STRUCTURED_SCOPES]
-      const offer = devices.offerPairing({ scopes, origin: input?.origin ?? { kind: 'code', by: null } })
+      const offer = devices.offerPairing({ scopes })
       // The offer's existence (never its token) is status other windows show.
       emit({ kind: 'devices-changed' })
       const bound = server?.address() ?? null
@@ -576,48 +513,18 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       }
     },
 
-    grantReverseDevice(input) {
-      const bound = server?.address() ?? null
-      if (!bound) return null
-      const minted = devices.mintDevice({
-        name: input.machineName,
-        scopes: input.scopes,
-        origin: { kind: 'reverse', by: input.machineName },
-      })
-      emit({ kind: 'devices-changed' })
-      return { ...minted, endpoint: formatEndpoint(bound.address, bound.port) }
-    },
-
     approvePairRequest(input): TailnetApprovePairRequestResult {
-      const requestId = typeof input.id === 'string' ? input.id : ''
-      const answered = devices.listPairRequests().find((request) => request.id === requestId)
+      const answered = devices
+        .listPairRequests()
+        .find((request) => request.id === (typeof input.id === 'string' ? input.id : ''))
       const outcome = devices.approvePairRequest({
-        id: requestId,
+        id: typeof input.id === 'string' ? input.id : '',
         scopes: normalizeTailnetScopes(input.scopes),
-        code: input.code,
       })
-      if (!outcome.ok) {
-        if (outcome.code === 'code_mismatch') {
-          if (outcome.declined) {
-            // The third wrong code declined it: announced exactly as a
-            // pressed Decline is, so every surface and the asker's poll agree.
-            if (input.via !== 'tool') auditAnswer('tailnet.deny_pair_request', answered)
-            announcePairRequests({ ids: [requestId], phase: 'denied' })
-          }
-          return {
-            ok: false,
-            code: 'code_mismatch',
-            message: outcome.message,
-            attemptsLeft: outcome.attemptsLeft,
-            declined: outcome.declined,
-            status: getStatus(),
-          }
-        }
-        return { ok: false, code: outcome.code, message: outcome.message, status: getStatus() }
-      }
+      if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message, status: getStatus() }
       if (input.via !== 'tool') auditAnswer('tailnet.approve_pair_request', answered, outcome.device.scopes)
       // Approved from whichever surface answered; every other one hears it.
-      announcePairRequests({ ids: [requestId], phase: 'approved' })
+      announcePairRequests({ ids: [typeof input.id === 'string' ? input.id : ''], phase: 'approved' })
       emit({ kind: 'devices-changed' })
       // A new device changes what `tools/list` answers for it, and the panel
       // needs the device to appear in the same read that reports success.

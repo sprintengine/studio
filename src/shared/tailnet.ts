@@ -65,26 +65,6 @@ export function tailnetScopeGrantsAccess(granted: ReadonlySet<TailnetScope>, req
   return granted.has(`${required.slice(0, -':read'.length)}:operate` as TailnetScope)
 }
 
-/**
- * How a paired device came to exist (pair-from-the-scan-and-stay-paired,
- * phase 5). Recorded at mint and never changed: the answer to "what is
- * this row?" when a person cannot place a device in their list.
- *
- * - `code`: someone redeemed a carried pairing link (the QR / URL path).
- * - `approval`: a person here allowed a request from another machine; `by`
- *   is the peer node the transport proved, when whois resolved it.
- * - `agent`: an agent on this machine minted it through
- *   `tailnet.offer_pairing`; `by` is the agent's name.
- * - `reverse`: the other half of a both-ways pairing — THIS machine asked to
- *   drive another, and granted it a device here in the same exchange; `by`
- *   is that machine's name.
- * - `unknown`: a record from before origins were kept.
- */
-export type TailnetDeviceOrigin = {
-  kind: 'code' | 'approval' | 'agent' | 'reverse' | 'unknown'
-  by: string | null
-}
-
 /** A paired device, as any surface may see it. The device token is never part of this. */
 export type TailnetDevice = {
   id: string
@@ -95,7 +75,6 @@ export type TailnetDevice = {
   lastSeenAt: string | null
   /** Tailscale node name resolved at the last request; null when whois was unavailable. */
   lastPeerNode: string | null
-  origin: TailnetDeviceOrigin
 }
 
 /** An outstanding pairing offer — what it grants and when it lapses, never the code. */
@@ -115,8 +94,6 @@ export type TailnetRemoteStatus = {
   tailnetAddress: string | null
   /** Why the listener is not running when it was asked to be. */
   lastError: string | null
-  /** Whether pairing and reachability events raise OS notifications (phase 3). Defaults on. */
-  notifications: boolean
   devices: TailnetDevice[]
   pairing: TailnetPairingState | null
   /** Requests from other machines waiting to be approved or denied here. */
@@ -206,59 +183,14 @@ export type TailnetPairRequestOutcome =
   | { status: 'denied' }
   | { status: 'expired' }
 
-/**
- * How many wrong codes an approver may type before the request is declined
- * for them. Three is a typo allowance, not a guessing budget: the code is on
- * the asker's screen, and a person who cannot see it should not be approving.
- */
-export const PAIR_REQUEST_CODE_ATTEMPTS = 3
-
-/**
- * What a surface learns when it answers a request: the device, and fresh status.
- *
- * `code_mismatch` carries how many tries remain; on the last one the request
- * is declined outright and the answer says so, so the card does not offer
- * another go at a request that no longer exists.
- */
+/** What a surface learns when it answers a request: the device, and fresh status. */
 export type TailnetApprovePairRequestView =
   | { ok: true; device: TailnetDevice; status: TailnetRemoteStatus }
-  | { ok: false; code: 'request_not_found' | 'code_required'; message: string; status: TailnetRemoteStatus }
-  | {
-      ok: false
-      code: 'code_mismatch'
-      message: string
-      status: TailnetRemoteStatus
-      attemptsLeft: number
-      /** True when this mismatch was the last allowed and the request has been declined. */
-      declined: boolean
-    }
-
-/**
- * The reverse half of a both-ways pairing (phase 6): what the ASKING machine
- * sends with its final collect so the machine that approved it can drive it
- * back. The asker minted this device for the approver on its own store; the
- * token travels exactly once, inside the collect that also takes the
- * approver's token, and only over the request the approver already said yes
- * to. Absent when the asker has no listener (a phone) or did not offer it.
- */
-export type TailnetReverseGrant = {
-  /** `address:port` of the asker's listener, for the approver to dial. */
-  endpoint: string
-  /** The asker's name for itself, as the approver's Fleet will list it. */
-  machineName: string
-  deviceId: string
-  /** The name the approver's machine was granted under on the asker. */
-  deviceName: string
-  deviceToken: string
-  scopes: TailnetScope[]
-}
+  | { ok: false; code: 'request_not_found'; message: string; status: TailnetRemoteStatus }
 
 export const TAILNET_LIST_PAIR_REQUESTS_CHANNEL = 'tailnet:list-pair-requests'
 export const TAILNET_APPROVE_PAIR_REQUEST_CHANNEL = 'tailnet:approve-pair-request'
 export const TAILNET_DENY_PAIR_REQUEST_CHANNEL = 'tailnet:deny-pair-request'
-export const TAILNET_SET_NOTIFICATIONS_CHANNEL = 'tailnet:set-notifications'
-/** Main → renderer: open the Remote popover (an OS notification was clicked). */
-export const REMOTE_OPEN_REQUESTED_CHANNEL = 'remote:open-requested'
 
 // ── Live state, pushed (MC: remote-sessions-ux / tailnet-live-state-push) ────
 //

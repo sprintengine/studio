@@ -35,13 +35,6 @@ export type FleetConnection = {
   scopes: TailnetScope[]
   pairedAt: string
   lastConnectedAt: string | null
-  /**
-   * How this pairing came about (pair-from-the-scan-and-stay-paired): a
-   * carried link, a request someone approved over there, or the reverse half
-   * of a both-ways pairing that machine asked for. `unknown` for records
-   * written before this was kept.
-   */
-  pairedVia: 'link' | 'request' | 'reverse' | 'unknown'
 }
 
 /** What this Studio may do with a paired machine's terminals. */
@@ -168,43 +161,9 @@ export type FleetPairRequestView = {
   requestId: string
   endpoint: string
   machineName: string
-  /**
-   * The six digits the person at the other machine must TYPE to allow this
-   * (pair-from-the-scan-and-stay-paired, phase 2). Minted over there; shown
-   * large here so it can be read out.
-   */
+  /** The six digits also on the other machine's screen, for the person to compare. */
   comparisonCode: string
   expiresAt: string
-  /** True when this request also offers the other machine a device here (phase 6). */
-  reverseOffered: boolean
-}
-
-/**
- * How a request THIS machine made stopped waiting, or that it still is.
- * `failed` is the one phase the other machine never said: the wait ended
- * here (the credential could not be saved, or the reverse grant could not
- * be minted) and `detail` says why.
- */
-export type FleetPairRequestPhase = 'waiting' | 'approved' | 'denied' | 'expired' | 'cancelled' | 'failed'
-
-/**
- * Whether a paired machine answers right now (phase 4), as main last checked
- * it. `unauthorized` is the one refusal that is not "asleep": the machine
- * answered and refused our credential, so it was revoked over there.
- */
-export type FleetMachineReachability = {
-  connectionId: string
-  machineName: string
-  /** A check is in flight; `reachable` is the previous answer meanwhile. */
-  checking: boolean
-  reachable: boolean
-  unauthorized: boolean
-  /** Epoch ms of the last completed check, or null before the first. */
-  checkedAt: number | null
-  /** Epoch ms of the last time the machine answered, or null if it never has. */
-  lastReachedAt: number | null
-  /** The failure in a sentence when not reachable; null otherwise. */
-  detail: string | null
 }
 
 export type FleetRequestPairingResult =
@@ -238,21 +197,6 @@ export type FleetEvent =
   | { kind: 'machine-paired'; revision: number; connection: FleetConnection }
   | { kind: 'machine-forgotten'; revision: number; connectionId: string; machineName: string }
   | ({ kind: 'attachment'; revision: number } & FleetLiveAttachment)
-  /**
-   * A request this machine made to pair with another (phase 3): main owns
-   * the wait, so every surface — not just the panel that asked — can show
-   * the code while it waits and the answer when it lands. `connection` rides
-   * on `approved`; `detail` on `failed` and `denied`.
-   */
-  | {
-      kind: 'pair-request'
-      revision: number
-      phase: FleetPairRequestPhase
-      request: FleetPairRequestView
-      connection?: FleetConnection
-      detail?: string
-    }
-  | ({ kind: 'machine-reachability'; revision: number } & FleetMachineReachability)
 
 /**
  * One pane's link to one remote session. Keyed by `attachId` — the pane —
@@ -277,10 +221,6 @@ export type FleetLiveAttachment = {
 export type FleetLiveState = {
   revision: number
   attachments: FleetLiveAttachment[]
-  /** Requests this machine made that are still waiting to be answered. */
-  requests: FleetPairRequestView[]
-  /** The last reachability answer per paired machine; absent before the first check. */
-  reachability: FleetMachineReachability[]
 }
 
 export const FLEET_EVENT_CHANNEL = 'fleet:event'
@@ -289,8 +229,6 @@ export const FLEET_GET_LIVE_STATE_CHANNEL = 'fleet:get-live-state'
 export const FLEET_REQUEST_PAIRING_CHANNEL = 'fleet:request-pairing'
 export const FLEET_COLLECT_PAIRING_CHANNEL = 'fleet:collect-pairing'
 export const FLEET_CANCEL_PAIRING_CHANNEL = 'fleet:cancel-pairing'
-/** Re-check one paired machine now (the row's Retry), or every machine when no id is given. */
-export const FLEET_CHECK_REACHABILITY_CHANNEL = 'fleet:check-reachability'
 export const FLEET_LIST_CONNECTIONS_CHANNEL = 'fleet:list-connections'
 export const FLEET_PAIR_CHANNEL = 'fleet:pair'
 export const FLEET_FORGET_CHANNEL = 'fleet:forget'

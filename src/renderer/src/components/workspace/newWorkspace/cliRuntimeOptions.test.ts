@@ -627,3 +627,70 @@ assert.equal(
 assert.equal(installableCliSummary([]), '', 'nothing to install names nothing')
 
 console.log('cliRuntimeOptions.test.ts: ok')
+
+// --- the hosted layer (the model feed from GitHub) ---------------------------
+// manifest < hosted < discovered < user. The feed is curated like the manifest
+// but live, replaced wholesale on every fetch, and its `retired` rows are the
+// one way to withdraw a model a shipped build still carries in its manifest.
+const hostedRows = (
+  hosted: Parameters<typeof buildAgentCliCatalog>[3],
+  discovered?: Parameters<typeof buildAgentCliCatalog>[2],
+): { id: string; label?: string; origin: string; releasedAt?: string }[] =>
+  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered, hosted)
+    .find((option) => option.value === 'claude-code')
+    ?.modelSelection?.options ?? []
+
+const firstFeed = hostedRows({
+  'claude-code': [
+    { id: 'claude-opus-5', label: 'Opus 5 (feed label)', releasedAt: '2026-07-25' },
+    { id: 'claude-fable-5-1', label: 'Fable 5.1', releasedAt: '2026-09-04' },
+  ],
+})
+assert.deepEqual(
+  firstFeed,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
+    { id: 'claude-opus-5', label: 'Opus 5 (feed label)', origin: 'hosted', releasedAt: '2026-07-25' },
+    { id: 'claude-fable-5-1', label: 'Fable 5.1', origin: 'hosted', releasedAt: '2026-09-04' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'a manifest-only id survives a feed that omits it; a feed row the manifest also has takes the feed label and the hosted claim; a new feed id appears with its release date',
+)
+
+const secondFeed = hostedRows({ 'claude-code': [{ id: 'claude-opus-5', label: 'Opus 5' }] })
+assert.deepEqual(
+  secondFeed.map((row) => row.id),
+  ['opus[1m]', 'claude-opus-5', 'claude-haiku-4-5'],
+  'the hosted layer is replaced wholesale: an id the next fetch omits is gone, while manifest and user rows survive',
+)
+
+const retiredFeed = hostedRows({
+  'claude-code': [
+    { id: 'claude-opus-5', label: 'Opus 5', retired: true, retiredAt: '2026-09-01' },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', retired: true, retiredAt: '2026-09-01' },
+  ],
+})
+assert.deepEqual(
+  retiredFeed,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'a retired feed row hides the manifest row of the same id and is not shown itself, and leaves a user-added row alone',
+)
+
+const retiredButDiscovered = hostedRows(
+  { 'claude-code': [{ id: 'claude-opus-5', label: 'Opus 5', retired: true, retiredAt: '2026-09-01' }] },
+  { 'claude-code': { models: [{ id: 'claude-opus-5' }], fetchedAt: '2026-09-04T00:00:00Z', source: 'agent-sdk' } },
+)
+assert.deepEqual(
+  retiredButDiscovered.find((row) => row.id === 'claude-opus-5'),
+  { id: 'claude-opus-5', label: 'Opus 5', origin: 'discovered' },
+  "a retired feed row does not override the CLI's own word: an id discovery still lists stays, as discovered",
+)
+
+assert.deepEqual(
+  hostedRows(undefined),
+  hostedRows({}),
+  'no feed and an empty feed render the same catalog',
+)

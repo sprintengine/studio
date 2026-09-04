@@ -541,47 +541,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 74, 'the Backlog rail-to-pane move is the newest step, at store v74')
-
-// v74: the workspace Backlog left the FlexLayout rail for the pane. A v73
-// envelope — which already carries a pane record — still docking `backlog`
-// adopts it as a pane tab and loses the rail tab; a v72 envelope passing both
-// rungs is migrated once (the heal is idempotent).
-{
-  const railLayout = {
-    global: {},
-    borders: [],
-    layout: {
-      type: 'row',
-      children: [
-        { type: 'tabset', enableTabStrip: false, children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }] },
-        { type: 'tabset', children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
-      ],
-    },
-  }
-  const v73WithBacklogRail = {
-    workspaces: [{
-      id: 'ws-backlog',
-      mode: 'standard',
-      folderPath: '/repo/app',
-      agents: {},
-      layoutModel: railLayout,
-      paneState: { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] },
-    }],
-    activeWorkspaceId: 'ws-backlog',
-    appSettings: {},
-  }
-  const migratedBacklog = migratePersistedWorkspaceState(v73WithBacklogRail, 73) as {
-    workspaces: Array<{ layoutModel: unknown; paneState?: { open: boolean; activeTabId: string | null; tabs: Array<{ id: string; kind: string }> } }>
-  }
-  const migratedWs = migratedBacklog.workspaces[0]
-  assert.equal(JSON.stringify(migratedWs.layoutModel).includes('"component":"backlog"'), false, 'v74 strips the backlog rail tab')
-  assert.deepEqual(migratedWs.paneState?.tabs.map((tab) => tab.kind), ['git', 'backlog'], 'v74 adopts the backlog into the existing pane record')
-  assert.equal(migratedWs.paneState?.open, true)
-  assert.equal(migratedWs.paneState?.activeTabId, migratedWs.paneState?.tabs[1].id, 'a closed pane opens on the backlog the rail was showing')
-  const migratedTwice = migratePersistedWorkspaceState(v73WithBacklogRail, 72) as typeof migratedBacklog
-  assert.deepEqual(migratedTwice.workspaces[0].paneState?.tabs.map((tab) => tab.kind), ['git', 'backlog'], 'a v72 profile passing both rungs adopts it once')
-}
+assert.equal(WORKSPACE_STORE_VERSION, 73, 'the rail-to-pane move is the newest step, at store v73')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],

@@ -733,9 +733,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   const handleAction = useCallback(
     (action: Action) => {
       // Removing a tabset hands its weight back to flexlayout, which spreads it
-      // across every remaining sibling — including the strip-less nav rail on
-      // the left (Knowledge Graph), which would otherwise grow when a terminal
-      // beside it is closed. Snapshot the rails'
+      // across every remaining sibling — including the strip-less Backlog rail
+      // on the left and the Skills rail on the right, either of which would
+      // otherwise grow when a terminal beside it is closed. Snapshot both rails'
       // widths before the deletion applies, then re-pin them once the model has
       // settled so the freed space goes to the editor/terminal siblings instead.
       if (action.type === Actions.DELETE_TAB || action.type === Actions.DELETE_TABSET) {

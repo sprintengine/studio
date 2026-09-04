@@ -3,6 +3,8 @@ import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './vo
 // permission-preset vocabulary), so the cycle erases at compile time and no
 // runtime import exists in either direction.
 import type { AgentLaunchRecord } from './agent-launch'
+import type { HostedModelFeed } from './hosted-model-feed'
+export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
@@ -641,6 +643,41 @@ export type MarketplacePluginUninstallResult =
     }
 
 export type MarketplaceRegistryState = 'ok' | 'empty' | 'offline' | 'fetch-error' | 'invalid-schema'
+
+// The hosted model feed (src/shared/hosted-model-feed.ts) as the main-process
+// client serves it. `ok: true` always carries a feed to render: live from
+// GitHub, the disk cache, or the bundled seed. `degraded` means the last fetch
+// failed or was rejected and the copy shown is the last good one; `message`
+// says why in plain words for the Settings line.
+export type HostedModelFeedReadInput = {
+  forceRefresh?: boolean
+  // Serve whatever is on disk (cache, else seed) without touching the network.
+  // Store boot uses it so the pickers never wait on a fetch.
+  cachedOnly?: boolean
+}
+
+export type HostedModelFeedReadResult =
+  | {
+      ok: true
+      state: 'ok' | 'degraded'
+      feedUrl: string
+      source: 'network' | 'cache' | 'seed'
+      fetchedAt: string
+      etag?: string
+      notModified?: boolean
+      // True when this read replaced the previous copy with a different one —
+      // what fires `hostedModelFeed:changed` and the new-models notice.
+      changed: boolean
+      feed: HostedModelFeed
+      message?: string
+    }
+  | {
+      ok: false
+      state: 'offline' | 'fetch-error' | 'invalid-schema'
+      feedUrl: string
+      statusCode?: number
+      message: string
+    }
 
 export type MarketplaceRegistryReadInput = {
   forceRefresh?: boolean

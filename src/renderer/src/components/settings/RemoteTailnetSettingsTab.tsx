@@ -2,19 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { encodeQrCode } from '../../../../shared/qr-code'
 import {
+  TAILNET_SCOPES,
+  TAILNET_STRUCTURED_SCOPES,
   type TailnetDevice,
+  type TailnetPairRequest,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
   type TailnetScope,
 } from '../../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
-import { FOCUS_RING_CLASS, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { Checkbox, FOCUS_RING_CLASS, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { MetaCell, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
-import { deviceSummary, outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
-import { PeerPicker } from '../remote/PeerPicker'
-import { PairRequestCard } from '../remote/PairRequestCard'
-import { OutboundPairRequestCard } from '../remote/OutboundPairRequestCard'
-import { useTailnetPresence } from '../workspace/topbar/useTailnetPresence'
+import {
+  deviceSummary,
+  outstandingPairingNote,
+  pairRequestAnswerable,
+  pairRequestSummary,
+  pairingExpiry,
+  peerListView,
+  peerStatus,
+  tailnetReadiness,
+} from './tailnetPanelModel'
 
 // Settings → Remote: tailnet remote control, both directions.
 //
@@ -85,28 +93,23 @@ export function RemoteTailnetSettingsTab() {
 
   const outstandingPairing = status?.pairing ?? null
   const pendingRequestCount = status?.pairRequests.length ?? 0
-  // The outward half — machines this Studio drives, requests it has made,
-  // whether each paired machine answers — from the same pushed presence the
-  // Remote glyph reads, so this tab and the popover cannot disagree.
-  const presence = useTailnetPresence()
-  const askingCount = presence.fleetRequests.length
 
-  // Only ticks while a countdown is on screen — an outbound offer, a request
-  // whose Allow must go dead the second it lapses, or one this machine is
-  // waiting on: an idle panel should not wake once a second for a number
-  // nobody is looking at.
+  // Only ticks while a countdown is on screen — an outbound offer, or an
+  // inbound request whose Allow must go dead the second it lapses: an idle
+  // panel should not wake once a second for a number nobody is looking at.
   useEffect(() => {
-    if (!offer && !outstandingPairing && pendingRequestCount === 0 && askingCount === 0) return undefined
+    if (!offer && !outstandingPairing && pendingRequestCount === 0) return undefined
     setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), EXPIRY_TICK_MS)
     return () => clearInterval(timer)
-  }, [offer, outstandingPairing, pendingRequestCount, askingCount])
+  }, [offer, outstandingPairing, pendingRequestCount])
 
   const readiness = tailnetReadiness(status)
   const enabled = status?.enabled ?? false
   const busy = action.tone === 'busy'
   const devices = status?.devices ?? []
   const pairRequests = status?.pairRequests ?? []
+  const peers = useMemo(() => peerListView(scan, scanning), [scan, scanning])
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
     setAction({ tone: 'busy', message })
@@ -133,6 +136,52 @@ export function RemoteTailnetSettingsTab() {
       setNow(Date.now())
       await refresh()
     })
+
+  // Scopes ticked per waiting request, defaulting to the structured set. The
+  // terminal tier is deliberately NOT pre-ticked: it is arbitrary shell on this
+  // machine, and a default nobody chose is not a grant anybody made.
+  const [requestScopes, setRequestScopes] = useState<Record<string, TailnetScope[]>>({})
+  const [answeringId, setAnsweringId] = useState<string | null>(null)
+
+  const scopesFor = (request: TailnetPairRequest): TailnetScope[] =>
+    requestScopes[request.id] ?? [...TAILNET_STRUCTURED_SCOPES]
+
+  const toggleScope = (request: TailnetPairRequest, scope: TailnetScope, next: boolean): void => {
+    setRequestScopes((current) => {
+      const chosen = new Set(current[request.id] ?? TAILNET_STRUCTURED_SCOPES)
+      if (next) chosen.add(scope)
+      else chosen.delete(scope)
+      return { ...current, [request.id]: TAILNET_SCOPES.filter((entry) => chosen.has(entry)) }
+    })
+  }
+
+  const approveRequest = async (request: TailnetPairRequest): Promise<void> => {
+    setAnsweringId(request.id)
+    try {
+      await run(`Pairing ${request.deviceName}.`, async () => {
+        const result = await window.api.tailnetApprovePairRequest(request.id, scopesFor(request))
+        setStatus(result.status)
+        if (!result.ok) {
+          setAction({ tone: 'error', message: result.message })
+          return
+        }
+        setAction({ tone: 'idle', message: `Paired ${result.device.name}.` })
+      })
+    } finally {
+      setAnsweringId(null)
+    }
+  }
+
+  const denyRequest = async (request: TailnetPairRequest): Promise<void> => {
+    setAnsweringId(request.id)
+    try {
+      await run(`Declining ${request.deviceName}.`, async () => {
+        setStatus(await window.api.tailnetDenyPairRequest(request.id))
+      })
+    } finally {
+      setAnsweringId(null)
+    }
+  }
 
   const cancelPairing = (): Promise<void> =>
     run('Cancelling the pairing code.', async () => {
@@ -161,23 +210,6 @@ export function RemoteTailnetSettingsTab() {
       setScanning(false)
     }
   }
-
-  // Connect (pair-from-the-scan-and-stay-paired, phase 1): ask the machine,
-  // and let main own the wait. The waiting card below, and the one in the
-  // Remote popover, show the code the moment the ask is accepted.
-  const connect = (endpoint: string, reverseScopes: TailnetScope[] | null): Promise<void> =>
-    run('Asking that machine to pair.', async () => {
-      const result = await window.api.fleetRequestPairing(endpoint, reverseScopes ? { reverseScopes } : undefined)
-      if (!result.ok) {
-        setAction({ tone: 'error', message: result.message })
-        return
-      }
-    })
-
-  const toggleNotifications = (next: boolean): Promise<void> =>
-    run(next ? 'Turning notifications on.' : 'Turning notifications off.', async () => {
-      setStatus(await window.api.tailnetSetNotifications(next))
-    })
 
   const copy = async (value: string, label: string): Promise<void> => {
     try {
@@ -221,13 +253,6 @@ export function RemoteTailnetSettingsTab() {
           // ON is refused, and only when there is no tailnet to bind to.
           disabled={busy || (!enabled && !readiness.canTurnOn)}
           requirement={readiness.canTurnOn ? undefined : 'Needs Tailscale'}
-        />
-        <SettingToggle
-          label="Notify me about pairing and reachability"
-          description="A system notification when another machine asks to pair, when one answers a request this Mac made, or when a paired machine revokes it — only while no Studio window is focused."
-          enabled={status?.notifications ?? true}
-          onChange={(next) => void toggleNotifications(next)}
-          disabled={busy || !status}
         />
       </div>
 
@@ -287,22 +312,65 @@ export function RemoteTailnetSettingsTab() {
             Waiting to be answered
           </SettingsSectionTitle>
           <div className="divide-y divide-[color:var(--bg-selected)]">
-            {pairRequests.map((request) => (
-              <PairRequestCard key={request.id} request={request} now={now} variant="flush" />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {presence.fleetRequests.length > 0 ? (
-        <section>
-          <SettingsSectionTitle className="mb-1.5" count={presence.fleetRequests.length}>
-            Asking
-          </SettingsSectionTitle>
-          <div className="divide-y divide-[color:var(--bg-selected)]">
-            {presence.fleetRequests.map((request) => (
-              <OutboundPairRequestCard key={request.requestId} request={request} now={now} variant="flush" />
-            ))}
+            {pairRequests.map((request) => {
+              const answerable = pairRequestAnswerable(request, now)
+              const chosen = scopesFor(request)
+              const busyHere = answeringId === request.id
+              return (
+                <div key={request.id} className="grid gap-2 py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
+                        {request.deviceName}
+                      </div>
+                      <div className="mt-0.5 text-meta text-[color:var(--text-muted)]">
+                        {pairRequestSummary(request)}
+                      </div>
+                    </div>
+                    {/* The digits are the point of the exchange: the same six are
+                        on the asking machine, and comparing them is what makes
+                        approving safe without a carried secret. */}
+                    <div className="text-right">
+                      <div className="text-micro text-[color:var(--text-muted)]">Code on the other machine</div>
+                      <div className="font-mono text-heading tracking-wide text-[color:var(--text-strong)]">
+                        {request.comparisonCode}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {TAILNET_SCOPES.map((scope) => (
+                      <Checkbox
+                        key={scope}
+                        checked={chosen.includes(scope)}
+                        onChange={(next) => toggleScope(request, scope, next)}
+                        disabled={busyHere || !answerable.canAnswer}
+                        label={scope}
+                      />
+                    ))}
+                  </div>
+                  {answerable.note ? (
+                    <p className="text-meta text-[color:var(--text-muted)]">{answerable.note}</p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <PrimaryButton
+                      size="xs"
+                      onClick={() => void approveRequest(request)}
+                      disabled={busyHere || !answerable.canAnswer}
+                    >
+                      {busyHere ? 'Pairing' : 'Allow'}
+                    </PrimaryButton>
+                    <OutlineButton
+                      size="xs"
+                      tone="danger"
+                      onClick={() => void denyRequest(request)}
+                      disabled={busyHere || !answerable.canAnswer}
+                    >
+                      Decline
+                    </OutlineButton>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </section>
       ) : null}
@@ -319,14 +387,7 @@ export function RemoteTailnetSettingsTab() {
                 className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{device.name}</span>
-                    {device.origin.kind === 'agent' ? (
-                      <span className="shrink-0 rounded-[3px] border border-[color:var(--border-default)] px-1 text-micro text-[color:var(--text-muted)]">
-                        agent-minted
-                      </span>
-                    ) : null}
-                  </div>
+                  <div className="truncate text-body font-medium text-[color:var(--text-strong)]">{device.name}</div>
                   <div className="mt-0.5 text-meta text-[color:var(--text-muted)]">
                     {deviceSummary(device, formatDate)}
                   </div>
@@ -351,19 +412,41 @@ export function RemoteTailnetSettingsTab() {
       </section>
 
       <section>
-        <SettingsSectionTitle className="mb-1.5">Machines on your tailnet</SettingsSectionTitle>
-        <PeerPicker
-          scan={scan}
-          scanning={scanning}
-          connections={presence.fleet}
-          reachability={presence.fleetReachability}
-          now={now}
-          onScan={() => void scanPeers()}
-          onConnect={(endpoint, reverseScopes) => void connect(endpoint, reverseScopes)}
-          canOfferReverse={readiness.state === 'listening'}
-          busy={busy}
-          waitingOn={presence.fleetRequests[0]?.machineName ?? null}
-        />
+        <SettingsSectionTitle
+          className="mb-1.5"
+          count={peers.peers.length > 0 ? peers.peers.length : undefined}
+          action={
+            <OutlineButton size="xs" onClick={() => void scanPeers()} disabled={scanning}>
+              {scanning ? 'Scanning' : 'Scan'}
+            </OutlineButton>
+          }
+        >
+          Machines on your tailnet
+        </SettingsSectionTitle>
+        {peers.emptyMessage ? (
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">{peers.emptyMessage}</p>
+        ) : (
+          <div className="divide-y divide-[color:var(--bg-selected)]">
+            {peers.peers.map((peer) => {
+              const state = peerStatus(peer, scan?.probedPort ?? 0)
+              return (
+                <div key={peer.id} className="grid gap-1 py-2.5 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-1.5">
+                    <StatusDot tone={state.tone} />
+                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
+                      {peer.hostName}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
+                    <span>{state.label}</span>
+                    <span className="font-mono">{peer.address}</span>
+                    {peer.os ? <span>{peer.os}</span> : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
     </div>
   )

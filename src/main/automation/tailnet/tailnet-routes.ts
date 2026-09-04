@@ -10,14 +10,6 @@ export const TAILNET_PAIR_PATH = `${TAILNET_ROUTE_PREFIX}/pair`
  * been approved yet has no credential by definition.
  */
 export const TAILNET_PAIR_REQUEST_PATH = `${TAILNET_ROUTE_PREFIX}/pair-request`
-/**
- * The collect as a POST (pair-from-the-scan-and-stay-paired, phase 6): the
- * same poll `GET pair-request` answers, but with a body, so an approved
- * collect can carry the asker's reverse grant — a device it minted for this
- * machine — in the one exchange the approver already said yes to. GET stays
- * for clients that never offer one.
- */
-export const TAILNET_PAIR_COLLECT_PATH = `${TAILNET_ROUTE_PREFIX}/pair-request/collect`
 export const TAILNET_IDENTITY_PATH = `${TAILNET_ROUTE_PREFIX}/identity`
 export const TAILNET_MCP_PATH = `${TAILNET_ROUTE_PREFIX}/mcp`
 export const TAILNET_WS_TICKET_PATH = `${TAILNET_ROUTE_PREFIX}/ws-ticket`

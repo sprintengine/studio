@@ -17,31 +17,16 @@ const anyGlobal = globalThis as unknown as Record<string, unknown>
 anyGlobal.window = dom.window
 anyGlobal.document = dom.window.document
 anyGlobal.HTMLElement = dom.window.HTMLElement
-// React's controlled-input change detection needs the real constructors on
-// the global, or a synthetic `input` event never reaches onChange.
-anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
-anyGlobal.HTMLButtonElement = dom.window.HTMLButtonElement
 anyGlobal.Node = dom.window.Node
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-// React DOM is required above these globals in the bundle (esbuild hoists the
-// import), so it decided at load that no DOM exists and uses its legacy
-// change-event polyfill, which watches the focused element through IE's
-// attachEvent/detachEvent. Give jsdom those as no-ops so the polyfill's
-// focus → set value → keyup sequence (see `typeInto`) reaches onChange on
-// every input, not just the first one focused.
-const inputProto = dom.window.HTMLInputElement.prototype as unknown as Record<string, unknown>
-inputProto.attachEvent = () => {}
-inputProto.detachEvent = () => {}
 
 // The bridge, with hooks a test can hold open or make fail.
 const bridge = {
   revokeCalls: [] as string[],
   revokeResolve: null as null | (() => void),
   revokeFail: null as null | Error,
-  approveResult: { ok: true } as { ok: boolean; code?: string; message?: string; attemptsLeft?: number; declined?: boolean },
-  approveCalls: [] as Array<{ id: string; scopes: string[]; code: string }>,
-  reachabilityCalls: [] as Array<string | undefined>,
-  cancelCalls: [] as string[],
+  approveResult: { ok: true } as { ok: boolean; message?: string },
+  approveCalls: [] as Array<{ id: string; scopes: string[] }>,
 }
 ;(dom.window as unknown as { api: unknown }).api = {
   tailnetRevokeDevice: (deviceId: string) => {
@@ -51,19 +36,11 @@ const bridge = {
       bridge.revokeResolve = resolve
     })
   },
-  tailnetApprovePairRequest: (id: string, scopes: string[], code: string) => {
-    bridge.approveCalls.push({ id, scopes, code })
+  tailnetApprovePairRequest: (id: string, scopes: string[]) => {
+    bridge.approveCalls.push({ id, scopes })
     return Promise.resolve(bridge.approveResult)
   },
   tailnetDenyPairRequest: () => Promise.resolve({}),
-  fleetCheckReachability: (connectionId?: string) => {
-    bridge.reachabilityCalls.push(connectionId)
-    return Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] })
-  },
-  fleetCancelPairing: (requestId: string) => {
-    bridge.cancelCalls.push(requestId)
-    return Promise.resolve()
-  },
 }
 
 /* eslint-disable import/first -- jsdom globals must exist before React mounts */
@@ -74,7 +51,7 @@ import { RemotePopover, deviceLivenessText, fleetMachinePhase, machinePhaseText,
 import { fleetLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
 import { useToastStore } from '../../../store/toastStore'
 import type { TailnetLiveDevice, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type { FleetConnection, FleetLiveAttachment, FleetMachineReachability } from '../../../../../shared/tailnet-fleet'
+import type { FleetConnection, FleetLiveAttachment } from '../../../../../shared/tailnet-fleet'
 
 let failures = 0
 function run(name: string, fn: () => void | Promise<void>): void {
@@ -99,7 +76,6 @@ function status(overrides: Partial<TailnetRemoteStatus> = {}): TailnetRemoteStat
     port: 8471,
     tailnetAddress: '100.91.70.66',
     lastError: null,
-    notifications: true,
     devices: [],
     pairing: null,
     pairRequests: [],
@@ -117,21 +93,6 @@ function connection(overrides: Partial<FleetConnection> = {}): FleetConnection {
     scopes: ['workspace:read'],
     pairedAt: new Date(0).toISOString(),
     lastConnectedAt: null,
-    pairedVia: 'request',
-    ...overrides,
-  }
-}
-
-function reach(overrides: Partial<FleetMachineReachability> = {}): FleetMachineReachability {
-  return {
-    connectionId: 'conn-1',
-    machineName: 'Conal’s MacBook Air',
-    checking: false,
-    reachable: true,
-    unauthorized: false,
-    checkedAt: Date.now() - 5_000,
-    lastReachedAt: Date.now() - 5_000,
-    detail: null,
     ...overrides,
   }
 }
@@ -167,29 +128,8 @@ function presence(overrides: Partial<TailnetPresence> = {}): TailnetPresence {
     fleet: [],
     fleetAttachments,
     fleetLiveSessions: fleetLiveSessionsOf(fleetAttachments),
-    fleetRequests: [],
-    fleetReachability: new Map(),
     ...overrides,
   }
-}
-// React DOM is required above the jsdom globals in this bundle (esbuild
-// hoists the import), so it decided at load that no DOM exists and uses its
-// change-event polyfill: a focused element is watched, and a value change is
-// noticed on keyup. Typing here is that sequence — focus, set, keyup.
-async function typeInto(input: Element | null, value: string): Promise<void> {
-  assert.ok(input instanceof dom.window.HTMLInputElement, 'the input exists')
-  // jsdom's constructor, not the lib.dom type, so the guard above does not narrow for TS.
-  const field = input as HTMLInputElement
-  await act(async () => {
-    field.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
-    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
-    setter?.call(field, value)
-    field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    field.dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true }))
-  })
-}
-function codeInput(mounted: HTMLElement): HTMLInputElement | null {
-  return mounted.querySelector('input[inputmode="numeric"]')
 }
 
 let root: Root | null = null
@@ -298,10 +238,9 @@ run('a machine’s phase is derived from its links, by precedence: live > reconn
     'a live link wins, and sessions are counted, not panes'
   )
   assert.equal(byAttach([{ attachId: 'a', state: 'live', connectionId: 'other' }]).phase, 'paired', 'another machine’s links do not count')
-  const now = Date.now()
-  assert.equal(machinePhaseText('Air', { phase: 'connecting', detail: '' }, now), 'Connecting to Air…')
-  assert.equal(machinePhaseText('Air', { phase: 'reconnecting', detail: '' }, now), 'Reconnecting to Air…')
-  assert.equal(machinePhaseText('Air', { phase: 'offline', detail: '' }, now), 'Air is not answering')
+  assert.equal(machinePhaseText('Air', { phase: 'connecting', detail: '' }), 'Connecting to Air…')
+  assert.equal(machinePhaseText('Air', { phase: 'reconnecting', detail: '' }), 'Reconnecting to Air…')
+  assert.equal(machinePhaseText('Air', { phase: 'offline', detail: '' }), 'Air is not answering')
 })
 
 run('two panes on one session are two links: closing one does not retract the other’s live', () => {
@@ -364,11 +303,7 @@ run('the popover names the endpoint and driving device, and hosts the ACTING pai
   assert.match(markup, /Tailnet node/)
   assert.match(markup, /Calls itself/)
   assert.match(markup, /macbook-air/)
-  // Phase 2: the code is TYPED here, not displayed — the digits live on the asker's screen.
-  assert.doesNotMatch(markup, /481972/, 'the comparison code is not shown on the approving side')
-  assert.match(markup, /Enter the code shown on dev-macbook-air/)
-  assert.ok(codeInput(mounted), 'a numeric code input')
-  assert.ok(buttonNamed(mounted, /^Allow/)?.disabled, 'Allow is dead until six digits are typed')
+  assert.match(markup, /481972/)
   assert.match(markup, /Terminals — control/)
   assert.match(markup, /arbitrary shell/)
   assert.match(markup, /Allow/)
@@ -460,11 +395,9 @@ run('an answer of request_not_found is surfaced as an error toast, not swallowed
       })
     )
   )
-  await typeInto(codeInput(mounted), '222333')
   click(buttonNamed(mounted, /^Allow/))
   await flush()
   assert.equal(bridge.approveCalls[0]?.id, 'req-gone')
-  assert.equal(bridge.approveCalls[0]?.code, '222333', 'the typed code travels with the approval')
   const toast = useToastStore.getState().toasts[0]
   assert.equal(toast?.tone, 'error')
   assert.match(toast?.description ?? '', /no longer waiting/)
@@ -508,116 +441,8 @@ run('Revoke is busy while pending, and a failure lands as an error toast', async
 run('a quiet popover says so rather than rendering empty sections', () => {
   const mounted = mount(popover(presence(), null))
   assert.match(mounted.innerHTML, /No device is connected right now\./)
-  assert.match(mounted.innerHTML, /No machines paired\./)
-  assert.match(mounted.innerHTML, /Add a machine…/, 'the way in is offered from the popover itself')
+  assert.match(mounted.innerHTML, /No machines paired\. Pair one from the Fleet\./)
   assert.doesNotMatch(mounted.innerHTML, /Open Fleet/, 'no workspace to dock the Fleet into, no dead button')
-  unmount()
-})
-
-// ── phase 2: a wrong code is refused inline, the third declines ──────────
-
-run('a wrong code is refused beside the field, in main’s words, and the field clears for another try', async () => {
-  act(() => {
-    useToastStore.setState({ toasts: [] })
-  })
-  bridge.approveCalls.length = 0
-  bridge.approveResult = { ok: false, code: 'code_mismatch', message: 'That code did not match. 2 tries left.', attemptsLeft: 2, declined: false }
-  const mounted = mount(
-    popover(
-      presence({
-        status: status({
-          pairRequests: [
-            {
-              id: 'req-typo',
-              deviceName: 'air',
-              peerNode: 'dev-macbook-air',
-              peerAddress: '100.4.4.4',
-              comparisonCode: '481972',
-              createdAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            },
-          ],
-        }),
-      })
-    )
-  )
-  await typeInto(codeInput(mounted), '48 19 7x2')
-  click(buttonNamed(mounted, /^Allow/))
-  await flush()
-  assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most — what main is sent')
-  assert.match(mounted.innerHTML, /2 tries left/, 'the mismatch reads beside the field')
-  assert.equal(codeInput(mounted)?.value, '', 'cleared for another go')
-  assert.equal(useToastStore.getState().toasts.length, 0, 'not a toast — the person is mid-typing')
-  bridge.approveResult = { ok: true }
-  unmount()
-})
-
-// ── phases 3 and 4: the waiting card, and rows that know whether the other end answers ──
-
-run('a request this machine made shows its code large with the instruction to type it over there, and can be stopped', async () => {
-  bridge.cancelCalls.length = 0
-  const mounted = mount(
-    popover(
-      presence({
-        fleetRequests: [
-          {
-            requestId: 'tpr_9',
-            endpoint: '100.5.5.5:8471',
-            machineName: 'dev-macbook-air',
-            comparisonCode: '481972',
-            expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
-            reverseOffered: true,
-          },
-        ],
-      })
-    )
-  )
-  const markup = mounted.innerHTML
-  assert.match(markup, /Waiting for dev-macbook-air/)
-  assert.match(markup, /481 972/, 'the code, grouped the way it is read aloud')
-  assert.match(markup, /Type this code on dev-macbook-air to allow it/)
-  assert.match(markup, /also lets dev-macbook-air drive this Mac/, 'the reverse offer is said')
-  click(buttonNamed(mounted, /Stop waiting/))
-  await flush()
-  assert.deepEqual(bridge.cancelCalls, ['tpr_9'])
-  unmount()
-})
-
-run('machine rows read main’s reachability when no pane is open: reachable, not answering with Retry, revoked with Pair again', async () => {
-  bridge.reachabilityCalls.length = 0
-  let pairAgain = 0
-  const mounted = mount(
-    <RemotePopover
-      presence={presence({
-        fleet: [
-          connection(),
-          connection({ id: 'conn-2', machineName: 'Studio', endpoint: '100.1.1.2:8471' }),
-          connection({ id: 'conn-3', machineName: 'Old box', endpoint: '100.1.1.3:8471' }),
-        ],
-        fleetReachability: new Map([
-          ['conn-1', reach()],
-          ['conn-2', reach({ connectionId: 'conn-2', machineName: 'Studio', reachable: false, detail: 'no answer', lastReachedAt: Date.now() - 2 * 3_600_000 })],
-          ['conn-3', reach({ connectionId: 'conn-3', machineName: 'Old box', reachable: false, unauthorized: true, detail: 'Unauthorized.' })],
-        ]),
-      })}
-      onOpenFleet={() => {
-        pairAgain += 1
-      }}
-      onOpenRemoteSettings={() => {}}
-    />
-  )
-  const markup = mounted.innerHTML
-  assert.match(markup, /reachable · checked just now/)
-  assert.match(markup, /aria-label="Reachable"/)
-  assert.match(markup, /not answering · last reached 2 h ago/)
-  assert.match(markup, /revoked there — pair again to reconnect/)
-  assert.match(markup, /aria-label="Revoked there"/)
-  click(buttonNamed(mounted, /^Retry/))
-  await flush()
-  assert.deepEqual(bridge.reachabilityCalls, ['conn-2'], 'Retry re-checks that one machine')
-  click(buttonNamed(mounted, /Pair again/))
-  assert.equal(pairAgain, 1, 'Pair again opens the picker')
-  assert.equal(remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach({ reachable: false, unauthorized: true })]]) })).degraded, true, 'a revocation degrades the glyph')
   unmount()
 })
 

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-04T22:28:39Z",
+  "clis": {
+    "claude-code": {
+      "models": [
+        {
+          "id": "claude-opus-5",
+          "label": "Opus 5",
+          "retired": false
+        },
+        {
+          "id": "claude-opus-5[1m]",
+          "label": "Opus 5 (1M context)",
+          "retired": false
+        },
+        {
+          "id": "opus[1m]",
+          "label": "Opus (latest, 1M context)",
+          "alias": true,
+          "retired": false
+        },
+        {
+          "id": "claude-fable-5",
+          "label": "Fable 5",
+          "retired": false
+        }
+      ]
+    },
+    "codex": {
+      "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini",
+          "retired": false
+        }
+      ]
+    },
+    "grok": {
+      "models": [
+        {
+          "id": "grok-4.5",
+          "label": "Grok 4.5",
+          "retired": false
+        },
+        {
+          "id": "grok-build-0.1",
+          "label": "Grok Build 0.1",
+          "retired": false
+        }
+      ]
+    },
+    "kimi-code": {
+      "models": [
+        {
+          "id": "kimi-k3",
+          "label": "Kimi K3",
+          "retired": false
+        }
+      ]
+    },
+    "opencode": {
+      "models": []
+    },
+    "cursor": {
+      "models": []
+    }
+  }
+}

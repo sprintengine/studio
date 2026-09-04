@@ -17,6 +17,7 @@ import type {
   MergedCliModelCatalog,
   MergedCliModelOption,
 } from '../../../../../shared/cli-model-catalog'
+import type { HostedCliModelCatalogs, HostedModel } from '../../../../../shared/hosted-model-feed'
 
 // What each CLI reported about its own models, keyed by plugin id — the
 // `cliModelCatalog` app setting, passed in rather than read from the store so
@@ -158,6 +159,7 @@ export function labelForCliRuntime(cli: AgentCli): string {
 function legacyCliRuntimeOptions(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
   discovered: DiscoveredCliModelCatalogs | undefined,
+  hosted: HostedCliModelCatalogs | undefined,
 ): AgentCliCatalogOption[] {
   const seen = new Set<AgentCli>()
   const orderedIds: AgentCli[] = []
@@ -173,6 +175,7 @@ function legacyCliRuntimeOptions(
       BUNDLED_AGENT_MODEL_CATALOGS[value],
       cliRuntimes?.[value]?.models,
       discovered?.[value],
+      hosted?.[value],
     )
     return {
       value,
@@ -291,8 +294,9 @@ export function buildAgentCliCatalog(
   plugins: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
   discovered?: DiscoveredCliModelCatalogs,
+  hosted?: HostedCliModelCatalogs,
 ): AgentCliCatalogOption[] {
-  if (!plugins) return legacyCliRuntimeOptions(cliRuntimes, discovered)
+  if (!plugins) return legacyCliRuntimeOptions(cliRuntimes, discovered, hosted)
 
   const seen = new Set<AgentCli>()
   const ordered = [...plugins].sort((a, b) => {
@@ -314,6 +318,7 @@ export function buildAgentCliCatalog(
       plugin.modelSelection ?? BUNDLED_AGENT_MODEL_CATALOGS[id],
       cliRuntimes?.[id]?.models,
       discovered?.[id],
+      hosted?.[id],
     )
     options.push({
       value: id,
@@ -327,9 +332,9 @@ export function buildAgentCliCatalog(
   return options
 }
 
-// Merge the three layers a model row can come from, in order:
+// Merge the four layers a model row can come from, in order:
 //
-//   manifest seed  ∪  what the CLI reported  ∪  the user's own ids
+//   manifest seed  ∪  the hosted feed  ∪  what the CLI reported  ∪  the user's own ids
 //
 // A union, never a replacement. Discovery under-reports — Claude's SDK omits
 // Opus 5 on a machine where `--model claude-opus-5` runs fine — so a merge that
@@ -351,15 +356,25 @@ export function buildAgentCliCatalog(
 // rotting onto a floating alias. Row order still comes from first appearance,
 // and every row carries the strongest claim on it as `origin`.
 //
+// The hosted layer (the model feed from GitHub) sits between the manifest and
+// discovery: curated like the manifest, but live, so a model can reach every
+// picker without a release. It is replaced wholesale on every fetch, like the
+// discovered layer. A hosted row marked `retired` is not shown and hides the
+// manifest row of the same id — the one way to withdraw a model a shipped
+// build still carries. It never touches a user-added row, and a row the CLI
+// itself still lists stays as discovered: the CLI's word beats the feed's.
+//
 // User additions only apply when the plugin declares modelSelection — without
 // declared args the launch path could not pass the model anyway.
 function mergeModelCatalog(
   declared: PluginModelCatalog | undefined,
   userModels: string[] | undefined,
   discovered: DiscoveredCliModelCatalog | undefined,
+  hosted?: HostedModel[],
 ): MergedCliModelCatalog | undefined {
   if (!declared) return undefined
   const byId = new Map<string, MergedCliModelOption>()
+  const retired = new Set<string>()
   const upsert = (option: PluginModelOption, origin: CliModelOrigin): void => {
     const id = option.id.trim()
     if (!id) return
@@ -375,6 +390,20 @@ function mergeModelCatalog(
     existing.origin = origin
   }
   for (const option of declared.options) upsert(option, 'manifest')
+  const hostedModels = Array.isArray(hosted) ? hosted : []
+  for (const model of hostedModels) {
+    if (!model || typeof model.id !== 'string') continue
+    const id = model.id.trim()
+    if (!id) continue
+    if (model.retired === true) {
+      retired.add(id)
+      continue
+    }
+    const label = typeof model.label === 'string' ? model.label.trim() : ''
+    upsert(label ? { id, label } : { id }, 'hosted')
+    const row = byId.get(id)
+    if (row && typeof model.releasedAt === 'string' && model.releasedAt) row.releasedAt = model.releasedAt
+  }
   // Tolerate a catalog that never went through the settings normalizer (a raw
   // IPC payload, a hand-edited profile): a bad discovered layer must leave the
   // curated ones rendering exactly as they did, not throw the picker away.
@@ -385,7 +414,10 @@ function mergeModelCatalog(
     upsert(label ? { id: model.id, label } : { id: model.id }, 'discovered')
   }
   for (const entry of userModels ?? []) upsert({ id: entry }, 'user')
-  return { options: [...byId.values()], allowCustomId: declared.allowCustomId }
+  const options = [...byId.values()].filter(
+    (row) => !(retired.has(row.id) && (row.origin === 'manifest' || row.origin === 'hosted')),
+  )
+  return { options, allowCustomId: declared.allowCustomId }
 }
 
 // Effective model for a launch surface: the surface's own override only when
@@ -442,8 +474,9 @@ export function selectAgentCliCatalog(
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
   availability?: CliAvailabilityFilter,
   discovered?: DiscoveredCliModelCatalogs,
+  hosted?: HostedCliModelCatalogs,
 ): AgentCliCatalogOption[] {
-  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes, discovered)
+  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes, discovered, hosted)
   if (!availability) return catalog
   return filterCatalogByAvailability(catalog, availability.map, availability.status)
 }

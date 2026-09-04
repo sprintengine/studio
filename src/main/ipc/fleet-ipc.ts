@@ -11,7 +11,6 @@ import {
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
-  FLEET_CHECK_REACHABILITY_CHANNEL,
   FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
   FLEET_REQUEST_PAIRING_CHANNEL,
@@ -67,17 +66,8 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   // made at this keyboard, reachable from no MCP tool.
   ipcMain.handle(FLEET_REQUEST_PAIRING_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input)
-    return service.fleet().requestPairing({
-      endpoint: record?.endpoint,
-      deviceName: record?.deviceName,
-      reverseScopes: record?.reverseScopes,
-    })
+    return service.fleet().requestPairing({ endpoint: record?.endpoint, deviceName: record?.deviceName })
   })
-  // Reachability on demand (the row's Retry): main already checks on start,
-  // wake, and a timer; this is the person asking for one more, now.
-  ipcMain.handle(FLEET_CHECK_REACHABILITY_CHANNEL, (_event, connectionId: unknown) =>
-    service.fleet().checkReachability(typeof connectionId === 'string' ? connectionId : undefined)
-  )
   ipcMain.handle(FLEET_COLLECT_PAIRING_CHANNEL, (_event, requestId: unknown) =>
     service.fleet().collectPairing(requestId)
   )
