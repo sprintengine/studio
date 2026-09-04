@@ -49,15 +49,8 @@ import type {
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../../types/workspace'
-import {
-  agentWorktreePaths,
-  connectorStartupPrompt,
-  connectorWorktreePaths,
-  worktreeIdFromPath,
-} from '../../utils/workspaceWorktree'
-import { resolveConnectorLaunch } from '../../utils/connectorLaunch'
-import { resolveSkillInvocation } from '../../../../shared/skill-invocation'
-import { ensureSkillForAgent, renderChatSkillPrefill, skillSpawnAgentPatch } from '../../utils/skillInvocation'
+import { agentWorktreePaths, worktreeIdFromPath } from '../../utils/workspaceWorktree'
+import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -1202,7 +1195,7 @@ export default function WorkspaceManager() {
   const createNewChat = useCallback((
     folderPath?: string | null,
     cli?: AgentCli,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     // What the launch surface typed. A new chat is a solo workspace whose agent
     // starts itself, so the prompt rides its seed patch rather than a tab.
     startupPrompt?: string,
@@ -1245,9 +1238,7 @@ export default function WorkspaceManager() {
           cliPermissionPreset: agentSpawnPermissionPreset,
           debugMode: agentSpawnDebugMode,
           ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
-          ...(skill
-            ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration)
-            : {}),
+          ...skillsSpawnAgentPatch(skills ?? [], pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration),
         },
       },
     })
@@ -1257,158 +1248,9 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, openSettingsOverlay, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
-  // Launch an isolated connector chat for any catalog entry or installed MCP
-  // server: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
-  // solo chat whose spawn carries ONLY that connector's MCP (never the global
-  // appSettings.mcp). A catalog entry with a driving skill (e.g. Railway) also
-  // installs the skill and seeds its invocation; a plain MCP launches with a
-  // kickoff prompt naming the attached server instead. Exactly one worktree per
-  // connector chat — a new id (and so a new worktree) is minted on every
-  // invocation. This is the single connector runtime, and it is reached only
-  // through the composer's confirm: Railway's Command Palette entry and every
-  // connector "New chat" now open the composer with the connector attached, so
-  // no surface spawns a connector chat without the user choosing an agent.
-  const launchConnectorChat = useCallback(async (
-    serverId: string,
-    // Composer overrides (the "+ Connector" attachment): the panel's chosen
-    // project as the worktree base, the picked engine, an optional specialist
-    // identity, and a "+ Skill" attachment. Absent (palette, Connectors
-    // surface, automations) the launch is the plain General connector chat.
-    composed?: {
-      folderPath?: string | null
-      cli?: AgentCli
-      specialistId?: SpecialistActionId
-      skill?: WorkspaceSkill
-    },
-  ) => {
-    const connectorError = (title: string, message: string) =>
-      publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
-
-    const baseFolderPath = composed?.folderPath ?? activeWorkspace?.folderPath
-    if (!baseFolderPath) {
-      connectorError('Connector needs a project', 'Open a project folder before launching a connector chat.')
-      return
-    }
-    const repoRoot = await window.api.getGitRepoRoot(baseFolderPath)
-    if (!repoRoot) {
-      connectorError(
-        'Connector needs a git repository',
-        'The current project is not a git repository, so a connector worktree cannot be created.',
-      )
-      return
-    }
-    const resolution = await resolveConnectorLaunch(
-      serverId,
-      useWorkspaceStore.getState().appSettings.mcp?.servers,
-    )
-    if (!resolution.ok) {
-      connectorError(resolution.title, resolution.message)
-      return
-    }
-    const { server, skillId, mcpSettings } = resolution.resolved
-
-    const uid = crypto.randomUUID().slice(0, 8)
-    const { containerPath, destinationPath, branchName } = connectorWorktreePaths(repoRoot, serverId, uid)
-    const worktreeResult = await window.api.createGitWorktree({
-      repoRoot,
-      containerPath,
-      destinationPath,
-      branchName,
-      baseRef: 'HEAD',
-      copyIncludedFiles: false,
-    })
-    if (!worktreeResult.ok) {
-      connectorError('Connector worktree failed', worktreeResult.message)
-      return
-    }
-
-    // Same CLI/model resolution as a plain New chat, so the connector rides the
-    // spawning agent's engine default (General, or the composed specialist's).
-    // The skill invocation is CLI-native (e.g. `/use-railway` vs
-    // `Use $use-railway.`); when the CLI declares no native skill support
-    // connectorStartupPrompt falls back to the plain instruction.
-    const specialist = composed?.specialistId ? getSpecialistAction(composed.specialistId) : null
-    const engineKey = specialist ? specialist.id : GENERAL_AGENT_ENGINE_KEY
-    const cli = resolveTemplateAgentCli(
-      composed?.cli ?? specialistCliDefaults[engineKey],
-      lastSelectedCli,
-      agentCliCatalog,
-    )
-    const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[engineKey])
-    const cliReasoning = resolveCliReasoning(cli, specialistModelDefaults[engineKey])
-    const invocation = skillId
-      ? resolveSkillInvocation(
-          pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
-          skillId,
-        )
-      : undefined
-    // With a driving skill the seeded turn runs its playbook; a plain MCP chat
-    // has none, so the kickoff just states which server is attached. A composed
-    // specialist keeps its role prompt as the seeded turn instead — the
-    // connector still arrives via the isolated MCP config and skill install.
-    const connectorPrompt = connectorStartupPrompt(
-      invocation,
-      skillId
-        ? `Show me my ${server.name} setup and flag anything that needs attention.`
-        : `The ${server.name} MCP server is attached to this chat. Confirm you can reach it, then show me what it can do.`,
-    )
-    const tabName = specialist ? pickRandomAgentName([]) : null
-    const startupPrompt = specialist && tabName
-      ? prependAgentIdentifier(buildSpecialistSoulStartupPrompt(specialist), tabName, specialist.shortLabel)
-      : connectorPrompt
-
-    createSoloChatWorkspace({
-      folderPath: worktreeResult.data.path,
-      worktree: { branch: worktreeResult.data.branch ?? branchName, baseRef: 'HEAD' },
-      name: `${server.name} · ${uid}`,
-      templateAgentCli: cli,
-      seedAgent: {
-        ...(tabName ? { tabName } : {}),
-        agentPatch: {
-          ...(specialist && tabName
-            ? {
-                name: tabName,
-                cli,
-                kind: 'specialist' as const,
-                specialistId: specialist.id,
-                cliOnboardingPromptSent: false,
-                cliHasLaunched: false,
-                cliResumeAvailable: false,
-              }
-            : {}),
-          ...(cliModel ? { cliModel } : {}),
-          ...(cliReasoning ? { cliReasoning } : {}),
-          // The composer surfaces the permission preset + debug controls, so a
-          // composed launch honors them like every other new-chat spawn; the
-          // preset-less legacy entry points keep their behavior.
-          ...(composed
-            ? { cliPermissionPreset: agentSpawnPermissionPreset, debugMode: agentSpawnDebugMode }
-            : {}),
-          connectorMcpSettings: mcpSettings,
-          ...(skillId ? { connectorSkillId: skillId } : {}),
-          cliStartupPrompt: startupPrompt,
-          ...(composed?.skill
-            ? skillSpawnAgentPatch(
-                composed.skill,
-                pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
-              )
-            : {}),
-        },
-      },
-    })
-    if (composed && agentSpawnDebugMode) setAgentSpawnDebugMode(false)
-  }, [
-    activeWorkspace?.folderPath,
-    agentCliCatalog,
-    agentSpawnDebugMode,
-    agentSpawnPermissionPreset,
-    createSoloChatWorkspace,
-    lastSelectedCli,
-    pluginCatalogEntries,
-    setAgentSpawnDebugMode,
-    specialistCliDefaults,
-    specialistModelDefaults,
-  ])
+  // The isolated connector-chat runtime (a worktree per connector, single-
+  // server MCP) left with the Skills & MCPs picker: MCP picks are synced into
+  // the workspace's CLI config on pick and the agent starts in the workspace.
 
   // "New chat" entry point: create a fresh workspace that opens empty, so
   // WorkspaceLayout's empty-workspace rule opens the New chat launch surface in
@@ -2411,7 +2253,7 @@ export default function WorkspaceManager() {
     specialistId: SpecialistActionId,
     requestedName = '',
     selectedCli?: AgentCli,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     worktree?: { name: string },
     // The model this spawn must launch, when the caller picked one in the same
     // event that persisted it (the spawn picker clicks a model row). Reading it
@@ -2475,9 +2317,7 @@ export default function WorkspaceManager() {
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
-      ...(skill
-        ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
-        : {}),
+      ...skillsSpawnAgentPatch(skills ?? [], pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
@@ -2485,7 +2325,7 @@ export default function WorkspaceManager() {
 
   const addNewCliAgent = async (
     cli: AgentCli,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     worktree?: { name: string },
     // See addNewSpecialist: the model the caller just picked, when it cannot be
     // read back from the defaults yet.
@@ -2536,9 +2376,7 @@ export default function WorkspaceManager() {
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
-      ...(skill
-        ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === spawnCli)?.skillIntegration)
-        : {}),
+      ...skillsSpawnAgentPatch(skills ?? [], pluginCatalogEntries.find((entry) => entry.id === spawnCli)?.skillIntegration),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
@@ -2553,7 +2391,7 @@ export default function WorkspaceManager() {
     providerId: string,
     modelId: string,
     modelLabel: string,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     placement?: AgentSpawnPlacement,
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
@@ -2570,8 +2408,9 @@ export default function WorkspaceManager() {
     // Skill-at-spawn on the conversation transport: make the skill present in
     // the workspace (best-effort) and seed the chat composer draft with the
     // invocation — prefilled, never auto-sent.
-    if (skill && activeWorkspace.folderPath) {
-      void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
+    const firstSkill = skills?.[0]
+    if (activeWorkspace.folderPath) {
+      for (const skill of skills ?? []) void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
     }
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
@@ -2581,7 +2420,16 @@ export default function WorkspaceManager() {
       // of always asking per tool. AgentChatView reads this record field and
       // lets the user change it mid-conversation.
       cliPermissionPreset: agentSpawnPermissionPreset,
-      ...(skill ? { chatComposerPrefill: renderChatSkillPrefill(skill) } : {}),
+      // The chat prefill is one sentence opener; with several skills the first
+      // leads and the rest are named after it.
+      ...(firstSkill
+        ? {
+            chatComposerPrefill:
+              (skills ?? []).length > 1
+                ? `${renderChatSkillPrefill(firstSkill)}(also ${(skills ?? []).slice(1).map((skill) => skill.id).join(', ')}) `
+                : renderChatSkillPrefill(firstSkill),
+          }
+        : {}),
       // A conversation has no CLI to hand a startup prompt to, so the launch
       // surface's prompt lands in its composer, typed and unsent — the same
       // place a skill invocation lands.
@@ -2594,13 +2442,13 @@ export default function WorkspaceManager() {
   // Single spawn-menu entry: open a conversation agent with the resolved default
   // model. No-op when no provider/model is available (entry stays hidden).
   const spawnConversationAgent = (
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     provider?: { providerId: string; modelId: string; modelLabel: string },
     placement?: AgentSpawnPlacement,
   ) => {
     const target = provider ?? conversationDefaultOption
     if (!target) return
-    addNewConversationAgent(target.providerId, target.modelId, target.modelLabel, skill, placement)
+    addNewConversationAgent(target.providerId, target.modelId, target.modelLabel, skills, placement)
   }
 
   const addNewTerminal = (placement?: AgentSpawnPlacement) => {
@@ -2625,15 +2473,15 @@ export default function WorkspaceManager() {
   const openGeneralInNewChat = (
     cli?: AgentCli,
     folderPath?: string | null,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     startupPrompt?: string,
-  ) => createNewChat(folderPath, cli, skill, startupPrompt)
+  ) => createNewChat(folderPath, cli, skills, startupPrompt)
 
   const openSpecialistInNewChat = (
     specialistId: SpecialistActionId,
     selectedCli?: AgentCli,
     folderPath?: string | null,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     startupPrompt?: string,
   ) => {
     const specialist = getSpecialistAction(specialistId)
@@ -2669,9 +2517,7 @@ export default function WorkspaceManager() {
           cliOnboardingPromptSent: false,
           cliHasLaunched: false,
           cliResumeAvailable: false,
-          ...(skill
-            ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
-            : {}),
+          ...skillsSpawnAgentPatch(skills ?? [], pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration),
         },
       },
     })
@@ -2720,21 +2566,21 @@ export default function WorkspaceManager() {
   const pickNewChatGeneral = (
     cli?: AgentCli,
     folderPath?: string | null,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     startupPrompt?: string,
   ) => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath, skill, startupPrompt)
+    openGeneralInNewChat(cli, folderPath, skills, startupPrompt)
   }
   const pickNewChatSpecialist = (
     specialistId: SpecialistActionId,
     cli?: AgentCli,
     folderPath?: string | null,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     startupPrompt?: string,
   ) => {
     setLastNewChatAgent({ kind: 'specialist', specialistId })
-    openSpecialistInNewChat(specialistId, cli, folderPath, skill, startupPrompt)
+    openSpecialistInNewChat(specialistId, cli, folderPath, skills, startupPrompt)
   }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
@@ -2798,7 +2644,7 @@ export default function WorkspaceManager() {
           lastSelectedCli,
           agentCliCatalog,
         ),
-        skill,
+        [skill],
       )
     },
     onUseInAutomation: () => {
@@ -2859,33 +2705,15 @@ export default function WorkspaceManager() {
       case 'terminal':
         pickNewChatTerminal(folderPath)
         break
+      // MCP picks were synced into the workspace's CLI config on pick
+      // (SkillsAndMcpsPicker), so the spawn has nothing to route: the agent
+      // starts in the workspace and finds them there. The isolated connector
+      // worktree runtime is no longer a New chat path.
       case 'specialist':
-        // A "+ Connector" attachment routes through the connector-chat runtime
-        // (isolated worktree, single-server MCP) with the composed identity;
-        // the agent memory still records the picked agent, not the connector.
-        if (confirm.connector) {
-          setLastNewChatAgent({ kind: 'specialist', specialistId: confirm.specialistId })
-          void launchConnectorChat(confirm.connector.id, {
-            folderPath,
-            cli: confirm.cli,
-            specialistId: confirm.specialistId,
-            skill: confirm.skill,
-          })
-        } else {
-          pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill, startupPrompt)
-        }
+        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skills, startupPrompt)
         break
       case 'general':
-        if (confirm.connector) {
-          setLastNewChatAgent({ kind: 'general' })
-          void launchConnectorChat(confirm.connector.id, {
-            folderPath,
-            cli: confirm.cli,
-            skill: confirm.skill,
-          })
-        } else {
-          pickNewChatGeneral(confirm.cli, folderPath, confirm.skill, startupPrompt)
-        }
+        pickNewChatGeneral(confirm.cli, folderPath, confirm.skills, startupPrompt)
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
@@ -3350,12 +3178,12 @@ export default function WorkspaceManager() {
   const handleSelectSpecialist = (
     specialistId: SpecialistActionId,
     selectedCli?: AgentCli,
-    skill?: WorkspaceSkill,
+    skills?: WorkspaceSkill[],
     worktree?: { name: string },
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
   ) => {
-    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree, selectedModel, placement)
+    void addNewSpecialist(specialistId, '', selectedCli, skills, worktree, selectedModel, placement)
   }
 
   // New chat opens roleless. It used to preselect the remembered specialist —
@@ -3374,41 +3202,22 @@ export default function WorkspaceManager() {
         addNewTerminal(placement)
         break
       case 'general':
-        // A "+ Connector" attachment routes through the connector-chat runtime
-        // (isolated worktree, single-server MCP) exactly as the New-chat path
-        // does — the attachment is the whole point of the control, and a spawn
-        // that dropped it would report success while ignoring what was asked.
-        //
-        // MC-2147: a connector chat does not take `placement`. It mints its own
-        // isolated runtime rather than adopting the calling tab, so a spawn from
-        // a new-agent tab opens the chat in a fresh tab and leaves the launch
-        // surface where it was.
-        if (confirm.connector) {
-          void launchConnectorChat(confirm.connector.id, { cli: confirm.cli, skill: confirm.skill })
-        } else {
-          void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree, confirm.model, placement)
-        }
+        // MCP picks were synced into the workspace's CLI config on pick; the
+        // spawn carries only the skills to prefill.
+        void addNewCliAgent(confirm.cli, confirm.skills, confirm.worktree, confirm.model, placement)
         break
       case 'conversation':
-        spawnConversationAgent(confirm.skill, confirm.provider, placement)
+        spawnConversationAgent(confirm.skills, confirm.provider, placement)
         break
       case 'specialist':
-        if (confirm.connector) {
-          void launchConnectorChat(confirm.connector.id, {
-            cli: confirm.cli,
-            specialistId: confirm.specialistId,
-            skill: confirm.skill,
-          })
-        } else {
-          handleSelectSpecialist(
-            confirm.specialistId,
-            confirm.cli,
-            confirm.skill,
-            confirm.worktree,
-            confirm.model,
-            placement,
-          )
-        }
+        handleSelectSpecialist(
+          confirm.specialistId,
+          confirm.cli,
+          confirm.skills,
+          confirm.worktree,
+          confirm.model,
+          placement,
+        )
         break
     }
   }
@@ -3905,6 +3714,7 @@ export default function WorkspaceManager() {
                         the chip never does. */}
                     <NewAgentPanel
                       key={newChatPanelState.connector?.id ?? 'plain'}
+                      initialMcpServers={newChatPanelState.connector ? [newChatPanelState.connector] : null}
                       workspaceId={windowActiveWorkspaceId ?? ''}
                       conversationAvailable={conversationSpawnAvailable}
                       onRequestConversationCatalog={requestConversationCatalog}

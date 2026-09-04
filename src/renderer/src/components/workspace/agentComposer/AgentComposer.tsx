@@ -37,9 +37,9 @@ export type AgentComposerProps = {
   onBrowseProject: () => void
   // The remembered agent, preselected on open. Absent → the roleless row.
   initialSelection: AgentComposerSelection
-  // Opens with this connector already in the "+ Connector" slot (the connector
-  // surface's "New chat"). The user can still swap or remove it before launch.
-  initialConnector?: AgentComposerConnector | null
+  // Opens with these MCP servers already picked (the connector surface's "New
+  // chat"). The user can still remove any before launch.
+  initialMcpServers?: AgentComposerConnector[] | null
   // Shared permission preset (owned by the host so spawn handlers read it at
   // spawn time). Debug mode is transient and defaulted off per spawn.
   permissionPreset: SprintEngineCliPermissionPreset
@@ -74,7 +74,7 @@ export default function AgentComposer({
   onSelectProject,
   onBrowseProject,
   initialSelection,
-  initialConnector,
+  initialMcpServers,
   permissionPreset,
   onChangePermissionPreset,
   debugMode,
@@ -87,7 +87,7 @@ export default function AgentComposer({
     showTerminal: true,
     conversationAvailable: false,
     initialSelection,
-    initialConnector,
+    initialMcpServers,
   })
   const { selection, visibleRows } = composer
   const searchRef = React.useRef<HTMLInputElement>(null)
@@ -336,20 +336,24 @@ export default function AgentComposer({
 
           {selection.kind !== 'terminal' ? (
             <div className="mt-4 flex flex-wrap items-center gap-1.5">
-              {!skillWorkspaceRoot ? null : composer.skillAttachment ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
+              {composer.skills.map((skill) => (
+                <span
+                  key={`skill-${skill.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]"
+                >
                   <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
-                  {composer.skillAttachment.name}
+                  {skill.name}
                   <button
                     type="button"
-                    onClick={() => composer.setSkillAttachment(null)}
-                    aria-label={`Remove skill ${composer.skillAttachment.name}`}
+                    onClick={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
+                    aria-label={`Remove skill ${skill.name}`}
                     className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
                   </button>
                 </span>
-              ) : (
+              ))}
+              {!skillWorkspaceRoot ? null : (
                 <SkillPickerPopover
                   open={skillPickerOpen}
                   onOpenChange={setSkillPickerOpen}
@@ -359,7 +363,9 @@ export default function AgentComposer({
                   // gets; `selectionCli` would name the engine default, which is
                   // not what runs. Every other selection launches that CLI.
                   pluginId={selection.kind === 'conversation' ? null : composer.selectionCli}
-                  onPick={(skill: WorkspaceSkill) => composer.setSkillAttachment(skill)}
+                  onPick={(skill: WorkspaceSkill) => {
+                    if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
+                  }}
                   placement="top-start"
                   renderTrigger={({ ref, triggerProps, togglePopover }) => (
                     <button
@@ -374,45 +380,43 @@ export default function AgentComposer({
                   )}
                 />
               )}
-              {composer.connectorAttachment ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
-                  <McpBrandIcon
-                    slug={mcpIconSlug(composer.connectorAttachment.id)}
-                    name={composer.connectorAttachment.name}
-                    icon={composer.connectorAttachment.icon}
-                    size={16}
-                  />
-                  {composer.connectorAttachment.name}
+              {composer.mcpServers.map((server) => (
+                <span
+                  key={`mcp-${server.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]"
+                >
+                  <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={16} />
+                  {server.name}
                   <button
                     type="button"
-                    onClick={() => composer.setConnectorAttachment(null)}
-                    aria-label={`Remove connector ${composer.connectorAttachment.name}`}
+                    onClick={() => composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))}
+                    aria-label={`Remove MCP server ${server.name}`}
                     className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
                   </button>
                 </span>
-              ) : (
-                <ConnectorPickerPopover
-                  open={connectorPickerOpen}
-                  onOpenChange={setConnectorPickerOpen}
-                  onPick={(server) =>
-                    composer.setConnectorAttachment({ id: server.id, name: server.name, icon: server.icon })
-                  }
-                  placement="top-start"
-                  renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                    <button
-                      ref={ref}
-                      type="button"
-                      onClick={togglePopover}
-                      className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-                      {...triggerProps}
-                    >
-                      + Connector
-                    </button>
-                  )}
-                />
-              )}
+              ))}
+              <ConnectorPickerPopover
+                open={connectorPickerOpen}
+                onOpenChange={setConnectorPickerOpen}
+                onPick={(server) => {
+                  if (composer.mcpServers.some((entry) => entry.id === server.id)) return
+                  composer.setMcpServers([...composer.mcpServers, { id: server.id, name: server.name, icon: server.icon }])
+                }}
+                placement="top-start"
+                renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                  <button
+                    ref={ref}
+                    type="button"
+                    onClick={togglePopover}
+                    className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                    {...triggerProps}
+                  >
+                    + MCP server
+                  </button>
+                )}
+              />
             </div>
           ) : null}
 

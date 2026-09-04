@@ -404,7 +404,9 @@ function MoreMenuItems({
         open={connectorPickerOpen}
         onOpenChange={setConnectorPickerOpen}
         onPick={(server) => {
-          composer.setConnectorAttachment({ id: server.id, name: server.name, ...(server.icon ? { icon: server.icon } : {}) })
+          if (!composer.mcpServers.some((entry) => entry.id === server.id)) {
+            composer.setMcpServers([...composer.mcpServers, { id: server.id, name: server.name, ...(server.icon ? { icon: server.icon } : {}) }])
+          }
           close()
         }}
         placement="top-start"
@@ -419,9 +421,9 @@ function MoreMenuItems({
             {...triggerProps}
           >
             <span className="min-w-0 flex-1 truncate">
-              {composer.connectorAttachment ? composer.connectorAttachment.name : 'Attach connector…'}
+              {composer.mcpServers.length > 0 ? composer.mcpServers.map((server) => server.name).join(', ') : 'Add MCP server…'}
             </span>
-            {composer.connectorAttachment ? <MenuTick shown /> : null}
+            {composer.mcpServers.length > 0 ? <MenuTick shown /> : null}
           </button>
         )}
       />

@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom'
 //      nothing itself;
 //   4. a suggestion card spawns on click, carrying its own full prompt;
 //   5. the skill trigger is the CLI's declared one, and a CLI that declares
-//      none keeps the "+ Skill" chip instead of borrowing a "/";
+//      none still gets the Skills & MCPs picker, which every launch has;
 //   6. the greeting uses a first name when there is one and reads correctly
 //      when there is not;
 //   7. with no agent CLI installed the surface offers the install route rather
@@ -70,10 +70,36 @@ const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
   },
   // The skill type-ahead reads the picker's inventory; an empty one is enough
   // to prove the trigger opens (and keeps this test off the capability service).
-  agentCapabilities: async () => ({ ok: true, support: 'native', harnessId: 'claude', skills: [], diagnostics: [] }),
-  builtinSkillsList: async () => [],
+  agentCapabilities: async () => ({
+    ok: true,
+    support: 'native',
+    harnessId: 'claude',
+    skills: [{ id: 'backlog', name: 'backlog', description: 'Work a backlog item end to end', source: 'builtin' }],
+    diagnostics: [],
+  }),
+  builtinSkillsList: async () => [
+    { id: 'backlog', name: 'backlog', version: '1', description: 'Work a backlog item end to end', targetPolicy: 'all-native' },
+    { id: 'design-system', name: 'design-system', version: '1', description: 'Build UI from the attached design system', targetPolicy: 'all-native' },
+  ],
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
+  // The Skills & MCPs picker's install-on-pick and add-on-pick paths.
+  agentSkillAttach: async (input: Record<string, unknown>) => {
+    attachCalls.push(input)
+    return { ok: true, skillId: input.skillId, targets: [{ path: '.claude/skills/x', status: 'installed' }] }
+  },
+  mcpListCatalog: async () => ({
+    ok: true,
+    servers: [
+      { id: 'linear', name: 'Linear', description: 'Issues and projects', transport: 'http', url: 'https://mcp.linear.app/sse', clients: ['claude-code'], riskLevel: 'network' },
+    ],
+  }),
+  mcpSync: async (input: Record<string, unknown>) => {
+    syncCalls.push(input)
+    return { ok: true, targets: [], issues: [] }
+  },
 }
+const attachCalls: Array<Record<string, unknown>> = []
+const syncCalls: Array<Record<string, unknown>> = []
 
 async function main(): Promise<void> {
   const React = (await import('react')).default
@@ -197,11 +223,12 @@ async function main(): Promise<void> {
     assert.ok(text.includes('proj'), 'the scope line names the folder the agent will run in')
     assert.ok(!text.includes('multicode'), 'and not the workspace’s own name')
     assert.ok(text.includes('Auto'), 'access carries its own value on the chip — here, the seeded preset')
-    assert.ok(text.includes('+ Connector'), 'the connector attachment is offered')
+    assert.ok(text.includes('Skills & MCPs'), 'the one picker for skills and MCP servers is offered')
     assert.ok(text.includes('⋯'), 'the overflow is there')
 
     assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
-    assert.ok(!text.includes('+ Skill') || !text.includes('Role'), 'no role control anywhere on the row')
+    assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
+    assert.ok(!text.includes('Role'), 'no role control anywhere on the row')
     assert.ok(!/debug/i.test(text), 'nor is debug')
     assert.ok(!text.includes('Architect'), 'and no role picker sits where the model goes')
 
@@ -529,18 +556,15 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  // 5. The trigger is the CLI's own, and its absence is not papered over.
-  await check('the skill trigger comes from the manifest', async () => {
+  // 5. Skills are offered by the picker whatever the CLI can type; the
+  //    inline `/` route stays but is no longer the placeholder's job.
+  await check('the picker is there for every CLI and the placeholder stops advertising the trigger', async () => {
     seedStore()
     const withPrefix = await render()
-    assert.ok(
-      (withPrefix.container.querySelector('textarea')?.getAttribute('placeholder') ?? '').includes('type / for skills'),
-      'a claude runtime advertises its own slash trigger',
-    )
-    assert.ok(!withPrefix.text().includes('+ Skill'), 'and needs no chip, because the prompt takes it')
+    assert.equal(withPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
+    assert.ok(withPrefix.text().includes('Skills & MCPs'), 'a claude runtime gets the picker')
     withPrefix.unmount()
 
-    // opencode declares no mention prefix: no type-ahead, and the chip returns.
     seedStore({
       plugins: [
         {
@@ -561,10 +585,89 @@ async function main(): Promise<void> {
       ],
     })
     const noPrefix = await render()
-    const placeholder = noPrefix.container.querySelector('textarea')?.getAttribute('placeholder') ?? ''
-    assert.ok(!placeholder.includes('type'), `a CLI with no typed form advertises none; got "${placeholder}"`)
-    assert.ok(noPrefix.text().includes('+ Skill'), 'and keeps the picker, because the route cannot be typed')
+    assert.equal(noPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
+    assert.ok(noPrefix.text().includes('Skills & MCPs'), 'and so does a CLI with no typed form')
     noPrefix.unmount()
+  })
+
+  // 5b. The picker itself: three groups, install and add on pick, chips,
+  //     keyboard toggling, and the picks on the confirm in pick order.
+  await check('the Skills & MCPs picker installs, adds and carries its picks onto the launch', async () => {
+    seedStore()
+    attachCalls.length = 0
+    syncCalls.length = 0
+    const view = await render()
+    const settle = async () => {
+      for (let i = 0; i < 3; i += 1) {
+        await act(async () => {
+          await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+        })
+      }
+    }
+    const trigger = view.find((el) => el.tagName === 'BUTTON' && /Skills & MCPs/.test(el.textContent ?? ''))
+    assert.ok(trigger, 'the trigger is a button')
+    await act(async () => {
+      trigger!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+    // The surface is portalled to the body; the chips stay in the panel.
+    const surface = () => dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
+    assert.ok(surface(), 'the picker opened')
+    const text = surface()!.textContent ?? ''
+    for (const label of ['Skills in this workspace', 'Available to install', 'MCP servers', 'Install', 'Add', 'Included', 'sprintengine-studio']) {
+      assert.ok(text.includes(label), `the open picker shows "${label}"`)
+    }
+    const listbox = surface()!.querySelector('[role="listbox"]')
+    assert.equal(listbox?.getAttribute('aria-multiselectable'), 'true', 'the list is a multi-select listbox')
+    const input = surface()!.querySelector('[role="combobox"]') as HTMLInputElement | null
+    assert.ok(input, 'the search field is the combobox')
+
+    // Pointer: an installed skill toggles straight to a chip.
+    const backlogRow = surface()!.querySelector('[data-picker-row="skill:backlog"]') as HTMLElement | null
+    assert.ok(backlogRow, 'the reachable skill is listed')
+    await act(async () => {
+      backlogRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(surface()!.querySelector('[data-picker-row="skill:backlog"]')?.getAttribute('aria-selected'), 'true', 'the row is checked')
+    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove skill backlog'), 'and a chip appears')
+    assert.equal(attachCalls.length, 0, 'an installed skill installs nothing')
+
+    // Keyboard: ↓ to the installable skill, ⏎ installs it and checks it.
+    await act(async () => {
+      input!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    })
+    const designRow = surface()!.querySelector('[data-picker-row="skill:design-system"]') as HTMLElement | null
+    assert.equal(input!.getAttribute('aria-activedescendant'), designRow?.id, 'the highlight moved to the Install row')
+    await act(async () => {
+      input!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await settle()
+    assert.deepEqual(attachCalls.map((call) => call.skillId), ['design-system'], 'Enter installed it before anything else')
+    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove skill design-system'), 'and it became a chip')
+
+    // A catalog MCP server: added to settings and synced into the workspace before it is a pick.
+    const linearRow = surface()!.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement | null
+    assert.ok(linearRow, 'the catalog server is listed')
+    await act(async () => {
+      linearRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+    assert.equal(syncCalls.length, 1, 'the workspace config was synced once')
+    const synced = syncCalls[0] as { workspaceRoot: string; settings: { servers: Record<string, { clients: string[]; enabled: boolean }> } }
+    assert.equal(synced.workspaceRoot, '/proj')
+    assert.ok(synced.settings.servers.linear?.enabled, 'with the server enabled')
+    assert.ok(synced.settings.servers.linear?.clients.includes('claude-code'), 'reaching the launch CLI')
+    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), 'and it became a chip')
+
+    // The picks ride the confirm in pick order.
+    const start = view.find((el) => el.tagName === 'BUTTON' && el.getAttribute('aria-label') === 'Start agent')
+    await act(async () => {
+      start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const launch = view.launches[0] as { skills?: Array<{ id: string }>; mcpServers?: Array<{ id: string }> } | undefined
+    assert.deepEqual(launch?.skills?.map((skill) => skill.id), ['backlog', 'design-system'])
+    assert.deepEqual(launch?.mcpServers?.map((server) => server.id), ['linear'])
+    view.unmount()
   })
 
   // 6. The greeting: a name when there is one, and a sentence either way.

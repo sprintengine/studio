@@ -78,6 +78,24 @@ export function skillSpawnAgentPatch(
   }
 }
 
+// The same for the Skills & MCPs picks (browser-pane epic, child 7). One skill
+// keeps the CLI-native form (`/backlog`); two or more cannot share a line of
+// slash commands, so each becomes the plain mention every agent follows, in
+// pick order. The first builtin still rides spawnSkillId for the launch
+// boundary's ensure-install.
+export function skillsSpawnAgentPatch(
+  skills: readonly WorkspaceSkill[],
+  integration: SkillIntegrationLike | undefined,
+): { spawnSkillId?: string; cliPendingInput?: string } {
+  if (skills.length === 0) return {}
+  if (skills.length === 1) return skillSpawnAgentPatch(skills[0], integration)
+  const firstBuiltin = skills.find((skill) => skill.source === 'builtin')
+  return {
+    ...(firstBuiltin ? { spawnSkillId: firstBuiltin.id } : {}),
+    cliPendingInput: `${skills.map((skill) => plainSkillInvocation(skill.id)).join(' ')} `,
+  }
+}
+
 // Whether any of a builtin skill's install targets is a usable native copy for
 // the given plugin/harness (moved verbatim from the terminal drop path).
 export function hasInstalledNativeSkillTarget(

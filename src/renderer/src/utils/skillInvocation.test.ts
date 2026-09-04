@@ -5,8 +5,10 @@ import {
   renderSkillInvocation,
   renderSkillInvocationTemplate,
   skillInstalledForHarness,
+  skillsSpawnAgentPatch,
   type SkillIntegrationLike,
 } from './skillInvocation'
+import type { WorkspaceSkill } from '../../../shared/electron-api'
 
 const CLAUDE_INTEGRATION: SkillIntegrationLike = {
   support: 'native',
@@ -149,6 +151,19 @@ async function ensureSkillTests(): Promise<void> {
     ok: false,
     message: 'No agent CLI on this machine reads workspace skills.',
   })
+
+  // The Skills & MCPs picks (browser-pane child 7): one skill keeps the
+  // CLI-native form, several become plain mentions in pick order, and the
+  // first builtin rides spawnSkillId.
+  const backlog: WorkspaceSkill = { id: 'backlog', name: 'backlog', source: 'builtin', harnesses: ['claude'], installState: 'installed' }
+  const review: WorkspaceSkill = { id: 'review-guide', name: 'review-guide', source: 'custom', harnesses: ['claude'], installState: 'installed' }
+  assert.deepEqual(skillsSpawnAgentPatch([], CLAUDE_INTEGRATION), {})
+  assert.deepEqual(skillsSpawnAgentPatch([backlog], CLAUDE_INTEGRATION), { spawnSkillId: 'backlog', cliPendingInput: '/backlog ' })
+  assert.deepEqual(skillsSpawnAgentPatch([review, backlog], CLAUDE_INTEGRATION), {
+    spawnSkillId: 'backlog',
+    cliPendingInput: 'Use the review-guide skill. Use the backlog skill. ',
+  })
+  assert.deepEqual(skillsSpawnAgentPatch([review], CLAUDE_INTEGRATION), { cliPendingInput: '/review-guide ' })
 
   console.log('skillInvocation tests passed')
 }

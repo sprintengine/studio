@@ -33,7 +33,6 @@ import {
   InlineSkillPicker,
   Popover,
   PrimaryButton,
-  SkillPickerPopover,
   StarGlyph,
   Tooltip,
   TruncatedText,
@@ -48,7 +47,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetMenuRows } from './agen
 import { ProjectSourceMenu } from './ProjectSourceMenu'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import { showToast } from '../../../store/toastStore'
-import { ConnectorPickerPopover } from './ConnectorPickerPopover'
+import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import {
   launchCommandLineKey,
   launchPreviewRequest,
@@ -59,6 +58,7 @@ import {
   rowMatchesSelection,
   useAgentComposer,
   type AgentComposerConfirm,
+  type AgentComposerConnector,
   type AgentComposerSelection,
 } from './useAgentComposer'
 
@@ -96,6 +96,8 @@ export type NewAgentPanelProps = {
   onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
   onLaunch: (launch: NewAgentLaunch) => void
+  /** MCP servers picked before the panel opened (a connector's own "New chat"); still removable. */
+  initialMcpServers?: AgentComposerConnector[] | null
   /** Cancel. Nothing was created, so there is nothing else to undo. */
   onClose: () => void
   /**
@@ -166,6 +168,7 @@ export default function NewAgentPanel({
   debugMode,
   onChangeDebugMode,
   onLaunch,
+  initialMcpServers,
   onClose,
   showCloseButton = false,
   onLaunchRemote,
@@ -174,6 +177,7 @@ export default function NewAgentPanel({
     showTerminal: true,
     conversationAvailable,
     initialSelection,
+    initialMcpServers,
   })
   const { selection } = composer
 
@@ -300,7 +304,6 @@ export default function NewAgentPanel({
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   const [accessOpen, setAccessOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
-  const [connectorPickerOpen, setConnectorPickerOpen] = React.useState(false)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -489,13 +492,13 @@ export default function NewAgentPanel({
       const confirm = composer.buildConfirm(selection)
       if (confirm.kind !== 'general' && confirm.kind !== 'specialist') return
       // What cannot travel must not be silently dropped while its chip is on
-      // screen: skills install locally, connectors resolve local worktrees,
-      // worktrees branch the LOCAL checkout, debug drives the local state
-      // machine, and a specialist's soul brief is composed locally too.
+      // screen: skills install locally, MCP servers were synced into the LOCAL
+      // workspace config, worktrees branch the LOCAL checkout, debug drives the
+      // local state machine, and a specialist's soul brief is composed locally.
       const stranded = [
         confirm.kind === 'specialist' ? 'the specialist role' : null,
-        confirm.skill ? 'the skill' : null,
-        confirm.connector ? 'the connector' : null,
+        confirm.skills?.length ? 'the skills' : null,
+        confirm.mcpServers?.length ? 'the MCP servers' : null,
         confirm.worktree ? 'the worktree' : null,
         debugMode ? 'debug mode' : null,
       ].filter((entry): entry is string => entry !== null)
@@ -585,11 +588,9 @@ export default function NewAgentPanel({
   // no suggested task to start it with. Saying so beats a field that silently
   // drops what was typed.
   const isTerminalLaunch = selection.kind === 'terminal'
-  const placeholder = isTerminalLaunch
-    ? 'A shell opens with nothing typed'
-    : mentionPrefix
-      ? `Describe the task, or type ${mentionPrefix} for skills`
-      : 'Describe the task, or pick one below'
+  // The Skills & MCPs trigger on the row is where skills are offered now; the
+  // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
+  const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
   const accessLabel =
     AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === permissionPreset)?.label ?? 'Permissions'
   const accessShort = accessLabel.split(' ')[0]
@@ -869,51 +870,42 @@ export default function NewAgentPanel({
               </Popover>
             )}
 
-            {/* Skill stays a chip only where it cannot be typed. */}
-            {!mentionPrefix && selection.kind !== 'terminal' && workspaceRoot ? (
-              composer.skillAttachment ? (
-                <AttachmentChip
-                  glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
-                  label={composer.skillAttachment.name}
-                  removeLabel={`Remove skill ${composer.skillAttachment.name}`}
-                  onRemove={() => composer.setSkillAttachment(null)}
-                />
-              ) : (
-                <SkillAttachmentButton
-                  workspaceRoot={workspaceRoot}
-                  pluginId={launchCli}
-                  onPick={(skill) => composer.setSkillAttachment(skill)}
-                />
-              )
-            ) : null}
-
-            {selection.kind === 'terminal' ? null : composer.connectorAttachment ? (
-              <AttachmentChip
-                glyph={
-                  <McpBrandIcon
-                    slug={mcpIconSlug(composer.connectorAttachment.id)}
-                    name={composer.connectorAttachment.name}
-                    icon={composer.connectorAttachment.icon}
-                    size={13}
+            {/* Every pick is a chip; the one trigger opens the picker for more.
+                A terminal launches nothing that reads a skill or an MCP. */}
+            {selection.kind !== 'terminal' ? (
+              <>
+                {composer.skills.map((skill) => (
+                  <AttachmentChip
+                    key={`skill-${skill.id}`}
+                    glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
+                    label={skill.name}
+                    removeLabel={`Remove skill ${skill.name}`}
+                    onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
                   />
-                }
-                label={composer.connectorAttachment.name}
-                removeLabel={`Remove connector ${composer.connectorAttachment.name}`}
-                onRemove={() => composer.setConnectorAttachment(null)}
-              />
-            ) : (
-              <ConnectorPickerPopover
-                open={connectorPickerOpen}
-                onOpenChange={setConnectorPickerOpen}
-                onPick={(connector) => composer.setConnectorAttachment(connector)}
-                placement="bottom-start"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <button ref={ref} type="button" onClick={togglePopover} className={GHOST_CHIP_CLASS} {...triggerProps}>
-                    + Connector
-                  </button>
-                )}
-              />
-            )}
+                ))}
+                {composer.mcpServers.map((server) => (
+                  <AttachmentChip
+                    key={`mcp-${server.id}`}
+                    glyph={<McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />}
+                    label={server.name}
+                    removeLabel={`Remove MCP server ${server.name}`}
+                    onRemove={() => composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))}
+                  />
+                ))}
+                <SkillsAndMcpsPicker
+                  workspaceRoot={workspaceRoot}
+                  // A conversation agent is not a CLI: the workspace-wide inventory
+                  // is the honest list for it.
+                  pluginId={selection.kind === 'conversation' ? null : launchCli}
+                  skills={composer.skills}
+                  onSkillsChange={composer.setSkills}
+                  mcpServers={composer.mcpServers}
+                  onMcpServersChange={composer.setMcpServers}
+                  placement="bottom-start"
+                  triggerClassName={GHOST_CHIP_CLASS}
+                />
+              </>
+            ) : null}
 
             {/* Set rarities rise onto the row; unset ones live behind ⋯. */}
             {composer.worktreeName !== null ? (
@@ -1574,33 +1566,6 @@ function MenuRow({
         <CheckIcon className={`${hint ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`} />
       ) : null}
     </button>
-  )
-}
-
-function SkillAttachmentButton({
-  workspaceRoot,
-  pluginId,
-  onPick,
-}: {
-  workspaceRoot: string
-  pluginId: AgentCli | null
-  onPick: (skill: WorkspaceSkill) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  return (
-    <SkillPickerPopover
-      open={open}
-      onOpenChange={setOpen}
-      workspaceRoot={workspaceRoot}
-      pluginId={pluginId}
-      onPick={onPick}
-      placement="bottom-start"
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button ref={ref} type="button" onClick={togglePopover} className={GHOST_CHIP_CLASS} {...triggerProps}>
-          + Skill
-        </button>
-      )}
-    />
   )
 }
 

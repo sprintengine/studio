@@ -44,23 +44,22 @@ export type AgentComposerConfirm = (
   | { kind: 'conversation'; provider?: { providerId: string; modelId: string; modelLabel: string } }
   | { kind: 'specialist'; specialistId: SpecialistActionId; cli: AgentCli; model?: string | null }
 ) & {
-  // Optional "+ Skill" attachment: the spawn ensure-installs it and prefills
-  // the invocation as the agent's first input (never auto-sent). Terminal
-  // confirms ignore it.
-  skill?: WorkspaceSkill
+  // The Skills & MCPs picks (browser-pane epic, child 7). Skills were
+  // installed on pick; the spawn prefills their invocations as the agent's
+  // first input, in pick order, never auto-sent. Terminal confirms ignore them.
+  skills?: WorkspaceSkill[]
   // Optional "+ Worktree" attachment (general/specialist only): the spawn
   // creates a git worktree off the workspace repo and executes the agent in it.
   // An empty name means "derive from the agent's name at spawn".
   worktree?: { name: string }
-  // Optional "+ Connector" attachment (general/specialist only): the spawn
-  // routes through the connector-chat runtime — an isolated connector worktree
-  // whose MCP config carries only this server (plus its driving skill when the
-  // catalog pairs one). Resolution happens at spawn; the confirm only names it.
-  connector?: AgentComposerConnector
+  // MCP servers picked for this launch. They were added to the app's MCP
+  // settings and synced into the workspace's CLI config on pick, so the agent
+  // finds them in place; the confirm names them for the record and the chips.
+  mcpServers?: AgentComposerConnector[]
 }
 
-// The picked connector, as the confirm carries it: identity for the spawn's
-// resolveConnectorLaunch plus the display bits the attachment chip shows.
+// One picked MCP server, as the confirm carries it: identity plus the display
+// bits the chip shows. `icon` falls back to the brand mark keyed off the id.
 export type AgentComposerConnector = { id: string; name: string; icon?: string }
 
 // One roster row. Quick rows (terminal/general/conversation) precede the
@@ -181,10 +180,9 @@ type UseAgentComposerOptions = {
   conversationAvailable: boolean
   // The remembered agent, preselected on open. Absent → the roleless row.
   initialSelection: AgentComposerSelection
-  // Optional connector to open with already attached (the connector "New chat"
-  // entry points). Seeds the attachment only; it stays removable/replaceable
-  // like a hand-picked one.
-  initialConnector?: AgentComposerConnector | null
+  // MCP servers to open with already picked (the connector "New chat" entry
+  // points). Seeds the picks only; each stays removable like a hand-picked one.
+  initialMcpServers?: AgentComposerConnector[] | null
 }
 
 // Shared state + store-derived data for every AgentComposer surface (the New
@@ -197,7 +195,7 @@ export function useAgentComposer({
   showTerminal,
   conversationAvailable,
   initialSelection,
-  initialConnector,
+  initialMcpServers,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const specialistCliDefaults = useWorkspaceStore(
@@ -245,18 +243,15 @@ export function useAgentComposer({
   const [selection, setSelection] = React.useState<AgentComposerSelection>(() =>
     resolveInitialSelection(allRows, initialSelection),
   )
-  // Optional "+ Skill" attachment, carried onto the confirm. One per spawn;
-  // cleared by the surface when it closes (state dies with the composer).
-  const [skillAttachment, setSkillAttachment] = React.useState<WorkspaceSkill | null>(null)
+  // The Skills & MCPs picks, carried onto the confirm in pick order; state
+  // dies with the composer when the surface closes.
+  const [skills, setSkills] = React.useState<WorkspaceSkill[]>([])
   // Optional "+ Worktree" attachment: null = off; a string (possibly empty =
   // auto-name) means the spawn should create a worktree and run the agent there.
   const [worktreeName, setWorktreeName] = React.useState<string | null>(null)
-  // Optional "+ Connector" attachment, carried onto the confirm like the skill.
-  // A surface that opened with a connector in hand (the connector "New chat"
-  // buttons) seeds it here; from then on it is ordinary attachment state.
-  const [connectorAttachment, setConnectorAttachment] = React.useState<AgentComposerConnector | null>(
-    initialConnector ?? null,
-  )
+  // A surface that opened with a server in hand (the connector "New chat"
+  // buttons) seeds it here; from then on it is an ordinary pick.
+  const [mcpServers, setMcpServers] = React.useState<AgentComposerConnector[]>(() => initialMcpServers ?? [])
 
   const resolvePickerCli = React.useCallback(
     (cli: AgentCli): AgentCli => resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli),
@@ -346,23 +341,23 @@ export function useAgentComposer({
   // reads it back in the same event would read the value from before the write.
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection, engine?: { cli: AgentCli; model: string | null }): AgentComposerConfirm => {
-      const skill = skillAttachment ? { skill: skillAttachment } : {}
+      const picked = skills.length > 0 ? { skills } : {}
       // Worktree execution only applies to CLI agents spawned into the active
       // workspace: terminal/conversation have no agent execution.
       const worktree = worktreeName !== null ? { worktree: { name: worktreeName } } : {}
-      // Connectors ride the CLI spawn's isolated-worktree runtime, so only
-      // general/specialist confirms carry the attachment.
-      const connector = connectorAttachment ? { connector: connectorAttachment } : {}
+      // MCP servers reach CLI agents through their workspace config, so only
+      // general/specialist confirms carry the picks.
+      const servers = mcpServers.length > 0 ? { mcpServers } : {}
       const model = engine ? { model: engine.model } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
-      if (target.kind === 'conversation') return { kind: 'conversation', ...skill }
+      if (target.kind === 'conversation') return { kind: 'conversation', ...picked }
       const cli = engine?.cli ?? cliForSelection(target)
       if (target.kind === 'specialist') {
-        return { kind: 'specialist', specialistId: target.specialistId, cli, ...model, ...skill, ...worktree, ...connector }
+        return { kind: 'specialist', specialistId: target.specialistId, cli, ...model, ...picked, ...worktree, ...servers }
       }
-      return { kind: 'general', cli, ...model, ...skill, ...worktree, ...connector }
+      return { kind: 'general', cli, ...model, ...picked, ...worktree, ...servers }
     },
-    [cliForSelection, skillAttachment, worktreeName, connectorAttachment],
+    [cliForSelection, skills, worktreeName, mcpServers],
   )
 
   const moveSelection = React.useCallback(
@@ -416,12 +411,12 @@ export function useAgentComposer({
   return {
     query,
     setQuery,
-    skillAttachment,
-    setSkillAttachment,
+    skills,
+    setSkills,
     worktreeName,
     setWorktreeName,
-    connectorAttachment,
-    setConnectorAttachment,
+    mcpServers,
+    setMcpServers,
     visibleRows,
     hasResults: visibleRows.length > 0,
     selection,

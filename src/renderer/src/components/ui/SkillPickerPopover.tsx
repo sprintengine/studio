@@ -108,7 +108,7 @@ async function loadInventory(workspaceRoot: string, pluginId: string | null): Pr
 
 // Loads the inventory when `active` flips true (each open refetches — installs
 // and removals elsewhere must show up on the next open).
-function useWorkspaceSkills(
+export function useWorkspaceSkills(
   workspaceRoot: string | null,
   pluginId: string | null,
   active: boolean,
