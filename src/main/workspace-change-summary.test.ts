@@ -187,6 +187,94 @@ async function main(): Promise<void> {
     }
   })
 
+  await run('a checkpoint that no longer resolves falls back — it does NOT report zero', async () => {
+    // Review finding: diffCheckpointStat is quiet by design, so a deleted ref,
+    // a pruned worktree or a re-clone came back as zeros with scope
+    // 'workspace'. The row draws no stat for zeros, so a workspace with real
+    // work showed nothing, permanently, with no way back.
+    const dir = repo()
+    const store = indexIn()
+    try {
+      const base = checkpointRefFor('w1', 0)!
+      await captureCheckpoint({ cwd: dir, ref: base })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 0, ref: base, at: 1 })
+      // Tracked, so the FOLDER reading has something to report: `diff` cannot
+      // see untracked content, which is the whole reason the git button keeps a
+      // file-count fallback.
+      writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+      const first = checkpointRefFor('w1', 1)!
+      await captureCheckpoint({ cwd: dir, ref: first })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 1, ref: first, at: 2 })
+
+      // Someone (or a gc, or a re-clone) removed the ref behind our back.
+      git(dir, 'update-ref', '-d', first)
+
+      const summary = await getWorkspaceChangeSummary(
+        { workspaceId: 'w1', folderPath: dir },
+        { index: store.index }
+      )
+      assert.equal(summary.scope, 'folder', 'unreadable is not "changed nothing"')
+      assert.equal(summary.additions, 1, 'and the folder reading is real, not a phantom zero')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(store.dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('turns captured in a DIFFERENT working copy are never spanned', async () => {
+    // Review finding: two agents in one workspace can run in different
+    // checkouts. Spanning across them diffed unrelated trees and produced
+    // confident nonsense — a reproduction showed +1 −100 over 11 files for a
+    // one-line edit.
+    const dir = repo()
+    const store = indexIn()
+    const other = mkdtempSync(join(tmpdir(), 'multicode-change-summary-other-'))
+    try {
+      const base = checkpointRefFor('w1', 0)!
+      await captureCheckpoint({ cwd: dir, ref: base })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 0, ref: base, at: 1 })
+
+      // A turn recorded against a different working copy entirely.
+      const stray = checkpointRefFor('w1', 1)!
+      store.index.recordTurn({ workspaceId: 'w1', cwd: other, turn: 1, ref: stray, at: 2 })
+
+      const summary = await getWorkspaceChangeSummary(
+        { workspaceId: 'w1', folderPath: dir },
+        { index: store.index }
+      )
+      assert.equal(summary.scope, 'folder', 'no span across two working copies')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(other, { recursive: true, force: true })
+      rmSync(store.dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('the branch comes from the checkout the NUMBERS came from', async () => {
+    const dir = repo()
+    const store = indexIn()
+    try {
+      git(dir, 'checkout', '-b', 'feat/side')
+      const base = checkpointRefFor('w1', 0)!
+      await captureCheckpoint({ cwd: dir, ref: base })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 0, ref: base, at: 1 })
+      writeFileSync(join(dir, 'agent.txt'), 'x\n')
+      const first = checkpointRefFor('w1', 1)!
+      await captureCheckpoint({ cwd: dir, ref: first })
+      store.index.recordTurn({ workspaceId: 'w1', cwd: dir, turn: 1, ref: first, at: 2 })
+
+      const summary = await getWorkspaceChangeSummary(
+        { workspaceId: 'w1', folderPath: dir },
+        { index: store.index }
+      )
+      assert.equal(summary.scope, 'workspace')
+      assert.equal(summary.branch, 'feat/side')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(store.dir, { recursive: true, force: true })
+    }
+  })
+
   await run('a folder that is not a repo is quiet in both scopes', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'multicode-change-summary-plain-'))
     const store = indexIn()

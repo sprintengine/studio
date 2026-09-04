@@ -43,6 +43,8 @@ export const gitApi = {
     folderPath: string
   ): Promise<WorkspaceChangeSummary> =>
     ipcRenderer.invoke('git:get-workspace-change-summary', workspaceId, folderPath),
+  forgetWorkspaceCheckpoints: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke('git:forget-workspace-checkpoints', workspaceId),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage): Promise<GitFileStageResult> =>
@@ -141,6 +143,7 @@ export const gitApi = {
   | 'getGitStatus'
   | 'getGitRowSummary'
   | 'getWorkspaceChangeSummary'
+  | 'forgetWorkspaceCheckpoints'
   | 'getGitFileBase'
   | 'getGitFileAtStage'
   | 'getGitBranches'

@@ -25,7 +25,7 @@ async function run(name: string, fn: () => Promise<void>): Promise<void> {
 
 type Harness = ReturnType<typeof harness>
 
-function harness(options: { capture?: (ref: string) => boolean } = {}) {
+function harness(options: { capture?: (ref: string) => boolean; gate?: () => Promise<void> } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'multicode-reactor-'))
   const captured: string[] = []
   const deleted: string[] = []
@@ -41,9 +41,11 @@ function harness(options: { capture?: (ref: string) => boolean } = {}) {
       inFlight += 1
       maxConcurrent = Math.max(maxConcurrent, inFlight)
       // A real capture spans several awaits; one is enough to expose a reactor
-      // that starts a second before the first finishes.
+      // that starts a second before the first finishes. `gate` lets a test hold
+      // one open for as long as it needs.
       await Promise.resolve()
       await Promise.resolve()
+      if (options.gate) await options.gate()
       inFlight -= 1
       const ok = options.capture ? options.capture(ref) : true
       if (ok) captured.push(ref)
@@ -170,12 +172,85 @@ async function main(): Promise<void> {
       }
       await h.reactor.whenSettled()
       assert.equal(h.maxConcurrent, 1, 'one capture at a time per folder')
-      // Baseline, the first turn, then at most the one coalesced follow-up.
-      assert.ok(h.captured.length <= 4, `burst coalesced (captured ${h.captured.length})`)
+      // Exactly four, and the exactness is the point — the old `<= 4` had no
+      // lower bound, so an implementation that dropped every coalesced request
+      // passed it. Baseline and the first turn from `turn()`, then the burst:
+      // the first close runs immediately, and the remaining four collapse into
+      // the single queued follow-up.
+      assert.equal(h.captured.length, 4, `burst coalesced (got ${h.captured.length})`)
       // Whatever ran, the numbering has no duplicates and no gaps.
       const turns = h.index.timelineFor(W)?.turns.map((entry) => entry.turn) ?? []
       assert.deepEqual(turns, [...new Set(turns)], 'no turn recorded twice')
       assert.deepEqual(turns, [...turns].sort((a, b) => a - b))
+    } finally {
+      h.dispose()
+    }
+  })
+
+  await run('one workspace’s turn is never dropped by another’s in the same folder', async () => {
+    // Review finding: `pending` was keyed by FOLDER only, so workspace B's
+    // boundary REPLACED workspace A's and A's turn was captured never — in the
+    // exact configuration the per-folder serialisation exists for.
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = () => resolve()
+    })
+    let held = false
+    const h = harness({
+      gate: async () => {
+        if (held) return
+        held = true
+        await gate
+      },
+    })
+    try {
+      h.reactor.handlePhase({ workspaceId: 'wA', cwd: CWD, previous: 'tool_use', next: 'idle' })
+      await Promise.resolve()
+      // Both arrive while wA's capture is held open.
+      h.reactor.handlePhase({ workspaceId: 'wA', cwd: CWD, previous: 'tool_use', next: 'idle' })
+      h.reactor.handlePhase({ workspaceId: 'wB', cwd: CWD, previous: 'tool_use', next: 'idle' })
+      release()
+      await h.reactor.whenSettled()
+
+      assert.ok(h.index.hasBaseline('wB'), 'workspace B was captured, not swallowed')
+      assert.ok(h.index.hasBaseline('wA'), 'and so was workspace A')
+      assert.equal(h.maxConcurrent, 1, 'still one at a time in the folder')
+    } finally {
+      h.dispose()
+    }
+  })
+
+  await run('a turn that closes during its own baseline capture is not lost', async () => {
+    // Review finding: `hasBaseline()` was read at SCHEDULE time, so a close
+    // arriving while turn 0 was still being captured saw no baseline and
+    // scheduled turn 0 a second time — losing the first turn of every workspace
+    // whose first turn was shorter than an `add -A`.
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = () => resolve()
+    })
+    let held = false
+    const h = harness({
+      gate: async () => {
+        if (held) return
+        held = true
+        await gate
+      },
+    })
+    try {
+      h.reactor.handlePhase({ workspaceId: W, cwd: CWD, previous: 'idle', next: 'thinking' })
+      await Promise.resolve()
+      // The turn finishes while its baseline is still being written.
+      h.reactor.handlePhase({ workspaceId: W, cwd: CWD, previous: 'thinking', next: 'idle' })
+      release()
+      await h.reactor.whenSettled()
+
+      assert.deepEqual(
+        h.index.timelineFor(W)?.turns.map((entry) => entry.turn),
+        [0, 1],
+        'the baseline AND the turn it opened'
+      )
+      assert.deepEqual(h.captured, [checkpointRefFor(W, 0), checkpointRefFor(W, 1)])
     } finally {
       h.dispose()
     }

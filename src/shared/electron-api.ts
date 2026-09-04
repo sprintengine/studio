@@ -3276,6 +3276,13 @@ export type ElectronApi = {
     workspaceId: string,
     folderPath: string
   ) => Promise<WorkspaceChangeSummary>
+  /**
+   * Drop a workspace's checkpoint refs from its repo and its index entry
+   * (the-diff-an-agent-made, epic decision 8). Called when a workspace is
+   * deleted or its folder forgotten — without it, up to 50 refs per workspace
+   * accumulate in the user's repo forever.
+   */
+  forgetWorkspaceCheckpoints: (workspaceId: string) => Promise<void>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>

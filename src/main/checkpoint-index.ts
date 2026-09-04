@@ -1,5 +1,7 @@
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
+import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, fsyncSync } from 'fs'
 import { join } from 'path'
+
+import { CHECKPOINT_REFS_PREFIX } from './checkpoint-store'
 
 /**
  * The per-workspace checkpoint timeline: which turns we captured, at which ref,
@@ -34,6 +36,15 @@ export type CheckpointTurn = {
   turn: number
   ref: string
   at: number
+  /**
+   * Where this turn was captured. Recorded PER TURN, not just per workspace:
+   * two agents in one workspace can run in different working copies (one in a
+   * worktree, one in the folder), and a span that diffed turn 0's tree against
+   * a turn captured in a different checkout produced confident nonsense — a
+   * review reproduced `+1 −100` across 11 files for a one-line edit. The
+   * summary now refuses to span turns that disagree about `cwd`.
+   */
+  cwd: string
 }
 
 export type WorkspaceCheckpoints = {
@@ -59,16 +70,21 @@ function isTurn(value: unknown): value is CheckpointTurn {
     && Number.isFinite(turn.turn)
     && turn.turn >= 0
     && typeof turn.ref === 'string'
-    && turn.ref.length > 0
+    && turn.ref.startsWith(`${CHECKPOINT_REFS_PREFIX}/`)
     && typeof turn.at === 'number'
+    && typeof turn.cwd === 'string'
+    && turn.cwd.length > 0
   )
 }
 
 /**
- * Reject anything that is not exactly the shape we wrote. This file is on disk
- * between releases and its `ref` values are handed to `git update-ref -d`, so a
- * corrupted entry is not merely useless — it is a string we would otherwise
- * pass to a delete.
+ * Reject anything that is not exactly the shape we wrote. This file sits on
+ * disk between releases and its `ref` values are handed to `git update-ref -d`.
+ *
+ * The namespace check on `ref` is a SECOND line: `deleteCheckpointRefs` refuses
+ * anything outside `refs/multicode/checkpoints/` and is where the guarantee
+ * actually lives. Checking here too means a corrupted entry never reaches a
+ * reader either, rather than being silently skipped at the delete.
  */
 function parsePersisted(raw: unknown): Persisted {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
@@ -94,28 +110,65 @@ export function createCheckpointIndex(deps: CheckpointIndexDeps) {
 
   function load(): Persisted {
     if (cache !== null) return cache
+    let raw: string
     try {
-      cache = parsePersisted(JSON.parse(readFileSync(filePath(), 'utf8')))
+      raw = readFileSync(filePath(), 'utf8')
     } catch {
+      // No file yet — a fresh install, and an empty index is exactly right.
+      cache = {}
+      return cache
+    }
+    try {
+      cache = parsePersisted(JSON.parse(raw))
+    } catch {
+      // The file exists but we cannot read it — a torn write, or a future
+      // version's shape. We must NOT carry on and overwrite it: `load` caches
+      // its answer for the process, so the next `recordTurn` would persist an
+      // empty index over every other workspace's timeline, orphaning their refs
+      // beyond the reach of `forget()`. Move it aside instead, so the data is
+      // recoverable and the next write starts honestly empty.
+      try {
+        renameSync(filePath(), `${filePath()}.corrupt`)
+      } catch {
+        // Best effort. If we cannot even move it, `persist` below will decline
+        // to overwrite anything it did not manage to write.
+      }
       cache = {}
     }
     return cache
   }
 
-  /** Write through a temp file and rename, so a crash mid-write cannot truncate it. */
-  function persist(next: Persisted): void {
+  /**
+   * Write through a temp file and rename, and report whether it landed.
+   *
+   * Flushed with `fsync` before the rename, and the result is returned rather
+   * than swallowed: `recordTurn`'s caller deletes evicted refs from the repo on
+   * the strength of this, and doing that while the persisted index still lists
+   * them leaves that index pointing at refs that no longer resolve.
+   */
+  function persist(next: Persisted): boolean {
     cache = next
     const target = filePath()
     const temp = `${target}.tmp`
     try {
       writeFileSync(temp, JSON.stringify(next), 'utf8')
+      // Rename is atomic, but only over bytes that actually reached the disk;
+      // without this a power loss can leave a renamed-but-empty file.
+      const handle = openSync(temp, 'r+')
+      try {
+        fsyncSync(handle)
+      } finally {
+        closeSync(handle)
+      }
       renameSync(temp, target)
+      return true
     } catch {
       try {
         unlinkSync(temp)
       } catch {
         // Nothing to clean up, or nothing we can do about it.
       }
+      return false
     }
   }
 
@@ -160,13 +213,14 @@ export function createCheckpointIndex(deps: CheckpointIndexDeps) {
       turn: number
       ref: string
       at: number
-    }): { evicted: string[] } {
+    }): { evicted: string[]; persisted: boolean } {
       const current = load()
       const existing = current[input.workspaceId]
       const kept = (existing?.turns ?? []).filter((turn) => turn.turn !== input.turn)
-      const turns = [...kept, { turn: input.turn, ref: input.ref, at: input.at }].sort(
-        (a, b) => a.turn - b.turn
-      )
+      const turns = [
+        ...kept,
+        { turn: input.turn, ref: input.ref, at: input.at, cwd: input.cwd },
+      ].sort((a, b) => a.turn - b.turn)
 
       // Cap, preserving the baseline: turn 0 plus the newest of the rest.
       let evicted: CheckpointTurn[] = []
@@ -180,11 +234,13 @@ export function createCheckpointIndex(deps: CheckpointIndexDeps) {
         retained = [...baseline, ...keptRest]
       }
 
-      persist({
+      const persisted = persist({
         ...current,
         [input.workspaceId]: { cwd: input.cwd, turns: retained },
       })
-      return { evicted: evicted.map((turn) => turn.ref) }
+      // No eviction is reported when the bookkeeping did not land: the caller
+      // would delete refs the persisted index still names.
+      return { evicted: persisted ? evicted.map((turn) => turn.ref) : [], persisted }
     },
 
     /**
@@ -192,14 +248,20 @@ export function createCheckpointIndex(deps: CheckpointIndexDeps) {
      * the repo. Called when a workspace is deleted or archived (epic decision
      * 8) — nothing may accumulate refs in someone's repo forever.
      */
-    forget(workspaceId: string): { cwd: string; refs: string[] } | null {
+    forget(workspaceId: string): { refs: { ref: string; cwd: string }[] } | null {
       const current = load()
       const timeline = current[workspaceId]
       if (!timeline) return null
       const next = { ...current }
       delete next[workspaceId]
-      persist(next)
-      return { cwd: timeline.cwd, refs: timeline.turns.map((turn) => turn.ref) }
+      if (!persist(next)) {
+        // Refuse to hand back deletions we could not record. Deleting refs while
+        // the persisted index still lists them is worse than keeping both.
+        return null
+      }
+      // Each ref with the cwd it was captured in: a workspace whose agent moved
+      // to a worktree mid-life has refs recorded against two paths.
+      return { refs: timeline.turns.map((turn) => ({ ref: turn.ref, cwd: turn.cwd })) }
     },
 
     /** Every workspace with a timeline — for sweeps and diagnostics. */
