@@ -111,7 +111,10 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
 type WorkspacePaneBodyProps = {
   workspaceId: string
   tabs: WorkspacePaneTab[]
+  /** The tab whose panel is on screen: null when the pane is collapsed or the workspace is not the visible one. */
   activeTabId: string | null
+  /** The tab the strip has selected, visible or not; decides which panel is the front one. */
+  selectedTabId: string | null
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   onDiffCountChange?: (count: number | null) => void
 }
@@ -120,24 +123,26 @@ export function WorkspacePaneBody({
   workspaceId,
   tabs,
   activeTabId,
+  selectedTabId,
   onStartFuturePlan,
   onDiffCountChange,
 }: WorkspacePaneBodyProps) {
   return (
     <>
       {tabs.map((tab) => {
-        const active = tab.id === activeTabId
-        if (!active && !paneKindRetainsPanel(tab.kind)) return null
-        const offscreen = !active && tab.kind === 'browser'
+        const selected = tab.id === selectedTabId
+        const active = selected && tab.id === activeTabId
+        if (!selected && !paneKindRetainsPanel(tab.kind)) return null
+        const offscreen = !selected && tab.kind === 'browser'
         return (
           <div
             key={tab.id}
             role="tabpanel"
             id={`pane-${workspaceId}-panel-${tab.id}`}
             aria-labelledby={`pane-${workspaceId}-tab-${tab.id}`}
-            aria-hidden={!active}
-            className={`absolute inset-0 ${active ? 'visible z-10' : offscreen ? 'z-0' : 'invisible z-0'}`}
-            style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: active ? 'auto' : 'none' }}
+            aria-hidden={!selected}
+            className={`absolute inset-0 ${selected ? 'visible z-10' : offscreen ? 'z-0' : 'invisible z-0'}`}
+            style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: selected ? 'auto' : 'none' }}
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).

@@ -88,7 +88,9 @@ import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
 import { createBrowserManager } from './browser/browser-manager'
-import { isWorkspaceWindowWebContents } from './window-factory'
+import { createBrowserControl } from './browser/browser-control'
+import { createBrowserTools } from './automation/browser-tools'
+import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { ConversationRuntime } from './conversation-runtime'
@@ -673,6 +675,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // so the tool set cannot capture it at construction. Assigned immediately
   // below; until then those tools answer that they are not wired up yet.
   let tailnetToolsFrontDoor: TailnetToolsFrontDoor | null = null
+  // The embedded browser's main half (browser-pane epic): adopts the guests the
+  // pane's browser tabs attach, drives them, and finds the dev servers this
+  // workspace's terminals are running. The control layer is the agents' hands
+  // on those same tabs, exposed as the gateway's browser.* tools below.
+  const browserManager = createBrowserManager({
+    listTerminalRoots,
+    isHostWindow: isWorkspaceWindowWebContents,
+    broadcast: broadcastToWorkspaceWindows,
+    resolveWorkspaceRoot: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
+  })
+  const browserControl = createBrowserControl(browserManager)
+  browserManager.onUnregister((tabId) => browserControl.forget(tabId))
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
   // and terminal runtime, and mutations go straight to the main services that
   // own them — one lane, no window required (MC-2161). The gateway starts with
@@ -718,7 +734,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           details,
         })
       },
-      appTools: createAutomationTools({
+      appTools: [
+        ...createBrowserTools({
+          manager: browserManager,
+          control: browserControl,
+          hasWorkspace: (workspaceId) =>
+            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+        }),
+        ...createAutomationTools({
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
         launchAgent: (request) => agentLaunchService.launch(request),
@@ -925,11 +948,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             return false
           }
         },
-      }).concat(
+        }),
         // Remote-control configuration, local socket only: the listener refuses
         // this whole family regardless of a device's scopes (tailnet-scopes.ts).
-        createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor })
-      ),
+        ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
+      ],
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -952,14 +975,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       gateway: { running: automationService.getStatus().running },
     }
   }
-
-  // The embedded browser's main half (browser-pane epic): adopts the guests the
-  // pane's browser tabs attach, drives them, and finds the dev servers this
-  // workspace's terminals are running.
-  const browserManager = createBrowserManager({
-    listTerminalRoots,
-    isHostWindow: isWorkspaceWindowWebContents,
-  })
 
   return {
     agentConfigImportService,

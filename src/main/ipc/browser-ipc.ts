@@ -32,6 +32,21 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
     if (tabId) manager.unregister(tabId)
   })
 
+  // The renderer's word on which tab the person is looking at: what a
+  // `browser.*` tool acts on when the agent names none. Sender-scoped: only a
+  // window that hosts the tab may claim it.
+  ipcMain.handle('browser:note-active', (event: IpcMainInvokeEvent, input: { workspaceId: string; tabId: string | null }) => {
+    if (typeof input?.workspaceId !== 'string') return
+    const tabId = typeof input.tabId === 'string' ? input.tabId : null
+    // The note usually lands before the tab's guest has registered (the strip
+    // selects the tab the moment it is created); an unknown tab is accepted
+    // and only takes effect once a guest registers under it. A KNOWN tab must
+    // be this window's — `activeTab` also checks the workspace it belongs to.
+    const host = tabId ? manager.hostOf(tabId) : null
+    if (host && host !== event.sender) return
+    manager.noteActive(input.workspaceId, tabId)
+  })
+
   ipcMain.handle('browser:state', (_event, input: { tabId: string }) => {
     const tabId = tabIdOf(input)
     return tabId ? manager.state(tabId) : null
@@ -89,9 +104,7 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
   ipcMain.handle('browser:clear-cache', () => manager.clearCache())
 
   ipcMain.handle('browser:capture', (_event, input: BrowserCaptureInput) => {
-    if (!tabIdOf(input) || typeof input.workspaceRoot !== 'string') {
-      return { ok: false, message: 'The capture request was incomplete.' }
-    }
+    if (!tabIdOf(input)) return { ok: false, message: 'The capture request was incomplete.' }
     const rect =
       input.rect
       && typeof input.rect === 'object'
@@ -100,7 +113,6 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
         : undefined
     return manager.captureScreenshot({
       tabId: input.tabId,
-      workspaceRoot: input.workspaceRoot,
       kind: input.kind === 'element' ? 'element' : 'screenshot',
       ...(rect ? { rect } : {}),
     })

@@ -1,3 +1,4 @@
+import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import {
   SPRINTENGINE_MUTATING_TOOL_NAMES,
   SPRINTENGINE_TOOL_DEFINITIONS,
@@ -15,6 +16,7 @@ import {
 } from '../../shared/modules/mcp-tools'
 
 const APP_MUTATION_TOOLS = new Set([
+  ...BROWSER_MUTATION_TOOL_NAMES,
   'agent.launch',
   'automation.create',
   'automation.run',

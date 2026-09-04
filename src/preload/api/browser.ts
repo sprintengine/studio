@@ -10,7 +10,7 @@ import type {
   BrowserTabState,
   LocalServer,
 } from '../../shared/browser'
-import type { BrowserColorScheme } from '../../shared/browser-devices'
+import type { BrowserColorScheme, BrowserViewport } from '../../shared/browser-devices'
 import type { ElectronApi } from '../../shared/electron-api'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -48,6 +48,12 @@ export const browserApi = {
     ipcRenderer.invoke('browser:copy-screenshot', { tabId }),
   browserLocalServers: (workspaceId: string): Promise<LocalServer[]> =>
     ipcRenderer.invoke('browser:local-servers', { workspaceId }),
+  browserNoteActive: (workspaceId: string, tabId: string | null): Promise<void> =>
+    ipcRenderer.invoke('browser:note-active', { workspaceId, tabId }),
+  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null }) => void): (() => void) =>
+    subscribe('browser:open-request', cb),
+  onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void): (() => void) =>
+    subscribe('browser:viewport-request', cb),
   onBrowserState: (cb: (state: BrowserTabState) => void): (() => void) => subscribe('browser:state', cb),
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void): (() => void) =>
     subscribe('browser:focus-url', cb),
@@ -74,6 +80,9 @@ export const browserApi = {
   | 'browserCapture'
   | 'browserCopyScreenshot'
   | 'browserLocalServers'
+  | 'browserNoteActive'
+  | 'onBrowserOpenRequest'
+  | 'onBrowserViewportRequest'
   | 'onBrowserState'
   | 'onBrowserFocusUrl'
   | 'onBrowserHostKey'

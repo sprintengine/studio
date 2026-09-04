@@ -100,7 +100,7 @@ export function BrowserDeviceToolbar({ viewport, onChange, onClose }: BrowserDev
   }
 
   return (
-    <div className="flex h-[32px] shrink-0 items-center gap-1.5 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5">
+    <div className="flex h-control-md shrink-0 items-center gap-1.5 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5">
       <Select
         ariaLabel="Device"
         items={items}
@@ -115,9 +115,12 @@ export function BrowserDeviceToolbar({ viewport, onChange, onClose }: BrowserDev
       <SizeField
         label="Viewport width"
         value={viewport.width}
-        onCommit={(width) =>
+        onCommit={(raw) => {
+          // Clamp first, then derive the other axis, so a locked ratio holds
+          // at the bounds instead of rounding past them.
+          const width = clampViewportSize(raw)
           setSize(width, aspectLocked ? Math.round((width * viewport.height) / viewport.width) : viewport.height)
-        }
+        }}
       />
       <span aria-hidden="true" className="text-micro text-[color:var(--text-subtle)]">
         ×
@@ -125,9 +128,10 @@ export function BrowserDeviceToolbar({ viewport, onChange, onClose }: BrowserDev
       <SizeField
         label="Viewport height"
         value={viewport.height}
-        onCommit={(height) =>
+        onCommit={(raw) => {
+          const height = clampViewportSize(raw)
           setSize(aspectLocked ? Math.round((height * viewport.width) / viewport.height) : viewport.width, height)
-        }
+        }}
       />
       <Tooltip content={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'} placement="bottom">
         <IconButton

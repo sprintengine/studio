@@ -11,7 +11,7 @@ import {
   type BrowserPickedElement,
   type BrowserTabState,
 } from '../../../../../../shared/browser'
-import {
+import { normalizeBrowserViewport,
   DEFAULT_BROWSER_DEVICE_PRESET_ID,
   fitViewportScale,
   presetViewport,
@@ -21,13 +21,13 @@ import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import type { WorkspacePaneTab } from '../../../../types/workspace'
 import type { EmbeddedWebviewElement, WebviewIpcMessageEvent } from '../../../../types/webview'
 import { showToast } from '../../../../store/toastStore'
-import { IconButton, OverflowMenu, Tooltip } from '../../../ui'
+import { Badge, IconButton, OverflowMenu, Tooltip } from '../../../ui'
 import { BrowserDeviceToolbar } from './BrowserDeviceToolbar'
 import { BrowserEmptyState } from './BrowserEmptyState'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 import { BrowserViewMenu } from './BrowserViewMenu'
-import { buildBrowserElementBlock, readPickTheme, sendTextToFocusedAgent } from './browserPick'
+import { buildBrowserElementBlock, normalizePickedElement, readPickTheme, sendTextToFocusedAgent } from './browserPick'
 
 // The browser tab (browser-pane epic): a `<webview>` guest the renderer mounts
 // and main drives. The element is created once per tab and never re-keyed —
@@ -278,12 +278,35 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     [tab.id, updatePaneTab, workspaceId],
   )
 
+  // browser.resize from an agent: the viewport is renderer-owned state, so main
+  // asks this tab to change it rather than changing it.
+  useEffect(
+    () =>
+      window.api.onBrowserViewportRequest((payload) => {
+        if (payload.tabId !== tab.id) return
+        const next = normalizeBrowserViewport(payload.viewport)
+        if (next) setViewport(next)
+      }),
+    [setViewport, tab.id],
+  )
+
   // ── Inspect ────────────────────────────────────────────────────────────
   // The picker runs in the guest preload; a pick comes back over the webview
   // channel, is cropped by main, and lands at the focused agent's prompt.
+  // `webview.send` throws synchronously once the guest is gone (after a
+  // renderer crash, before the next load); the picker is best-effort there.
+  const sendToGuest = (channel: string, ...args: unknown[]): boolean => {
+    try {
+      void webviewRef.current?.send(channel, ...args)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const stopPicking = useCallback(() => {
     setPicking(false)
-    void webviewRef.current?.send(BROWSER_PICK_STOP_CHANNEL)
+    sendToGuest(BROWSER_PICK_STOP_CHANNEL)
   }, [])
 
   const startPicking = useCallback(() => {
@@ -292,8 +315,8 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
       showToast({ tone: 'warn', title: 'Inspect is not available in this build' })
       return
     }
+    if (!sendToGuest(BROWSER_PICK_START_CHANNEL, readPickTheme())) return
     setPicking(true)
-    void element.send(BROWSER_PICK_START_CHANNEL, readPickTheme())
     element.focus()
   }, [config?.preloadUrl])
 
@@ -302,12 +325,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
       setPicking(false)
       let screenshotPath: string | null = null
       if (workspaceRoot) {
-        const capture = await window.api.browserCapture({
-          tabId: tab.id,
-          workspaceRoot,
-          rect: picked.rect,
-          kind: 'element',
-        })
+        const capture = await window.api.browserCapture({ tabId: tab.id, rect: picked.rect, kind: 'element' })
         if (capture.ok) screenshotPath = capture.path
       }
       const block = buildBrowserElementBlock(picked, screenshotPath)
@@ -332,8 +350,10 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     const onMessage = (event: Event) => {
       const message = event as WebviewIpcMessageEvent
       if (message.channel === BROWSER_PICKED_CHANNEL) {
-        const payload = message.args[0] as BrowserPickedElement | undefined
-        if (payload && typeof payload === 'object') void handlePicked(payload)
+        // The page owns the guest's world; nothing it reports is trusted as-is.
+        const payload = normalizePickedElement(message.args[0])
+        if (payload) void handlePicked(payload)
+        else setPicking(false)
       } else if (message.channel === BROWSER_PICK_CANCELLED_CHANNEL) {
         setPicking(false)
       }
@@ -342,10 +362,20 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     return () => element.removeEventListener('ipc-message', onMessage)
   }, [handlePicked, config])
 
-  // A navigation tears the picker down with the document.
+  // A new document tears the picker down: the guest's overlay went with the
+  // old one, and the host un-presses to match. Keyed on the committed
+  // document, not `loading` — a lazy iframe flips `loading` without replacing
+  // the page the person is picking from.
+  const documentUrl = state?.documentUrl
+  const pickingDocumentRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (picking && state?.loading) setPicking(false)
-  }, [picking, state?.loading])
+    if (!picking) {
+      pickingDocumentRef.current = undefined
+      return
+    }
+    if (pickingDocumentRef.current === undefined) pickingDocumentRef.current = documentUrl
+    else if (pickingDocumentRef.current !== documentUrl) stopPicking()
+  }, [documentUrl, picking, stopPicking])
 
   // ── Screenshot ─────────────────────────────────────────────────────────
   const capturePage = useCallback(
@@ -359,7 +389,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         showToast({ tone: 'warn', title: 'Open a project folder to save screenshots' })
         return
       }
-      const result = await window.api.browserCapture({ tabId: tab.id, workspaceRoot, kind: 'screenshot' })
+      const result = await window.api.browserCapture({ tabId: tab.id, kind: 'screenshot' })
       if (!result.ok) {
         showToast({ tone: 'error', title: 'Screenshot failed', description: result.message })
         return
@@ -380,6 +410,9 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   )
 
   const hasPage = Boolean(state ? state.url && state.url !== 'about:blank' : initialSrcRef.current !== 'about:blank')
+  // Inspect and Screenshot act on the document the person can see; over the
+  // error page the guest holds a chrome-error document nobody is looking at.
+  const canCapture = hasPage && !state?.error
   // Before the first state arrives, a restored tab is loading its remembered
   // page: no empty state over it.
   const showEmpty = state ? !state.error && (!state.url || state.url === 'about:blank') : initialSrcRef.current === 'about:blank'
@@ -436,33 +469,34 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         }}
         trailing={
           <>
+            {state?.agentActive ? (
+              <Badge tone="accent" ariaLabel="An agent is driving this page">
+                Agent
+              </Badge>
+            ) : null}
             <Tooltip content={picking ? 'Stop inspecting' : 'Inspect element'} placement="bottom">
               <IconButton
                 onClick={() => (picking ? stopPicking() : startPicking())}
                 aria-label={picking ? 'Stop inspecting' : 'Inspect element'}
                 pressed={picking}
-                disabled={!hasPage}
+                disabled={!canCapture}
               >
                 <InspectGlyph />
               </IconButton>
             </Tooltip>
-            {hasPage ? (
-              // OverflowMenu draws the trigger button itself; a custom trigger
-              // is its CONTENT, never a second button inside it.
-              <OverflowMenu
+            {/* OverflowMenu draws the trigger button itself; a custom trigger is
+                its CONTENT, never a second button inside it. One menu whatever
+                the page state, so a focused trigger is never unmounted under
+                the person; its items disable instead. */}
+            <OverflowMenu
               ariaLabel="Screenshot"
               trigger={() => <CameraGlyph />}
               items={[
-                { id: 'copy', label: 'Copy screenshot', onSelect: () => void capturePage('copy') },
-                { id: 'save', label: 'Save to workspace', onSelect: () => void capturePage('save'), disabled: !workspaceRoot },
-                { id: 'send', label: 'Send to agent', onSelect: () => void capturePage('send'), disabled: !workspaceRoot },
+                { id: 'copy', label: 'Copy screenshot', onSelect: () => void capturePage('copy'), disabled: !canCapture },
+                { id: 'save', label: 'Save to workspace', onSelect: () => void capturePage('save'), disabled: !canCapture || !workspaceRoot },
+                { id: 'send', label: 'Send to agent', onSelect: () => void capturePage('send'), disabled: !canCapture || !workspaceRoot },
               ]}
-              />
-            ) : (
-              <IconButton aria-label="Screenshot" disabled>
-                <CameraGlyph />
-              </IconButton>
-            )}
+            />
             <BrowserViewMenu
               state={state}
               deviceToolbarOn={framed}

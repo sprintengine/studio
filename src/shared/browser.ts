@@ -77,6 +77,8 @@ export type BrowserTabState = {
   zoomFactor: number
   colorScheme: 'system' | 'light' | 'dark'
   devToolsOpen: boolean
+  /** An agent tool acted on this tab within the last moment (toolbar badge). */
+  agentActive: boolean
 }
 
 export type BrowserClearResult = { ok: true } | { ok: false; message: string }
@@ -93,8 +95,6 @@ export type BrowserRegisterResult =
 
 export type BrowserCaptureInput = {
   tabId: string
-  /** The workspace folder the PNG is written under (`.multi-code/browser/`). */
-  workspaceRoot: string
   /** Guest-viewport rect to crop to; the whole page when absent. */
   rect?: { x: number; y: number; width: number; height: number }
   /** File name stem: `screenshot` or `element`. */

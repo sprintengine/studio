@@ -4,7 +4,9 @@
 // mirror in packages/module-sdk — src/shared cannot import src/main (TS6307).
 
 export type McpToolResult = {
-  content: Array<{ type: 'text'; text: string }>
+  // Text, or an image part (a browser snapshot, base64 PNG/JPEG) the client
+  // renders inline — the MCP `image` content shape.
+  content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
   structuredContent?: Record<string, unknown>
   isError?: boolean
 }

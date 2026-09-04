@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { browserTabLabel } from '../../../../../shared/browser'
 import { selectModuleEnabled } from '../../../modules'
@@ -73,6 +73,12 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
 
   const tabs = paneState?.tabs ?? []
   const activeTabId = paneState?.activeTabId ?? null
+  // What the agent tools act on when they name no tab: the browser tab the
+  // person is looking at, or none when the active tab is not a browser.
+  const activeBrowserTabId = tabs.find((tab) => tab.id === activeTabId && tab.kind === 'browser')?.id ?? null
+  useEffect(() => {
+    void window.api.browserNoteActive(workspaceId, activeBrowserTabId)
+  }, [activeBrowserTabId, workspaceId])
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
   // The Diff tab's canonical count — the files its viewer lists — reported by
   // the viewer while it is mounted; null until it has answered.
@@ -193,7 +199,11 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
           <WorkspacePaneBody
             workspaceId={workspaceId}
             tabs={tabs}
-            activeTabId={activeTabId}
+            // A tab is "active" for its panel only while someone can see it:
+            // this workspace on screen and the pane open. A collapsed pane's
+            // browser tab must not keep polling for dev servers.
+            activeTabId={active && (paneState?.open ?? false) ? activeTabId : null}
+            selectedTabId={activeTabId}
             onStartFuturePlan={onStartFuturePlan}
             onDiffCountChange={setDiffCount}
           />

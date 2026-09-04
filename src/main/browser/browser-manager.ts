@@ -18,7 +18,7 @@ import {
   type BrowserTabState,
   type LocalServer,
 } from '../../shared/browser'
-import { BROWSER_ZOOM_LEVELS, nextZoomLevel, type BrowserColorScheme } from '../../shared/browser-devices'
+import { BROWSER_ZOOM_LEVELS, nextZoomLevel, type BrowserColorScheme, type BrowserViewport } from '../../shared/browser-devices'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
 
@@ -64,6 +64,8 @@ const HOST_FORWARDED_CHORDS: readonly Chord[] = [
   { key: '0', shift: false, alt: false },
 ]
 const CAPTURE_TIMEOUT_MS = 5_000
+// How long the toolbar's Agent badge stays lit after the last tool call.
+const AGENT_BADGE_LINGER_MS = 1_500
 
 export type TerminalRootInfo = {
   sessionId: string
@@ -77,6 +79,10 @@ export type BrowserManagerDeps = {
   listTerminalRoots: () => TerminalRootInfo[]
   /** Whether a WebContents is one of this app's own windows — the only hosts a guest may register from. */
   isHostWindow: (host: WebContents) => boolean
+  /** Push an event to every workspace window (open requests from the agent tools). */
+  broadcast: (channel: string, payload: unknown) => void
+  /** A workspace's project folder from main's registry; null when it has none. */
+  resolveWorkspaceRoot: (workspaceId: string) => string | null
   platform?: NodeJS.Platform
   runPs?: () => Promise<string | null>
   runLsofListening?: () => Promise<string | null>
@@ -90,6 +96,10 @@ type BrowserTab = {
   host: WebContents
   state: BrowserTabState
   dispose: () => void
+  // Bumped on every human action (a chord in the guest, a toolbar command):
+  // an agent action in flight compares its epoch and yields (browser-control).
+  epoch: number
+  agentActiveTimer: NodeJS.Timeout | null
 }
 
 // Appearance emulation is a DevTools-protocol feature (there is no per-guest
@@ -102,13 +112,15 @@ async function applyColorScheme(tab: BrowserTab): Promise<void> {
   if (wc.isDestroyed()) return
   const scheme = tab.state.colorScheme
   if (scheme === 'system') {
+    // Reset only; the session stays attached — the agent control session
+    // (browser-control.ts) shares it, and detaching under it would cut the
+    // agent off mid-action.
     if (wc.debugger.isAttached()) {
       try {
         await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: '' }] })
       } catch {
         // The target may be mid-navigation; the reset is best-effort.
       }
-      wc.debugger.detach()
     }
     return
   }
@@ -232,8 +244,32 @@ async function probeLocalServer(browserSession: Session, url: string): Promise<b
   }
 }
 
-function fileStamp(): string {
-  return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
+/** Local wall-clock stamp (`2026-09-04_08-18-02`): the file is named for the person's clock, not UTC. */
+export function fileStamp(now = new Date()): string {
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}_${two(now.getHours())}-${two(now.getMinutes())}-${two(now.getSeconds())}`
+}
+
+/**
+ * A guest-viewport CSS rect as a crop of the captured image: padded, scaled by
+ * the zoom factor into DIP, clamped to the image; null when nothing of it is on
+ * screen or the numbers are not sane.
+ */
+export function cropRect(
+  rect: { x: number; y: number; width: number; height: number },
+  zoomFactor: number,
+  image: { width: number; height: number },
+): Electron.Rectangle | null {
+  const values = [rect.x, rect.y, rect.width, rect.height]
+  if (!values.every((value) => Number.isFinite(value)) || rect.width < 0 || rect.height < 0) return null
+  const zoom = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1
+  const pad = BROWSER_PICK_CROP_PADDING
+  const left = Math.max(0, Math.floor((rect.x - pad) * zoom))
+  const top = Math.max(0, Math.floor((rect.y - pad) * zoom))
+  const right = Math.min(image.width, Math.ceil((rect.x + rect.width + pad) * zoom))
+  const bottom = Math.min(image.height, Math.ceil((rect.y + rect.height + pad) * zoom))
+  if (right - left < 1 || bottom - top < 1) return null
+  return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
 function hostSlug(url: string): string {
@@ -259,6 +295,8 @@ export function guestPreloadUrl(): string | null {
 
 export function createBrowserManager(deps: BrowserManagerDeps) {
   const tabs = new Map<string, BrowserTab>()
+  const activeTabByWorkspace = new Map<string, string>()
+  const unregisterListeners = new Set<(tabId: string) => void>()
   let browserSession: Session | null = null
 
   function ensureSession(): Session {
@@ -347,7 +385,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       if (!isLoadableBrowserUrl(url)) event.preventDefault()
     })
     on('devtools-opened', () => {
-      // DevTools takes the debugger slot; let go of ours and say so.
+      // DevTools takes the debugger slot; let go of ours and say so. This is
+      // the one place the session is detached: the agent control layer hears
+      // the `detach` event, marks its session gone, and re-attaches on its
+      // next command (refusing while DevTools is open).
       if (wc.debugger.isAttached()) wc.debugger.detach()
       patch(tab, { devToolsOpen: true })
     })
@@ -391,6 +432,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       shift: boolean
     }) => {
       if (input.type !== 'keyDown') return
+      tab.epoch += 1
       const primary = process.platform === 'darwin' ? input.meta : input.control
       if (!primary) return
       const key = input.key.toLowerCase()
@@ -437,6 +479,9 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
               nodeIntegration: false,
               sandbox: true,
               partition: BROWSER_PARTITION,
+              // A webview embedder's popups inherit its last webPreferences,
+              // picker preload included; only the pane's guest runs the picker.
+              preload: undefined,
             },
           },
         }
@@ -511,8 +556,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           zoomFactor: 1,
           colorScheme: 'system',
           devToolsOpen: wc.isDevToolsOpened(),
+          agentActive: false,
         },
         dispose: () => {},
+        epoch: 0,
+        agentActiveTimer: null,
       }
       tab.dispose = attach(tab)
       // Guests inherit the embedder's zoom; a tab is its own document.
@@ -524,12 +572,65 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     unregister(tabId: string): void {
       const tab = tabs.get(tabId)
       if (!tab) return
+      if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
       tab.dispose()
       tabs.delete(tabId)
+      if (activeTabByWorkspace.get(tab.workspaceId) === tabId) activeTabByWorkspace.delete(tab.workspaceId)
+      for (const listener of unregisterListeners) listener(tabId)
+    },
+
+    /** Called with a tab id after it is unregistered (the control layer drops its session). */
+    onUnregister(listener: (tabId: string) => void): () => void {
+      unregisterListeners.add(listener)
+      return () => unregisterListeners.delete(listener)
     },
 
     state(tabId: string): BrowserTabState | null {
       return requireTab(tabId)?.state ?? null
+    },
+
+    /**
+     * The tab the person is looking at in a workspace's pane, as the renderer
+     * reports it; what a `browser.*` tool acts on when the agent names none.
+     */
+    noteActive(workspaceId: string, tabId: string | null): void {
+      if (tabId) activeTabByWorkspace.set(workspaceId, tabId)
+      else activeTabByWorkspace.delete(workspaceId)
+    },
+
+    activeTab(workspaceId: string): BrowserTab | null {
+      const preferred = activeTabByWorkspace.get(workspaceId)
+      const tab = preferred ? requireTab(preferred) : null
+      if (tab && tab.workspaceId === workspaceId) return tab
+      return [...tabs.values()].find((candidate) => candidate.workspaceId === workspaceId && !candidate.wc.isDestroyed()) ?? null
+    },
+
+    /** Ask the windows hosting a workspace to open (or navigate) a browser tab. */
+    requestOpen(workspaceId: string, url: string | null): void {
+      deps.broadcast('browser:open-request', { workspaceId, url })
+    },
+
+    /** Ask the renderer to change a tab's device viewport (renderer-owned state). */
+    requestViewport(tabId: string, viewport: BrowserViewport): void {
+      const tab = requireTab(tabId)
+      if (!tab || tab.host.isDestroyed()) return
+      tab.host.send('browser:viewport-request', { tabId, viewport })
+    },
+
+    /** Marks a tab as agent-driven for a moment; the toolbar shows the badge. */
+    noteAgentActivity(tabId: string): void {
+      const tab = requireTab(tabId)
+      if (!tab) return
+      if (!tab.state.agentActive) patch(tab, { agentActive: true })
+      if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
+      tab.agentActiveTimer = setTimeout(() => {
+        tab.agentActiveTimer = null
+        if (tabs.get(tabId) === tab && !tab.wc.isDestroyed()) patch(tab, { agentActive: false })
+      }, AGENT_BADGE_LINGER_MS)
+    },
+
+    epochOf(tabId: string): number {
+      return requireTab(tabId)?.epoch ?? -1
     },
 
     /** Tabs a workspace owns, for the agent tools (browser-tools child). */
@@ -539,6 +640,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         .map((tab) => tab.state)
     },
 
+    /** The window WebContents hosting a tab, for sender checks in IPC. */
+    hostOf(tabId: string): WebContents | null {
+      const tab = requireTab(tabId)
+      return tab && !tab.host.isDestroyed() ? tab.host : null
+    },
+
     webContentsOf(tabId: string): WebContents | null {
       return requireTab(tabId)?.wc ?? null
     },
@@ -546,6 +653,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     navigate(tabId: string, url: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !isLoadableBrowserUrl(url)) return false
+      tab.epoch += 1
       patch(tab, { error: null, loading: true, url })
       void tab.wc.loadURL(url).catch((error: unknown) => {
         // did-fail-load reports most failures with their code; a load the
@@ -567,26 +675,26 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     async captureScreenshot(input: BrowserCaptureInput): Promise<BrowserScreenshotResult> {
       const tab = requireTab(input.tabId)
       if (!tab) return { ok: false, message: 'This browser tab is gone.' }
-      if (!isAbsolute(input.workspaceRoot) || !existsSync(input.workspaceRoot)) {
+      // The folder comes from main's own registry, keyed by the tab's
+      // workspace — never from the renderer, which could name any directory.
+      const workspaceRoot = deps.resolveWorkspaceRoot(tab.workspaceId)
+      if (!workspaceRoot || !isAbsolute(workspaceRoot) || !existsSync(workspaceRoot)) {
         return { ok: false, message: 'The workspace folder is not available.' }
       }
-      let rect: Electron.Rectangle | undefined
-      if (input.rect) {
-        const pad = BROWSER_PICK_CROP_PADDING
-        const x = Math.max(0, Math.floor(input.rect.x - pad))
-        const y = Math.max(0, Math.floor(input.rect.y - pad))
-        rect = {
-          x,
-          y,
-          width: Math.max(1, Math.ceil(input.rect.width + pad * 2)),
-          height: Math.max(1, Math.ceil(input.rect.height + pad * 2)),
-        }
-      }
       try {
-        const image = await capturePage(tab.wc, rect)
+        const full = await capturePage(tab.wc)
+        const fullSize = full.getSize()
+        if (fullSize.width === 0 || fullSize.height === 0) return { ok: false, message: 'The page had nothing to capture.' }
+        let image = full
+        if (input.rect) {
+          // The guest reports CSS px; the capture is in the view's DIP, which
+          // differ by the zoom factor. Pad, then clamp to what was captured.
+          const crop = cropRect(input.rect, tab.wc.getZoomFactor(), fullSize)
+          if (!crop) return { ok: false, message: 'The element is outside the visible page.' }
+          image = full.crop(crop)
+        }
         const size = image.getSize()
-        if (size.width === 0 || size.height === 0) return { ok: false, message: 'The page had nothing to capture.' }
-        const directory = resolve(input.workspaceRoot, '.multi-code', 'browser')
+        const directory = resolve(workspaceRoot, '.multi-code', 'browser')
         await mkdir(directory, { recursive: true })
         // The folder ignores itself, so a project that does not list it in
         // its own .gitignore still never sees screenshots in `git status`.
@@ -615,6 +723,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     back(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !tab.wc.navigationHistory.canGoBack()) return false
+      tab.epoch += 1
       tab.wc.navigationHistory.goBack()
       return true
     },
@@ -622,6 +731,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     forward(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !tab.wc.navigationHistory.canGoForward()) return false
+      tab.epoch += 1
       tab.wc.navigationHistory.goForward()
       return true
     },
@@ -629,6 +739,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     reload(tabId: string, ignoreCache = false): boolean {
       const tab = requireTab(tabId)
       if (!tab) return false
+      tab.epoch += 1
       patch(tab, { error: null })
       if (ignoreCache) tab.wc.reloadIgnoringCache()
       else tab.wc.reload()
@@ -638,6 +749,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     stop(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab) return false
+      tab.epoch += 1
       tab.wc.stop()
       patch(tab, { loading: false })
       return true
@@ -791,8 +903,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
 
     /** For tests and shutdown. */
     disposeAll(): void {
-      for (const tab of tabs.values()) tab.dispose()
+      for (const tab of tabs.values()) {
+        if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
+        tab.dispose()
+      }
       tabs.clear()
+      activeTabByWorkspace.clear()
     },
   }
 }

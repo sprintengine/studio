@@ -5,15 +5,19 @@ import { useWorkspaceStore } from '../../../../store/workspaceStore'
 // A link click must not mint a tab per click. Returns false when the pane
 // could not take it (no such workspace, tab cap reached) so the caller can
 // fall back to the system browser.
-export function openUrlInPane(workspaceId: string, rawUrl: string): boolean {
+export function openUrlInPane(workspaceId: string, rawUrl: string, options: { forceNewTab?: boolean } = {}): boolean {
   const url = rewriteUnroutableHost(rawUrl)
   const store = useWorkspaceStore.getState()
   const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
   const browserTabs = pane?.tabs.filter((tab) => tab.kind === 'browser') ?? []
-  const target = browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0]
+  const target = options.forceNewTab ? undefined : browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0]
   if (target) {
     store.setActivePaneTab(workspaceId, target.id)
-    void window.api.browserNavigate(target.id, url)
+    // A tab whose guest has not registered yet refuses the navigation; the
+    // URL then goes to a fresh tab rather than being dropped.
+    void window.api.browserNavigate(target.id, url).then((ok) => {
+      if (!ok) useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'browser', url })
+    })
     return true
   }
   return store.openPaneTab(workspaceId, { kind: 'browser', url }) !== null

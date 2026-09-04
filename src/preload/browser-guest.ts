@@ -65,6 +65,9 @@ function selectorFor(element: Element): string {
   return parts.join(' > ')
 }
 
+// `_debugSource` is React 16–18's dev-only source location. React 19 removed
+// it (the info moved to the component stack), so `source` is null on a React
+// 19 dev server — expected, not a bug to chase.
 type Fiber = {
   type?: unknown
   return?: Fiber | null

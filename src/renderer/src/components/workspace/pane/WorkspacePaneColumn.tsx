@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { FuturePlanWorkspaceSource, WorkspaceId } from '../../../types/workspace'
 import { WorkspaceAsideColumn } from '../workspaceAsideColumn'
 import WorkspacePane from './WorkspacePane'
+import { openUrlInPane } from './browser/openInPane'
 import { OFFSCREEN_LAYER_STYLE } from './WorkspacePaneBody'
 
 // The pane column (browser-pane epic): the full-height column on the shell
@@ -40,6 +41,27 @@ export function WorkspacePaneColumn({
       .join('\n'),
   )
   const ids = mountedIds ? mountedIds.split('\n') : []
+
+  // browser.open from an agent when the workspace has no browser tab (or asked
+  // for a new one): the window showing that workspace opens it and shows the
+  // pane, so the person sees what the agent is about to do. A workspace open in
+  // two windows would open a tab in each; one workspace per window is the
+  // shape the app has.
+  const renderedKey = renderedWorkspaceIds.join('\n')
+  useEffect(
+    () =>
+      window.api.onBrowserOpenRequest(({ workspaceId, url }) => {
+        if (!renderedKey.split('\n').includes(workspaceId)) return
+        const store = useWorkspaceStore.getState()
+        if (url) {
+          if (!openUrlInPane(workspaceId, url, { forceNewTab: true })) return
+        } else if (!store.workspaces.find((w) => w.id === workspaceId)?.paneState?.tabs.some((tab) => tab.kind === 'browser')) {
+          store.openPaneTab(workspaceId, { kind: 'browser' })
+        }
+        store.setPaneOpen(workspaceId, true)
+      }),
+    [renderedKey],
+  )
 
   return (
     <WorkspaceAsideColumn

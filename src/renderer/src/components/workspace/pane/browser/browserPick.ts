@@ -1,4 +1,4 @@
-import type { BrowserPickTheme, BrowserPickedElement } from '../../../../../../shared/browser'
+import { BROWSER_MAX_OUTER_HTML, type BrowserPickTheme, type BrowserPickedElement } from '../../../../../../shared/browser'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { focusedAgentTabInLayout } from '../../../../utils/modelRegistry'
 import { bracketedPaste } from '../../../../utils/terminalDrop'
@@ -33,6 +33,67 @@ function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/\n/g, ' ')
 }
 
+// The page controls what the guest preload reports (context isolation is off
+// for the picker), so the payload is untrusted: every field is re-typed and
+// re-capped here before it reaches an agent's prompt or the clipboard.
+const MAX_TEXT = 200
+const MAX_SELECTOR = 1000
+const MAX_URL = 2048
+const MAX_TITLE = 300
+const MAX_STYLE_VALUE = 200
+const MAX_STYLES = 40
+const MAX_COMPONENTS = 3
+const MAX_COMPONENT_NAME = 80
+
+function cappedString(value: unknown, max: number): string | null {
+  return typeof value === 'string' ? value.slice(0, max) : null
+}
+
+function finiteRect(value: unknown): BrowserPickedElement['rect'] | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const numbers = [raw.x, raw.y, raw.width, raw.height]
+  if (!numbers.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e7)) return null
+  return { x: raw.x as number, y: raw.y as number, width: raw.width as number, height: raw.height as number }
+}
+
+export function normalizePickedElement(input: unknown): BrowserPickedElement | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Record<string, unknown>
+  const url = cappedString(raw.url, MAX_URL)
+  const selector = cappedString(raw.selector, MAX_SELECTOR)
+  const tagName = cappedString(raw.tagName, 40)
+  const rect = finiteRect(raw.rect)
+  if (url === null || selector === null || tagName === null || rect === null) return null
+  const viewportRaw = raw.viewport as Record<string, unknown> | undefined
+  const viewport =
+    viewportRaw && typeof viewportRaw.width === 'number' && typeof viewportRaw.height === 'number' && Number.isFinite(viewportRaw.width) && Number.isFinite(viewportRaw.height)
+      ? { width: viewportRaw.width, height: viewportRaw.height }
+      : { width: 0, height: 0 }
+  const styles: Record<string, string> = {}
+  if (raw.styles && typeof raw.styles === 'object') {
+    for (const [key, value] of Object.entries(raw.styles as Record<string, unknown>).slice(0, MAX_STYLES)) {
+      if (typeof value === 'string' && /^[a-z-]+$/.test(key)) styles[key] = value.slice(0, MAX_STYLE_VALUE)
+    }
+  }
+  const components = Array.isArray(raw.components)
+    ? raw.components.filter((c): c is string => typeof c === 'string').slice(0, MAX_COMPONENTS).map((c) => c.slice(0, MAX_COMPONENT_NAME))
+    : []
+  return {
+    url,
+    title: cappedString(raw.title, MAX_TITLE) ?? '',
+    selector,
+    tagName,
+    text: cappedString(raw.text, MAX_TEXT) ?? '',
+    outerHtml: cappedString(raw.outerHtml, BROWSER_MAX_OUTER_HTML) ?? '',
+    rect,
+    viewport,
+    styles,
+    components,
+    source: cappedString(raw.source, 500),
+  }
+}
+
 export type SendToAgentResult = { ok: true } | { ok: false; reason: 'no_agent' | 'no_session' | 'write_failed' }
 
 /**
@@ -55,7 +116,10 @@ export async function sendTextToFocusedAgent(workspaceId: string, text: string):
     )
     if (!live) return { ok: false, reason: 'no_session' }
     sessionId = live.sessionId
-    await window.api.terminalWrite(sessionId, bracketedPaste(`${text}\n`))
+    // A trailing space, the convention every other prefill follows: the caret
+    // sits after the block, and nothing submits even in a CLI without
+    // bracketed-paste support (a literal newline would).
+    await window.api.terminalWrite(sessionId, bracketedPaste(`${text} `))
     return { ok: true }
   } catch {
     return { ok: false, reason: 'write_failed' }

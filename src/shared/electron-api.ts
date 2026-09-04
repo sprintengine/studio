@@ -18,7 +18,7 @@ import type {
   BrowserTabState,
   LocalServer,
 } from './browser'
-import type { BrowserColorScheme } from './browser-devices'
+import type { BrowserColorScheme, BrowserViewport } from './browser-devices'
 import type {
   FolderOpenRequest,
   FolderOpenResult,
@@ -3003,6 +3003,12 @@ export type ElectronApi = {
   browserCapture: (input: BrowserCaptureInput) => Promise<BrowserScreenshotResult>
   browserCopyScreenshot: (tabId: string) => Promise<BrowserClearResult>
   browserLocalServers: (workspaceId: string) => Promise<LocalServer[]>
+  /** Tell main which tab the person is looking at in a workspace's pane (agent tools target it). */
+  browserNoteActive: (workspaceId: string, tabId: string | null) => Promise<void>
+  /** An agent asked for a URL in this workspace's pane (browser.open); the renderer opens or navigates a tab. */
+  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null }) => void) => () => void
+  /** An agent asked for a device viewport on a tab (browser.resize); the renderer owns viewport state. */
+  onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void) => () => void
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void
   onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void) => () => void

@@ -3182,6 +3182,10 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.plan.add_task'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.task.list'), false)
+  // browser-pane child 6: acting on the page is a mutation, looking at it is not.
+  assert.equal(isStudioGatewayMutation('browser.click'), true)
+  assert.equal(isStudioGatewayMutation('browser.open'), true)
+  assert.equal(isStudioGatewayMutation('browser.snapshot'), false)
 }
 
 // MC-1855: two modules registering the same tool name → the second is rejected

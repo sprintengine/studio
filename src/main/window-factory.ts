@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, shell, type WebContents } from 'electron'
-import { join, resolve } from 'path'
-import { BROWSER_PARTITION, isLoadableBrowserUrl } from '../shared/browser'
+import { join } from 'path'
 import { guestPreloadPath } from './browser/browser-manager'
+import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowMaterial } from './window-material-store'
@@ -144,37 +144,9 @@ export function createMainWindow({
   })
 
   // Every guest this window attaches is the embedded browser and nothing
-  // else: our partition, sandboxed, no Node in any frame. Whatever the
-  // renderer wrote on the tag is overruled here, so a compromised renderer
-  // cannot mint a privileged guest.
+  // else (guest-policy.ts has the rules and their tests).
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    if (params.partition !== BROWSER_PARTITION) {
-      event.preventDefault()
-      return
-    }
-    if (typeof params.src === 'string' && params.src && !isLoadableBrowserUrl(params.src)) {
-      event.preventDefault()
-      return
-    }
-    // The only preload a guest may carry is the element picker we ship; any
-    // other path is dropped. The picker reads the page's React fiber, which
-    // an isolated world cannot see, so context isolation is off exactly when
-    // that preload is present — and the preload is sandboxed either way.
-    const picker = guestPreloadPath()
-    const requested = webPreferences.preload
-    if (picker && requested && resolve(requested) === resolve(picker)) {
-      webPreferences.preload = picker
-      webPreferences.contextIsolation = false
-    } else {
-      delete webPreferences.preload
-      webPreferences.contextIsolation = true
-    }
-    webPreferences.sandbox = true
-    webPreferences.nodeIntegration = false
-    webPreferences.nodeIntegrationInSubFrames = false
-    webPreferences.nodeIntegrationInWorker = false
-    webPreferences.webSecurity = true
-    webPreferences.allowRunningInsecureContent = false
+    if (!applyGuestWebPreferences(webPreferences as GuestWebPreferences, params, guestPreloadPath())) event.preventDefault()
   })
 
   win.on('ready-to-show', () => {
@@ -437,5 +409,13 @@ function normalizeWindowBounds(
     ...next,
     x: Math.min(Math.max(next.x, area.x), area.x + Math.max(0, area.width - next.width)),
     y: Math.min(Math.max(next.y, area.y), area.y + Math.max(0, area.height - next.height)),
+  }
+}
+
+// Push a main→renderer event to every workspace window (the embedded browser's
+// open/viewport requests, which any window hosting the workspace may answer).
+export function broadcastToWorkspaceWindows(channel: string, payload: unknown): void {
+  for (const win of workspaceWindows) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
   }
 }

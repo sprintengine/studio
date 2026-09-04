@@ -135,7 +135,7 @@ function errorCode(error: unknown, result: McpToolResult | undefined): string | 
   }
   if (result?.isError) {
     try {
-      const parsed = JSON.parse(result.content[0]?.text ?? '') as { error?: { code?: unknown } }
+      const parsed = JSON.parse(firstText(result)) as { error?: { code?: unknown } }
       if (typeof parsed.error?.code === 'string') return parsed.error.code.slice(0, 128)
     } catch {
       // Canonical non-JSON error content falls through to the bounded generic code.
@@ -146,10 +146,16 @@ function errorCode(error: unknown, result: McpToolResult | undefined): string | 
 
 function canonicalContent(result: McpToolResult | undefined): unknown {
   try {
-    return JSON.parse(result?.content[0]?.text ?? '')
+    return JSON.parse(firstText(result))
   } catch {
     return undefined
   }
+}
+
+/** The first text block's text; image blocks (browser screenshots) carry no JSON. */
+function firstText(result: McpToolResult | undefined): string {
+  const first = result?.content[0]
+  return first && first.type === 'text' ? first.text : ''
 }
 
 function rotateIfNeeded(path: string, incomingBytes: number, maxBytes: number, backups: number): void {

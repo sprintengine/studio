@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { buildBrowserElementBlock } from './browserPick'
+import { buildBrowserElementBlock, normalizePickedElement } from './browserPick'
 import { rewriteUnroutableHost } from './openInPane'
 
 function run(name: string, body: () => void): void {
@@ -92,3 +92,63 @@ run('0.0.0.0 is rewritten to localhost; other hosts are untouched', () => {
 })
 
 console.log('browserPick tests passed')
+
+// The picked payload is the page's word (context isolation is off for the
+// picker), so the host re-types and re-caps it before anything reads it.
+run('normalizePickedElement drops malformed payloads and caps every field', () => {
+  assert.equal(normalizePickedElement(null), null)
+  assert.equal(normalizePickedElement('string'), null)
+  assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a' }), null) // no rect
+  assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a', rect: { x: Number.NaN, y: 0, width: 1, height: 1 } }), null)
+  assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a', rect: { x: 1e300, y: 0, width: 1, height: 1 } }), null)
+
+  const hostile = normalizePickedElement({
+    url: 'http://localhost:5173/',
+    title: 42,
+    selector: 'button',
+    tagName: 'button',
+    text: 'x'.repeat(10_000),
+    outerHtml: { slice: () => 'not a string' },
+    rect: { x: 1, y: 2, width: 3, height: 4 },
+    viewport: { width: 'wide', height: 100 },
+    styles: { color: 'red', 'font-size': 'y'.repeat(1000), '<script>': 'z', display: 7 },
+    components: ['App', 7, 'Button', 'Extra', 'More'],
+    source: 12,
+  })
+  assert.ok(hostile)
+  assert.equal(hostile.title, '')
+  assert.equal(hostile.text.length, 200)
+  assert.equal(hostile.outerHtml, '')
+  assert.deepEqual(hostile.viewport, { width: 0, height: 0 })
+  assert.deepEqual(Object.keys(hostile.styles), ['color', 'font-size'])
+  assert.equal(hostile.styles['font-size'].length, 200)
+  assert.deepEqual(hostile.components, ['App', 'Button', 'Extra'])
+  assert.equal(hostile.source, null)
+
+  const good = normalizePickedElement({
+    url: 'http://localhost:5173/',
+    title: 'App',
+    selector: '#root > button',
+    tagName: 'button',
+    text: 'Save',
+    outerHtml: '<button>Save</button>',
+    rect: { x: 1, y: 2, width: 3, height: 4 },
+    viewport: { width: 800, height: 600 },
+    styles: { color: 'red' },
+    components: ['Button'],
+    source: 'src/App.tsx:10:4',
+  })
+  assert.deepEqual(good, {
+    url: 'http://localhost:5173/',
+    title: 'App',
+    selector: '#root > button',
+    tagName: 'button',
+    text: 'Save',
+    outerHtml: '<button>Save</button>',
+    rect: { x: 1, y: 2, width: 3, height: 4 },
+    viewport: { width: 800, height: 600 },
+    styles: { color: 'red' },
+    components: ['Button'],
+    source: 'src/App.tsx:10:4',
+  })
+})

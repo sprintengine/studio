@@ -218,7 +218,9 @@ export type SidecarSpec = {
 
 /** A normal MCP tool result; `isError: true` marks a tool-domain failure. */
 export type McpToolResult = {
-  content: Array<{ type: 'text'; text: string }>
+  // Text, or an image part (a browser snapshot, base64 PNG/JPEG) the client
+  // renders inline — the MCP `image` content shape.
+  content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
   structuredContent?: Record<string, unknown>
   isError?: boolean
 }
