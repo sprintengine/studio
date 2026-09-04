@@ -15,6 +15,7 @@ import { CursorErrorPopover, type CursorAnchor } from '../ui/CursorErrorPopover'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
+import { gitBadgeMode, useGitLineCounts } from '../../hooks/useGitLineCounts'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { selectModuleEnabled } from '../../modules'
@@ -306,7 +307,15 @@ export function WorkspaceIdentity({
   const worktree = activeWorkspace ? resolveWorkspaceWorktree(activeWorkspace) : null
   const gitProbePath = worktree?.gitRoot ?? activeWorkspace?.folderPath ?? null
   const gitBranch = useGitBranch(gitProbePath)
-  const { status: gitFileStatus, repoState: gitRepoState } = useGitStatus(gitProbePath)
+  const {
+    status: gitFileStatus,
+    repoState: gitRepoState,
+    repoRoot: gitRepoRoot,
+  } = useGitStatus(gitProbePath)
+  // ±lines for the button's badge. Porcelain status has no line counts, so this
+  // is a second read — the same `getGitRowSummary` the sidebar row uses, keyed
+  // off the status snapshot so it moves when the tree does.
+  const gitLineCounts = useGitLineCounts(gitRepoRoot, gitFileStatus)
   const branchIsRepo = worktree ? true : gitBranch.isRepo
   const branchName = worktree ? worktree.branch ?? null : gitBranch.branch
   // The git change count that used to badge the (now-removed) Git panel switch
@@ -315,7 +324,20 @@ export function WorkspaceIdentity({
   // only once the repo has resolved and has uncommitted changes.
   const gitChangeCount = Object.keys(gitFileStatus?.files ?? {}).length
   const gitHasChanges = gitRepoState === 'ready' && gitChangeCount > 0
+  // Owner, 2026-09-04: the badge counted FILES, which answers a question nobody
+  // asks — four files can be a rename or a rewrite. It shows ±lines now, in the
+  // sidebar row's tone ink, so the two diff sizes in the chrome read alike.
+  // A dirty tree whose every change is untracked has files but no ±lines
+  // (`diff` cannot see untracked content), so the file count stays the
+  // fallback rather than the button going blank on a brand-new file.
+  const gitBadge = gitBadgeMode({ hasChanges: gitHasChanges, ...gitLineCounts })
+  const gitHasLineCounts = gitBadge === 'lines'
   const gitChangeLabel = String(Math.min(gitChangeCount, 999))
+  const gitChangeSpoken = gitHasLineCounts
+    ? `, ${gitLineCounts.additions} added, ${gitLineCounts.deletions} removed`
+    : gitHasChanges
+      ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}`
+      : ''
   // The header identity segments double as panel shortcuts: the folder path
   // toggles the file explorer and the branch toggles the Git panel — same
   // open/close-on-second-click semantics as the Backlog panel switch. Only
@@ -353,6 +375,25 @@ export function WorkspaceIdentity({
   // chip above and the Git view use, so all three name one tree. Distinct from
   // `folderPath` below, which stays the project root because the Files panel is
   // rooted there.
+  // Drawn once for both spellings of this control (the Git-panel button and the
+  // read-only span when the panel module is off), so they can never drift.
+  const gitCountBadge = gitHasLineCounts ? (
+    <span
+      aria-hidden="true"
+      className="ml-0.5 shrink-0 font-mono text-micro font-semibold leading-none tabular-nums"
+    >
+      <span className="text-[color:var(--tone-good)]">+{gitLineCounts.additions}</span>
+      <span className="ml-1 text-[color:var(--tone-error)]">−{gitLineCounts.deletions}</span>
+    </span>
+  ) : gitBadge === 'files' ? (
+    <span
+      aria-hidden="true"
+      className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-semibold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
+    >
+      {gitChangeLabel}
+    </span>
+  ) : null
+
   const openPath = gitProbePath
 
   const folderPath = activeWorkspace.folderPath
@@ -485,35 +526,23 @@ export function WorkspaceIdentity({
             <button
               type="button"
               onClick={toggleGitPanel}
-              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${
-                gitHasChanges ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}` : ''
-              }`}
+              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${gitChangeSpoken}`}
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
-              {gitHasChanges ? (
-                <span
-                  aria-hidden="true"
-                  className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-semibold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
-                >
-                  {gitChangeLabel}
-                </span>
-              ) : null}
+              {gitCountBadge}
             </button>
           </Tooltip>
         ) : (
           <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-meta text-[color:var(--text-muted)] sm:inline-flex">
             <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
-            {gitHasChanges ? (
-              <span
-                title={`${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}`}
-                className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-semibold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
-              >
-                {gitChangeLabel}
-              </span>
-            ) : null}
+            {gitCountBadge}
+            {/* aria-hidden on the badge above: the numbers read visually, and
+                the words ride along here for AT — the same split the sidebar
+                row's diff stat uses. */}
+            {gitChangeSpoken ? <span className="sr-only">{gitChangeSpoken}</span> : null}
           </span>
         )
       ) : null}
