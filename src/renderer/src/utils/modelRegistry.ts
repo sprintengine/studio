@@ -164,8 +164,8 @@ function firstNonRailTabset(model: Model): TabSetNode | null {
 // Resolves the tabset that should host a new content tab (terminal, agent,
 // editor): the active tabset when it is real content, otherwise the first
 // non-rail tabset. Never a strip-less rail pane — docking content there buries
-// it under the open Backlog / Skills panel. Returns null when the only tabsets
-// are rails, so callers dock a fresh column on the right edge.
+// it under the open Backlog panel. Returns null when the only tabsets are
+// rails, so callers dock a fresh column on the right edge.
 function activeContentTabset(model: Model): TabSetNode | null {
   const active = model.getActiveTabset()
   if (active && !isRailTabset(active)) return active
@@ -616,14 +616,6 @@ function addEditorSurfaceNode(
   const terminalHost = firstTerminalLikeTabset(model)
   if (terminalHost) {
     model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, true))
-    return true
-  }
-
-  // Only the right rail is open: dock the document area beside it rather than
-  // stacking (invisibly) into a strip-less rail pane.
-  const rightRail = findRailTabset(model, 'right')
-  if (rightRail) {
-    model.doAction(Actions.addNode(tabJson, rightRail.getId(), DockLocation.LEFT, -1, true))
     return true
   }
 
@@ -1310,34 +1302,28 @@ export function toggleComponentTab(
   return focusOrAddComponentTab(workspaceId, component, name)
 }
 
-export type RailSide = 'left' | 'right'
+// One edge today. The right rail (the Skills aside) was retired by the
+// browser-pane epic: Files, Git and the browser live in the workspace pane
+// column outside this layout model (store `workspace.paneState`). The
+// side-keyed machinery below stays generic so a second edge can come back
+// without a second copy of the width capture/restore pair.
+export type RailSide = 'left'
 
-// Strip-less navigational rail components. Files / Git / Backlog are
-// single-instance navigational surfaces, so they share ONE left-docked pane
-// whose FlexLayout tab strip is hidden and the PanelSwitches buttons act as
-// exclusive switches into it — exactly one shows at a time. Knowledge Graph
-// keeps the same nav-pane semantics but is reached through the command
-// palette / View menu rather than a rail glyph. Sprint Engines is NOT here:
-// it surveys every workspace, so it is the instance-global Sprints door
-// surface, outside any per-workspace layout model. The Editor is
-// deliberately excluded: it owns a document tab strip so multiple open files
-// stay switchable (see toggleEditorRailComponent).
+// Strip-less navigational rail components. Backlog is a single-instance
+// navigational surface docked in ONE left pane whose FlexLayout tab strip is
+// hidden; the PanelSwitches button acts as an exclusive switch into it.
+// Knowledge Graph keeps the same nav-pane semantics but is reached through the
+// command palette / View menu rather than a rail glyph. Files and Git are NOT
+// here any more — they are workspace-pane tabs (browser-pane epic, store v73
+// strips their rail tabs). Sprint Engines is the instance-global Sprints door
+// surface, outside any per-workspace layout model. The Editor is deliberately
+// excluded: it owns a document tab strip so multiple open files stay
+// switchable (see toggleEditorRailComponent).
 export const NAV_RAIL_COMPONENTS = new Set<string>([
-  'explorer',
-  'git',
   'backlog',
   'memory-graph',
 ])
 
-// The right-docked rail. Skills is a SECOND exclusive group rather than a fifth
-// nav component: adding it to NAV_RAIL_COMPONENTS would make opening Skills
-// close Backlog, and the point of docking it opposite is that the item on the
-// left and the agent's capabilities on the right are read together.
-export const RIGHT_RAIL_COMPONENTS = new Set<string>(['skills'])
-
-// One table, two edges. Everything below dispatches on side rather than keeping
-// a second copy of the toggle — the width capture/restore pair in particular is
-// exactly the kind of fix that lands in one copy and not the other.
 const RAILS: Record<RailSide, {
   components: Set<string>
   dock: DockLocation
@@ -1349,12 +1335,6 @@ const RAILS: Record<RailSide, {
   minWidthPx?: number
 }> = {
   left: { components: NAV_RAIL_COMPONENTS, dock: DockLocation.LEFT },
-  right: {
-    components: RIGHT_RAIL_COMPONENTS,
-    dock: DockLocation.RIGHT,
-    defaultWidthPx: 348,
-    minWidthPx: 280,
-  },
 }
 
 const RAIL_SIDES = Object.keys(RAILS) as RailSide[]
@@ -1499,8 +1479,8 @@ export function deleteTabPreservingRails(model: Model, tabId: string): void {
 
 // Drops every tab on THIS rail except the one just selected, anywhere in the
 // model, so the rail stays single-select even when an older layout left a stray
-// tab of its own in another tabset. The other edge is untouched — that is what lets
-// Backlog and Skills stay open together.
+// tab of its own in another tabset. Scoped to one edge so a second rail could
+// stay open beside it.
 function removeRailTabsExcept(model: Model, keepComponent: string, side: RailSide): void {
   const tabIds: string[] = []
   model.visitNodes((node) => {
@@ -1552,31 +1532,19 @@ function revealRailComponent(
   // pane appears at full width with no entrance animation, deliberately:
   // animating a docked pane's width reflows the whole workspace card, terminals
   // included, every frame and reads as lag (the call workspaceAsideColumn.tsx
-  // already made for this same column). Backlog appears instantly; Skills
-  // matching it is the consistent answer.
+  // already made for the pane column).
   const railTabset = findRailTabset(model, side)
   const targetId = railTabset ? railTabset.getId() : model.getRoot().getId()
   const location = railTabset ? DockLocation.CENTER : RAILS[side].dock
-  const previousActiveTabsetId = side === 'right' ? model.getActiveTabset()?.getId() : undefined
-  // The right rail is an aside acting on the content beside it. Opening it must
-  // not replace the active agent with the aside itself before the pane can
-  // capture its target. The left rail remains a navigation destination and
-  // keeps the existing selected behaviour.
   model.doAction(
     Actions.addNode(
       { type: 'tab', name, component },
       targetId,
       location,
       -1,
-      side !== 'right',
+      true,
     ),
   )
-  if (previousActiveTabsetId) {
-    // FlexLayout clears the old `active` flag while docking a new root sibling,
-    // even when the new tab was added unselected. Restore the content target
-    // explicitly so a freshly mounted aside never guesses from layout order.
-    model.doAction(Actions.setActiveTabset(previousActiveTabsetId))
-  }
 
   // Enforce single-select on this edge, then hide the strip on whichever tabset
   // now holds the lone switch.
@@ -1590,10 +1558,9 @@ function revealRailComponent(
 }
 
 // The non-toggling entry point shared by the command palette and menu reveals.
-// Kept under its original name — a dozen call sites name it — but the edge is
-// derived from the component, so revealing 'skills' docks right without closing
-// Backlog on the left. A component that belongs to no rail is refused rather
-// than guessed into the left pane.
+// Kept under its original name — a dozen call sites name it — with the edge
+// derived from the component. A component that belongs to no rail is refused
+// rather than guessed into the left pane.
 export function revealNavRailComponent(
   workspaceId: string,
   component: string,

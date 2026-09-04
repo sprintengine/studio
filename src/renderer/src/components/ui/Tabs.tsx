@@ -10,6 +10,10 @@ export type TabItem<T extends string = string> = {
    *  function that receives a className. */
   icon?: React.ReactNode | ((props: { className?: string }) => React.ReactNode)
   disabled?: boolean
+  /** Accessible name of the tab's close affordance ("Close Files"). Rendered
+   *  only when the strip also has `onCloseItem`; a tab without one cannot be
+   *  closed from the strip. */
+  closeLabel?: string
 }
 
 type TabsProps<T extends string = string> = {
@@ -24,6 +28,15 @@ type TabsProps<T extends string = string> = {
   /** Omit the built-in bottom hairline so a parent container can own the row
    *  border (needed when the tab row hosts trailing inline controls). */
   borderless?: boolean
+  /** Closable strips (the workspace pane): a close glyph revealed on hover and
+   *  focus sits in each closable tab's trailing padding. It is a sibling of the
+   *  tab button, not a child — a button inside a button is invalid — and stays
+   *  out of the tab order, so the strip remains one tab stop; keyboard closing
+   *  is the host's shortcut. */
+  onCloseItem?: (id: T) => void
+  /** Middle-click and the like on a tab. */
+  onItemAuxClick?: (id: T, event: React.MouseEvent<HTMLButtonElement>) => void
+  onItemContextMenu?: (id: T, event: React.MouseEvent<HTMLButtonElement>) => void
 }
 
 export function Tabs<T extends string = string>({
@@ -34,6 +47,9 @@ export function Tabs<T extends string = string>({
   idPrefix,
   className,
   borderless,
+  onCloseItem,
+  onItemAuxClick,
+  onItemContextMenu,
 }: TabsProps<T>) {
   const fallbackPrefix = useId()
   const prefix = idPrefix ?? fallbackPrefix
@@ -124,9 +140,10 @@ export function Tabs<T extends string = string>({
           typeof item.icon === 'function'
             ? item.icon({ className: 'size-icon-xs shrink-0' })
             : item.icon
-        return (
+        const closable = Boolean(onCloseItem && item.closeLabel)
+        const tab = (
           <button
-            key={item.id}
+            key={closable ? undefined : item.id}
             id={tabId}
             role="tab"
             type="button"
@@ -138,12 +155,17 @@ export function Tabs<T extends string = string>({
             onClick={() => {
               if (!item.disabled) onChange(item.id)
             }}
+            onAuxClick={onItemAuxClick ? (event) => onItemAuxClick(item.id, event) : undefined}
+            onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(item.id, event) : undefined}
             className={[
               // `shrink-0 whitespace-nowrap`: a tab row in a narrow panel scrolls
               // inside its own overflow container rather than compressing its
               // labels — a flex child otherwise shrinks to fit its parent.
               'relative -mb-px inline-flex h-control-sm shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-meta',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              // The close glyph sits in this reserved trailing padding, so
+              // revealing it never reflows the label.
+              closable ? 'pr-8' : '',
               selected
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]',
@@ -165,6 +187,31 @@ export function Tabs<T extends string = string>({
               ].join(' ')}
             />
           </button>
+        )
+        if (!closable) return tab
+        return (
+          <span key={item.id} className="group/tab relative inline-flex shrink-0">
+            {tab}
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={item.closeLabel}
+              onClick={(event) => {
+                event.stopPropagation()
+                onCloseItem?.(item.id)
+              }}
+              className={[
+                'absolute right-2 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-sm',
+                'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+                selected ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100',
+                FOCUS_RING_CLASS,
+              ].join(' ')}
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="size-3" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </span>
         )
       })}
     </div>

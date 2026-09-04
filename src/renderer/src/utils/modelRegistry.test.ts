@@ -22,7 +22,6 @@ import {
   togglePanelRailComponent,
   revealNavRailComponent,
   NAV_RAIL_COMPONENTS,
-  RIGHT_RAIL_COMPONENTS,
 } from './modelRegistry'
 
 const WS = 'modelregistry-test-ws'
@@ -121,7 +120,7 @@ function tabNames(model: Model): string[] {
 }
 
 function navTabsets(model: Model): TabsetJson[] {
-  const nav = new Set(['explorer', 'git', 'backlog', 'memory-graph'])
+  const nav = new Set(['backlog', 'memory-graph'])
   return tabsets(model).filter((tabset) => componentsOf(tabset).some((c) => nav.has(c)))
 }
 
@@ -129,10 +128,10 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  togglePanelRailComponent(WS, 'git', 'Git')
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['git'])
+  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
   assert.equal(nav[0].enableTabStrip, false)
   unregisterModel(WS)
 }
@@ -142,11 +141,11 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  togglePanelRailComponent(WS, 'git', 'Git')
-  togglePanelRailComponent(WS, 'explorer', 'Files')
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  togglePanelRailComponent(WS, 'backlog', 'Backlog')
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['explorer'])
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
   assert.equal(nav[0].enableTabStrip, false)
   unregisterModel(WS)
 }
@@ -180,7 +179,7 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  togglePanelRailComponent(WS, 'git', 'Git')
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   togglePanelRailComponent(WS, 'backlog', 'Backlog')
   let nav = navTabsets(model)
   assert.equal(nav.length, 1)
@@ -342,9 +341,9 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  revealNavRailComponent(WS, 'explorer', 'Files')
+  revealNavRailComponent(WS, 'backlog', 'Backlog')
   assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['explorer'], ['file-editor'], ['agent']])
+  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['file-editor'], ['agent']])
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
   assert.equal(nav[0].enableTabStrip, false)
@@ -356,15 +355,15 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  revealNavRailComponent(WS, 'git', 'Git')
-  revealNavRailComponent(WS, 'git', 'Git')
-  assert.equal(allComponents(model).filter((c) => c === 'git').length, 1)
+  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  assert.equal(allComponents(model).filter((c) => c === 'memory-graph').length, 1)
   assert.equal(navTabsets(model).length, 1)
   // Revealing a different switch swaps it in (still single-select).
-  revealNavRailComponent(WS, 'explorer', 'Files')
+  revealNavRailComponent(WS, 'backlog', 'Backlog')
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['explorer'])
+  assert.deepEqual(componentsOf(nav[0]), ['backlog'])
   unregisterModel(WS)
 }
 
@@ -459,13 +458,13 @@ function navTabsets(model: Model): TabsetJson[] {
   const model = freshModel()
   registerModel(WS, model)
   // Opening Git selects the nav pane, making it the active tabset.
-  revealNavRailComponent(WS, 'git', 'Git')
+  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(addTerminalTab(WS, 'term-2', 'Terminal'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['git'], ['agent', 'terminal']])
+  assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['agent', 'terminal']])
   // The git nav pane was not used as the spawn target.
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
-  assert.deepEqual(componentsOf(nav[0]), ['git'])
+  assert.deepEqual(componentsOf(nav[0]), ['memory-graph'])
   unregisterModel(WS)
 }
 
@@ -484,7 +483,7 @@ function navRailDevModel(): Model {
           type: 'tabset',
           weight: 18,
           enableTabStrip: false,
-          children: [{ type: 'tab', id: 'nav-git', name: 'Git', component: 'git' }],
+          children: [{ type: 'tab', id: 'nav-memory-graph', name: 'Knowledge Graph', component: 'memory-graph' }],
         },
         { type: 'tabset', weight: 52, children: [{ type: 'tab', id: 'ed', name: 'Editor', component: 'editor' }] },
         {
@@ -501,7 +500,7 @@ function navRailDevModel(): Model {
 // Headless models never run the view layout pass, so seed the rects the capture
 // reads: root row 1000px wide, nav rail 180px ⇒ an 18% share.
 function seedNavRailRects(model: Model): void {
-  const navTab = model.getNodeById('nav-git')
+  const navTab = model.getNodeById('nav-memory-graph')
   const navTabset = navTab?.getParent()
   const rootRow = navTabset?.getParent()
   assert.ok(navTabset && rootRow, 'expected nav tabset under the root row')
@@ -541,7 +540,7 @@ function tabsetWeight(model: Model, component: string): number {
 {
   const model = navRailDevModel()
   model.doAction(Actions.deleteTab('agent-x'))
-  const navW = tabsetWeight(model, 'git')
+  const navW = tabsetWeight(model, 'memory-graph')
   const edW = tabsetWeight(model, 'editor')
   const fraction = navW / (navW + edW)
   assert.ok(Math.abs(fraction - 18 / 70) < 0.01, `expected the bug's ~0.257, got ${fraction}`)
@@ -556,7 +555,7 @@ function tabsetWeight(model: Model, component: string): number {
   assert.ok(fraction != null)
   model.doAction(Actions.deleteTab('agent-x'))
   restoreRailWidthFraction(model, fraction!, 'left')
-  const navW = tabsetWeight(model, 'git')
+  const navW = tabsetWeight(model, 'memory-graph')
   const edW = tabsetWeight(model, 'editor')
   const preserved = navW / (navW + edW)
   assert.ok(Math.abs(preserved - 0.18) < 0.005, `expected the rail pinned at 0.18, got ${preserved}`)
@@ -570,220 +569,9 @@ function tabsetWeight(model: Model, component: string): number {
   const model = navRailDevModel()
   model.doAction(Actions.deleteTab('agent-x'))
   model.doAction(Actions.deleteTab('ed'))
-  const before = tabsetWeight(model, 'git')
+  const before = tabsetWeight(model, 'memory-graph')
   restoreRailWidthFraction(model, 0.18, 'left')
-  assert.equal(tabsetWeight(model, 'git'), before, 'rail weight unchanged with no siblings')
-}
-
-// --- The right rail: a second exclusive group, not a fifth nav component ---
-
-function skillsTabsets(model: Model): TabsetJson[] {
-  return tabsets(model).filter((tabset) => componentsOf(tabset).includes('skills'))
-}
-
-// Skills is its own rail, so it is NOT in the left set — that is what keeps
-// opening it from closing Backlog.
-{
-  assert.equal(NAV_RAIL_COMPONENTS.has('skills'), false)
-  assert.deepEqual([...RIGHT_RAIL_COMPONENTS], ['skills'])
-}
-
-// First Skills toggle docks a strip-less pane on the RIGHT of the root row,
-// past the terminals.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  const skills = skillsTabsets(model)
-  assert.equal(skills.length, 1)
-  assert.deepEqual(componentsOf(skills[0]), ['skills'])
-  assert.equal(skills[0].enableTabStrip, false)
-  // Rightmost sibling in the row, with the agent tabset still to its left.
-  assert.deepEqual(tabsets(model).map(componentsOf), [['agent'], ['skills']])
-  unregisterModel(WS)
-}
-
-// The pairing the whole design exists for: Backlog left and Skills right stay
-// open together, with the terminal tabset between them. Neither closes the
-// other, in either open order.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  togglePanelRailComponent(WS, 'backlog', 'Backlog')
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.deepEqual(tabsets(model).map(componentsOf), [['backlog'], ['agent'], ['skills']])
-  // Swapping the left switch to Files leaves Skills untouched.
-  togglePanelRailComponent(WS, 'explorer', 'Files')
-  assert.deepEqual(tabsets(model).map(componentsOf), [['explorer'], ['agent'], ['skills']])
-  // Closing Skills leaves the left rail alone, and vice versa.
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.deepEqual(tabsets(model).map(componentsOf), [['explorer'], ['agent']])
-  unregisterModel(WS)
-}
-
-// Opening the right aside preserves the active agent tabset. If it selected
-// itself here, the pane would mount with no remembered target and fall back to
-// the first agent in document order.
-{
-  const model = Model.fromJson({
-    global: {},
-    borders: [],
-    layout: {
-      type: 'row',
-      children: [
-        {
-          type: 'tabset',
-          selected: 0,
-          children: [
-            { type: 'tab', component: 'agent', name: 'First', config: { agentId: 'a-first' } },
-          ],
-        },
-        {
-          type: 'tabset',
-          active: true,
-          selected: 0,
-          children: [
-            {
-              type: 'tab',
-              component: 'agent',
-              name: 'Current',
-              config: { agentId: 'a-current', sessionId: 's-current' },
-            },
-          ],
-        },
-      ],
-    },
-  })
-  registerModel(WS, model)
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.deepEqual(
-    focusedAgentTabInLayout(model.toJson()),
-    { agentId: 'a-current', sessionId: 's-current' },
-    'opening Skills must not retarget from the current agent to the first agent',
-  )
-  unregisterModel(WS)
-}
-
-// Re-toggling Skills collapses its pane; revealing it again re-docks right.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.equal(skillsTabsets(model).length, 0)
-  revealNavRailComponent(WS, 'skills', 'Skills and MCPs')
-  revealNavRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.equal(allComponents(model).filter((c) => c === 'skills').length, 1)
-  unregisterModel(WS)
-}
-
-// New terminals never dock into the Skills pane — it is a rail, like the nav
-// pane on the other edge.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  // Revealing Skills keeps the content tabset active; it is an aside acting on
-  // that content, not a new send target.
-  revealNavRailComponent(WS, 'skills', 'Skills and MCPs')
-  assert.equal(addTerminalTab(WS, 'term-2', 'Terminal'), true)
-  assert.deepEqual(tabsets(model).map(componentsOf), [['agent', 'terminal'], ['skills']])
-  unregisterModel(WS)
-}
-
-// The freshly docked right rail is pinned to its ~348px default rather than
-// flexlayout's default weight of 100, which would take half the row.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  model.getRoot().setRect(new Rect(0, 0, 1200, 800))
-  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
-  const skillsW = tabsetWeight(model, 'skills')
-  const agentW = tabsetWeight(model, 'agent')
-  const share = skillsW / (skillsW + agentW)
-  assert.ok(Math.abs(share - 348 / 1200) < 0.005, `expected a 348/1200 share, got ${share}`)
-  assert.equal(skillsTabsets(model)[0].minWidth, 280)
-  unregisterModel(WS)
-}
-
-// --- Both rails survive a sibling close, from the same capture/restore pair ---
-
-// Backlog left · editor · agent · Skills right, all siblings in the root row.
-// The editor is what should absorb a closed agent's space.
-function bothRailsModel(): Model {
-  const json: IJsonModel = {
-    global: { tabSetEnableDrop: true, tabEnableClose: true },
-    borders: [],
-    layout: {
-      type: 'row',
-      children: [
-        {
-          type: 'tabset',
-          weight: 18,
-          enableTabStrip: false,
-          children: [{ type: 'tab', id: 'nav-backlog', name: 'Backlog', component: 'backlog' }],
-        },
-        { type: 'tabset', weight: 22, children: [{ type: 'tab', id: 'ed', name: 'Editor', component: 'editor' }] },
-        {
-          type: 'tabset',
-          weight: 30,
-          children: [{ type: 'tab', id: 'agent-x', name: 'Agent', component: 'agent', config: { agentId: 'x' } }],
-        },
-        {
-          type: 'tabset',
-          weight: 30,
-          enableTabStrip: false,
-          children: [{ type: 'tab', id: 'aside-skills', name: 'Skills and MCPs', component: 'skills' }],
-        },
-      ],
-    },
-  }
-  const model = Model.fromJson(json)
-  // Headless models never run the view layout pass, so seed the rects the
-  // capture reads: root row 1000px, Backlog 180px (18%), Skills 300px (30%).
-  const backlogTabset = model.getNodeById('nav-backlog')?.getParent()
-  const skillsTabset = model.getNodeById('aside-skills')?.getParent()
-  const rootRow = backlogTabset?.getParent()
-  assert.ok(backlogTabset && skillsTabset && rootRow, 'expected both rails under the root row')
-  rootRow!.setRect(new Rect(0, 0, 1000, 800))
-  backlogTabset!.setRect(new Rect(0, 0, 180, 800))
-  skillsTabset!.setRect(new Rect(700, 0, 300, 800))
-  return model
-}
-
-// Regression the width fix exists for, now on the right edge too: closing the
-// agent WITHOUT re-pinning lets flexlayout spread its weight into both rails —
-// Skills grows from 30% of the row to ~43%.
-{
-  const model = bothRailsModel()
-  model.doAction(Actions.deleteTab('agent-x'))
-  const total = ['backlog', 'editor', 'skills'].reduce((sum, c) => sum + tabsetWeight(model, c), 0)
-  assert.ok(
-    tabsetWeight(model, 'skills') / total > 0.4,
-    `expected the bug's ~0.43 right-rail share, got ${tabsetWeight(model, 'skills') / total}`
-  )
-  assert.ok(
-    tabsetWeight(model, 'backlog') / total > 0.24,
-    'the left rail grows the same way'
-  )
-}
-
-// Fix: ONE capture/restore pair pins BOTH rails — there is no second copy of
-// this logic for the right edge — and the freed space flows to the editor.
-{
-  const model = bothRailsModel()
-  const fractions = captureRailWidthFractions(model)
-  assert.ok(fractions != null)
-  assert.ok(Math.abs(fractions!.left! - 0.18) < 0.001, `left ${fractions!.left}`)
-  assert.ok(Math.abs(fractions!.right! - 0.30) < 0.001, `right ${fractions!.right}`)
-  model.doAction(Actions.deleteTab('agent-x'))
-  restoreRailWidthFractions(model, fractions!)
-  const total = ['backlog', 'editor', 'skills'].reduce((sum, c) => sum + tabsetWeight(model, c), 0)
-  const leftShare = tabsetWeight(model, 'backlog') / total
-  const rightShare = tabsetWeight(model, 'skills') / total
-  assert.ok(Math.abs(leftShare - 0.18) < 0.005, `expected the left rail pinned at 0.18, got ${leftShare}`)
-  assert.ok(Math.abs(rightShare - 0.30) < 0.005, `expected the right rail pinned at 0.30, got ${rightShare}`)
-  // The editor absorbed the closed agent's space (was 22%, now ~52%).
-  assert.ok(tabsetWeight(model, 'editor') / total > 0.5, 'editor should absorb the freed space')
+  assert.equal(tabsetWeight(model, 'memory-graph'), before, 'rail weight unchanged with no siblings')
 }
 
 // flashAgentTab re-applies the green spawn-flash classes to an agent tab that
@@ -851,7 +639,7 @@ function bothRailsModel(): Model {
 }
 
 // --- focusedAgentTabInLayout ------------------------------------------------
-// The Skills pane asks "which agent am I describing?" of the persisted layout,
+// An aside (the workspace pane) asks "which agent am I describing?" of the persisted layout,
 // because that JSON is rewritten on every layout mutation and the live Model has
 // no listener API.
 {

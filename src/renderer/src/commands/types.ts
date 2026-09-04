@@ -49,8 +49,9 @@ export type CommandAvailability =
   // Engines aside (the global run survey docked right of the workspace card)
   // can be toggled.
   | 'sprintEngineEnabled'
-  // The Git panel is mounted in the active workspace, so its panel-command
-  // handlers (refresh/fetch/commit) can receive and act on a dispatch.
+  // The Git tab is showing in the active workspace's pane, so its
+  // panel-command handlers (refresh/fetch/commit) can receive and act on a
+  // dispatch.
   | 'gitPanelActive'
   // The active workspace has at least one live terminal session to focus/stop.
   | 'terminalActive'

@@ -434,8 +434,8 @@ const carrier = {
   activeModalSurface: null as string | null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
-  workspaceAsideOpen: false,
-  workspaceAsideWidth: 296,
+  workspacePaneWidth: 420,
+  workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
@@ -519,22 +519,23 @@ assert.equal(carrier.activeGlobalSurface, 'roadmap', 'openRoadmapSurface routes 
 assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
 slice.closeGlobalSurface()
 
-// The workspace aside column (MC-1766): the open/close + width halves of the
-// mount seam survive the Sprint Engines aside's retirement, so a future tenant
-// mounts without re-plumbing the store. Width clamps to the column bounds; the
-// retired sprint-specific view lens is gone entirely.
+// The workspace pane column (browser-pane epic) took over the aside column
+// MC-1766 left vacant: the app-level width clamps to the column bounds, the
+// maximised flag is a plain transient toggle, and the retired Sprint Engines
+// aside keys are gone entirely.
 assert.equal('sprintsAsideView' in carrier, false, 'the retired aside view lens is gone')
 assert.equal('sprintEnginesAsideOpen' in carrier, false, 'the retired aside open flag is gone')
-slice.setWorkspaceAsideOpen(true)
-assert.equal(carrier.workspaceAsideOpen, true)
-slice.setWorkspaceAsideOpen(false)
-assert.equal(carrier.workspaceAsideOpen, false)
-slice.setWorkspaceAsideWidth(10_000)
-assert.equal(carrier.workspaceAsideWidth, 520, 'width clamps to the column max')
-slice.setWorkspaceAsideWidth(10)
-assert.equal(carrier.workspaceAsideWidth, 240, 'width clamps to the column min')
-slice.setWorkspaceAsideWidth(Number.NaN)
-assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to the default')
+assert.equal('workspaceAsideOpen' in carrier, false, 'open/closed is per workspace now, not app state')
+slice.setWorkspacePaneMaximised(true)
+assert.equal(carrier.workspacePaneMaximised, true)
+slice.setWorkspacePaneMaximised(false)
+assert.equal(carrier.workspacePaneMaximised, false)
+slice.setWorkspacePaneWidth(10_000)
+assert.equal(carrier.workspacePaneWidth, 720, 'width clamps to the column max')
+slice.setWorkspacePaneWidth(10)
+assert.equal(carrier.workspacePaneWidth, 240, 'width clamps to the column min')
+slice.setWorkspacePaneWidth(Number.NaN)
+assert.equal(carrier.workspacePaneWidth, 420, 'a non-finite width falls back to the default')
 
 // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
 // connectors surface — the Plugins modal since doors→modals (the Extensions
@@ -600,8 +601,8 @@ const permissionCarrier = {
   activeModalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
-  workspaceAsideOpen: false,
-  workspaceAsideWidth: 296,
+  workspacePaneWidth: 420,
+  workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,

@@ -20,7 +20,6 @@ import { useGitStatus } from '../../hooks/useGitStatus'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, isStarred } from '../../utils/highlight'
-import { toggleNavRailComponent } from '../../utils/modelRegistry'
 import type {
   FolderOpenTargetAvailability,
   FolderOpenTargetId,
@@ -345,12 +344,15 @@ export function WorkspaceIdentity({
   // click that resolves to nothing.
   const filesPanelEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
   const gitPanelEnabled = selectModuleEnabled(moduleOverrides, 'git')
+  // Files and Git are workspace-pane tabs (browser-pane epic): the chips keep
+  // their open/close-on-second-click semantics against the pane record.
+  const togglePaneKind = useWorkspaceStore((s) => s.togglePaneKind)
   const toggleFilesPanel = React.useCallback(() => {
-    if (activeWorkspaceId) toggleNavRailComponent(activeWorkspaceId, 'explorer', 'Files')
-  }, [activeWorkspaceId])
+    if (activeWorkspaceId) togglePaneKind(activeWorkspaceId, 'files')
+  }, [activeWorkspaceId, togglePaneKind])
   const toggleGitPanel = React.useCallback(() => {
-    if (activeWorkspaceId) toggleNavRailComponent(activeWorkspaceId, 'git', 'Git')
-  }, [activeWorkspaceId])
+    if (activeWorkspaceId) togglePaneKind(activeWorkspaceId, 'git')
+  }, [activeWorkspaceId, togglePaneKind])
 
   if (!activeWorkspace) return null
 

@@ -68,7 +68,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeAgentTab, removeNewAgentTab, revealNavRailComponent, toggleComponentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, toggleComponentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -118,7 +118,8 @@ import {
   setExtensionsSurfaceHost,
   type ExtensionsSurfaceHostPorts,
 } from './globalSurface/extensions/extensionsSurfaceHost'
-import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
+import { WorkspacePaneColumn } from './pane/WorkspacePaneColumn'
+import { isWorkspacePaneFocused } from './pane/paneFocus'
 import {
   claimSprintCreationForDoor,
   consumeSprintCreationDoorClaim,
@@ -275,6 +276,7 @@ const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
   'app.settings.open',
+  'pane.toggle',
   'panel.files.toggle',
   'panel.editor.toggle',
   'panel.git.toggle',
@@ -484,10 +486,10 @@ export default function WorkspaceManager() {
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows]
   )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
-  // The right-docked aside column, resolved through the mount seam: null unless
-  // a module has claimed it AND the column is open. Unclaimed today (MC-1766),
-  // so the card keeps the full width.
-  const workspaceAsideTenant = useWorkspaceAsideTenant()
+  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
+  const closePaneTab = useWorkspaceStore((s) => s.closePaneTab)
+  const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
+  const togglePaneKind = useWorkspaceStore((s) => s.togglePaneKind)
   const visibleWorkspaceIdSet = useMemo(
     () => new Set(currentWorkspaceWindow?.workspaceIds ?? workspaces.map((workspace) => workspace.id)),
     [currentWorkspaceWindow, workspaces]
@@ -520,6 +522,10 @@ export default function WorkspaceManager() {
       ? currentWorkspaceWindow.activeWorkspaceId
       : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+  // The workspace pane column (browser-pane epic) is open when the ACTIVE
+  // workspace's pane record says so; the card rounds its right edge to match.
+  const activePaneState = activeWorkspace?.paneState
+  const activePaneOpen = activePaneState?.open ?? false
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Modules settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
@@ -739,7 +745,10 @@ export default function WorkspaceManager() {
       const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
       if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
     }
-    if (commandWorkspace?.layoutModel && jsonModelHasComponent(commandWorkspace.layoutModel, 'git')) {
+    // The Git panel mounts only while its pane tab is the one showing (the
+    // pane unmounts a hidden Git tab), so that is when its handlers can act.
+    const pane = commandWorkspace?.paneState
+    if (pane?.open && pane.tabs.some((tab) => tab.id === pane.activeTabId && tab.kind === 'git')) {
       context.gitPanelActive = true
     }
     if (terminalSessions.some((session) =>
@@ -3072,10 +3081,24 @@ export default function WorkspaceManager() {
         return true
       }
       if (!windowActiveWorkspaceId) return false
+      // Primary+W closes the pane's active tab while the pane owns focus; the
+      // binding keeps its FlexLayout meaning everywhere else.
+      if (activePaneState?.open && activePaneState.activeTabId && isWorkspacePaneFocused()) {
+        const tab = activePaneState.tabs.find((candidate) => candidate.id === activePaneState.activeTabId)
+        if (tab?.kind === 'terminal' && tab.terminalId) {
+          void window.api.terminalKill(`terminal-${tab.terminalId}`).catch(() => {})
+        }
+        closePaneTab(windowActiveWorkspaceId, activePaneState.activeTabId)
+        return true
+      }
       return closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)
     }
+    if (commandId === 'pane.toggle' && windowActiveWorkspaceId) {
+      setPaneOpen(windowActiveWorkspaceId, !activePaneOpen)
+      return true
+    }
     if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
-      togglePanelRailComponent(windowActiveWorkspaceId, 'explorer', 'Files')
+      togglePaneKind(windowActiveWorkspaceId, 'files')
       return true
     }
     if (commandId === 'panel.editor.toggle' && windowActiveWorkspaceId) {
@@ -3083,7 +3106,7 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'panel.git.toggle' && windowActiveWorkspaceId) {
-      togglePanelRailComponent(windowActiveWorkspaceId, 'git', 'Git')
+      togglePaneKind(windowActiveWorkspaceId, 'git')
       return true
     }
     if (commandId === 'panel.knowledge-graph.toggle' && windowActiveWorkspaceId) {
@@ -3096,11 +3119,11 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'git.worktrees.open' && windowActiveWorkspaceId) {
-      // Worktrees live in the Git panel, so reveal the Git nav switch via the
-      // same route the command palette uses. Sharing the route keeps a bound
-      // shortcut and the palette row on the same surface instead of silently
-      // no-opping (T8 code-review finding A10).
-      revealNavRailComponent(windowActiveWorkspaceId, 'git', 'Git')
+      // Worktrees live in the Git panel, so reveal (never toggle) its pane tab
+      // via the same route the command palette uses. Sharing the route keeps a
+      // bound shortcut and the palette row on the same surface instead of
+      // silently no-opping (T8 code-review finding A10).
+      openPaneTab(windowActiveWorkspaceId, { kind: 'git' })
       return true
     }
     if (commandId === 'panel.fleet.toggle' && windowActiveWorkspaceId) {
@@ -3704,6 +3727,11 @@ export default function WorkspaceManager() {
         openSettings={openSettings}
         settingsOpen={settingsOpen}
       />
+      {/* The content column and the workspace pane column share this row so
+          the pane can (a) stand beside the WorkspaceHeader at full height and
+          (b) float over the content column when maximised without reflowing
+          the terminals underneath. */}
+      <div className="relative flex min-w-0 flex-1 flex-row">
       {/* Content column: the workspace header (identity + controls) sits above
           the active workspace's card, so the chrome reads as tied to the
           workspace rather than floating in a full-width bar. */}
@@ -3776,20 +3804,16 @@ export default function WorkspaceManager() {
           />
         }
       />
-      {/* Card row: the workspace card and (when a tenant claims it) the aside
-          column share the strip under the full-width WorkspaceHeader, so the
-          header's right-edge controls keep the window's true right edge
-          regardless of whether the column is open. */}
+      {/* Card row under the WorkspaceHeader. */}
       <div className="flex min-h-0 flex-1 flex-row">
       {/* The workspace card: everything inside the rounded surface belongs to
-          the active workspace. With the aside column open the card also rounds
+          the active workspace. With the pane column open the card also rounds
           its right edge, reading as a card floating between two pieces of
-          app-level chrome (sidebar left, column right). */}
+          app-level chrome (sidebar left, pane right); the column's own inner
+          hairline does the separating, so the card draws no border of its own. */}
       <div
         className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-lg bg-[color:var(--bg-surface)] ${
-          workspaceAsideTenant
-            ? 'rounded-br-lg border-r border-[color:var(--border-subtle)]'
-            : ''
+          activePaneOpen ? 'rounded-br-lg' : ''
         }`}
       >
       {/* The workspace identity + control groups live in the WorkspaceHeader
@@ -4026,8 +4050,13 @@ export default function WorkspaceManager() {
         ) : null}
       </div>
       </div>
-      {workspaceAsideTenant ? <WorkspaceAsideMount tenant={workspaceAsideTenant} /> : null}
       </div>
+      </div>
+      <WorkspacePaneColumn
+        activeWorkspaceId={windowActiveWorkspaceId}
+        renderedWorkspaceIds={renderedWorkspaceIds}
+        onStartFuturePlan={openFuturePlanWorkspace}
+      />
       </div>
       {/* Win/linux caption buttons pin to the window's absolute top-right corner
           (above whatever column owns that edge — content or the aside column),

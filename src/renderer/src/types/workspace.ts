@@ -893,6 +893,35 @@ export type WorkspaceGitPanelState = {
   commitDraftsByScopeId: Record<string, string>
 }
 
+// The workspace pane (browser-pane epic): the full-height tabbed column on the
+// right that hosts a browser, terminals, Files, Git and Diff. Tabs are a plain
+// per-workspace record rather than a FlexLayout tabset because the pane mixes
+// kinds FlexLayout used to scatter across two exclusive rails.
+export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git'
+
+export type WorkspacePaneTab = {
+  id: string
+  kind: WorkspacePaneTabKind
+  // A browser tab's page title or a terminal's pty title; absent, the tab
+  // reads as its kind.
+  title?: string
+  // Browser only: the URL the tab is on, persisted so a restart reloads it.
+  url?: string
+  // Browser only: the page favicon as a data URL. Session-only — partialize
+  // strips it; a favicon is fetched again on load.
+  faviconUrl?: string
+  // Terminal only: the pty id the tab owns; closing the tab kills it.
+  terminalId?: string
+  // Diff only: the file the viewer opened on, and which side.
+  diff?: { focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
+}
+
+export type WorkspacePaneState = {
+  open: boolean
+  activeTabId: string | null
+  tabs: WorkspacePaneTab[]
+}
+
 /**
  * Marks a standard workspace as living in a git worktree — set when a worktree
  * is opened as a workspace from the Worktree manager. The workspace's
@@ -948,6 +977,8 @@ export type Workspace = {
   fileExplorerState?: WorkspaceFileExplorerState
   backlogState?: WorkspaceBacklogState
   gitPanelState?: WorkspaceGitPanelState
+  // The workspace pane's tabs (browser-pane epic); absent until first opened.
+  paneState?: WorkspacePaneState
   // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag. The
   // `sprintengine` entry is canonical; `sprintEngineState` below mirrors it.
   moduleState?: WorkspaceModuleStateBag

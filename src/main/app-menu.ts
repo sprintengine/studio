@@ -105,6 +105,11 @@ export function createAppMenu(): Menu {
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.git.toggle'),
         },
         {
+          label: 'Toggle Workspace Pane',
+          accelerator: menuAccelerator('pane.toggle', 'CmdOrCtrl+Alt+B'),
+          click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'pane.toggle'),
+        },
+        {
           label: 'Toggle Knowledge Graph',
           accelerator: menuAccelerator('panel.knowledge-graph.toggle'),
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'panel.knowledge-graph.toggle'),

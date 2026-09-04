@@ -541,7 +541,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 72, 'the remembered-specialist drop is the newest step, at store v72')
+assert.equal(WORKSPACE_STORE_VERSION, 73, 'the rail-to-pane move is the newest step, at store v73')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],

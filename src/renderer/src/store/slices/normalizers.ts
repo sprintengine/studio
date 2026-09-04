@@ -13,6 +13,7 @@ import {
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import { partializeWorkspaceModuleState } from './workspaceModuleState'
+import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
 // The retired `roadmap` workspace-mode string (MC-1692). Kept as a local literal
 // rather than a live `WorkspaceMode` constant: it is a legacy value with no
@@ -264,6 +265,7 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
     backlogState: normalizeWorkspaceBacklogState(launchSafeWorkspace.backlogState),
     gitPanelState: normalizeWorkspaceGitPanelState(launchSafeWorkspace.gitPanelState),
+    paneState: partializeWorkspacePaneState(launchSafeWorkspace.paneState),
     sprintEngineAutoState,
     // Session-only creation launch intent; never persist it, or a restart
     // would replay the initial spawns.

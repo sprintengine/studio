@@ -177,6 +177,20 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'workspace.folder.reveal' },
   }),
+  // Files, Git and (later) the browser live in the workspace pane — the
+  // full-height column on the right (browser-pane epic). The pane toggle takes
+  // ⌘⌥B — the whole column, one chord away from the ⌘B a person already reads
+  // as "show or hide the side panel"; Files and Git keep theirs and now toggle
+  // their pane tab.
+  command({
+    id: 'pane.toggle',
+    title: 'Toggle Workspace Pane',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Alt+B'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setPaneOpen(windowActiveWorkspaceId, !paneOpen)' },
+  }),
   command({
     id: 'panel.files.toggle',
     title: 'Toggle File Explorer',
@@ -232,11 +246,11 @@ export const COMMAND_REGISTRY = [
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'workspace-manager', handler: "revealNavRailComponent(windowActiveWorkspaceId, 'git', 'Git')" },
+    handlerPath: { kind: 'workspace-manager', handler: "openPaneTab(windowActiveWorkspaceId, { kind: 'git' })" },
   }),
   // Git refresh/fetch/commit run the Git panel's real handlers via the
-  // panel-command bridge, so they are only available while the Git panel is
-  // mounted in the active workspace. No default keybindings: refresh is safe but
+  // panel-command bridge, so they are only available while the Git tab is
+  // showing in the active workspace's pane. No default keybindings: refresh is safe but
   // unbound by default, and commit/fetch are stateful — users can bind them in
   // the Shortcuts settings (commit is destructive-adjacent, so it ships unbound
   // per the plan's no-risky-default rule).

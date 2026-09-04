@@ -23,6 +23,7 @@ import {
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
+  healRetiredRailLayout,
   stripSettingsTabsFromLayout,
   stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
@@ -57,7 +58,7 @@ import { reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 72
+export const WORKSPACE_STORE_VERSION = 73
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1077,6 +1078,17 @@ export function migratePersistedWorkspaceState(
       delete migrationState.appSettings.lastSelectedSpecialist
       delete migrationState.appSettings.lastSpawnWasGeneral
     }
+  }
+  if (version < 73) {
+    // Files and Git left the FlexLayout rail for the workspace pane, and the
+    // Skills aside is gone (browser-pane epic). A layout that had Files or
+    // Git docked comes back with the same surfaces open as pane tabs — the
+    // person's panels move rather than close — and the retired tabs are
+    // stripped so no layout renders an unavailable surface. A workspace that
+    // already carries a pane record (a dev build ahead of the ladder) keeps it.
+    // The same heal also runs in persist merge() and on every registry
+    // snapshot main sends — this rung is the clean-upgrade half.
+    mapMigrationWorkspaces(migrationState, healRetiredRailLayout)
   }
 
   return state as never

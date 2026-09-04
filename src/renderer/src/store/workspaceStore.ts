@@ -51,6 +51,11 @@ import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
+import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
+import {
+  createWorkspacePaneSlice,
+  type WorkspacePaneSliceActions,
+} from './slices/workspacePaneSlice'
 import {
   createWorkspacesSlice,
   type SoloChatSeed,
@@ -58,6 +63,7 @@ import {
 } from './slices/workspacesSlice'
 import {
   createLayoutSlice,
+  healRetiredRailLayout,
   hideNavRailTabStrip,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
@@ -137,7 +143,7 @@ import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomation
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
+export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, WorkspacePaneSliceActions {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -151,10 +157,13 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setSidebarWidth: (width: number) => void
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
-  workspaceAsideOpen: boolean
-  setWorkspaceAsideOpen: (open: boolean) => void
-  workspaceAsideWidth: number
-  setWorkspaceAsideWidth: (width: number) => void
+  // The workspace pane column's width (browser-pane epic), persisted in the
+  // settings envelope beside sidebarWidth. Open/closed is per workspace
+  // (`workspace.paneState.open`); maximised is session-only.
+  workspacePaneWidth: number
+  setWorkspacePaneWidth: (width: number) => void
+  workspacePaneMaximised: boolean
+  setWorkspacePaneMaximised: (maximised: boolean) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
@@ -516,6 +525,7 @@ type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
   sidebarWidth: unknown
+  workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
 }
 
@@ -593,6 +603,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
     sidebarWidth: state.sidebarWidth,
+    workspacePaneWidth: state.workspacePaneWidth,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
   }
 }
@@ -626,6 +637,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         appSettings: s.appSettings,
         sidebarCollapsed: s.sidebarCollapsed,
         sidebarWidth: s.sidebarWidth,
+        workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
@@ -647,6 +659,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
     sidebarWidth: s.sidebarWidth,
+    workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
     ...partializeRegistryFields(s),
   }
@@ -1038,9 +1051,9 @@ async function attemptBackupRecovery(): Promise<void> {
     )
     // Same migrate-ladder bypass for the MC-1573 module-state bag: reconcile
     // the bag with the legacy sprintEngineState mirror before re-persisting.
-    envelope.state.workspaces = (envelope.state.workspaces as Workspace[]).map(
-      reconcileWorkspaceModuleState,
-    )
+    envelope.state.workspaces = (envelope.state.workspaces as Workspace[])
+      .map(reconcileWorkspaceModuleState)
+      .map(healRetiredRailLayout)
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
       return
@@ -1177,6 +1190,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createMemorySlice(set),
       ...createPluginsSlice(set),
       ...createCliAvailabilitySlice(set),
+      ...createWorkspacePaneSlice(set),
       ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),
     {
@@ -1192,7 +1206,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number }> | undefined
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; workspacePaneWidth?: number }> | undefined
         // Version-gated migrations cannot be the only enforcement of these
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
@@ -1214,6 +1228,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // rows carry a null run state (partialize strips both homes), so this
         // is a reference-preserving no-op on the normal load path.
         ).map(reconcileWorkspaceModuleState)
+        // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
+        // enforcement half, for the same reason as the heals above.
+        .map(healRetiredRailLayout)
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
           normalizeAppSettings(state?.appSettings, rawWorkspaces),
@@ -1250,6 +1267,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sidebarWidth === 'number'
               ? clampSidebarWidth(state.sidebarWidth)
               : current.sidebarWidth,
+          workspacePaneWidth:
+            typeof state?.workspacePaneWidth === 'number'
+              ? clampWorkspaceAsideWidth(state.workspacePaneWidth)
+              : current.workspacePaneWidth,
           workspaceRegistryEmptyState:
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState
@@ -1442,7 +1463,10 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
   }
   useWorkspaceStore.setState((current) => {
     const currentById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
-    const workspaces = snapshot.state.workspaces.map((incoming) => {
+    const workspaces = snapshot.state.workspaces.map((raw) => {
+      // Main's copy of a layout can still dock Files/Git in the rail until a
+      // window's next layout write; heal it here as merge() does.
+      const incoming = healRetiredRailLayout(raw)
       const existing = currentById.get(incoming.id)
       if (!existing) return incoming
       return {
@@ -1451,6 +1475,9 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
         fileExplorerState: existing.fileExplorerState,
         backlogState: existing.backlogState,
         gitPanelState: existing.gitPanelState,
+        // The pane record is window-owned view state like the three above:
+        // main never carries it, so a snapshot must not blank it.
+        paneState: existing.paneState ?? incoming.paneState,
         // Live-only fields main never persists: the projection cache the
         // supervisor re-reads from disk, and in-flight terminal metadata for
         // agents this window owns.

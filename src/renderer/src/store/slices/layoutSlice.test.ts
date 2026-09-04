@@ -309,8 +309,8 @@ const templateGuidedBriefTab = findTab(guidedBriefTemplate.layout, 'guided-brief
 assert.equal(guidedBriefTemplate.layout.global?.tabEnableClose, true)
 assert.equal(templateGuidedBriefTab.enableClose, false)
 
-// Nav-rail strip migration: a tabset holding only Files / Git / Knowledge
-// Graph switches loses its strip; a tabset mixing a nav switch with the editor
+// Nav-rail strip migration: a tabset holding only Backlog / Knowledge Graph
+// switches loses its strip; a tabset mixing a nav switch with the editor
 // keeps its strip (so the editor's file tabs survive) and self-heals later.
 const navRailLayoutForStripMigration: IJsonModel = {
   global: {},
@@ -322,8 +322,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
         type: 'tabset',
         weight: 18,
         children: [
-          { type: 'tab', name: 'Files', component: 'explorer' },
-          { type: 'tab', name: 'Git', component: 'git' },
+          { type: 'tab', name: 'Backlog', component: 'backlog' },
         ],
       },
       {
@@ -347,7 +346,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
 const navStripHidden = hideNavRailTabStrip(navRailLayoutForStripMigration) as IJsonModel
 const navOnlyTabset = findTabset(navStripHidden, (record) => {
   const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'explorer')
+  return children.some((child) => (child as Record<string, unknown>)?.component === 'backlog')
 })!
 const mixedEditorTabset = findTabset(navStripHidden, (record) => {
   const children = Array.isArray(record.children) ? record.children : []

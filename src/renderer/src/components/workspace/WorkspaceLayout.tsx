@@ -87,7 +87,6 @@ function countOpenTabs(model: Model | null): number {
 // (`onStartFuturePlan`). They share the editor/explorer chunks with the
 // host-served panels, so a disabled dev-tools module ships none of them.
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
-const FileExplorer = React.lazy(() => import('../panels/FileExplorer'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const FleetPanel = React.lazy(() => import('../panels/FleetPanel'))
@@ -102,11 +101,10 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
-// The right-docked Skills pane. Local rather than host-registered because it
-// belongs to no capability module — every workspace with an agent tab can ask
-// what that agent reaches — and because a module gate here would hide the pane
-// its own header switch just opened.
-const SkillsPanel = React.lazy(() => import('./skills/SkillsPanel'))
+// Files, Git and the Skills aside are no longer FlexLayout components: Files
+// and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
+// aside was retired (browser-pane epic). Store v73 strips their tabs from
+// persisted layouts; a stray one falls through to the unavailable surface.
 // Shown when a host panel can't render because its owning module is disabled or
 // the layout tab is stale/unknown. An explicit, labeled unavailable state —
 // never a silently blank surface — applied to every gated/stale arm below.
@@ -531,10 +529,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
             : DISABLED_SURFACE
-        case 'explorer':
-          return devToolsEnabled
-            ? timedPanel('FileExplorer', <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
-            : DISABLED_SURFACE
         case 'git-conflict':
           return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
@@ -577,8 +571,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
             : DISABLED_SURFACE
-        case 'skills':
-          return timedPanel('SkillsPanel', <SkillsPanel workspaceId={workspaceId} />)
         // The Fleet and its terminals are core chrome, not a module: tailnet
         // remote control is a built-in opt-in feature, and a pane that vanished
         // with a module toggle would strand a person mid-session on another

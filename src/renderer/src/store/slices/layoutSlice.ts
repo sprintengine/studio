@@ -7,6 +7,7 @@ import { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/wor
 export { sprintEngineTabsLayoutModel }
 
 import { railSideOfComponents } from '../../utils/modelRegistry'
+import { paneStateFromLegacyLayout } from './workspacePaneSlice'
 import { workspaceSyncClient } from '../workspaceSyncClient'
 import type {
   Workspace,
@@ -98,6 +99,37 @@ export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
 // surface, so drop it from existing layouts.
 export function stripSprintEnginesNavFromLayout(layoutModel: unknown): unknown {
   return stripComponentTabsFromLayout(layoutModel, 'sprint-engines')
+}
+
+// Files and Git moved from the left rail into the workspace pane, and the
+// Skills aside was deleted (browser-pane epic, store v73). A persisted layout
+// still carrying their tabs would render the unavailable surface; drop them.
+// `paneStateFromLegacyLayout` reads the same layout first so the person's
+// open Files/Git come back as pane tabs.
+export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
+  return ['explorer', 'git', 'skills'].reduce(
+    (model, component) => stripComponentTabsFromLayout(model, component),
+    layoutModel,
+  )
+}
+
+/**
+ * The whole rail-to-pane move for one workspace record: seed the pane from a
+ * layout that still docks Files/Git (only when the record carries no pane
+ * yet), then strip the retired tabs. Reference-preserving when there is
+ * nothing to do, so it is safe on every hydration — which is where it has to
+ * run: main owns the registry (MC-2158) and hands the renderer records that
+ * never pass the persist ladder, so the v73 rung alone would miss them.
+ */
+export function healRetiredRailLayout(ws: Workspace): Workspace {
+  const seeded = ws.paneState ? undefined : paneStateFromLegacyLayout(ws.layoutModel)
+  const layoutModel = stripRetiredRailTabsFromLayout(ws.layoutModel)
+  if (!seeded && layoutModel === ws.layoutModel) return ws
+  return {
+    ...ws,
+    layoutModel: layoutModel as Workspace['layoutModel'],
+    ...(seeded ? { paneState: seeded } : {}),
+  }
 }
 
 const STICKY_TAB_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])

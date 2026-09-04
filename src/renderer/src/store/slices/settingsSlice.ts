@@ -1163,14 +1163,12 @@ export interface SettingsSliceState {
   // the rail reopens at the width the user dragged it to. Only meaningful while
   // expanded; the collapsed rail is a fixed icon width.
   sidebarWidth: number
-  // The right-docked workspace aside column (WorkspaceAsideMount). App-level,
-  // not per-workspace layout: the column sits outside the workspace card and
-  // survives workspace switches. Transient — deliberately NOT persisted, so an
-  // unclaimed column can never be reopened by a stale profile (MC-1766).
-  workspaceAsideOpen: boolean
-  // User-resizable width of the aside column, in px. Owned by the mount seam so
-  // a tenant inherits the resize behaviour rather than re-implementing it.
-  workspaceAsideWidth: number
+  // The workspace pane column (browser-pane epic): app-level width, in px,
+  // persisted in the settings envelope like sidebarWidth. Whether the pane is
+  // open is per workspace (`workspace.paneState.open`); maximised is transient
+  // so a restart never comes back with the workspace card hidden.
+  workspacePaneWidth: number
+  workspacePaneMaximised: boolean
   // Sticky "where do files open" preference. When true, opening a file routes to
   // the external editor window (a tabbed pop-up) instead of a workspace tab.
   // Set by user action — popping a tab out turns it on, docking a file back
@@ -1191,8 +1189,8 @@ export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
-  setWorkspaceAsideOpen: (open: boolean) => void
-  setWorkspaceAsideWidth: (width: number) => void
+  setWorkspacePaneWidth: (width: number) => void
+  setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1339,8 +1337,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     activeModalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
-    workspaceAsideOpen: false,
-    workspaceAsideWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
+    workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
+    workspacePaneMaximised: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1360,11 +1358,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.sidebarWidth = clampSidebarWidth(width)
       }),
 
-    // No caller today: the column is unclaimed, so nothing can open it. Kept as
-    // the seam's open/close half — a tenant wires its own trigger to it.
-    setWorkspaceAsideOpen: (open) =>
+    setWorkspacePaneWidth: (width) =>
       set((state) => {
-        state.workspaceAsideOpen = open
+        state.workspacePaneWidth = clampWorkspaceAsideWidth(width)
+      }),
+
+    setWorkspacePaneMaximised: (maximised) =>
+      set((state) => {
+        state.workspacePaneMaximised = maximised
       }),
 
     setOpenFilesInExternalWindow: (enabled) =>
@@ -1416,11 +1417,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.runSummaryOverlay.open = false
         state.runSummaryOverlay.workspaceId = null
-      }),
-
-    setWorkspaceAsideWidth: (width) =>
-      set((state) => {
-        state.workspaceAsideWidth = clampWorkspaceAsideWidth(width)
       }),
 
     openExtensionsSurface: (opts) => {

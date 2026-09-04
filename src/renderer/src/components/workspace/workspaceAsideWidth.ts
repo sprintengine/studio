@@ -1,11 +1,13 @@
-// Width bounds for the right-docked workspace aside column, mirroring the
+// Width bounds for the right-docked workspace pane column, mirroring the
 // workspace sidebar's drag-to-resize idiom (sidebarWidth.ts). No collapse snap —
-// the column's visibility is the open flag's job, not the drag's. Owned by the
-// mount seam rather than by whichever module fills the column, so a tenant
-// inherits resize behaviour instead of re-implementing it.
+// the column's visibility is the pane's open flag, not the drag's. The names
+// keep the column's original "aside" vocabulary: the chrome in
+// workspaceAsideColumn.tsx predates the pane and is what the pane renders in.
 export const WORKSPACE_ASIDE_MIN_WIDTH = 240
-export const WORKSPACE_ASIDE_MAX_WIDTH = 520
-export const WORKSPACE_ASIDE_DEFAULT_WIDTH = 296
+// A browser tab wants room: a phone preset scaled to fit reads at 420, a
+// desktop page at 720.
+export const WORKSPACE_ASIDE_MAX_WIDTH = 720
+export const WORKSPACE_ASIDE_DEFAULT_WIDTH = 420
 
 export function clampWorkspaceAsideWidth(width: number): number {
   if (!Number.isFinite(width)) return WORKSPACE_ASIDE_DEFAULT_WIDTH

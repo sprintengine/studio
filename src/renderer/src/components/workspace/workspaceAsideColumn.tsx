@@ -10,11 +10,16 @@ import {
 // The workspace aside: the right-docked, width-consuming column that sits
 // OUTSIDE the rounded workspace card, on the same --bg-app gutter as the
 // workspace sidebar. Chrome only — the width, the drag-to-resize edge, and the
-// labelled landmark — so a module fills it by registering a tenant with
-// `registerWorkspaceAside`, exactly as a door surface registers a page with
-// `registerGlobalSurface`. Store-free by design: the caller owns where the
-// width lives, so this renders identically under the app store and under a test
-// harness (WorkspaceAsideMount.tsx does the wiring).
+// labelled landmark. The workspace pane (pane/WorkspacePaneColumn.tsx) is its
+// tenant since the browser-pane epic. Store-free by design: the caller owns
+// where the width lives, so this renders identically under the app store and
+// under a test harness.
+//
+// It is a side-pane in the design system's sense (components/side-pane): in
+// the document flow, one hairline on its inner edge, no shadow. `collapsed`
+// keeps the column mounted at zero width so a tenant's retained content (a
+// terminal, a browser page) survives the pane closing; `fill` is the
+// expanded variant that takes the whole row and drops the hairline.
 
 type WorkspaceAsideColumnProps = {
   /** Accessible name for the column landmark — the tenant's surface name. */
@@ -22,10 +27,21 @@ type WorkspaceAsideColumnProps = {
   width: number
   /** Called once on pointer-up / key step, never per drag frame. */
   onWidthChange: (width: number) => void
+  /** Mounted but zero-width: hidden from the accessibility tree, no handle. */
+  collapsed?: boolean
+  /** Take the whole row (the caller hides the neighbour); no inner hairline. */
+  fill?: boolean
   children: React.ReactNode
 }
 
-export function WorkspaceAsideColumn({ label, width, onWidthChange, children }: WorkspaceAsideColumnProps) {
+export function WorkspaceAsideColumn({
+  label,
+  width,
+  onWidthChange,
+  collapsed = false,
+  fill = false,
+  children,
+}: WorkspaceAsideColumnProps) {
   const asideRef = useRef<HTMLElement>(null)
   // Live width during an active drag — written straight to the element (never
   // through `onWidthChange`) so no frame pays for a persisted-registry
@@ -93,33 +109,52 @@ export function WorkspaceAsideColumn({ label, width, onWidthChange, children }: 
     [width, onWidthChange],
   )
 
+  const resizable = !collapsed && !fill
+  const columnStyle: React.CSSProperties = collapsed
+    ? { width: 0 }
+    : fill
+      ? {}
+      : { width: clampWorkspaceAsideWidth(dragWidthRef.current ?? width) }
+
   return (
     <aside
       ref={asideRef}
       aria-label={label}
-      className="relative flex h-full shrink-0 flex-col bg-[color:var(--bg-canvas)]"
+      aria-hidden={collapsed || undefined}
+      className={[
+        'flex h-full shrink-0 flex-col overflow-hidden bg-[color:var(--bg-canvas)]',
+        // Filling: the column floats over its row (the caller's `relative`
+        // wrapper) rather than growing beside the content, so the terminals
+        // underneath keep their size and nothing reflows on maximise.
+        fill ? 'absolute inset-0 z-[var(--z-pane)]' : 'relative',
+        // The side-pane's one hairline, on the inner edge. Dropped when the
+        // column fills the row: there is nothing left to separate from.
+        resizable ? 'border-l border-[color:var(--border-default)]' : '',
+      ].join(' ')}
       // No entrance animation on purpose: animating the width reflows the whole
       // workspace card (terminals included) every frame and reads as lag. The
       // column mounts instantly, like the workspace sidebar. During a drag the
       // live width comes from dragWidthRef, so a mid-drag re-render keeps the
       // pointer width instead of snapping back to the committed one.
-      style={{ width: clampWorkspaceAsideWidth(dragWidthRef.current ?? width) }}
+      style={columnStyle}
     >
       {/* Drag the left edge to resize (same idiom as the workspace sidebar). */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={`Resize ${label} panel`}
-        tabIndex={0}
-        onPointerDown={handleResizePointerDown}
-        onKeyDown={handleResizeKeyDown}
-        className={`group absolute left-0 top-0 z-[var(--z-pane)] h-full w-1.5 -translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
-      >
-        <span
-          aria-hidden="true"
-          className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] opacity-0 transition-opacity group-hover:opacity-60"
-        />
-      </div>
+      {resizable ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Resize ${label} panel`}
+          tabIndex={0}
+          onPointerDown={handleResizePointerDown}
+          onKeyDown={handleResizeKeyDown}
+          className={`group absolute left-0 top-0 z-[var(--z-pane)] h-full w-1.5 -translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
+        >
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] opacity-0 transition-opacity group-hover:opacity-60"
+          />
+        </div>
+      ) : null}
       {children}
     </aside>
   )
