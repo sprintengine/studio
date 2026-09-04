@@ -481,8 +481,8 @@ async function main() {
     // PRIMARY pane, which means it holds the full-strength fill while focus sits
     // outside every pane and rests only when another PANE takes it. That claim has
     // to be re-measured now the list lives INSIDE the app sidebar's own aside —
-    // which is itself marked `data-selection-pane="auto"`, so a nested pane could
-    // be governed by its ancestor's rule instead of its own.
+    // which is itself marked `data-selection-pane="primary"` with no door open, so
+    // a nested pane could be governed by its ancestor's rule instead of its own.
     const tierTokens = await page.evaluate(() => {
       const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
       return { selected: read('--bg-selected'), resting: read('--bg-selected-resting') }
@@ -524,9 +524,11 @@ async function main() {
     /* ---- the pane inventory the tier fix turns on ----------------------- */
     // Two facts worth pinning, both consequences of "one rail, ever":
     //
-    //  1. The sidebar aside carries `data-selection-pane="auto"` with no door open
-    //     and NONE while a door owns its column. That is the fix above, read as
-    //     the attribute rather than as a colour.
+    //  1. The sidebar aside carries `data-selection-pane="primary"` with no door
+    //     open and NONE while a door owns its column. That is the fix above, read
+    //     as the attribute rather than as a colour. It is `primary` because the
+    //     pane beside it is a terminal — not a selection pane — so `auto` left the
+    //     current chat's row resting for the app's entire ordinary life.
     //  2. A door surface therefore has exactly ONE selection pane. Which is the
     //     point — one focused selection per screen — but it also means the tier's
     //     "another pane took focus" case has no witness on a door, so the T24
@@ -544,8 +546,8 @@ async function main() {
       })),
     )
     check(
-      'with no door open the sidebar aside is still the `auto` selection pane',
-      panesNoDoor.some((p) => p.label === 'Workspaces' && p.pane === 'auto'),
+      'with no door open the sidebar aside is the `primary` selection pane',
+      panesNoDoor.some((p) => p.label === 'Workspaces' && p.pane === 'primary'),
       JSON.stringify(panesNoDoor),
     )
     await activate(doorTrigger(page, 'Backlog'))

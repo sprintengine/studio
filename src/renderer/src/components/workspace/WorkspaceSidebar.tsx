@@ -1875,10 +1875,16 @@ export default function WorkspaceSidebar({
               as="span"
               text={workspace.name}
               className={`min-w-0 flex-1 ${
-                // The resident bolding keeps its weight on an attention row but
-                // gives up its ink: text-strong would cancel the warn ink the
-                // whole row is wearing.
-                resident ? `font-semibold ${needsAttention ? '' : 'text-[color:var(--text-strong)]'}` : ''
+                // Weight ONLY. "Hot" used to claim `--text-strong` as well, and
+                // the ink lift is selection's channel, not residency's — a
+                // resident row that was not the selected one read at exactly the
+                // selected row's ink while ALSO being bold, so it out-shouted the
+                // chat the user was actually in. Residency keeps the weight,
+                // which is a channel selection never uses; the ink lift belongs
+                // to the one selected row (design-system/patterns/selection.html).
+                // This is also what kept the mark honest on an attention row,
+                // where text-strong cancelled the warn ink the row was wearing.
+                resident ? 'font-semibold' : ''
               }`}
             />
             {resident ? <span className="sr-only"> (agents resident)</span> : null}
@@ -1983,21 +1989,28 @@ export default function WorkspaceSidebar({
     <aside
       ref={sidebarRef}
       aria-label="Workspaces"
-      // One of the surface's selection panes: the active workspace row and the
-      // active door entry drop to the resting tier while the keyboard is in
-      // another pane (assets/index.css, "Selection tiers").
+      // The shell's LEADING list, so `primary` rather than `auto`
+      // (assets/index.css, "Selection tiers"). `auto` rests on anything that is
+      // not `:focus-within`, and the pane beside this one is a terminal or a
+      // chat transcript — a canvas, not a selection pane. So in the app's
+      // ordinary state, focus sits outside every marked pane and the current
+      // chat's row spent its whole life at the resting tier: the fill dropped a
+      // rung and `--text-strong` fell back to `--text-default`, which left the
+      // selected row DIMMER than a neighbouring resident row wearing
+      // `font-semibold text-strong` on its own. The screen showed zero focused
+      // selections — the failure the pattern exists to prevent. `primary`
+      // holds the tier while focus sits outside every pane and rests only once
+      // another pane (the composer's roster, the file tree) actually takes it,
+      // which is the same ruling the door rails already carry.
       //
       // Dropped entirely while a door owns this column, because then this aside
       // is not the pane — the door's rail inside it is, and that rail declares
-      // itself `primary`. Left in place, the nested pane was governed by THIS
-      // one's rule: `auto` rests on anything not `:focus-within`, so the rail's
-      // selected row dropped from `--bg-selected` to `--bg-selected-resting` the
-      // moment focus moved to the door's detail pane, leaving the screen with
-      // zero focused selections instead of one — the opposite of `primary`,
-      // which holds while focus sits outside every pane. Nothing here loses its
-      // own tier: the workspaces tree is `hidden` in that state, so its rows are
-      // neither visible nor focusable.
-      {...(contextRailActive ? {} : { 'data-selection-pane': 'auto' })}
+      // itself `primary`. Two `primary` marks nested one inside the other would
+      // put two full-strength selections on one screen the moment focus left
+      // both, and "one per surface" is the whole rule. Nothing here loses its
+      // own tier by standing down: the workspaces tree is `hidden` in that
+      // state, so its rows are neither visible nor focusable.
+      {...(contextRailActive ? {} : { 'data-selection-pane': 'primary' })}
       // Width is class-driven when collapsed (fixed icon rail) and style-driven
       // when expanded (user-resizable). The width glide is suppressed mid-drag
       // so the rail tracks the pointer instead of lagging the 150ms transition.

@@ -120,6 +120,20 @@ async function main(): Promise<void> {
   const tree = container.querySelector('nav[role="tree"]')
   assert.ok(tree, 'the sidebar renders a role=tree container')
 
+  // Selection tiers (assets/index.css): the aside is the shell's LEADING list,
+  // so `primary`, not `auto`. The difference is the whole of "which chat am I
+  // in?" — the pane beside this one is a terminal, which is a canvas and not a
+  // selection pane, so under `auto` (rests on anything not :focus-within) the
+  // current chat's row sat at the resting tier for the app's entire ordinary
+  // life: fill down a rung and `--text-strong` rebound to `--text-default`.
+  const aside = container.querySelector('aside[aria-label="Workspaces"]')
+  assert.ok(aside, 'the sidebar renders its labelled aside')
+  assert.equal(
+    aside!.getAttribute('data-selection-pane'),
+    'primary',
+    'the workspaces aside holds the focused selection tier while focus sits outside every pane',
+  )
+
   const rows = () => [...tree!.querySelectorAll('[role="treeitem"]')] as HTMLElement[]
 
   // Every workspace row is a treeitem, and the starred row surfaces twice
