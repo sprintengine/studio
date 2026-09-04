@@ -63,6 +63,31 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
     return tabId ? manager.stop(tabId) : false
   })
 
+  ipcMain.handle('browser:zoom-step', (_event, input: { tabId: string; direction: 1 | -1 | 0 }) => {
+    const tabId = tabIdOf(input)
+    const direction = input.direction === 1 || input.direction === -1 ? input.direction : 0
+    return tabId ? manager.zoomStep(tabId, direction) : false
+  })
+
+  ipcMain.handle('browser:set-color-scheme', (_event, input: { tabId: string; scheme: string }) => {
+    const tabId = tabIdOf(input)
+    const scheme = input.scheme === 'light' || input.scheme === 'dark' ? input.scheme : 'system'
+    return tabId ? manager.setColorScheme(tabId, scheme) : false
+  })
+
+  ipcMain.handle('browser:open-devtools', (_event, input: { tabId: string }) => {
+    const tabId = tabIdOf(input)
+    return tabId ? manager.openDevTools(tabId) : false
+  })
+
+  ipcMain.handle('browser:open-window', (_event, input: { tabId: string }) => {
+    const tabId = tabIdOf(input)
+    return tabId ? manager.openWindow(tabId) : false
+  })
+
+  ipcMain.handle('browser:clear-cookies', () => manager.clearCookies())
+  ipcMain.handle('browser:clear-cache', () => manager.clearCache())
+
   ipcMain.handle('browser:open-external', (_event, input: { tabId: string }) => {
     const tabId = tabIdOf(input)
     return tabId ? manager.openExternal(tabId) : { ok: false, message: 'This browser tab is gone.' }

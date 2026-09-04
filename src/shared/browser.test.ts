@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 
 import { browserTabLabel, isLoopbackUrl, normalizeBrowserUrlInput } from './browser'
+import {
+  fitViewportScale,
+  nextZoomLevel,
+  normalizeBrowserViewport,
+  presetViewport,
+  rotateViewport,
+} from './browser-devices'
 
 function run(name: string, body: () => void): void {
   try {
@@ -42,6 +49,34 @@ run('the strip label prefers the title, then the host, then the kind', () => {
   assert.equal(browserTabLabel('http://localhost:5173/chat', ''), 'localhost:5173')
   assert.equal(browserTabLabel('about:blank', undefined), 'Browser')
   assert.equal(browserTabLabel(undefined, undefined), 'Browser')
+})
+
+run('viewports: presets resolve, rotation becomes freeform, junk is refused, sizes clamp', () => {
+  assert.deepEqual(presetViewport('iphone-12-pro'), { mode: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 })
+  assert.deepEqual(rotateViewport(presetViewport('iphone-12-pro')), { mode: 'freeform', width: 844, height: 390 })
+  assert.deepEqual(rotateViewport({ mode: 'fill' }), { mode: 'fill' })
+  assert.deepEqual(normalizeBrowserViewport({ mode: 'preset', presetId: 'nope' }), undefined)
+  assert.deepEqual(normalizeBrowserViewport({ mode: 'freeform', width: 10, height: 99999 }), {
+    mode: 'freeform',
+    width: 240,
+    height: 3840,
+  })
+  assert.equal(normalizeBrowserViewport('fill'), undefined)
+})
+
+run('fit scale never enlarges and respects both axes', () => {
+  assert.equal(fitViewportScale({ width: 390, height: 844 }, { width: 400, height: 900 }), 1)
+  assert.equal(fitViewportScale({ width: 390, height: 844 }, { width: 195, height: 900 }), 0.5)
+  assert.equal(fitViewportScale({ width: 390, height: 844 }, { width: 900, height: 422 }), 0.5)
+  assert.equal(fitViewportScale({ width: 390, height: 844 }, { width: 0, height: 0 }), 1)
+})
+
+run('the zoom ladder steps through Chromium levels and clamps at the ends', () => {
+  assert.equal(nextZoomLevel(1, 1), 1.1)
+  assert.equal(nextZoomLevel(1, -1), 0.9)
+  assert.equal(nextZoomLevel(5, 1), 5)
+  assert.equal(nextZoomLevel(0.25, -1), 0.25)
+  assert.equal(nextZoomLevel(1.05, 1), 1.1, 'an off-ladder value steps to the next rung')
 })
 
 console.log('browser shared tests passed')

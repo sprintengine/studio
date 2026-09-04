@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { BROWSER_MAX_RECENT_URLS } from '../../../../shared/browser'
+import { normalizeBrowserViewport } from '../../../../shared/browser-devices'
 import type {
   Workspace,
   WorkspaceId,
@@ -55,6 +56,8 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     if (typeof raw.url === 'string' && raw.url.length > 0 && raw.url.length <= MAX_URL_LENGTH) {
       tab.url = raw.url
     }
+    const viewport = normalizeBrowserViewport(raw.viewport)
+    if (viewport && viewport.mode !== 'fill') tab.viewport = viewport
     if (
       typeof raw.faviconUrl === 'string'
       && raw.faviconUrl.startsWith('data:image/')

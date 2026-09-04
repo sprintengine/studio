@@ -29,7 +29,11 @@ export type BrowserTabState = {
   canGoForward: boolean
   error: BrowserLoadError | null
   zoomFactor: number
+  colorScheme: 'system' | 'light' | 'dark'
+  devToolsOpen: boolean
 }
+
+export type BrowserClearResult = { ok: true } | { ok: false; message: string }
 
 export type BrowserRegisterInput = {
   tabId: string

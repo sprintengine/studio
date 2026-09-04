@@ -8,6 +8,7 @@ import type { AgentLaunchRecord } from './agent-launch'
 import type { BuildStamp } from './build-stamp'
 export type { BuildStamp } from './build-stamp'
 import type {
+  BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
   BrowserRegisterInput,
@@ -15,6 +16,7 @@ import type {
   BrowserTabState,
   LocalServer,
 } from './browser'
+import type { BrowserColorScheme } from './browser-devices'
 import type {
   FolderOpenRequest,
   FolderOpenResult,
@@ -2990,6 +2992,12 @@ export type ElectronApi = {
   browserReload: (tabId: string, ignoreCache?: boolean) => Promise<boolean>
   browserStop: (tabId: string) => Promise<boolean>
   browserOpenExternal: (tabId: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  browserZoomStep: (tabId: string, direction: 1 | -1 | 0) => Promise<boolean>
+  browserSetColorScheme: (tabId: string, scheme: BrowserColorScheme) => Promise<boolean>
+  browserOpenDevTools: (tabId: string) => Promise<boolean>
+  browserOpenWindow: (tabId: string) => Promise<boolean>
+  browserClearCookies: () => Promise<BrowserClearResult>
+  browserClearCache: () => Promise<BrowserClearResult>
   browserLocalServers: (workspaceId: string) => Promise<LocalServer[]>
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void

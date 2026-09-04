@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
   BROWSER_WEBPREFERENCES,
@@ -6,13 +6,21 @@ import {
   type BrowserHostKey,
   type BrowserTabState,
 } from '../../../../../../shared/browser'
+import {
+  DEFAULT_BROWSER_DEVICE_PRESET_ID,
+  fitViewportScale,
+  presetViewport,
+  type BrowserViewport,
+} from '../../../../../../shared/browser-devices'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import type { WorkspacePaneTab } from '../../../../types/workspace'
 import type { EmbeddedWebviewElement } from '../../../../types/webview'
 import { showToast } from '../../../../store/toastStore'
+import { BrowserDeviceToolbar } from './BrowserDeviceToolbar'
 import { BrowserEmptyState } from './BrowserEmptyState'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
+import { BrowserViewMenu } from './BrowserViewMenu'
 
 // The browser tab (browser-pane epic): a `<webview>` guest the renderer mounts
 // and main drives. The element is created once per tab and never re-keyed —
@@ -21,8 +29,16 @@ import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 // here comes from (`onBrowserState`). Registration hands main the guest's
 // WebContents id on `dom-ready`; main refuses anything that is not a guest of
 // this window.
+//
+// Device emulation is sizing only (epic decision 7): with a viewport set, the
+// guest is laid out at that CSS size and CSS-scaled to fit the tab body on a
+// `bg.app` canvas behind a 1px frame.
 
 const NO_RECENT_URLS: readonly string[] = []
+const FILL: BrowserViewport = { mode: 'fill' }
+// Breathing room around a framed viewport, so the frame reads as a device
+// on a canvas rather than a page cut off at the edges.
+const CANVAS_INSET_PX = 12
 
 let configPromise: Promise<BrowserConfig> | null = null
 function browserConfig(): Promise<BrowserConfig> {
@@ -57,6 +73,15 @@ function keyToCode(key: string): string {
   return key
 }
 
+// The zoom chords, shared by the guest (via host-key) and the chrome.
+function zoomDirectionFor(key: string, primary: boolean): 1 | -1 | 0 | null {
+  if (!primary) return null
+  if (key === '=' || key === '+') return 1
+  if (key === '-') return -1
+  if (key === '0') return 0
+  return null
+}
+
 type BrowserTabProps = {
   workspaceId: string
   tab: WorkspacePaneTab
@@ -66,8 +91,10 @@ type BrowserTabProps = {
 export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const webviewRef = useRef<EmbeddedWebviewElement | null>(null)
   const toolbarRef = useRef<BrowserToolbarHandle | null>(null)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
   const [config, setConfig] = useState<BrowserConfig | null>(null)
   const [state, setState] = useState<BrowserTabState | null>(null)
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   // The URL the guest starts on. Read once: a later change to the tab record
   // (main reporting a navigation) must not re-navigate the guest.
   const initialSrcRef = useRef(tab.url && tab.url !== 'about:blank' ? tab.url : 'about:blank')
@@ -80,6 +107,9 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const recentUrls = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.paneState?.recentUrls ?? NO_RECENT_URLS,
   )
+  const viewport: BrowserViewport = tab.viewport ?? FILL
+  const isPrimary = (event: { metaKey: boolean; ctrlKey: boolean }) =>
+    window.api.platform === 'darwin' ? event.metaKey : event.ctrlKey
 
   useEffect(() => {
     let cancelled = false
@@ -114,11 +144,17 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         }
       })
     }
+    // A (re)attach is a new WebContents: forget the old registration so main
+    // adopts the new guest instead of driving a dead one.
+    const reattach = () => {
+      registeredRef.current = false
+      register()
+    }
     element.addEventListener('dom-ready', register)
-    element.addEventListener('did-attach', register)
+    element.addEventListener('did-attach', reattach)
     return () => {
       element.removeEventListener('dom-ready', register)
-      element.removeEventListener('did-attach', register)
+      element.removeEventListener('did-attach', reattach)
       if (registeredRef.current) {
         registeredRef.current = false
         void window.api.browserUnregister(tabId)
@@ -143,20 +179,43 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     })
   }, [notePaneRecentUrl, tab.faviconUrl, tab.id, tab.title, tab.url, updatePaneTab, workspaceId])
 
-  // Chords typed into the guest: Primary+L lands in the address field; the
-  // app-level ones replay on this window.
+  // Chords typed into the guest: Primary+L lands in the address field, the
+  // zoom chords zoom this tab, the app-level ones replay on this window.
   useEffect(() => {
     const offFocus = window.api.onBrowserFocusUrl((payload) => {
       if (payload.tabId === tab.id) toolbarRef.current?.focusAddress()
     })
     const offKey = window.api.onBrowserHostKey((payload) => {
-      if (payload.tabId === tab.id) replayHostKey(payload.key)
+      if (payload.tabId !== tab.id) return
+      const zoom = zoomDirectionFor(payload.key.key, window.api.platform === 'darwin' ? payload.key.meta : payload.key.ctrl)
+      if (zoom !== null) {
+        void window.api.browserZoomStep(tab.id, zoom)
+        return
+      }
+      replayHostKey(payload.key)
     })
     return () => {
       offFocus()
       offKey()
     }
   }, [tab.id])
+
+  // The canvas the framed viewport fits into.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || viewport.mode === 'fill') return
+    const measure = () => {
+      const rect = canvas.getBoundingClientRect()
+      setCanvasSize({
+        width: Math.max(0, rect.width - CANVAS_INSET_PX * 2),
+        height: Math.max(0, rect.height - CANVAS_INSET_PX * 2),
+      })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [viewport.mode])
 
   const navigate = useCallback(
     (url: string) => {
@@ -165,10 +224,51 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     [tab.id],
   )
 
+  const setViewport = useCallback(
+    (next: BrowserViewport) => {
+      updatePaneTab(workspaceId, tab.id, { viewport: next.mode === 'fill' ? undefined : next })
+    },
+    [tab.id, updatePaneTab, workspaceId],
+  )
+
   const showEmpty = !state?.error && (!state?.url || state.url === 'about:blank')
+  const framed = viewport.mode !== 'fill'
+  const scale = framed ? fitViewportScale(viewport, canvasSize) : 1
+  // The guest sits in ONE frame element in both modes; only the frame's
+  // geometry changes. Moving a <webview> to another parent detaches and
+  // re-attaches the guest, which reloads it from its initial `src` and gives
+  // it a new WebContents main no longer knows.
+  const frameStyle: React.CSSProperties = framed
+    ? {
+        width: Math.round(viewport.width * scale),
+        height: Math.round(viewport.height * scale),
+        left: CANVAS_INSET_PX + Math.max(0, (canvasSize.width - viewport.width * scale) / 2),
+        top: CANVAS_INSET_PX + Math.max(0, (canvasSize.height - viewport.height * scale) / 2),
+      }
+    : { inset: 0 }
+  const guestStyle: React.CSSProperties = framed
+    ? {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: viewport.width,
+        height: viewport.height,
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        display: 'flex',
+      }
+    : { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'flex' }
 
   return (
-    <div className="flex h-full w-full flex-col bg-[color:var(--bg-app)]">
+    <div
+      className="flex h-full w-full flex-col bg-[color:var(--bg-app)]"
+      onKeyDown={(event) => {
+        const zoom = zoomDirectionFor(event.key, isPrimary(event))
+        if (zoom === null) return
+        event.preventDefault()
+        void window.api.browserZoomStep(tab.id, zoom)
+      }}
+    >
       <BrowserToolbar
         ref={toolbarRef}
         state={state}
@@ -182,23 +282,74 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
             if (!result.ok) showToast({ tone: 'warn', title: result.message })
           })
         }}
-      />
-      <div className="relative min-h-0 flex-1">
-        {config ? (
-          <webview
-            ref={webviewRef as React.Ref<EmbeddedWebviewElement>}
-            src={initialSrcRef.current}
-            partition={config.partition}
-            webpreferences={BROWSER_WEBPREFERENCES}
-            allowpopups="true"
-            // Hidden under the empty state or the error page while either
-            // shows, but never `visibility:hidden`: macOS blanks a hidden
-            // guest for good.
-            className="absolute inset-0 h-full w-full"
-            style={{ display: 'flex' }}
-            aria-label={`Web page for ${tab.title ?? 'this tab'}`}
-            tabIndex={active ? 0 : -1}
+        trailing={
+          <BrowserViewMenu
+            state={state}
+            deviceToolbarOn={viewport.mode !== 'fill'}
+            onHardReload={() => void window.api.browserReload(tab.id, true)}
+            onOpenDevTools={() => void window.api.browserOpenDevTools(tab.id)}
+            onOpenWindow={() => void window.api.browserOpenWindow(tab.id)}
+            onToggleDeviceToolbar={() =>
+              setViewport(viewport.mode === 'fill' ? presetViewport(DEFAULT_BROWSER_DEVICE_PRESET_ID) : FILL)
+            }
+            onColorScheme={(scheme) => void window.api.browserSetColorScheme(tab.id, scheme)}
+            onZoom={(direction) => void window.api.browserZoomStep(tab.id, direction)}
+            onClearCookies={() => {
+              void window.api.browserClearCookies().then((result) => {
+                if (!result.ok) {
+                  showToast({ tone: 'error', title: 'Cookies were not cleared', description: result.message })
+                  return
+                }
+                showToast({ tone: 'good', title: 'Cookies cleared' })
+                void window.api.browserReload(tab.id)
+              })
+            }}
+            onClearCache={() => {
+              void window.api.browserClearCache().then((result) => {
+                if (!result.ok) {
+                  showToast({ tone: 'error', title: 'The cache was not cleared', description: result.message })
+                  return
+                }
+                showToast({ tone: 'good', title: 'Cache cleared' })
+                void window.api.browserReload(tab.id, true)
+              })
+            }}
           />
+        }
+      />
+      {viewport.mode !== 'fill' ? (
+        <BrowserDeviceToolbar viewport={viewport} onChange={setViewport} onClose={() => setViewport(FILL)} />
+      ) : null}
+      <div ref={canvasRef} className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          className={`absolute overflow-hidden ${
+            framed ? 'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]' : ''
+          }`}
+          style={frameStyle}
+        >
+          {config ? (
+            <webview
+              ref={webviewRef as React.Ref<EmbeddedWebviewElement>}
+              src={initialSrcRef.current}
+              partition={config.partition}
+              webpreferences={BROWSER_WEBPREFERENCES}
+              allowpopups="true"
+              // Hidden under the empty state or the error page while either
+              // shows, but never `visibility:hidden`: macOS blanks a hidden
+              // guest for good.
+              style={guestStyle}
+              aria-label={`Web page for ${tab.title ?? 'this tab'}`}
+              tabIndex={active ? 0 : -1}
+            />
+          ) : null}
+        </div>
+        {framed ? (
+          <span
+            aria-hidden="true"
+            className="absolute bottom-1 right-2 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
+          >
+            {viewport.width} × {viewport.height}
+          </span>
         ) : null}
         {showEmpty ? (
           <div className="absolute inset-0">

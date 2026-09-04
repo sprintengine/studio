@@ -1,4 +1,5 @@
 import type { IJsonModel } from 'flexlayout-react'
+import type { BrowserViewport } from '../../../shared/browser-devices'
 import type {
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
@@ -914,6 +915,8 @@ export type WorkspacePaneTab = {
   terminalId?: string
   // Diff only: the file the viewer opened on, and which side.
   diff?: { focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
+  // Browser only: the device toolbar's viewport; absent means fill.
+  viewport?: BrowserViewport
 }
 
 export type WorkspacePaneState = {

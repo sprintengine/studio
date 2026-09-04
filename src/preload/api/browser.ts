@@ -1,5 +1,6 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
   BrowserRegisterInput,
@@ -7,6 +8,7 @@ import type {
   BrowserTabState,
   LocalServer,
 } from '../../shared/browser'
+import type { BrowserColorScheme } from '../../shared/browser-devices'
 import type { ElectronApi } from '../../shared/electron-api'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -30,6 +32,14 @@ export const browserApi = {
   browserStop: (tabId: string): Promise<boolean> => ipcRenderer.invoke('browser:stop', { tabId }),
   browserOpenExternal: (tabId: string): Promise<{ ok: true } | { ok: false; message: string }> =>
     ipcRenderer.invoke('browser:open-external', { tabId }),
+  browserZoomStep: (tabId: string, direction: 1 | -1 | 0): Promise<boolean> =>
+    ipcRenderer.invoke('browser:zoom-step', { tabId, direction }),
+  browserSetColorScheme: (tabId: string, scheme: BrowserColorScheme): Promise<boolean> =>
+    ipcRenderer.invoke('browser:set-color-scheme', { tabId, scheme }),
+  browserOpenDevTools: (tabId: string): Promise<boolean> => ipcRenderer.invoke('browser:open-devtools', { tabId }),
+  browserOpenWindow: (tabId: string): Promise<boolean> => ipcRenderer.invoke('browser:open-window', { tabId }),
+  browserClearCookies: (): Promise<BrowserClearResult> => ipcRenderer.invoke('browser:clear-cookies'),
+  browserClearCache: (): Promise<BrowserClearResult> => ipcRenderer.invoke('browser:clear-cache'),
   browserLocalServers: (workspaceId: string): Promise<LocalServer[]> =>
     ipcRenderer.invoke('browser:local-servers', { workspaceId }),
   onBrowserState: (cb: (state: BrowserTabState) => void): (() => void) => subscribe('browser:state', cb),
@@ -49,6 +59,12 @@ export const browserApi = {
   | 'browserReload'
   | 'browserStop'
   | 'browserOpenExternal'
+  | 'browserZoomStep'
+  | 'browserSetColorScheme'
+  | 'browserOpenDevTools'
+  | 'browserOpenWindow'
+  | 'browserClearCookies'
+  | 'browserClearCache'
   | 'browserLocalServers'
   | 'onBrowserState'
   | 'onBrowserFocusUrl'

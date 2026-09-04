@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
-import { net, session, shell, webContents, type Session, type WebContents } from 'electron'
+import { BrowserWindow, net, session, shell, webContents, type Session, type WebContents } from 'electron'
 import {
   BROWSER_PARTITION,
+  type BrowserClearResult,
   type BrowserHostKey,
   type BrowserLoadError,
   type BrowserRegisterInput,
@@ -9,6 +10,7 @@ import {
   type BrowserTabState,
   type LocalServer,
 } from '../../shared/browser'
+import { BROWSER_ZOOM_LEVELS, nextZoomLevel, type BrowserColorScheme } from '../../shared/browser-devices'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
 
@@ -66,6 +68,38 @@ type BrowserTab = {
   host: WebContents
   state: BrowserTabState
   dispose: () => void
+}
+
+// Appearance emulation is a DevTools-protocol feature (there is no per-guest
+// Electron API for prefers-color-scheme), so a tab whose scheme is not
+// `system` holds an in-process debugger session. Chromium allows one client
+// per target: while the person has DevTools open the session is released and
+// the emulation lapses; it is re-applied when DevTools closes.
+async function applyColorScheme(tab: BrowserTab): Promise<void> {
+  const { wc } = tab
+  if (wc.isDestroyed()) return
+  const scheme = tab.state.colorScheme
+  if (scheme === 'system') {
+    if (wc.debugger.isAttached()) {
+      try {
+        await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: '' }] })
+      } catch {
+        // The target may be mid-navigation; the reset is best-effort.
+      }
+      wc.debugger.detach()
+    }
+    return
+  }
+  if (wc.isDevToolsOpened()) return
+  try {
+    if (!wc.debugger.isAttached()) wc.debugger.attach('1.3')
+    await wc.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-color-scheme', value: scheme }],
+    })
+  } catch {
+    // Another debugger owns the target (DevTools racing us); the scheme stays
+    // recorded and is applied on the next re-attach.
+  }
 }
 
 function execFileTextOrNull(command: string, args: string[]): Promise<string | null> {
@@ -232,7 +266,21 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       }
       patch(tab, { url: details.url, title: '', faviconUrl: null, error: null, loading: true })
     })
-    on('did-navigate', () => patch(tab, { ...readNavigation(wc), error: null }))
+    on('did-navigate', () => {
+      patch(tab, { ...readNavigation(wc), error: null })
+      // A new document loses the emulated media; re-assert the scheme.
+      if (tab.state.colorScheme !== 'system') void applyColorScheme(tab)
+    })
+    on('devtools-opened', () => {
+      // DevTools takes the debugger slot; let go of ours and say so.
+      if (wc.debugger.isAttached()) wc.debugger.detach()
+      patch(tab, { devToolsOpen: true })
+    })
+    on('devtools-closed', () => {
+      patch(tab, { devToolsOpen: false })
+      void applyColorScheme(tab)
+    })
+    on('zoom-changed', () => patch(tab, { zoomFactor: wc.getZoomFactor() }))
     on('did-navigate-in-page', () => patch(tab, { ...readNavigation(wc) }))
     on('page-title-updated', (_event: unknown, title: string) => patch(tab, { title }))
     on('page-favicon-updated', (_event: unknown, favicons: string[]) => {
@@ -376,6 +424,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           loading: wc.isLoading(),
           error: null,
           zoomFactor: 1,
+          colorScheme: 'system',
+          devToolsOpen: wc.isDevToolsOpened(),
         },
         dispose: () => {},
       }
@@ -448,6 +498,94 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       tab.wc.stop()
       patch(tab, { loading: false })
       return true
+    },
+
+    setZoom(tabId: string, factor: number): boolean {
+      const tab = requireTab(tabId)
+      if (!tab) return false
+      const clamped = BROWSER_ZOOM_LEVELS.includes(factor) ? factor : 1
+      tab.wc.setZoomFactor(clamped)
+      patch(tab, { zoomFactor: clamped })
+      return true
+    },
+
+    zoomStep(tabId: string, direction: 1 | -1 | 0): boolean {
+      const tab = requireTab(tabId)
+      if (!tab) return false
+      const next = direction === 0 ? 1 : nextZoomLevel(tab.wc.getZoomFactor(), direction)
+      tab.wc.setZoomFactor(next)
+      patch(tab, { zoomFactor: next })
+      return true
+    },
+
+    setColorScheme(tabId: string, scheme: BrowserColorScheme): boolean {
+      const tab = requireTab(tabId)
+      if (!tab) return false
+      patch(tab, { colorScheme: scheme })
+      void applyColorScheme(tab)
+      return true
+    },
+
+    openDevTools(tabId: string): boolean {
+      const tab = requireTab(tabId)
+      if (!tab) return false
+      if (tab.wc.isDevToolsOpened()) {
+        tab.wc.devToolsWebContents?.focus()
+        return true
+      }
+      tab.wc.openDevTools({ mode: 'detach' })
+      return true
+    },
+
+    /**
+     * The page in its own window: a plain Chromium window on the same
+     * partition, so a sign-in in one is a sign-in in both. Not a mirror of the
+     * pane's guest — a second, independent view of the same URL.
+     */
+    openWindow(tabId: string): boolean {
+      const tab = requireTab(tabId)
+      if (!tab) return false
+      const url = tab.state.url
+      if (!/^https?:\/\//i.test(url)) return false
+      const win = new BrowserWindow({
+        width: 1100,
+        height: 760,
+        minWidth: 320,
+        minHeight: 240,
+        title: tab.state.title || url,
+        webPreferences: {
+          partition: BROWSER_PARTITION,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      })
+      win.webContents.setWindowOpenHandler((details) => {
+        if (/^https?:\/\//i.test(details.url)) void win.webContents.loadURL(details.url)
+        return { action: 'deny' }
+      })
+      void win.loadURL(url)
+      return true
+    },
+
+    async clearCookies(): Promise<BrowserClearResult> {
+      try {
+        await ensureSession().clearStorageData({
+          storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers'],
+        })
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Could not clear cookies.' }
+      }
+    },
+
+    async clearCache(): Promise<BrowserClearResult> {
+      try {
+        await ensureSession().clearCache()
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Could not clear the cache.' }
+      }
     },
 
     /** The one route from the pane to the system browser: the explicit action. */
