@@ -13,9 +13,6 @@ import type { ReactNode } from 'react'
 const MICRO_CHIP_TONES = {
   // A fact about the option: hairline, subtle ink.
   neutral: 'border-[color:var(--border-default)] text-[color:var(--text-subtle)]',
-  // A good-news mark (the sidebar's unseen "Done"): the tone carried by the
-  // hairline AND the ink, never by colour alone — the word does the rest.
-  good: 'border-[color:var(--tone-good)] font-medium text-[color:var(--tone-good)]',
 } as const
 
 /** The one micro chip: `radius.chip`, hairline, micro type. Every bordered micro mark renders through it. */

@@ -265,6 +265,14 @@ export type PluginAgentStateEventSpec = {
   // maps to phase `idle` — the flag is the only way to tell a crash from a
   // clean finish).
   failure?: boolean
+  // This event opens (`start`) or closes (`stop`) a piece of background work
+  // the session still owns — Claude's SubagentStart / SubagentStop. The runtime
+  // counts them per session, and a turn end that arrives with work still open
+  // is NOT a turn end: the CLI has parked the model on "waiting for N
+  // background agents" and will re-invoke it when they finish, so the session
+  // stays working until the Stop that arrives with nothing outstanding
+  // (owner ruling 2026-09-04 — the sidebar's finished mark was firing here).
+  background?: 'start' | 'stop'
 }
 
 // Where `registration.path` resolves from: the workspace root (default) or the

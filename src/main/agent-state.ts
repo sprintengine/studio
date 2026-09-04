@@ -49,7 +49,9 @@ export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-st
 
 export type AgentStateEventResolution =
   | { action: 'drop' }
-  | { action: 'apply'; phase: AgentPhase; turnEnd: boolean; turnFailure: boolean }
+  | { action: 'apply'; phase: AgentPhase; turnEnd: boolean; turnFailure: boolean; background?: 'start' | 'stop' }
+
+export type AppliedAgentStateEvent = Extract<AgentStateEventResolution, { action: 'apply' }>
 
 // Read the frame field a discriminator NAMES, never a hardcoded one, so a
 // widened field enum can't silently misread.
@@ -99,6 +101,7 @@ export function resolveAgentStateEvent(
             phase: entry.phase,
             turnEnd: entry.turnEnd === true,
             turnFailure,
+            ...(entry.background ? { background: entry.background } : {}),
           }
         }
         return { action: 'drop' }
@@ -109,6 +112,7 @@ export function resolveAgentStateEvent(
       phase: entry.phase,
       turnEnd: entry.turnEnd === true,
       turnFailure,
+      ...(entry.background ? { background: entry.background } : {}),
     }
   }
   // No spec (a CLI outside the manifest capability whose reporter still emits
@@ -116,6 +120,42 @@ export function resolveAgentStateEvent(
   // turn-end semantics — those are manifest data only.
   if (frame.phase) return { action: 'apply', phase: frame.phase, turnEnd: false, turnFailure: false }
   return { action: 'drop' }
+}
+
+// =============================================================================
+// Background work (pure; the runtime keeps the count on the session)
+//
+// Claude Code fires `Stop` the moment the MODEL stops — including when it has
+// parked itself on "Waiting for N background agents to finish" and will be
+// re-invoked, with no prompt from the person, the moment they do. Read as a
+// turn end, that Stop marked the sidebar row finished and finalized runs whose
+// work was still in flight (owner, 2026-09-04). The manifest's `background`
+// flag names the events that open and close such work (SubagentStart /
+// SubagentStop); the count of what is still open decides whether a turn end
+// is real.
+//
+// A held turn end lands on `tool_use` — the session is inside a tool whose
+// result has not come back — with `turnEnd` false, so no consumer finalizes.
+// A FAILED turn end is never held: an aborted or crashed turn is over whatever
+// was outstanding. The count clamps at zero (a stop with nothing open is a
+// subagent that started before the reporter was installed) and the runtime
+// resets it on a session start (a fresh process owns nothing from its previous
+// life) and on a stall (the watchdog found the pane quiet, which a live
+// background agent's spinner never is — so the count had drifted).
+// =============================================================================
+
+export function applyBackgroundWork(outstanding: number, background: 'start' | 'stop' | undefined): number {
+  if (background === 'start') return outstanding + 1
+  if (background === 'stop') return Math.max(0, outstanding - 1)
+  return outstanding
+}
+
+export function holdTurnEndForBackgroundWork(
+  resolution: AppliedAgentStateEvent,
+  outstanding: number
+): AppliedAgentStateEvent {
+  if (!resolution.turnEnd || resolution.turnFailure || outstanding <= 0) return resolution
+  return { ...resolution, phase: 'tool_use', turnEnd: false }
 }
 
 // The registration subset of a spec's event table: what actually gets written

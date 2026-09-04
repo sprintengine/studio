@@ -19,7 +19,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { applyBackgroundWork, deriveActivityFromPhase, evaluateAgentStall, holdTurnEndForBackgroundWork, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -1941,6 +1941,10 @@ function runAgentStallCheck(session: TerminalSession): void {
   if (decision.action !== 'stalled') return
 
   session.agentState = { phase: 'stalled', since: Date.now(), source: 'lifecycle' }
+  // A live background agent keeps the parent's pane spinning, so a quiet pane
+  // means nothing is outstanding: whatever the count says, it has drifted (a
+  // lost SubagentStop), and left alone it would hold every future Stop.
+  session.backgroundWork = 0
   // stalled bridges to idle activity; suppress its broadcast and emit once.
   const derived = deriveActivityFromPhase('stalled', session.agentState.since)
   if (derived) setTerminalActivity(session, derived, { broadcast: false })
@@ -1957,14 +1961,14 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the event name, is what the session-lifecycle bookkeeping below keys on:
   // each CLI spells its events its own way ('SessionEnd' vs 'sessionEnd'), and
   // the manifest already normalizes that into the phase vocabulary.
-  const resolution = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
+  const resolved = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
 
   // Token accounting flush: a session-end frame (phase `exited`) fires while
   // the CLI shuts down and can race the pty exit (and the stale-frame guard
   // below), so snapshot the session's cumulative usage BEFORE the
   // liveness/ordering guards — this is the warm-source moment and must never
   // be dropped. Fire-and-forget.
-  if (session.sprintEngineStatePath && resolution.action === 'apply' && resolution.phase === 'exited') {
+  if (session.sprintEngineStatePath && resolved.action === 'apply' && resolved.phase === 'exited') {
     void sampleSprintSessionTokenUsage(session, 'session-end')
   }
 
@@ -1978,7 +1982,16 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // is not allow-listed — Claude's informational Notification types) drops
   // here: the prior phase stands, exactly as when the reporter used to filter
   // these client-side.
-  if (resolution.action !== 'apply') return
+  if (resolved.action !== 'apply') return
+
+  // Background work the session still owns (agent-state.ts): a session start
+  // owns nothing from its previous life; a `background` event opens or closes
+  // one piece; and a turn end that arrives with work still open is held as
+  // working — Claude fires Stop when it parks the model on "waiting for N
+  // background agents", and re-invokes it when they finish.
+  if (resolved.phase === 'starting') session.backgroundWork = 0
+  session.backgroundWork = applyBackgroundWork(session.backgroundWork ?? 0, resolved.background)
+  const resolution = holdTurnEndForBackgroundWork(resolved, session.backgroundWork)
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }

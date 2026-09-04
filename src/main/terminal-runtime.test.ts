@@ -159,6 +159,7 @@ async function main(): Promise<void> {
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
+    await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
@@ -2999,6 +3000,108 @@ async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeMod
   } finally {
     if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
     else process.env.MULTICODE_AGENT_ID = priorAgentId
+    await runtime.shutdown()
+  }
+}
+
+// A Stop that arrives while a subagent is still running is not a turn end.
+// Claude fires Stop when it parks the model on "Waiting for 1 background agent
+// to finish" and re-invokes it, promptless, when the agent is done; read
+// literally, that Stop marked the sidebar row finished and let a run finalize
+// mid-work (owner, 2026-09-04). The manifest's `background` events keep a
+// per-session count, and the runtime holds the turn end while it is open.
+async function assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-background-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+  })
+  const snapshotFor = (sessionId: string) =>
+    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId)
+  const events: AgentPhaseEvent[] = []
+  const unregister = runtime.registerAgentPhaseListener((event) => {
+    events.push(event)
+  })
+  const last = () => events[events.length - 1]
+
+  try {
+    const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-background',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-background',
+      agentId: 'agent-background',
+      agentName: 'Background',
+    })
+    assert.equal(spawn.ok, true, JSON.stringify(spawn))
+
+    const base = Date.now()
+    const frame = (event: string, ts: number): AgentStateFrame => ({
+      type: 'agent_state',
+      agentId: 'agent-background',
+      workspaceId: 'ws-background',
+      sessionId: null,
+      // The manifest owns the mapping; the reporter-asserted phase is ignored
+      // whenever the event resolves, so it is deliberately wrong here.
+      phase: 'idle',
+      event,
+      ts: base + ts,
+    })
+    const ingest = async (event: string, ts: number): Promise<void> => {
+      runtime.ingestAgentStateFrame(frame(event, ts))
+      await delay(5)
+    }
+
+    await ingest('UserPromptSubmit', 100)
+    await ingest('SubagentStart', 200)
+    await ingest('PostToolUse', 300)
+    // The model parks on the background agent: Stop fires, work is not done.
+    await ingest('Stop', 400)
+    assert.equal(last()?.event, 'Stop')
+    assert.equal(last()?.phase, 'tool_use', 'a Stop with a subagent outstanding is held as working')
+    assert.equal(last()?.turnEnd, false, 'and is not a turn end — nothing may finalize on it')
+    assert.equal(snapshotFor('sess-background')?.agentState?.phase, 'tool_use')
+    assert.equal(snapshotFor('sess-background')?.activity.kind, 'working', 'the sidebar clock keeps running')
+
+    // The agent finishes; the model is re-invoked and works to a real end.
+    await ingest('SubagentStop', 500)
+    assert.equal(last()?.phase, 'thinking', 'a subagent stopping is the parent resuming, never idle')
+    await ingest('PostToolUse', 600)
+    await ingest('Stop', 700)
+    assert.equal(last()?.phase, 'idle', 'with nothing outstanding the Stop is the turn end')
+    assert.equal(last()?.turnEnd, true)
+    assert.equal(snapshotFor('sess-background')?.activity.kind, 'idle')
+
+    // A synchronous subagent (start and stop inside one tool call) leaves
+    // nothing open; a stop with nothing open clamps rather than going negative.
+    await ingest('UserPromptSubmit', 800)
+    await ingest('SubagentStart', 810)
+    await ingest('SubagentStop', 820)
+    await ingest('SubagentStop', 830)
+    await ingest('Stop', 900)
+    assert.equal(last()?.phase, 'idle')
+    assert.equal(last()?.turnEnd, true, 'a balanced start/stop pair holds nothing')
+
+    // A fresh process owns nothing from its previous life: a SessionStart
+    // after an unmatched start resets the count, so the next Stop is real.
+    await ingest('UserPromptSubmit', 1000)
+    await ingest('SubagentStart', 1010)
+    await ingest('SessionStart', 1100)
+    await ingest('UserPromptSubmit', 1200)
+    await ingest('Stop', 1300)
+    assert.equal(last()?.turnEnd, true, 'a session start resets outstanding work')
+  } finally {
+    unregister()
+    runtime.ipcHandlers.killTerminal('sess-background')
     await runtime.shutdown()
   }
 }

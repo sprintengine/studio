@@ -110,6 +110,8 @@ test('accepts a valid agentStateSpec (hooks and plugin-file registrations)', () 
         { event: 'Notification', phase: 'awaiting_input', when: { field: 'notificationType', oneOf: ['permission_prompt'] } },
         { event: 'PreToolUse', phase: 'tool_use', register: false },
         { event: 'Stop', phase: 'idle', turnEnd: true },
+        { event: 'SubagentStart', phase: 'tool_use', background: 'start' },
+        { event: 'SubagentStop', phase: 'thinking', background: 'stop' },
       ],
     },
   })
@@ -138,6 +140,7 @@ test('rejects malformed agentStateSpec fields with precise paths', () => {
         { event: 'Stop', phase: 'idle', turnEnd: 'yes' },
         { event: 'Stop', phase: 'idle' },
         { event: 'Notification', phase: 'awaiting_input', when: { field: 'toolName', oneOf: [] } },
+        { event: 'SubagentStart', phase: 'tool_use', background: 'sideways' },
       ],
     },
   })
@@ -152,6 +155,7 @@ test('rejects malformed agentStateSpec fields with precise paths', () => {
   assert.ok(paths.includes('agentStateSpec.events[1].turnEnd'))
   assert.ok(paths.includes('agentStateSpec.events[2].event'), 'duplicate event must be rejected')
   assert.ok(paths.includes('agentStateSpec.events[3].when.field'))
+  assert.ok(paths.includes('agentStateSpec.events[4].background'), 'background must be start or stop')
 })
 
 test('requires a template for plugin-file registrations and events to be non-empty', () => {

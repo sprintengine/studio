@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   AttentionPulse,
   deriveUnseenCompletions,
+  doneRowClass,
   fleetMachineNamesOf,
   fleetPanesOf,
   groupKeyOf,
@@ -179,6 +180,8 @@ run('the attention flash is one-shot: nothing on first paint, and never on the w
   // sidebar paints must not flash; motion means "just changed".
   assert.equal(renderToStaticMarkup(<AttentionPulse active resetKey="w1" />), '')
   assert.equal(renderToStaticMarkup(<AttentionPulse active={false} resetKey="w1" />), '')
+  // The green twin obeys the same rule.
+  assert.equal(renderToStaticMarkup(<AttentionPulse active resetKey="w1" tone="good" />), '')
 })
 
 run('fleetMachineNamesOf finds fleet-terminal tabs anywhere in the layout, deduplicated', () => {
@@ -267,7 +270,7 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
   assert.deepEqual(provenanceMachinesOf(mounted), ['Mini'], 'but still says where the pane lives')
 })
 
-run('the Done chip marks a hook-reported turn that finished while the row was not active', () => {
+run('the green row marks a hook-reported turn that finished while the row was not active', () => {
   const settled = new Set(['w1', 'w2', 'w3'])
   // w1 and w2 stopped; w2 is the active row so the person saw it; w3 is still
   // working; w4 stopped but no hook-settled session is left (killed).
@@ -288,16 +291,38 @@ run('the Done chip marks a hook-reported turn that finished while the row was no
     activeWorkspaceId: 'w1',
   })
   assert.equal(cleared.size, 0)
+  // Back to work clears it too — a parked model that its background agent
+  // re-invoked is not finished — and the mark is earned again at the real end.
+  const resumed = deriveUnseenCompletions({
+    previous: next,
+    workingSinceBefore: { w1: null },
+    workingSinceNow: { w1: 500 },
+    settledWorkspaceIds: settled,
+    activeWorkspaceId: 'w2',
+  })
+  assert.equal(resumed.size, 0, 'a row that resumed work is no longer finished')
+  const finishedAgain = deriveUnseenCompletions({
+    previous: resumed,
+    workingSinceBefore: { w1: 500 },
+    workingSinceNow: { w1: null },
+    settledWorkspaceIds: settled,
+    activeWorkspaceId: 'w2',
+  })
+  assert.deepEqual([...finishedAgain], ['w1'], 'and earns the mark again when that turn ends')
   // Hooks only: a lifecycle stamp is not a settled turn, and a dead process is not either.
   assert.equal(isHookSettledSession({ processAlive: true, agentState: { phase: 'idle', source: 'hook' } }), true)
   assert.equal(isHookSettledSession({ processAlive: true, agentState: { phase: 'idle', source: 'lifecycle' } }), false)
   assert.equal(isHookSettledSession({ processAlive: false, agentState: { phase: 'idle', source: 'hook' } }), false)
 
-  const markup = meta({ unseenDone: true })
-  assert.match(markup, />Done</, 'the chip says the word')
-  assert.match(markup, /--tone-good/, 'in the good tone')
-  assert.match(markup, /rounded-xs border/, 'in the kit’s chip shape')
-  assert.doesNotMatch(meta({}), />Done</)
+  // The mark is the row's whole surface in the good tone — fill, ring and
+  // title ink, the needs-input treatment in green — not a chip on line 2.
+  const resting = doneRowClass(false)
+  assert.match(resting, /--tone-good-faint/, 'the 10% wash, one notch under the gold row\'s soft fill')
+  assert.doesNotMatch(resting, /--tone-good-soft/, 'never the chip-strength fill on a whole row')
+  assert.match(resting, /ring-1 ring-inset ring-\[color:var\(--tone-good-edge\)\]/, 'ring at edge strength, not full tone')
+  assert.match(resting, /--tone-good-on-tint/, 'title in good ink that clears AA over the fill')
+  assert.match(doneRowClass(true), /ring-2 ring-inset/, 'the selected row keeps the heavier edge')
+  assert.doesNotMatch(meta({}), />Done</, 'line 2 no longer carries a chip')
 })
 
 if (failures > 0) {

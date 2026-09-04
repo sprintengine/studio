@@ -112,7 +112,7 @@
       { "event": "PostToolUse", "matcher": "*", "phase": "thinking" },
       { "event": "PermissionRequest", "phase": "awaiting_input" },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
-      { "event": "SubagentStop", "phase": "idle" }
+      { "event": "SubagentStop", "phase": "thinking" }
     ]
   },
   "detect": {

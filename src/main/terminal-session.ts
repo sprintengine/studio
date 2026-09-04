@@ -91,6 +91,11 @@ export type TerminalSession = {
   // stop frame, a SessionStart frame (a fresh/resumed process has no timer
   // from its previous life), or naturally by expiry.
   pendingWakeupAt?: number | null
+  // Background work the agent still owns — subagents started and not yet
+  // stopped, per the manifest's `background` events. A turn end that arrives
+  // while this is above zero is held as working (agent-state.ts,
+  // holdTurnEndForBackgroundWork). Reset on a session start and on a stall.
+  backgroundWork?: number
   outputChunks: string[]
   outputChunkBytes: number[]
   outputChunkStart: number

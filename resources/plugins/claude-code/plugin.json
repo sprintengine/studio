@@ -112,7 +112,8 @@
         "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
       },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
-      { "event": "SubagentStop", "phase": "idle" },
+      { "event": "SubagentStart", "phase": "tool_use", "background": "start" },
+      { "event": "SubagentStop", "phase": "thinking", "background": "stop" },
       { "event": "SessionEnd", "phase": "exited" }
     ]
   },

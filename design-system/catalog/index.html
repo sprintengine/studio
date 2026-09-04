@@ -80,6 +80,8 @@
   --sem-color-status-good-soft: rgba(21, 127, 55, 0.20);
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
+  --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
+  --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
@@ -177,6 +179,8 @@
   --sem-color-status-good-soft: rgba(48, 208, 88, 0.18);
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
+  --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
+  --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
@@ -220,6 +224,8 @@
   --sem-color-status-good-soft: rgba(48, 208, 88, 0.18);
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
+  --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
+  --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
@@ -260,6 +266,8 @@
   --sem-color-status-good-soft: rgba(21, 127, 55, 0.20);
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
+  --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
+  --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
@@ -2577,12 +2585,115 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   height: var(--sem-icon-size-sm);
 }
 
+/* ── Attention ───────────────────────────────────────────────────────────
+ * The two things a row can say that outrank selection: an agent on it is
+ * waiting for the person (`--needs-input`), or it finished while they were
+ * looking elsewhere and they have not opened it since (`--finished`). Each
+ * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
+ * the title in the tone's ink — because a dot or a chip beside an otherwise
+ * quiet row is the weakest possible carrier for the one state that actually
+ * wants the person to look (owner ruling 2026-09-04, twice: first the
+ * needs-input dot, then the "Done" chip).
+ *
+ * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
+ * in this system (the leading gutter belongs to the cursor and to identity),
+ * and `box-shadow` inset draws it without shifting the row's geometry.
+ *
+ * `--finished` is one notch under `--needs-input` by construction: it asks
+ * for a look, not an answer, so its fill is `status.good-faint` rather than
+ * `-soft` and its ring is `status.good-edge` rather than the full tone.
+ * When a row is both, needs-input wins.
+ *
+ * Both hold until the person opens the row — a finished row clears the moment
+ * it becomes the selected one — and both are colour PLUS words: the trailing
+ * slot or a visually-hidden clause says "needs input" / "finished" in text. */
+.ds-list-row--needs-input {
+  background: var(--sem-color-status-warn-soft);
+  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-list-row--needs-input:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-list-row--finished {
+  background: var(--sem-color-status-good-faint);
+  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
+  color: var(--sem-color-status-good);
+}
+
+.ds-list-row--finished:hover {
+  background: var(--sem-color-status-good-faint);
+}
+
+/* Selection reads underneath: the pane's one selected row keeps a heavier
+ * edge, so it stays findable without inventing a second gold or green. */
+.ds-list-row--needs-input.ds-list-row--selected {
+  background: var(--sem-color-status-warn-soft);
+  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-list-row--finished.ds-list-row--selected {
+  background: var(--sem-color-status-good-faint);
+  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
+  color: var(--sem-color-status-good);
+}
+
+.ds-list-row--needs-input .ds-list-row-supporting,
+.ds-list-row--finished .ds-list-row-supporting,
+.ds-list-row--needs-input .ds-list-row-trailing,
+.ds-list-row--finished .ds-list-row-trailing {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* The one-shot flash a row plays as it ENTERS either state — "just changed",
+ * the second of the two things motion may mean (see liveness). It paints in
+ * the tone the row is already wearing, plays once, and stops: what keeps the
+ * row loud while it waits is the ink above, never a loop. Painted on a
+ * pointer-inert overlay so replaying it never remounts the row. */
+.ds-list-row-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: ds-list-row-flash var(--sem-motion-duration-pulse) var(--sem-motion-ease-standard) 1;
+}
+
+.ds-list-row--needs-input .ds-list-row-flash {
+  --ds-row-flash-tint: var(--sem-color-status-warn);
+  --ds-row-flash-fill: var(--sem-color-status-warn-soft);
+}
+
+.ds-list-row--finished .ds-list-row-flash {
+  --ds-row-flash-tint: var(--sem-color-status-good);
+  --ds-row-flash-fill: var(--sem-color-status-good-soft);
+}
+
+@keyframes ds-list-row-flash {
+  0% {
+    background: var(--ds-row-flash-fill);
+    box-shadow: inset 0 0 0 1px var(--ds-row-flash-tint);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 /* Reduced motion removes the fade, never the reveal itself — the actions
- * must still become available. */
+ * must still become available. The attention flash drops entirely: the
+ * fill, ring and ink already carry the state. */
 @media (prefers-reduced-motion: reduce) {
   .ds-list-row,
   .ds-list-row-actions {
     transition: none;
+  }
+
+  .ds-list-row-flash {
+    animation: none;
   }
 }
 
@@ -7437,6 +7548,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-soft</code><code class="catalog-token-value">rgba(21, 127, 55, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft success fill for banners and chips. Success banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-warn-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-warn-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.warn-soft</code><code class="catalog-token-value">rgba(204, 132, 0, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft warning fill for banners and chips. Warning banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger-soft</code><code class="catalog-token-value">rgba(220, 40, 40, 0.16)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft error fill for banners and chips. Error banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-faint)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-faint)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-faint</code><code class="catalog-token-value">rgba(21, 127, 55, 0.10)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">The quietest success fill: a wash for a whole row that has finished while the person was elsewhere. list-row --finished: the row-wide wash under a good-edge ring. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable. <strong>Do not:</strong> Chips, banners, or anything smaller than a row — those take good-soft. Never as a hover or selection fill.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-edge)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-edge)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-edge</code><code class="catalog-token-value">rgba(21, 127, 55, 0.55)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Success ring at edge strength: the good tone let down so a 1px ring reads as an edge, not a wire. list-row --finished: the inset ring around a finished row. Full-strength status.good is for marks and ink; on a hairline around a whole row it out-shouts the needs-input gold it is meant to sit under. <strong>Do not:</strong> Text, icons, dots, or a focus ring — ink stays full strength, and focus is border.focus.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-overlay-scrim)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-overlay-scrim)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.overlay.scrim</code><code class="catalog-token-value">rgba(20, 24, 28, 0.42)</code><span class="catalog-badge">overlay</span></p><p class="catalog-token-meta">Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim. The backdrop layer behind modals, dialogs, and drawers. <strong>Do not:</strong> Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.</p></div></div>
 </div>
 <div id="foundations-type" class="catalog-view">
@@ -14064,6 +14177,40 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       </button>
     </div>
 
+    <div class="demo-pane">
+      <p class="demo-pane-title">Attention — the row is the mark; gold outranks green</p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input">
+        <span class="ds-list-row-flash" aria-hidden="true"></span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">There are a couple of branches</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-flash" aria-hidden="true"></span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">tailscale connection lost</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">focus border chats</span>
+          <span class="ds-list-row-supporting">main</span>
+        </span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">This is what is displayed whenever</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">8m</span>
+      </button>
+    </div>
+
     <div class="demo-pane demo-pane--narrow">
       <p class="demo-pane-title">Narrow — long lines truncate</p>
       <div class="ds-list-row-host" data-actions="2">
@@ -14224,6 +14371,40 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       </button>
     </div>
 
+    <div class="demo-pane">
+      <p class="demo-pane-title">Attention — the row is the mark; gold outranks green</p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input">
+        <span class="ds-list-row-flash" aria-hidden="true"></span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">There are a couple of branches</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-flash" aria-hidden="true"></span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">tailscale connection lost</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">focus border chats</span>
+          <span class="ds-list-row-supporting">main</span>
+        </span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">This is what is displayed whenever</span>
+          <span class="ds-list-row-supporting">main · +114 −54</span>
+        </span>
+        <span class="ds-list-row-trailing">8m</span>
+      </button>
+    </div>
+
     <div class="demo-pane demo-pane--narrow">
       <p class="demo-pane-title">Narrow — long lines truncate</p>
       <div class="ds-list-row-host" data-actions="2">
@@ -14270,14 +14451,20 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>The pick-an-item worklist row: rails, source lists, inboxes, categories, search results. The most repeated surface in the product, and the default answer for any list of things a person chooses between.</p>
 <p>Use <code>task-card</code> instead when the item is a card on a board. Use this when the item is a row in a list.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — | | Flash | <code>.ds-list-row-flash</code> | only as a row enters an attention state — a one-shot overlay, <code>aria-hidden</code> |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
 <p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving.</p>
 <p>Selection is never the accent colour, and never carries a left bar, a border box, or a glow. See <code>patterns/selection</code>.</p>
+<h5>Attention</h5>
+<p>Two states outrank selection, and each takes the <strong>whole row</strong> — a tinted fill, a 1px inset ring all the way round, and the title in the tone's ink:</p>
+<ul><li><strong><code>--needs-input</code></strong> — an agent on this row is waiting for the person. <code>status.warn-soft</code> fill, <code>status.warn</code> ring and ink. The loudest thing a row can say.</li><li><strong><code>--finished</code></strong> — a turn on this row finished while the person was looking elsewhere, and they have not opened it since. <code>status.good-faint</code> fill, <code>status.good-edge</code> ring, <code>status.good</code> ink. One notch under needs-input by construction: it asks for a look, not an answer.</li></ul>
+<p>When a row is both, needs-input wins. Both hold until the person opens the row and clear the moment it becomes the selected one; a selected attention row keeps a 2px edge so the pane's one selection stays findable.</p>
+<p>Both are colour <strong>plus words</strong>: the trailing slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. Never a dot or a chip beside an otherwise quiet row — that was ruled out twice (2026-09-04): the one state that wants the person to look must not be the quietest thing on the row.</p>
+<p>A row <strong>entering</strong> either state plays <code>.ds-list-row-flash</code> once: the &quot;just changed&quot; mark from [liveness](../liveness/component.md), in the tone the row is already wearing. It never loops — what keeps a waiting row loud is ink, not motion.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Needs input | <code>--needs-input</code>: <code>status.warn-soft</code> fill, 1px inset <code>status.warn</code> ring, <code>status.warn</code> ink; 2px ring when also selected. One-shot flash on entry | | Finished, unseen | <code>--finished</code>: <code>status.good-faint</code> fill, 1px inset <code>status.good-edge</code> ring, <code>status.good</code> ink; 2px ring when also selected. One-shot flash on entry. Clears on open | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
 <p><strong>The cursor is a third channel, not a third selection.</strong> A list that walks with <code>aria-activedescendant</code> keeps DOM focus on one element, so it has a row the keyboard is *on* that is neither the row a person picked nor the element they are typing in. It cannot borrow either treatment: it must stay visible on a row that is already selected and stay distinct from one that is merely hovered. A gutter mark composes over both fills, which neither fill can do over the other.</p>
 <p>It takes <code>text.primary</code>, not the accent: <code>border.focus</code> and <code>accent.primary</code> are the same value in all but one theme, so an accent bar in the gutter reads as a focus ring that has slipped. And a list that *does* move real DOM focus with its cursor renders no mark at all — there the focus ring is already the answer, and one idiom beats two.</p>
 <p>Added 2026-09-02, after a conformance sweep replaced two lists' private cursor outlines with <code>bg.hover</code> and made the cursor invisible on every row a person had already picked.</p>
@@ -14287,7 +14474,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>Do not put anything interactive in <code>.ds-list-row-trailing</code>. It is for a count, a timestamp, or a status word.</p>
 <p>Titles truncate to one line. If the full value matters, attach the system's <code>tooltip</code> component, and only when the text actually overflows — never a native <code>title</code> attribute on a control.</p>
 <h4>Accessibility</h4>
-<ul><li>Interactive rows render as <code>&lt;button type=&quot;button&quot;&gt;</code>. A row that only displays information renders as a <code>&lt;div&gt;</code> and takes no focus.</li><li>The selected row carries <code>aria-current=&quot;true&quot;</code>. A single-select list may instead use <code>role=&quot;listbox&quot;</code> with <code>role=&quot;option&quot;</code> and <code>aria-selected</code>; pick one model and hold to it for the whole list.</li><li>Every action button has an <code>aria-label</code> naming both the verb and the item (&quot;Remove Engineering&quot;), because the label is read out of the row's context.</li><li>Leading glyphs are <code>aria-hidden=&quot;true&quot;</code> when the title already carries the meaning.</li><li><strong>Revealed actions must be keyboard-reachable.</strong> They are in the tab order and become visible on <code>:focus-within</code> — an action that only exists on hover is unreachable for keyboard and touch users.</li><li>Status shown by a leading glyph reads by shape, not colour alone, and carries an accessible name when no adjacent text states it.</li><li>Disabled rows use the <code>disabled</code> attribute (or <code>aria-disabled=&quot;true&quot;</code> when they must stay focusable to explain why).</li><li>Reduced motion removes the reveal fade but never the reveal itself.</li></ul>
+<ul><li>Interactive rows render as <code>&lt;button type=&quot;button&quot;&gt;</code>. A row that only displays information renders as a <code>&lt;div&gt;</code> and takes no focus.</li><li>The selected row carries <code>aria-current=&quot;true&quot;</code>. A single-select list may instead use <code>role=&quot;listbox&quot;</code> with <code>role=&quot;option&quot;</code> and <code>aria-selected</code>; pick one model and hold to it for the whole list.</li><li>Every action button has an <code>aria-label</code> naming both the verb and the item (&quot;Remove Engineering&quot;), because the label is read out of the row's context.</li><li>Leading glyphs are <code>aria-hidden=&quot;true&quot;</code> when the title already carries the meaning.</li><li><strong>Revealed actions must be keyboard-reachable.</strong> They are in the tab order and become visible on <code>:focus-within</code> — an action that only exists on hover is unreachable for keyboard and touch users.</li><li>Status shown by a leading glyph reads by shape, not colour alone, and carries an accessible name when no adjacent text states it.</li><li>Disabled rows use the <code>disabled</code> attribute (or <code>aria-disabled=&quot;true&quot;</code> when they must stay focusable to explain why).</li><li>Reduced motion removes the reveal fade but never the reveal itself, and drops the attention flash — the fill, ring and ink already carry the state.</li><li>An attention state is never carried by colour alone: the trailing slot, or a visually-hidden clause inside the title, says &quot;needs input&quot; or &quot;finished&quot;.</li></ul>
 <h4>Known drift</h4>
 <p>Verified against <code>src/renderer/src/components/ui/InboxRow.tsx</code> (2026-08-04), the shipped counterpart of this row:</p>
 <ul><li><strong>Padding.</strong> The reference CSS uses <code>space.xs</code> / <code>space.md</code> (6/10px); shipped rows use <code>px-3 py-2</code> (12/8px). <strong>Re-pointed 2026-09-02:</strong> this is not code drifting from a spec, it is two specs disagreeing. [inbox-row](../inbox-row/component.md) prescribes <code>space.sm</code> block and <code>space.lg</code> inline, which is exactly the 8/12 the code draws. The outlier is this entry's own reference CSS, and one row family cannot have two insets.</li><li>~~<strong>Title size.</strong> This spec sets titles at <code>font.size.body</code>; shipped titles sit at <code>font.size.meta</code>, one step smaller.~~ <strong>Resolved</strong> — MC-2118 ruled for the spec and moved the code: <code>InboxRow</code> draws its title at <code>font.size.body</code> over supporting text at <code>font.size.meta</code>.</li><li><strong><code>--resting</code> mechanics.</strong> Shipped rows reach the resting tier via cascade (<code>data-selection-pane</code> rules in <code>assets/index.css</code>) rather than this spec's class modifier — same behaviour, different structure — and the <code>data-actions</code> reserved-padding action host is not implemented (InboxRow's trailing slot is display-only). The cascade half is a ruled difference, not debt; the reserved padding is still owed.</li></ul>
@@ -14551,12 +14738,115 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   height: var(--sem-icon-size-sm);
 }
 
+/* ── Attention ───────────────────────────────────────────────────────────
+ * The two things a row can say that outrank selection: an agent on it is
+ * waiting for the person (`--needs-input`), or it finished while they were
+ * looking elsewhere and they have not opened it since (`--finished`). Each
+ * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
+ * the title in the tone's ink — because a dot or a chip beside an otherwise
+ * quiet row is the weakest possible carrier for the one state that actually
+ * wants the person to look (owner ruling 2026-09-04, twice: first the
+ * needs-input dot, then the &quot;Done&quot; chip).
+ *
+ * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
+ * in this system (the leading gutter belongs to the cursor and to identity),
+ * and `box-shadow` inset draws it without shifting the row's geometry.
+ *
+ * `--finished` is one notch under `--needs-input` by construction: it asks
+ * for a look, not an answer, so its fill is `status.good-faint` rather than
+ * `-soft` and its ring is `status.good-edge` rather than the full tone.
+ * When a row is both, needs-input wins.
+ *
+ * Both hold until the person opens the row — a finished row clears the moment
+ * it becomes the selected one — and both are colour PLUS words: the trailing
+ * slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. */
+.ds-list-row--needs-input {
+  background: var(--sem-color-status-warn-soft);
+  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-list-row--needs-input:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-list-row--finished {
+  background: var(--sem-color-status-good-faint);
+  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
+  color: var(--sem-color-status-good);
+}
+
+.ds-list-row--finished:hover {
+  background: var(--sem-color-status-good-faint);
+}
+
+/* Selection reads underneath: the pane's one selected row keeps a heavier
+ * edge, so it stays findable without inventing a second gold or green. */
+.ds-list-row--needs-input.ds-list-row--selected {
+  background: var(--sem-color-status-warn-soft);
+  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-list-row--finished.ds-list-row--selected {
+  background: var(--sem-color-status-good-faint);
+  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
+  color: var(--sem-color-status-good);
+}
+
+.ds-list-row--needs-input .ds-list-row-supporting,
+.ds-list-row--finished .ds-list-row-supporting,
+.ds-list-row--needs-input .ds-list-row-trailing,
+.ds-list-row--finished .ds-list-row-trailing {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* The one-shot flash a row plays as it ENTERS either state — &quot;just changed&quot;,
+ * the second of the two things motion may mean (see liveness). It paints in
+ * the tone the row is already wearing, plays once, and stops: what keeps the
+ * row loud while it waits is the ink above, never a loop. Painted on a
+ * pointer-inert overlay so replaying it never remounts the row. */
+.ds-list-row-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: ds-list-row-flash var(--sem-motion-duration-pulse) var(--sem-motion-ease-standard) 1;
+}
+
+.ds-list-row--needs-input .ds-list-row-flash {
+  --ds-row-flash-tint: var(--sem-color-status-warn);
+  --ds-row-flash-fill: var(--sem-color-status-warn-soft);
+}
+
+.ds-list-row--finished .ds-list-row-flash {
+  --ds-row-flash-tint: var(--sem-color-status-good);
+  --ds-row-flash-fill: var(--sem-color-status-good-soft);
+}
+
+@keyframes ds-list-row-flash {
+  0% {
+    background: var(--ds-row-flash-fill);
+    box-shadow: inset 0 0 0 1px var(--ds-row-flash-tint);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 /* Reduced motion removes the fade, never the reveal itself — the actions
- * must still become available. */
+ * must still become available. The attention flash drops entirely: the
+ * fill, ring and ink already carry the state. */
 @media (prefers-reduced-motion: reduce) {
   .ds-list-row,
   .ds-list-row-actions {
     transition: none;
+  }
+
+  .ds-list-row-flash {
+    animation: none;
   }
 }
 </code></pre></details>
@@ -14726,6 +15016,40 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       &lt;/button&gt;
     &lt;/div&gt;
 
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Attention — the row is the mark; gold outranks green&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input&quot;&gt;
+        &lt;span class=&quot;ds-list-row-flash&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;There are a couple of branches&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-flash&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;tailscale connection lost&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;focus border chats&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;This is what is displayed whenever&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;8m&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
     &lt;div class=&quot;demo-pane demo-pane--narrow&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Narrow — long lines truncate&lt;/p&gt;
       &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
@@ -14883,6 +15207,40 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
           &lt;span class=&quot;ds-list-row-title&quot;&gt;Deprecated&lt;/span&gt;
           &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Unavailable while the source reindexes&lt;/span&gt;
         &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Attention — the row is the mark; gold outranks green&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input&quot;&gt;
+        &lt;span class=&quot;ds-list-row-flash&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;There are a couple of branches&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-flash&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;tailscale connection lost&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;focus border chats&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;This is what is displayed whenever&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;main · +114 −54&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;8m&lt;/span&gt;
       &lt;/button&gt;
     &lt;/div&gt;
 

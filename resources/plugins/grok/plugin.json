@@ -99,7 +99,7 @@
         "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
       },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
-      { "event": "SubagentStop", "phase": "idle" },
+      { "event": "SubagentStop", "phase": "thinking" },
       { "event": "SessionEnd", "phase": "exited" }
     ]
   },

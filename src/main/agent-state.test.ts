@@ -9,9 +9,11 @@ import { join, sep } from 'node:path'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import {
   AGENT_STATE_HOOK_TAG,
+  applyBackgroundWork,
   buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
+  holdTurnEndForBackgroundWork,
   installAgentStateReporter,
   isAtRestAgentPhase,
   MAX_TRANSCRIPT_PATH_LENGTH,
@@ -127,7 +129,9 @@ async function run(): Promise<void> {
   assert.equal(resolvePhase(claudeSpec, 'PreToolUse'), 'tool_use')
   assert.equal(resolvePhase(claudeSpec, 'PostToolUse'), 'thinking')
   assert.equal(resolvePhase(claudeSpec, 'Stop'), 'idle')
-  assert.equal(resolvePhase(claudeSpec, 'SubagentStop'), 'idle')
+  // A subagent starting or stopping is the PARENT doing work: never idle.
+  assert.equal(resolvePhase(claudeSpec, 'SubagentStart'), 'tool_use')
+  assert.equal(resolvePhase(claudeSpec, 'SubagentStop'), 'thinking')
   assert.equal(resolvePhase(claudeSpec, 'SessionEnd'), 'exited')
   assert.equal(resolvePhase(claudeSpec, 'NotAnEvent'), null)
   assert.equal(resolvePhase(codexSpec, 'PermissionRequest'), 'awaiting_input')
@@ -197,9 +201,9 @@ async function run(): Promise<void> {
   assert.equal(resolveAgentStateEvent(claudeSpec, { event: null, phase: 'idle' }).action, 'apply')
 
   // --- turn-end / turn-failure flags (manifest-declared) -------------------
-  // SubagentStop maps to the same `idle` phase as Stop but is a subagent
-  // finishing, and session.error also maps to `idle` but is a crash — either
-  // one read as a turn end finalizes work that isn't done.
+  // SubagentStop is a subagent finishing, not the session's turn end, and
+  // session.error maps to `idle` like session.idle but is a crash — either one
+  // read as a turn end finalizes work that isn't done.
   const flags = (spec: PluginAgentStateSpec, event: string) => {
     const r = resolveAgentStateEvent(spec, { event, notificationType: undefined })
     return r.action === 'apply' ? { turnEnd: r.turnEnd, turnFailure: r.turnFailure } : null
@@ -211,6 +215,35 @@ async function run(): Promise<void> {
   assert.deepEqual(flags(opencodeSpec, 'session.error'), { turnEnd: false, turnFailure: true })
   // Both turn ends land on `idle` — which is exactly why the flag exists.
   assert.equal(resolvePhase(opencodeSpec, 'session.error'), resolvePhase(opencodeSpec, 'session.idle'))
+
+  // --- background work (manifest-declared, counted by the runtime) ---------
+  // Claude fires Stop when it parks the model on "waiting for N background
+  // agents" and re-invokes it when they finish; read as a turn end, that Stop
+  // marked rows finished and finalized runs mid-work. The manifest names the
+  // events that open and close such work, and the resolution carries the flag.
+  const background = (spec: PluginAgentStateSpec, event: string) => {
+    const r = resolveAgentStateEvent(spec, { event, notificationType: undefined })
+    return r.action === 'apply' ? r.background ?? null : null
+  }
+  assert.equal(background(claudeSpec, 'SubagentStart'), 'start')
+  assert.equal(background(claudeSpec, 'SubagentStop'), 'stop')
+  assert.equal(background(claudeSpec, 'Stop'), null)
+  assert.equal(background(codexSpec, 'SubagentStop'), null, 'codex awaits live verification of SubagentStart')
+  assert.equal(applyBackgroundWork(0, 'start'), 1)
+  assert.equal(applyBackgroundWork(2, 'stop'), 1)
+  assert.equal(applyBackgroundWork(0, 'stop'), 0, 'a stop with nothing open clamps — the start predates the reporter')
+  assert.equal(applyBackgroundWork(1, undefined), 1)
+  const stop = { action: 'apply' as const, phase: 'idle' as const, turnEnd: true, turnFailure: false }
+  assert.deepEqual(holdTurnEndForBackgroundWork(stop, 0), stop, 'nothing outstanding: the turn end stands')
+  assert.deepEqual(
+    holdTurnEndForBackgroundWork(stop, 1),
+    { ...stop, phase: 'tool_use', turnEnd: false },
+    'work outstanding: held as working, and no consumer may finalize'
+  )
+  const failedStop = { ...stop, turnFailure: true }
+  assert.deepEqual(holdTurnEndForBackgroundWork(failedStop, 1), failedStop, 'a failed turn is over whatever is outstanding')
+  const subagentStop = { action: 'apply' as const, phase: 'thinking' as const, turnEnd: false, turnFailure: false, background: 'stop' as const }
+  assert.deepEqual(holdTurnEndForBackgroundWork(subagentStop, 3), subagentStop, 'only a turn end is ever held')
 
   // --- OpenCode mapping (manifest-driven) ----------------------------------
   assert.equal(resolvePhase(opencodeSpec, 'session.created'), 'starting')

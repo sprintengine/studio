@@ -533,8 +533,9 @@ export function provenanceMachinesOf(workspace: Workspace): string[] {
 }
 
 /**
- * The unseen-completion mark records which workspaces finished a turn
- * while the person was looking elsewhere, and have not been opened since.
+ * The unseen-completion mark — a "Done" pill on the row, drawn by
+ * `doneRowClass`: which workspaces finished a turn while the person was
+ * looking elsewhere, and have not been opened since.
  *
  * Sourced ONLY from hook-authoritative activity ([[agent-state-hooks-only]]):
  * `workingSince` is `deriveWorkspaceWorkingSince` — the clock the row's
@@ -542,7 +543,9 @@ export function provenanceMachinesOf(workspace: Workspace): string[] {
  * flight. A turn is DONE when that clock stops on a workspace that still has a
  * hook-settled session (`settledWorkspaceIds`): a process that was killed
  * mid-turn also stops the clock, and it did not finish anything. Opening the
- * workspace clears its mark; the active workspace never earns one — the
+ * workspace clears its mark, and so does going back to work — a parked model
+ * that its background agent re-invoked is not finished, and earns the mark
+ * again when that turn ends. The active workspace never earns one — the
  * person is watching. Pure, so the sidebar's effect stays a one-liner.
  */
 export function deriveUnseenCompletions(input: {
@@ -554,7 +557,10 @@ export function deriveUnseenCompletions(input: {
 }): Set<string> {
   const next = new Set<string>()
   for (const id of input.previous) {
-    if (id !== input.activeWorkspaceId && id in input.workingSinceNow) next.add(id)
+    if (id === input.activeWorkspaceId) continue
+    if (!(id in input.workingSinceNow)) continue
+    if (typeof input.workingSinceNow[id] === 'number') continue
+    next.add(id)
   }
   for (const id of Object.keys(input.workingSinceNow)) {
     const before = input.workingSinceBefore[id]
@@ -601,8 +607,34 @@ function attentionRowClass(active: boolean): string {
   ].join(' ')
 }
 
+// The unseen-done row is the same treatment in the good tone (owner ruling
+// 2026-09-04, replacing the bordered "Done" micro chip): a green fill, a green
+// ring all the way round, the title in good ink, and the same one-shot flash
+// on arrival — list-row's `--finished`. One notch under the gold by
+// construction (owner, same day: the first cut at full strength read heavy):
+// the fill is the 10% wash rather than the 18% soft, and the ring is the tone
+// at edge strength rather than full — a hairline at full emerald around a
+// whole row reads as a wire. It holds until the row is opened — `deriveUnseenCompletions`
+// clears the mark the moment the workspace becomes the active one — so the
+// surface, not a word in the corner, is what says "finished while you were
+// away". A chip was the wrong carrier for the same reason the dot was for
+// needs-input: the one state that wants you to come back was the quietest
+// thing on the row. Needs-input still outranks it — a row that is both draws
+// gold, because that one needs an answer rather than a look.
+//
+// Exported for the row-meta suite, which pins the three good-tone channels.
+export function doneRowClass(active: boolean): string {
+  return [
+    'bg-[color:var(--tone-good-faint)] hover:bg-[color:var(--tone-good-faint)]',
+    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
+    'ring-[color:var(--tone-good-edge)]',
+    'text-[color:var(--tone-good-on-tint)]',
+  ].join(' ')
+}
+
 /**
- * The one-shot flash a row plays when it STARTS needing you.
+ * The one-shot flash a row plays when it STARTS needing you (`warn`), or when
+ * a turn on it has just finished while you were elsewhere (`good`).
  *
  * Motion here means "just changed" — the other of the two things this system
  * lets motion mean — and then it stops. What holds the row loud while it waits
@@ -617,14 +649,23 @@ function attentionRowClass(active: boolean): string {
  * `mode: 'increase'` fires on the way in only; `resetKey` keeps a row that
  * merely swaps identity from flashing.
  */
-export function AttentionPulse({ active, resetKey }: { active: boolean; resetKey: string }) {
+export function AttentionPulse({
+  active,
+  resetKey,
+  tone = 'warn',
+}: {
+  active: boolean
+  resetKey: string
+  /** The status colour the row is already wearing; the flash never introduces its own. */
+  tone?: 'warn' | 'good'
+}) {
   const token = useChangePulse(active ? 1 : 0, { mode: 'increase', resetKey })
   if (token === 0) return null
   return (
     <span
       key={token}
       aria-hidden="true"
-      className="attention-row-pulse pointer-events-none absolute inset-0 rounded-md"
+      className={`attention-row-pulse ${tone === 'good' ? 'attention-row-pulse-good' : ''} pointer-events-none absolute inset-0 rounded-md`}
     />
   )
 }
@@ -684,7 +725,6 @@ export function WorkspaceRowMeta({
   additions,
   deletions,
   diffScope = 'folder',
-  unseenDone = false,
   trailing,
 }: {
   /** One entry per open terminal: local live sessions and fleet panes alike. */
@@ -699,8 +739,6 @@ export function WorkspaceRowMeta({
    * which may carry a person's commits — or `folder` the repo's uncommitted state.
    */
   diffScope?: 'worktree' | 'branch' | 'folder'
-  /** A turn finished here while the person was elsewhere, and they have not looked since. */
-  unseenDone?: boolean
   trailing?: React.ReactNode
 }) {
   const shown = sessions.slice(0, 3)
@@ -812,16 +850,6 @@ export function WorkspaceRowMeta({
           </span>
         </Tooltip>
       ) : null}
-      {unseenDone ? (
-        // Unseen completion uses the shared chip grammar (the DefaultChip
-        // shape: radius.chip, hairline, micro) with the good tone carried by
-        // ink AND the word — never by colour alone. Cleared when the row is
-        // selected.
-        <MicroChip tone="good">
-          Done
-          <span className="sr-only"> — finished while you were away</span>
-        </MicroChip>
-      ) : null}
       {trailing}
     </div>
   )
@@ -845,10 +873,7 @@ export default function WorkspaceSidebar({
   onCloseWorkspace,
   onDeleteWorkspaceWithState,
   onForgetFolder,
-  onNewWorkspace,
-  onNewWorkspaceInFolder,
   onNewChat,
-  onNewWorkspaceMode,
   onNewChatInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
@@ -891,7 +916,7 @@ export default function WorkspaceSidebar({
     return map
   }, [terminalSessions])
   const gitSummaries = useSidebarGitSummaries(workspaces)
-  // The mark records completion while the person was looking elsewhere. Session-only: the
+  // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
   // restart simply starts clean. The transition is read off the same
@@ -923,8 +948,6 @@ export default function WorkspaceSidebar({
       return next
     })
   }, [terminalRecencyByWorkspaceId, terminalSessions, activeWorkspaceId])
-  // Rows for the "+" create menu, matching the creation hub rail's list/order.
-  const createMenuModels = useMemo(() => buildModeModels(moduleOverrides), [moduleOverrides])
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
   // the selection instead, so the sidebar shows exactly one selected thing. This
@@ -959,10 +982,6 @@ export default function WorkspaceSidebar({
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
-  // The "+" create menu beside New chat: one row per creatable type, each
-  // opening the creation hub preselected (chat/standard route to their own
-  // dedicated openers).
-  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
   const [confirmCancelSprint, setConfirmCancelSprint] = useState<WorkspaceId | null>(null)
@@ -1620,6 +1639,9 @@ export default function WorkspaceSidebar({
       && !!idleRecencyText
     // The row that wants you: it wears the gold treatment instead of a dot.
     const needsAttention = activity === 'needs-input'
+    // The row that finished while you were away: the same treatment in green,
+    // held until you open it. Gold outranks it when both apply.
+    const unseenDone = !needsAttention && unseenDoneIds.has(workspace.id)
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
@@ -1644,7 +1666,6 @@ export default function WorkspaceSidebar({
       ...fleetPanesOf(workspace).map((pane) => ({ sessionId: pane.tabId, cli: pane.cli, remote: true })),
     ]
     const fleetMachines = provenanceMachinesOf(workspace)
-    const unseenDone = unseenDoneIds.has(workspace.id)
     const gitSummary = gitSummaries[workspace.id]
     const rowBranch = gitSummary?.branch ?? null
     const rowAdditions = gitSummary?.additions ?? 0
@@ -1661,7 +1682,6 @@ export default function WorkspaceSidebar({
       || rowBranch !== null
       || rowAdditions > 0
       || rowDeletions > 0
-      || unseenDone
 
     // The row's status seat: run glyph / working dots + elapsed / tone dot /
     // idle recency, with the hover-revealed row actions layered over it.
@@ -1811,16 +1831,19 @@ export default function WorkspaceSidebar({
         className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
           needsAttention
             ? attentionRowClass(active)
-            : active
-              ? activeRowClass(workspace)
-              : highlighted
-                ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
-                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+            : unseenDone
+              ? doneRowClass(active)
+              : active
+                ? activeRowClass(workspace)
+                : highlighted
+                  ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
+                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
         } ${folderMissing ? 'opacity-70' : ''}`}
         role="treeitem"
         aria-current={active ? 'true' : undefined}
       >
         <AttentionPulse active={needsAttention} resetKey={workspace.id} />
+        <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
         {dropMark === 'before' ? (
           <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
         ) : null}
@@ -1891,6 +1914,7 @@ export default function WorkspaceSidebar({
             {/* The gold surface is the visible mark; this is the same meaning
                 in words, since no state may be carried by colour alone. */}
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
+            {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
           </span>
         )}
 
@@ -1918,7 +1942,6 @@ export default function WorkspaceSidebar({
             additions={rowAdditions}
             deletions={rowDeletions}
             diffScope={rowDiffScope}
-            unseenDone={unseenDone}
             trailing={statusSeat}
           />
         ) : null}

@@ -220,6 +220,12 @@ export type CliAgentStateEventSpec = {
   turnEnd?: boolean
   /** This event signals a failed turn. */
   failure?: boolean
+  /**
+   * This event opens (`start`) or closes (`stop`) background work the session
+   * still owns (a subagent). A turn end arriving with work open is held as
+   * working until the turn end that arrives with nothing outstanding.
+   */
+  background?: 'start' | 'stop'
 }
 
 /** Where `path` resolves from: the workspace root (default) or the user's home. */
@@ -619,6 +625,9 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       if (entry[flag] !== undefined && typeof entry[flag] !== 'boolean') {
         issues.push({ path: `${path}.${flag}`, message: `${flag} must be a boolean when present.` })
       }
+    }
+    if (entry.background !== undefined && entry.background !== 'start' && entry.background !== 'stop') {
+      issues.push({ path: `${path}.background`, message: "background must be 'start' or 'stop' when present." })
     }
     for (const clause of ['when', 'failureWhen'] as const) {
       const value = entry[clause]

@@ -22,6 +22,7 @@ item is a row in a list.
 | Action count | `data-actions` on the host | yes when there are actions — `"1"` or `"2"`, the value the trailing padding is reserved from |
 | Actions | `.ds-list-row-actions` | no — at most two |
 | Action | `.ds-list-row-action` | — |
+| Flash | `.ds-list-row-flash` | only as a row enters an attention state — a one-shot overlay, `aria-hidden` |
 
 At most **four visual elements at rest**. A fifth means the row is carrying
 work that belongs in the detail pane.
@@ -41,6 +42,33 @@ which list their keyboard is driving.
 Selection is never the accent colour, and never carries a left bar, a border
 box, or a glow. See `patterns/selection`.
 
+### Attention
+
+Two states outrank selection, and each takes the **whole row** — a tinted
+fill, a 1px inset ring all the way round, and the title in the tone's ink:
+
+- **`--needs-input`** — an agent on this row is waiting for the person.
+  `status.warn-soft` fill, `status.warn` ring and ink. The loudest thing a
+  row can say.
+- **`--finished`** — a turn on this row finished while the person was looking
+  elsewhere, and they have not opened it since. `status.good-faint` fill,
+  `status.good-edge` ring, `status.good` ink. One notch under needs-input by
+  construction: it asks for a look, not an answer.
+
+When a row is both, needs-input wins. Both hold until the person opens the row
+and clear the moment it becomes the selected one; a selected attention row
+keeps a 2px edge so the pane's one selection stays findable.
+
+Both are colour **plus words**: the trailing slot or a visually-hidden clause
+says "needs input" / "finished" in text. Never a dot or a chip beside an
+otherwise quiet row — that was ruled out twice (2026-09-04): the one state that
+wants the person to look must not be the quietest thing on the row.
+
+A row **entering** either state plays `.ds-list-row-flash` once: the "just
+changed" mark from [liveness](../liveness/component.md), in the tone the row
+is already wearing. It never loops — what keeps a waiting row loud is ink,
+not motion.
+
 ## States
 
 | State | Treatment |
@@ -51,6 +79,8 @@ box, or a glow. See `patterns/selection`.
 | Selected (focused pane) | `bg.selected` + `text.primary` |
 | Selected (resting pane) | `bg.selected-resting` + `text.default` |
 | Cursored | `.ds-list-row-cursor` — a 2px `text.primary` mark in the leading gutter. Only for a list that is one tab stop and walks with `aria-activedescendant` |
+| Needs input | `--needs-input`: `status.warn-soft` fill, 1px inset `status.warn` ring, `status.warn` ink; 2px ring when also selected. One-shot flash on entry |
+| Finished, unseen | `--finished`: `status.good-faint` fill, 1px inset `status.good-edge` ring, `status.good` ink; 2px ring when also selected. One-shot flash on entry. Clears on open |
 | Disabled | `opacity: 0.5`, `cursor: not-allowed`. Stays in layout and stays readable |
 
 **The cursor is a third channel, not a third selection.** A list that walks
@@ -111,7 +141,10 @@ Titles truncate to one line. If the full value matters, attach the system's
   an accessible name when no adjacent text states it.
 - Disabled rows use the `disabled` attribute (or `aria-disabled="true"` when
   they must stay focusable to explain why).
-- Reduced motion removes the reveal fade but never the reveal itself.
+- Reduced motion removes the reveal fade but never the reveal itself, and
+  drops the attention flash — the fill, ring and ink already carry the state.
+- An attention state is never carried by colour alone: the trailing slot, or a
+  visually-hidden clause inside the title, says "needs input" or "finished".
 
 ## Known drift
 

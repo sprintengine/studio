@@ -68,6 +68,8 @@
   --sem-color-status-good-soft: rgba(21, 127, 55, 0.20);
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
+  --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
+  --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
@@ -165,6 +167,8 @@
   --sem-color-status-good-soft: rgba(48, 208, 88, 0.18);
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
+  --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
+  --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
