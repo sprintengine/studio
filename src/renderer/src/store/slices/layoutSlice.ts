@@ -7,7 +7,7 @@ import { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/wor
 export { sprintEngineTabsLayoutModel }
 
 import { railSideOfComponents } from '../../utils/modelRegistry'
-import { paneStateFromLegacyLayout } from './workspacePaneSlice'
+import { adoptLegacyBacklogTab, paneStateFromLegacyLayout } from './workspacePaneSlice'
 import { workspaceSyncClient } from '../workspaceSyncClient'
 import type {
   Workspace,
@@ -65,8 +65,21 @@ function stripComponentTabsFromLayoutNode(node: unknown, component: string): unk
     .map((child) => stripComponentTabsFromLayoutNode(child, component))
     .filter((child) => child !== null && child !== undefined)
 
-  if ((record.type === 'tabset' || record.type === 'row') && nextChildren.length === 0) {
+  // A node emptied BY the strip collapses; one that was empty to begin with
+  // (FlexLayout persists an empty root tabset after the last tab closes) is
+  // untouched content and keeps its identity below.
+  if ((record.type === 'tabset' || record.type === 'row') && nextChildren.length === 0 && rawChildren.length > 0) {
     return null
+  }
+
+  // Nothing under this node was stripped: hand the same node back, so a heal
+  // that runs on every hydration is a no-op by reference when there is nothing
+  // to do (the store's merge() and the registry snapshot rely on that).
+  if (
+    nextChildren.length === rawChildren.length
+    && nextChildren.every((child, index) => child === rawChildren[index])
+  ) {
+    return record
   }
 
   const next: Record<string, unknown> = { ...record, children: nextChildren }
@@ -84,6 +97,7 @@ function stripComponentTabsFromLayout(layoutModel: unknown, component: string): 
   const layout = model.layout
   if (!layout || typeof layout !== 'object') return layoutModel
   const nextLayout = stripComponentTabsFromLayoutNode(layout, component)
+  if (nextLayout === layout) return layoutModel
   // A layout whose every tab was stripped collapses to null; fall back to an
   // empty root row (WorkspaceLayout's zero-tab empty state) rather than
   // restoring the original layout with the retired tab still in it.
@@ -102,12 +116,13 @@ export function stripSprintEnginesNavFromLayout(layoutModel: unknown): unknown {
 }
 
 // Files and Git moved from the left rail into the workspace pane, and the
-// Skills aside was deleted (browser-pane epic, store v73). A persisted layout
-// still carrying their tabs would render the unavailable surface; drop them.
-// `paneStateFromLegacyLayout` reads the same layout first so the person's
-// open Files/Git come back as pane tabs.
+// Skills aside was deleted (browser-pane epic, store v73); the workspace
+// Backlog followed them (store v74). A persisted layout still carrying their
+// tabs would render the unavailable surface; drop them.
+// `paneStateFromLegacyLayout` / `adoptLegacyBacklogTab` read the same layout
+// first so the person's open panels come back as pane tabs.
 export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
-  return ['explorer', 'git', 'skills'].reduce(
+  return ['explorer', 'git', 'skills', 'backlog'].reduce(
     (model, component) => stripComponentTabsFromLayout(model, component),
     layoutModel,
   )
@@ -115,20 +130,24 @@ export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
 
 /**
  * The whole rail-to-pane move for one workspace record: seed the pane from a
- * layout that still docks Files/Git (only when the record carries no pane
- * yet), then strip the retired tabs. Reference-preserving when there is
- * nothing to do, so it is safe on every hydration — which is where it has to
- * run: main owns the registry (MC-2158) and hands the renderer records that
- * never pass the persist ladder, so the v73 rung alone would miss them.
+ * layout that still docks Files/Git/Backlog (only when the record carries no
+ * pane yet), adopt a still-docked Backlog into a record that already has a
+ * pane (v74 — after v73 every record has one), then strip the retired tabs.
+ * Reference-preserving when there is nothing to do, so it is safe on every
+ * hydration — which is where it has to run: main owns the registry (MC-2158)
+ * and hands the renderer records that never pass the persist ladder, so the
+ * versioned rungs alone would miss them.
  */
 export function healRetiredRailLayout(ws: Workspace): Workspace {
-  const seeded = ws.paneState ? undefined : paneStateFromLegacyLayout(ws.layoutModel)
+  const paneState = ws.paneState
+    ? adoptLegacyBacklogTab(ws.layoutModel, ws.paneState)
+    : paneStateFromLegacyLayout(ws.layoutModel)
   const layoutModel = stripRetiredRailTabsFromLayout(ws.layoutModel)
-  if (!seeded && layoutModel === ws.layoutModel) return ws
+  if (paneState === ws.paneState && layoutModel === ws.layoutModel) return ws
   return {
     ...ws,
     layoutModel: layoutModel as Workspace['layoutModel'],
-    ...(seeded ? { paneState: seeded } : {}),
+    ...(paneState ? { paneState } : {}),
   }
 }
 
@@ -289,8 +308,8 @@ function hideNavRailTabStripInNode(node: unknown): unknown {
   return { ...record, children: nextChildren }
 }
 
-// The rail switches (Files / Git / Backlog / Knowledge Graph on the left, Skills
-// on the right) carry their own selection chrome in the workspace header, so the
+// The rail switches (Knowledge Graph today; Files / Git / Backlog before they
+// moved into the workspace pane) carry their own selection chrome, so the
 // FlexLayout tab strip on a tabset that holds only one rail's switches is
 // redundant. Stamp enableTabStrip: false onto those tabsets without touching
 // mixed tabsets (e.g. a nav tab parked beside the editor) — those keep their

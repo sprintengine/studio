@@ -1,11 +1,8 @@
 import type { WorkspacePaneTabKind } from '../../../types/workspace'
 
 // The tab kinds the workspace pane can open, in the order the "+" menu and the
-// empty-state launcher list them. A kind whose
-// module is disabled is absent from both, not present-but-empty.
-//
-// Browser and Diff arrive with their own children of the browser-pane epic;
-// until then a persisted tab of those kinds renders the unavailable surface.
+// empty-state launcher list them. A kind whose module is disabled is absent
+// from both, not present-but-empty.
 
 export type PaneKindDefinition = {
   kind: WorkspacePaneTabKind
@@ -68,12 +65,29 @@ export function BrowserGlyph({ className }: { className?: string }) {
   )
 }
 
+// The header's Backlog switch draws this same mark (PanelSwitches): one glyph
+// for the surface on both ends of the gesture.
+function BacklogGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="3" cy="4.5" r="1" fill="currentColor" />
+      <circle cx="3" cy="8" r="1" fill="currentColor" />
+      <circle cx="3" cy="11.5" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+// The five general-purpose kinds first, in the order below; Backlog is
+// ours alone and goes last so the shared five keep the low chord numbers.
+// Its letter is L (back-L-og) because B is Browser's.
 export const PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'browser', label: 'Browser', letter: 'B', Glyph: BrowserGlyph },
   { kind: 'terminal', label: 'Terminal', letter: 'T', Glyph: TerminalGlyph },
   { kind: 'files', label: 'Files', letter: 'F', moduleId: 'dev-tools', Glyph: FilesGlyph },
   { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
+  { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
 ]
 
 export function paneKindDefinition(kind: WorkspacePaneTabKind): PaneKindDefinition {

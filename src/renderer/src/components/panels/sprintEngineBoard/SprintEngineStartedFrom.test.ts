@@ -157,11 +157,11 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
     'HTML seeds route to the sandboxed frame with the opt-in Source toggle',
   )
   assert.ok(viewSource.includes('<FilePreviewPane'), 'non-HTML seeds route to FilePreviewPane')
-  // Open in Backlog reveals + latches the item.
+  // Open in Backlog opens the pane's Backlog tab and latches the item (the
+  // helper does both, in that order).
   assert.ok(
-    viewSource.includes("revealNavRailComponent(workspaceId, 'backlog', 'Backlog')") &&
-      viewSource.includes('dispatchBacklogReveal({ workspaceId, relativePath: backlogPath })'),
-    'Open in Backlog reveals the panel and latches the item',
+    viewSource.includes('revealBacklogItemInPane(workspaceId, backlogPath)'),
+    'Open in Backlog reveals the pane tab and latches the item',
   )
   // T14/1 (a11y): each Open-in-Backlog button carries a distinct accessible
   // name naming its seed file, so keyboard/SR users can tell the rows apart.

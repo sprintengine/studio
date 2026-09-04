@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { Workspace, WorkspacePaneState } from '../../types/workspace'
 import {
+  adoptLegacyBacklogTab,
   createWorkspacePaneSlice,
   normalizeWorkspacePaneState,
   paneStateFromLegacyLayout,
@@ -92,6 +93,98 @@ run('a layout with Files and Git docked comes back as an open pane with both tab
   )
 })
 
+// --- the v74 adoption of a Backlog rail into an existing record ------------
+
+const layoutWithBacklogRail = {
+  layout: {
+    type: 'row',
+    children: [
+      { type: 'tabset', children: [{ type: 'tab', component: 'backlog' }] },
+      { type: 'tabset', children: [{ type: 'tab', component: 'agent' }] },
+    ],
+  },
+}
+
+run('a paneless record with a Backlog rail seeds an open pane on the backlog tab', () => {
+  const seeded = paneStateFromLegacyLayout(layoutWithBacklogRail)
+  assert.ok(seeded)
+  assert.deepEqual(seeded.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.equal(seeded.open, true)
+  assert.equal(seeded.activeTabId, seeded.tabs[0].id)
+})
+
+run('a closed pane adopts the Backlog rail and opens on it', () => {
+  const before: WorkspacePaneState = { open: false, activeTabId: 'f', tabs: [{ id: 'f', kind: 'files' }] }
+  const after = adoptLegacyBacklogTab(layoutWithBacklogRail, before)
+  assert.notEqual(after, before)
+  assert.deepEqual(after.tabs.map((tab) => tab.kind), ['files', 'backlog'], 'existing tabs keep their order')
+  assert.equal(after.open, true)
+  assert.equal(after.activeTabId, after.tabs[1].id, 'the rail was on screen, so the backlog is what shows')
+})
+
+run('an open pane adopts the Backlog rail behind the tab it is showing', () => {
+  const before: WorkspacePaneState = { open: true, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] }
+  const after = adoptLegacyBacklogTab(layoutWithBacklogRail, before)
+  assert.equal(after.activeTabId, 'g')
+  assert.deepEqual(after.tabs.map((tab) => tab.kind), ['git', 'backlog'])
+})
+
+run('a Backlog parked behind the editor joins the pane quietly, without opening it', () => {
+  const parked = {
+    layout: {
+      type: 'row',
+      children: [
+        { type: 'tabset', selected: 0, children: [{ type: 'tab', component: 'editor' }, { type: 'tab', component: 'backlog' }] },
+        { type: 'tabset', children: [{ type: 'tab', component: 'agent' }] },
+      ],
+    },
+  }
+  const closed: WorkspacePaneState = { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] }
+  const adopted = adoptLegacyBacklogTab(parked, closed)
+  assert.deepEqual(adopted.tabs.map((tab) => tab.kind), ['git', 'backlog'])
+  assert.equal(adopted.open, false, 'nothing Backlog-related was on screen, so nothing pops open')
+  assert.equal(adopted.activeTabId, 'g')
+  const seeded = paneStateFromLegacyLayout(parked)
+  assert.equal(seeded?.open, false, 'the paneless seed makes the same call')
+  assert.deepEqual(seeded?.tabs.map((tab) => tab.kind), ['backlog'])
+})
+
+run('a torn pane record without a tabs array is repaired, not thrown on', () => {
+  const torn = { open: true } as unknown as WorkspacePaneState
+  const adopted = adoptLegacyBacklogTab(layoutWithBacklogRail, torn)
+  assert.deepEqual(adopted.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.equal(adopted.open, true)
+  assert.equal(adopted.activeTabId, adopted.tabs[0].id)
+})
+
+run('a full pane keeps its tabs and warns instead of adopting', () => {
+  const full: WorkspacePaneState = {
+    open: true,
+    activeTabId: 't0',
+    tabs: Array.from({ length: 24 }, (_, index) => ({ id: `t${index}`, kind: 'terminal' as const, terminalId: `pty-${index}` })),
+  }
+  const warned: string[] = []
+  const originalWarn = console.warn
+  console.warn = (message: unknown) => { warned.push(String(message)) }
+  try {
+    assert.equal(adoptLegacyBacklogTab(layoutWithBacklogRail, full), full)
+  } finally {
+    console.warn = originalWarn
+  }
+  assert.equal(warned.length, 1)
+})
+
+run('adoption is a reference-preserving no-op when there is nothing to adopt', () => {
+  const hasOne: WorkspacePaneState = { open: true, activeTabId: 'b', tabs: [{ id: 'b', kind: 'backlog' }] }
+  assert.equal(adoptLegacyBacklogTab(layoutWithBacklogRail, hasOne), hasOne, 'already has a backlog tab')
+  const empty: WorkspacePaneState = { open: false, activeTabId: null, tabs: [] }
+  const noRail = { layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', component: 'agent' }] }] } }
+  assert.equal(adoptLegacyBacklogTab(noRail, empty), empty, 'the layout docks no backlog')
+  const adopted = adoptLegacyBacklogTab(layoutWithBacklogRail, empty)
+  assert.equal(adopted.open, true)
+  assert.equal(adopted.activeTabId, adopted.tabs[0].id, 'an empty closed pane opens on the backlog')
+})
+
 // --- the actions ------------------------------------------------------------
 
 run('openPaneTab opens the pane, activates the tab, and reuses a singleton', () => {
@@ -103,6 +196,10 @@ run('openPaneTab opens the pane, activates the tab, and reuses a singleton', () 
   const again = slice.openPaneTab(WS, { kind: 'files' })
   assert.equal(again, files, 'Files opens once')
   assert.equal(pane().tabs.length, 1)
+  const backlog = slice.openPaneTab(WS, { kind: 'backlog' })
+  assert.equal(slice.openPaneTab(WS, { kind: 'backlog' }), backlog, 'Backlog opens once too')
+  assert.equal(pane().tabs.length, 2)
+  slice.closePaneTab(WS, backlog!)
   const term1 = slice.openPaneTab(WS, { kind: 'terminal' })
   const term2 = slice.openPaneTab(WS, { kind: 'terminal' })
   assert.notEqual(term1, term2, 'terminals open many')

@@ -58,7 +58,7 @@ import { reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 73
+export const WORKSPACE_STORE_VERSION = 74
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1088,6 +1088,13 @@ export function migratePersistedWorkspaceState(
     // already carries a pane record (a dev build ahead of the ladder) keeps it.
     // The same heal also runs in persist merge() and on every registry
     // snapshot main sends — this rung is the clean-upgrade half.
+    mapMigrationWorkspaces(migrationState, healRetiredRailLayout)
+  }
+  if (version < 74) {
+    // The workspace Backlog left the rail for the pane too. The same heal:
+    // a layout still docking `backlog` adopts it into the (now always
+    // present) pane record and the rail tab is stripped. Idempotent over the
+    // v73 rung above, so a v72 profile passing both is migrated once.
     mapMigrationWorkspaces(migrationState, healRetiredRailLayout)
   }
 

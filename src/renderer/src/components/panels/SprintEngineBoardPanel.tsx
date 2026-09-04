@@ -41,8 +41,8 @@ import {
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
-import { focusOrAddComponentTab, revealNavRailComponent } from '../../utils/modelRegistry'
-import { dispatchBacklogReveal } from '../../utils/backlogReveal'
+import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
 
 // Lazy so the run-summary report (+ its charts) only loads with the Summary tab.
 const SprintEngineRunSummaryPanel = React.lazy(() => import('./SprintEngineRunSummaryPanel'))
@@ -1486,8 +1486,7 @@ export function SprintRunBoard({
  const openSelectedTaskBacklogItem = useCallback(
    (relativePath: string) => {
      if (workspaceId) {
-       revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
-       dispatchBacklogReveal({ workspaceId, relativePath })
+       revealBacklogItemInPane(workspaceId, relativePath)
        return
      }
      if (epicSeed && !fixedView) setActiveView('epic')
@@ -2904,8 +2903,7 @@ export function SprintRunBoard({
  }}
  onRevealInBacklog={(relativePath) => {
  if (!workspaceId) return
- revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
- dispatchBacklogReveal({ workspaceId, relativePath })
+ revealBacklogItemInPane(workspaceId, relativePath)
  }}
  />
  </div>

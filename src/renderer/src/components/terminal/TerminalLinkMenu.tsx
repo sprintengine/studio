@@ -1,9 +1,9 @@
 import { Fragment, useCallback } from 'react'
 import { ContextMenu, MenuDivider, MenuItem } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { focusOrAddFileTab, revealNavRailComponent } from '../../utils/modelRegistry'
+import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
-import { dispatchBacklogReveal } from '../../utils/backlogReveal'
+import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
 import { isLoopbackUrl } from '../../../../shared/browser'
 import { openUrlInPane } from '../workspace/pane/browser/openInPane'
 import { dispatchFileReveal } from '../../utils/fileReveal'
@@ -102,10 +102,7 @@ export function TerminalLinkMenu({
               if (target.kind !== 'file') return
               const relativePath = backlogRelativePath(target.resolvedPath, target.workspaceRoot)
               if (!relativePath) return
-              // Reveal the panel first, then latch the item, so it selects whether
-              // the panel was already open or mounts on this very click.
-              revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
-              dispatchBacklogReveal({ workspaceId, relativePath })
+              revealBacklogItemInPane(workspaceId, relativePath)
               return
             }
             case 'reveal-files': {

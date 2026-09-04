@@ -81,6 +81,15 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
         ? <GitPanel workspaceId={workspaceId} />
         : <PaneUnavailable />
     }
+    case 'backlog': {
+      // The workspace's Backlog panel, registered by backlog-module.ts. It
+      // takes the same props the FlexLayout rail handed it, future plans
+      // included.
+      const BacklogPanel = getRendererHost().getPanel('backlog')
+      return BacklogPanel && selectModuleEnabled(moduleOverrides, 'backlog')
+        ? <BacklogPanel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
+        : <PaneUnavailable />
+    }
     case 'terminal':
       return tab.terminalId
         ? <PlainTerminalPanel workspaceId={workspaceId} terminalId={tab.terminalId} />
