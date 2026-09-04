@@ -19,6 +19,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
+import { getCheckpointReactor } from './checkpoint-reactor-instance'
 import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
@@ -1982,6 +1983,25 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
+
+  // Turn boundaries become git checkpoints, so the sidebar can say what THIS
+  // workspace's agents changed rather than what the repo happens to look like
+  // (the-diff-an-agent-made). Fire-and-forget by contract — the reactor returns
+  // synchronously and does its git work on its own, because a hook frame must
+  // never wait on `add -A` over a large repo. The cwd is the agent's worktree
+  // when it has one and the workspace's folder otherwise, which is the whole
+  // reason checkpoints need no worktree.
+  if (session.workspaceId) {
+    const checkpointCwd = session.worktreePath ?? session.cwd
+    if (checkpointCwd) {
+      getCheckpointReactor().handlePhase({
+        workspaceId: session.workspaceId,
+        cwd: checkpointCwd,
+        previous: previousPhase,
+        next: resolution.phase,
+      })
+    }
+  }
 
   // The person's own prompt, carried only on UserPromptSubmit. Retained on the
   // session so the terminal tab can show "what was I working on here?" and a new

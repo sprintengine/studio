@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -14,6 +22,7 @@ import {
   hasCheckpointRef,
   listCheckpointRefs,
   parseNumstatZ,
+  turnOfRef,
 } from './checkpoint-store'
 
 // The checkpoint store against real repos (the-diff-an-agent-made / 1).
@@ -60,8 +69,8 @@ function seededRepo(): string {
   return dir
 }
 
-const REF_A = checkpointRefFor('workspace_a', 0)
-const REF_B = checkpointRefFor('workspace_a', 1)
+const REF_A = checkpointRefFor('workspace_a', 0)!
+const REF_B = checkpointRefFor('workspace_a', 1)!
 
 void main()
 
@@ -78,9 +87,18 @@ async function main(): Promise<void> {
       const statusBefore = git(dir, 'status', '--porcelain=v1')
       const headBefore = git(dir, 'rev-parse', 'HEAD').trim()
       const branchBefore = git(dir, 'symbolic-ref', '--short', 'HEAD').trim()
+      // The real index file, not a summary of it: "byte-identical" is the
+      // claim, so bytes are what the test compares.
+      const indexBefore = readFileSync(join(dir, '.git', 'index'))
+      const indexMtimeBefore = statSync(join(dir, '.git', 'index')).mtimeMs
 
       assert.equal(await captureCheckpoint({ cwd: dir, ref: REF_A }), true)
 
+      assert.ok(
+        readFileSync(join(dir, '.git', 'index')).equals(indexBefore),
+        'the user index is byte-identical after a capture'
+      )
+      assert.equal(statSync(join(dir, '.git', 'index')).mtimeMs, indexMtimeBefore, 'and untouched')
       assert.equal(git(dir, 'status', '--porcelain=v1'), statusBefore, 'staging survives capture')
       assert.equal(git(dir, 'rev-parse', 'HEAD').trim(), headBefore, 'HEAD is untouched')
       assert.equal(git(dir, 'symbolic-ref', '--short', 'HEAD').trim(), branchBefore)
@@ -149,8 +167,11 @@ async function main(): Promise<void> {
       )
 
       const patch = await diffCheckpointPatch({ cwd: dir, fromRef: REF_A, toRef: REF_B })
-      assert.match(patch, /agent\.txt/)
-      assert.doesNotMatch(patch, /preexisting\.txt/)
+      assert.equal(patch.ok, true)
+      assert.match(patch.ok ? patch.patch : '', /agent\.txt/)
+      assert.doesNotMatch(patch.ok ? patch.patch : '', /preexisting\.txt/)
+      // Standard prefixes, whatever the user's diff.noprefix says.
+      assert.match(patch.ok ? patch.patch : '', /diff --git a\/agent\.txt b\/agent\.txt/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -259,7 +280,9 @@ async function main(): Promise<void> {
         changedFiles: 0,
         files: [],
       })
-      assert.equal(await diffCheckpointPatch({ cwd: notARepo, fromRef: REF_A, toRef: REF_B }), '')
+      const unreadable = await diffCheckpointPatch({ cwd: notARepo, fromRef: REF_A, toRef: REF_B })
+      assert.equal(unreadable.ok, false)
+      assert.equal(unreadable.ok === false ? unreadable.reason : '', 'unreadable')
       assert.deepEqual(await listCheckpointRefs({ cwd: notARepo, workspaceId: 'w' }), [])
     } finally {
       rmSync(notARepo, { recursive: true, force: true })
@@ -290,17 +313,132 @@ async function main(): Promise<void> {
       assert.equal(await captureCheckpoint({ cwd: dir, ref: REF_B }), true)
 
       const stat = await diffCheckpointStat({ cwd: dir, fromRef: REF_A, toRef: REF_B })
-      const paths = stat.files.map((file) => file.path)
-      assert.ok(
-        paths.includes('renamed.txt') || paths.includes('a.txt'),
-        'the rename is reported at a real path, not an empty one'
-      )
-      assert.ok(
-        paths.every((path) => path.length > 0),
-        'no empty path leaks out of the -z rename shape'
+      // Exactly the NEW path. The old assertion accepted either, so an
+      // implementation reading `oldPath || newPath` would have passed it while
+      // contradicting the docstring — and every "open this file" would 404.
+      assert.deepEqual(
+        stat.files.map((file) => file.path),
+        ['renamed.txt']
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('the temp index is cleaned up when a LATER step fails, not just on success', async () => {
+    const dir = seededRepo()
+    try {
+      // The whole reason the removal sits in a `finally`. An invalid refname
+      // gets through staging, write-tree and commit-tree, then fails at
+      // update-ref — the deepest failure the sequence can reach.
+      const captured = await captureCheckpoint({ cwd: dir, ref: 'refs/multicode/checkpoints/bad..name' })
+      assert.equal(captured, false, 'an invalid refname fails the capture')
+      const leftovers = readdirSync(join(dir, '.git')).filter((name) =>
+        name.startsWith('multicode-checkpoint-index-')
+      )
+      assert.deepEqual(leftovers, [], 'and still leaves no temp index behind')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('an empty workspace id can never address another workspace’s refs', async () => {
+    const dir = seededRepo()
+    try {
+      await captureCheckpoint({ cwd: dir, ref: REF_A })
+      // Without the guard this encodes to the BARE prefix, which for-each-ref
+      // reads as "everything under here" — so listing returns every
+      // workspace's refs and the delete that follows takes them all.
+      assert.deepEqual(await listCheckpointRefs({ cwd: dir, workspaceId: '' }), [])
+      await deleteCheckpointRefs({ cwd: dir, refs: [CHECKPOINT_REFS_PREFIX] })
+      assert.equal(await hasCheckpointRef({ cwd: dir, ref: REF_A }), true, 'the real ref survives')
+      assert.equal(checkpointRefFor('', 0), null)
+      // And a non-string id from an untyped caller returns null rather than
+      // throwing (or, for an array, coercing into a colliding ref).
+      assert.equal(checkpointRefFor(undefined as unknown as string, 0), null)
+      assert.equal(checkpointRefFor(['a'] as unknown as string, 0), null)
+      assert.equal(checkpointRefFor('w', -1), null)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('refs list in TURN order, not git’s lexical order', async () => {
+    const dir = seededRepo()
+    try {
+      // Twelve turns is where lexical and numeric disagree: git returns
+      // 0 1 10 11 2 3 …, and the step-through walks this list.
+      for (let turn = 0; turn <= 11; turn += 1) {
+        writeFileSync(join(dir, 'a.txt'), `turn ${turn}\n`)
+        await captureCheckpoint({ cwd: dir, ref: checkpointRefFor('ordered', turn)! })
+      }
+      const refs = await listCheckpointRefs({ cwd: dir, workspaceId: 'ordered' })
+      assert.deepEqual(refs.map(turnOfRef), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+      assert.equal(turnOfRef('refs/multicode/checkpoints/x/turn/7'), 7)
+      assert.equal(turnOfRef('not-a-checkpoint-ref'), -1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('a linked worktree captures into the shared git dir', async () => {
+    // The entire reason capture resolves `--git-common-dir` rather than
+    // `--git-dir`: a linked worktree's own dir holds no refs.
+    const dir = seededRepo()
+    const treePath = join(dir, '..', `multicode-checkpoint-linked-${Date.now()}`)
+    try {
+      git(dir, 'worktree', 'add', '-b', 'side', treePath)
+      writeFileSync(join(treePath, 'a.txt'), 'from the worktree\n')
+      assert.equal(await captureCheckpoint({ cwd: treePath, ref: REF_A }), true)
+      // Written once, into the shared refs — visible from the main checkout.
+      assert.equal(await hasCheckpointRef({ cwd: dir, ref: REF_A }), true)
+      assert.match(git(dir, 'show', `${REF_A}:a.txt`), /from the worktree/)
+      const leftovers = readdirSync(join(dir, '.git')).filter((name) =>
+        name.startsWith('multicode-checkpoint-index-')
+      )
+      assert.deepEqual(leftovers, [], 'the temp index landed in the common dir and was cleaned')
+    } finally {
+      git(dir, 'worktree', 'remove', '--force', treePath)
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(treePath, { recursive: true, force: true })
+    }
+  })
+
+  await run('a detached HEAD captures like any other checkout', async () => {
+    const dir = seededRepo()
+    try {
+      git(dir, 'checkout', '--detach')
+      writeFileSync(join(dir, 'a.txt'), 'detached work\n')
+      assert.equal(await captureCheckpoint({ cwd: dir, ref: REF_A }), true)
+      assert.match(git(dir, 'show', `${REF_A}:a.txt`), /detached work/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  await run('the user’s git hooks do not fire during a capture', async () => {
+    const dir = seededRepo()
+    const hooks = mkdtempSync(join(tmpdir(), 'multicode-checkpoint-hooks-'))
+    try {
+      // A reference-transaction hook that mirrored refs would carry snapshots
+      // of someone's uncommitted work off-machine — the one thing this module
+      // promises cannot happen.
+      const marker = join(hooks, 'fired.log')
+      for (const hook of ['post-index-change', 'reference-transaction']) {
+        const file = join(hooks, hook)
+        writeFileSync(file, `#!/bin/sh\necho ${hook} >> ${JSON.stringify(marker)}\n`, 'utf8')
+        chmodSync(file, 0o755)
+      }
+      git(dir, 'config', 'core.hooksPath', hooks)
+
+      writeFileSync(join(dir, 'a.txt'), 'changed\n')
+      assert.equal(await captureCheckpoint({ cwd: dir, ref: REF_A }), true)
+
+      const fired = readdirSync(hooks).includes('fired.log')
+      assert.equal(fired, false, 'no hook ran during the capture')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(hooks, { recursive: true, force: true })
     }
   })
 
