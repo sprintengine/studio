@@ -71,6 +71,9 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   const tabs = paneState?.tabs ?? []
   const activeTabId = paneState?.activeTabId ?? null
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
+  // The Diff tab's canonical count — the files its viewer lists — reported by
+  // the viewer while it is mounted; null until it has answered.
+  const [diffCount, setDiffCount] = useState<number | null>(null)
 
   // Kinds whose module is on. A disabled module's kind is absent, not greyed.
   const kinds = useMemo(
@@ -115,6 +118,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
       id: tab.id,
       label,
       closeLabel: `Close ${label}`,
+      ...(tab.kind === 'diff' && diffCount !== null ? { count: diffCount } : {}),
       icon: tab.faviconUrl
         ? <img src={tab.faviconUrl} alt="" className="size-icon-xs shrink-0 rounded-[3px]" />
         : <Glyph className="size-icon-xs shrink-0" />,
@@ -182,6 +186,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             tabs={tabs}
             activeTabId={activeTabId}
             onStartFuturePlan={onStartFuturePlan}
+            onDiffCountChange={setDiffCount}
           />
         )}
       </div>

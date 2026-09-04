@@ -71,6 +71,7 @@ export function BrowserGlyph({ className }: { className?: string }) {
 export const PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'terminal', label: 'Terminal', letter: 'T', Glyph: TerminalGlyph },
   { kind: 'files', label: 'Files', letter: 'F', moduleId: 'dev-tools', Glyph: FilesGlyph },
+  { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
 ]
 
@@ -78,7 +79,6 @@ export const PANE_KINDS: readonly PaneKindDefinition[] = [
 // they need a label and a glyph in the strip.
 const RESERVED_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'browser', label: 'Browser', letter: 'B', Glyph: BrowserGlyph },
-  { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
 ]
 
 export function paneKindDefinition(kind: WorkspacePaneTabKind): PaneKindDefinition {
