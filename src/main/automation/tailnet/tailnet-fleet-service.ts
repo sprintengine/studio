@@ -4,7 +4,7 @@ import { hashSecret } from '../../mobile/bridge/crypto'
 import { hostname } from 'os'
 
 import { backoffDelayMs } from '../../../shared/exponentialBackoff'
-import type { TailnetScope } from '../../../shared/tailnet'
+import { normalizeTailnetScopes, type TailnetDevice, type TailnetReverseGrant, type TailnetScope } from '../../../shared/tailnet'
 import {
   fleetTerminalAccess,
   type FleetAttachResult,
@@ -13,6 +13,8 @@ import {
   type FleetEvent,
   type FleetLinkState,
   type FleetLiveState,
+  type FleetMachineReachability,
+  type FleetPairRequestPhase,
   type FleetCreateTerminalResult,
   type FleetGap,
   type FleetPairResult,
@@ -59,7 +61,52 @@ const RECONNECT_MAX_MS = 15_000
 /** After this many failed dials the pane stops saying "reconnecting" and says the peer is not answering. */
 const OFFLINE_AFTER_ATTEMPTS = 3
 
+// ── Staying paired (pair-from-the-scan-and-stay-paired, phases 3, 4, 6) ─────
+//
+// Main owns the wait on a request this machine made, so closing the panel
+// that asked does not abandon it; main checks whether each paired machine
+// answers, on the moments that change the answer, so a machine with no pane
+// open is not shown as merely "paired" forever; and a request may carry the
+// reverse half of a both-ways pairing, minted here for the machine asked.
+
+/**
+ * How often a waiting request asks the other machine for an answer. Slow on
+ * purpose: the thing being waited on is a person walking to a computer, and
+ * every poll is a round trip to a real machine.
+ */
+const DEFAULT_PAIR_POLL_MS = 2000
+/**
+ * How long past the other machine's own expiry a request keeps polling
+ * before it is called expired HERE — for the case where that machine went
+ * to sleep and cannot say so itself.
+ */
+const PAIR_WAIT_GRACE_MS = 15_000
+/**
+ * Every paired machine is checked this often while a window is open. Five
+ * minutes is a row that is right within a coffee's length, at one small
+ * authenticated call per machine per interval.
+ */
+const DEFAULT_REACHABILITY_INTERVAL_MS = 5 * 60_000
+/** A check must be cheap for a sleeping laptop too: three seconds, not the browse's ten. */
+const DEFAULT_REACHABILITY_TIMEOUT_MS = 3_000
+
 export type TailnetFleetService = {
+  /**
+   * Begin the reachability supervisor (phase 4): one check of every paired
+   * machine now, and one per interval from here on. Idempotent.
+   */
+  start(): void
+  /**
+   * The machine woke, or came back on a network (phase 4): check every
+   * paired machine now, and re-dial every attachment that was waiting out a
+   * backoff — a lid opening should reconnect at once, not in fifteen seconds.
+   */
+  onWake(): void
+  /**
+   * Check whether one paired machine (or every one) answers right now, and
+   * report the state after. The row's Retry.
+   */
+  checkReachability(connectionId?: unknown): Promise<FleetLiveState>
   listConnections(): FleetConnection[]
   pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<FleetPairResult>
   /**
@@ -68,13 +115,35 @@ export type TailnetFleetService = {
    * The outward half stays main's for the same reason `pair` does: the listener
    * refuses any request carrying an `Origin` header, so a window physically
    * cannot dial a peer. The collect secret lives here and is never handed to a
-   * renderer.
+   * renderer. Main also owns the WAIT (phase 3): the poll runs here until the
+   * request is answered, lapses, or is cancelled, and every phase is broadcast
+   * as a `pair-request` fleet event.
+   *
+   * `reverseScopes` (phase 6) offers the machine asked a device HERE with those
+   * scopes, so approving over there pairs both ways in the one exchange.
+   * Refused when this machine's own listener is not running: a grant to a
+   * listener that is down is a credential pointing at nothing.
    */
-  requestPairing(input: { endpoint: unknown; deviceName?: unknown }): Promise<FleetRequestPairingResult>
-  /** Poll one request we made. Lands the connection when it has been approved. */
+  requestPairing(input: {
+    endpoint: unknown
+    deviceName?: unknown
+    reverseScopes?: unknown
+  }): Promise<FleetRequestPairingResult>
+  /**
+   * Poll one request we made, now, and report. The timer polls on its own;
+   * this is the one-off a surface may ask for. Lands the connection when
+   * the request has been approved.
+   */
   collectPairing(requestId: unknown): Promise<FleetCollectPairingResult>
-  /** Forget a request we made. The far end's copy lapses on its own. */
+  /** Forget a request we made. The far end's copy lapses on its own; a reverse device minted for it is revoked. */
   cancelPairing(requestId: unknown): void
+  /**
+   * Adopt the reverse half of a both-ways pairing another machine offered
+   * when it asked to drive THIS one (phase 6): the gateway has verified the
+   * grant's endpoint is the asker's own address, and a person here approved
+   * the request it rode in on. Stored as a machine this Studio can drive.
+   */
+  adoptReverseGrant(input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }): FleetConnection | null
   forget(connectionId: unknown): FleetConnection[]
   browse(connectionId: unknown): Promise<FleetBrowse>
   listRuns(
@@ -126,6 +195,24 @@ export type TailnetFleetServiceOptions = {
    * a credential — connections cross this boundary as the store's public view.
    */
   onEvent?: (event: FleetEvent) => void
+  /**
+   * Mint a device on THIS machine's listener for a machine it is asking to
+   * drive (phase 6). Null when nothing is listening here. Absent in a build
+   * with no listener at all, which simply never offers the reverse half.
+   */
+  mintReverseDevice?: (input: { machineName: string; scopes: TailnetScope[] }) => {
+    device: TailnetDevice
+    deviceToken: string
+    endpoint: string
+  } | null
+  /** Take back a reverse device when the request it was minted for did not complete. */
+  revokeReverseDevice?: (deviceId: string) => void
+  /** Whether a window is open — the reachability timer only runs while one is. Defaults to always. */
+  hasWindow?: () => boolean
+  /** Injected in tests, which cannot wait minutes. */
+  pairPollMs?: number
+  reachabilityIntervalMs?: number
+  reachabilityTimeoutMs?: number
   createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetFleetStore
   log?: (message: string) => void
 }
@@ -161,6 +248,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   })
   const deviceName = () => (options.resolveDeviceName ?? defaultDeviceName)()
   const attachments = new Map<string, Attachment>()
+  const pairPollMs = Math.max(50, options.pairPollMs ?? DEFAULT_PAIR_POLL_MS)
+  const reachabilityIntervalMs = Math.max(50, options.reachabilityIntervalMs ?? DEFAULT_REACHABILITY_INTERVAL_MS)
+  const reachabilityTimeoutMs = Math.max(50, options.reachabilityTimeoutMs ?? DEFAULT_REACHABILITY_TIMEOUT_MS)
   // Stamped on every broadcast and every snapshot; only ever goes up, so a
   // subscriber can order a late initial read against events already applied.
   let revision = 0
@@ -209,8 +299,12 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         deviceName: paired.value.deviceName,
         deviceToken: paired.value.deviceToken,
         scopes: paired.value.scopes,
+        pairedVia: 'link',
       })
       broadcast({ kind: 'machine-paired', connection })
+      // It just answered a pairing, so it is reachable — recorded rather
+      // than left for the next timer to discover.
+      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
       return { ok: true, connection }
     } catch (error) {
       // The device now exists on the other machine. Saying "paired" over a token
@@ -228,15 +322,138 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   // Requests this machine has made and is waiting on. In memory, like the
   // target's own pending list: a request that outlived a restart would be
-  // waiting on a moment nobody is still in.
-  const outboundRequests = new Map<
-    string,
-    { endpoint: TailnetEndpoint; collectSecret: string; view: FleetPairRequestView }
-  >()
+  // waiting on a moment nobody is still in. The poll lives HERE (phase 3),
+  // so the wait outlives whichever panel asked.
+  type OutboundRequest = {
+    endpoint: TailnetEndpoint
+    collectSecret: string
+    view: FleetPairRequestView
+    /** The reverse half offered to the machine asked (phase 6), or null. */
+    reverse: TailnetReverseGrant | null
+    timer: ReturnType<typeof setTimeout> | null
+    /** A poll is on the wire; the timer must not stack a second. */
+    polling: Promise<void> | null
+  }
+  const outboundRequests = new Map<string, OutboundRequest>()
+  // How each request this session ended, so a surface that asks late (a
+  // panel that was closed while the answer landed) hears the answer rather
+  // than "expired". Bounded: a session makes a handful of requests, ever.
+  const settledRequests = new Map<string, FleetCollectPairingResult>()
+
+  function announceRequest(
+    request: OutboundRequest,
+    phase: FleetPairRequestPhase,
+    extra: { connection?: FleetConnection; detail?: string } = {}
+  ): void {
+    broadcast({ kind: 'pair-request', phase, request: { ...request.view }, ...extra })
+  }
+
+  /** End a request here: stop its timer, take back its reverse device, and drop it. */
+  function endRequest(request: OutboundRequest, keepReverse: boolean, settled?: FleetCollectPairingResult): void {
+    if (request.timer) clearTimeout(request.timer)
+    request.timer = null
+    outboundRequests.delete(request.view.requestId)
+    if (settled) settledRequests.set(request.view.requestId, settled)
+    if (request.reverse && !keepReverse) {
+      // The device was minted for a pairing that did not complete; leaving it
+      // would leave a live grant on this machine that nothing names.
+      try {
+        options.revokeReverseDevice?.(request.reverse.deviceId)
+      } catch (error) {
+        options.log?.(`Could not revoke reverse device ${request.reverse.deviceId}: ${message(error)}`)
+      }
+    }
+  }
+
+  function scheduleRequestPoll(request: OutboundRequest): void {
+    if (request.timer || !outboundRequests.has(request.view.requestId)) return
+    request.timer = setTimeout(() => {
+      request.timer = null
+      void pollRequest(request)
+    }, pairPollMs)
+    request.timer.unref?.()
+  }
+
+  /** One poll of one request. Resolves when the answer has been applied and announced. */
+  function pollRequest(request: OutboundRequest): Promise<void> {
+    if (request.polling) return request.polling
+    if (!outboundRequests.has(request.view.requestId)) return Promise.resolve()
+    request.polling = (async () => {
+      const collected = await collectPairingFromMachine({
+        endpoint: request.endpoint,
+        requestId: request.view.requestId,
+        collectSecret: request.collectSecret,
+        reverse: request.reverse,
+      })
+      // Cancelled while the poll was on the wire: whatever it says is moot.
+      if (!outboundRequests.has(request.view.requestId)) return
+      if (!collected.ok) {
+        // A machine that went to sleep mid-wait is not a refusal — keep
+        // waiting until its own expiry has clearly passed, then call it.
+        const expiresAtMs = Date.parse(request.view.expiresAt)
+        if (Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs + PAIR_WAIT_GRACE_MS) {
+          endRequest(request, false, { ok: true, status: 'expired' })
+          announceRequest(request, 'expired', { detail: collected.message })
+          return
+        }
+        scheduleRequestPoll(request)
+        return
+      }
+      const outcome = collected.value
+      if (outcome.status === 'pending') {
+        // The far end restates the code and expiry on every poll; keep them
+        // current so a card that mounts late shows what is on the other screen.
+        request.view = { ...request.view, comparisonCode: outcome.comparisonCode, expiresAt: outcome.expiresAt }
+        scheduleRequestPoll(request)
+        return
+      }
+      if (outcome.status !== 'approved') {
+        endRequest(request, false, { ok: true, status: outcome.status })
+        announceRequest(request, outcome.status, {
+          detail:
+            outcome.status === 'denied'
+              ? `${request.view.machineName} declined the request.`
+              : 'The request lapsed before anyone answered it.',
+        })
+        return
+      }
+      let connection: FleetConnection
+      try {
+        connection = store.add({
+          machineName: request.view.machineName,
+          endpoint: request.view.endpoint,
+          deviceId: outcome.deviceId,
+          deviceName: outcome.deviceName,
+          deviceToken: outcome.deviceToken,
+          scopes: outcome.scopes,
+          pairedVia: 'request',
+        })
+      } catch (error) {
+        // Same failure the carried-code path has, and the same honesty about it:
+        // the device exists over there now, and nothing here can name it. The
+        // reverse device stays, though — the other machine now holds its token
+        // and will list it, so it must be revocable by name here.
+        const detail =
+          `${request.view.machineName} approved the request, but the credential could not be saved here `
+          + `(${message(error)}). Revoke this device on that machine and ask again.`
+        endRequest(request, true, { ok: false, code: 'pairing_not_saved', message: detail })
+        announceRequest(request, 'failed', { detail })
+        return
+      }
+      endRequest(request, true, { ok: true, status: 'approved', connection })
+      broadcast({ kind: 'machine-paired', connection })
+      announceRequest(request, 'approved', { connection })
+      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+    })().finally(() => {
+      request.polling = null
+    })
+    return request.polling
+  }
 
   async function requestPairing(input: {
     endpoint: unknown
     deviceName?: unknown
+    reverseScopes?: unknown
   }): Promise<FleetRequestPairingResult> {
     const endpoint = parseTailnetEndpoint(typeof input.endpoint === 'string' ? input.endpoint : '')
     if (!endpoint) {
@@ -250,6 +467,52 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         message: 'This machine has no name to pair under. Name it and try again.',
       }
     }
+    // One request per machine at a time, from here: the far end refuses a
+    // second anyway, and two cards waiting on one machine would be two
+    // codes for one approval.
+    for (const pending of outboundRequests.values()) {
+      if (formatTailnetEndpoint(pending.endpoint) === formatTailnetEndpoint(endpoint)) {
+        return {
+          ok: false,
+          code: 'already_waiting',
+          message: `A request to ${pending.view.machineName} is already waiting to be answered.`,
+        }
+      }
+    }
+    const peerName = (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
+    const machineName = peerName ?? endpoint.host
+
+    // The reverse half first (phase 6): minted before the ask so a listener
+    // that is down refuses the whole thing rather than half of it. Only when
+    // asked for — a phone, or a person who wants one direction, offers none.
+    let reverse: TailnetReverseGrant | null = null
+    const reverseScopes = input.reverseScopes === undefined ? null : normalizeTailnetScopes(input.reverseScopes)
+    if (reverseScopes) {
+      if (!options.mintReverseDevice) {
+        return {
+          ok: false,
+          code: 'reverse_unavailable',
+          message: 'This machine cannot be driven back: it has no listener to grant.',
+        }
+      }
+      const minted = options.mintReverseDevice({ machineName, scopes: reverseScopes })
+      if (!minted) {
+        return {
+          ok: false,
+          code: 'reverse_unavailable',
+          message: 'Turn on Remote here first, or ask without letting that machine drive this one. A grant to a listener that is not running would point at nothing.',
+        }
+      }
+      reverse = {
+        endpoint: minted.endpoint,
+        machineName: name,
+        deviceId: minted.device.id,
+        deviceName: minted.device.name,
+        deviceToken: minted.deviceToken,
+        scopes: minted.device.scopes,
+      }
+    }
+
     // The secret stays here; only its hash is sent. Collecting the token later
     // means presenting it, so knowing the request id is not enough to take it.
     const collectSecret = randomBytes(24).toString('base64url')
@@ -258,17 +521,23 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       deviceName: name,
       collectHash: hashSecret(collectSecret),
     })
-    if (!asked.ok) return { ok: false, code: asked.code, message: asked.message }
+    if (!asked.ok) {
+      if (reverse) options.revokeReverseDevice?.(reverse.deviceId)
+      return { ok: false, code: asked.code, message: asked.message }
+    }
 
-    const peerName = (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
     const view: FleetPairRequestView = {
       requestId: asked.value.requestId,
       endpoint: formatTailnetEndpoint(endpoint),
-      machineName: peerName ?? endpoint.host,
+      machineName,
       comparisonCode: asked.value.comparisonCode,
       expiresAt: asked.value.expiresAt,
+      reverseOffered: reverse !== null,
     }
-    outboundRequests.set(view.requestId, { endpoint, collectSecret, view })
+    const request: OutboundRequest = { endpoint, collectSecret, view, reverse, timer: null, polling: null }
+    outboundRequests.set(view.requestId, request)
+    announceRequest(request, 'waiting')
+    scheduleRequestPoll(request)
     return { ok: true, request: view }
   }
 
@@ -276,49 +545,175 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     const id = typeof requestId === 'string' ? requestId : ''
     const pending = outboundRequests.get(id)
     if (!pending) {
-      // Nothing here is waiting on that id — which is what a restart, a cancel,
-      // and an id from another window all look like.
-      return { ok: true, status: 'expired' }
+      // Already ended here: say how. Nothing at all under that id — a
+      // restart, or an id from another window — reads as expired, which is
+      // what it is to this process.
+      return settledRequests.get(id) ?? { ok: true, status: 'expired' }
     }
-    const collected = await collectPairingFromMachine({
-      endpoint: pending.endpoint,
-      requestId: id,
-      collectSecret: pending.collectSecret,
-    })
-    if (!collected.ok) return { ok: false, code: collected.code, message: collected.message }
-    if (collected.value.status === 'pending') return { ok: true, status: 'pending', request: pending.view }
-    if (collected.value.status !== 'approved') {
-      outboundRequests.delete(id)
-      return { ok: true, status: collected.value.status }
+    // Poll now rather than waiting for the timer, then report what the poll
+    // applied — the same path the timer takes, so a surface asking cannot
+    // race the broadcast to a different answer.
+    if (pending.timer) {
+      clearTimeout(pending.timer)
+      pending.timer = null
     }
-
-    outboundRequests.delete(id)
-    try {
-      const connection = store.add({
-        machineName: pending.view.machineName,
-        endpoint: pending.view.endpoint,
-        deviceId: collected.value.deviceId,
-        deviceName: collected.value.deviceName,
-        deviceToken: collected.value.deviceToken,
-        scopes: collected.value.scopes,
-      })
-      broadcast({ kind: 'machine-paired', connection })
-      return { ok: true, status: 'approved', connection }
-    } catch (error) {
-      // Same failure the carried-code path has, and the same honesty about it:
-      // the device exists over there now, and nothing here can name it.
-      return {
-        ok: false,
-        code: 'pairing_not_saved',
-        message:
-          `${pending.view.machineName} approved the request, but the credential could not be saved here `
-          + `(${message(error)}). Revoke this device on that machine and ask again.`,
-      }
-    }
+    await pollRequest(pending)
+    if (outboundRequests.has(id)) return { ok: true, status: 'pending', request: { ...pending.view } }
+    return settledRequests.get(id) ?? { ok: true, status: 'expired' }
   }
 
   function cancelPairing(requestId: unknown): void {
-    outboundRequests.delete(typeof requestId === 'string' ? requestId : '')
+    const pending = outboundRequests.get(typeof requestId === 'string' ? requestId : '')
+    if (!pending) return
+    endRequest(pending, false, { ok: true, status: 'expired' })
+    announceRequest(pending, 'cancelled')
+  }
+
+  function adoptReverseGrant(input: {
+    grant: TailnetReverseGrant
+    askerName: string
+    peerNode: string | null
+  }): FleetConnection | null {
+    const { grant } = input
+    // The same machine twice is two real records over there, exactly as a
+    // second carried-code pairing is — but a reverse grant arrives without
+    // anyone here pressing anything, so a duplicate for an endpoint already
+    // paired replaces the old credential rather than stacking a row nobody
+    // asked for. The old device over there is named in the log for revoking.
+    const existing = store.list().find((entry) => entry.endpoint === grant.endpoint && entry.pairedVia === 'reverse')
+    if (existing) {
+      options.log?.(
+        `Replacing the reverse pairing for ${grant.endpoint}: device "${existing.deviceName}" there is now unused; revoke it in that machine's Remote settings.`
+      )
+      store.forget(existing.id)
+    }
+    let connection: FleetConnection
+    try {
+      connection = store.add({
+        machineName: input.peerNode ?? grant.machineName ?? input.askerName,
+        endpoint: grant.endpoint,
+        deviceId: grant.deviceId,
+        deviceName: grant.deviceName,
+        deviceToken: grant.deviceToken,
+        scopes: grant.scopes,
+        pairedVia: 'reverse',
+      })
+    } catch (error) {
+      options.log?.(`Could not keep the reverse pairing from ${input.askerName}: ${message(error)}`)
+      return null
+    }
+    if (existing) broadcast({ kind: 'machine-forgotten', connectionId: existing.id, machineName: existing.machineName })
+    broadcast({ kind: 'machine-paired', connection })
+    void probeReachability(connection)
+    return connection
+  }
+
+  // ── Reachability (phase 4) ────────────────────────────────────────────────
+  //
+  // One small authenticated call per machine — the identity read, which is
+  // also the one that tells "asleep" from "revoked over there" — on the
+  // moments that change the answer: start, wake, the interval, a Retry. The
+  // browse and the dial feed the same record, so a machine that just
+  // answered a person is not shown as "not answering" until the next timer.
+  const reachability = new Map<string, FleetMachineReachability>()
+  const probes = new Map<string, Promise<void>>()
+  let reachabilityTimer: ReturnType<typeof setInterval> | null = null
+
+  function reachabilityFor(connection: FleetConnection): FleetMachineReachability {
+    return (
+      reachability.get(connection.id) ?? {
+        connectionId: connection.id,
+        machineName: connection.machineName,
+        checking: false,
+        reachable: false,
+        unauthorized: false,
+        checkedAt: null,
+        lastReachedAt: connection.lastConnectedAt ? Date.parse(connection.lastConnectedAt) || null : null,
+        detail: null,
+      }
+    )
+  }
+
+  function recordReachability(
+    connection: FleetConnection,
+    answer: { reachable: boolean; unauthorized: boolean; detail: string | null }
+  ): void {
+    const previous = reachabilityFor(connection)
+    const now = Date.now()
+    const next: FleetMachineReachability = {
+      ...previous,
+      machineName: connection.machineName,
+      checking: false,
+      reachable: answer.reachable,
+      unauthorized: answer.unauthorized,
+      checkedAt: now,
+      lastReachedAt: answer.reachable ? now : previous.lastReachedAt,
+      detail: answer.reachable ? null : answer.detail,
+    }
+    reachability.set(connection.id, next)
+    broadcast({ kind: 'machine-reachability', ...next })
+  }
+
+  function probeReachability(connection: FleetConnection): Promise<void> {
+    const inFlight = probes.get(connection.id)
+    if (inFlight) return inFlight
+    const checking: FleetMachineReachability = { ...reachabilityFor(connection), checking: true }
+    reachability.set(connection.id, checking)
+    broadcast({ kind: 'machine-reachability', ...checking })
+    const probe = (async () => {
+      const stored = store.find(connection.id)
+      if (!stored) return
+      const identity = await readRemoteIdentity({
+        endpoint: endpointOf(stored),
+        token: stored.deviceToken,
+        timeoutMs: reachabilityTimeoutMs,
+      })
+      // Forgotten while the probe was out: nothing to record it against.
+      if (!store.find(connection.id)) return
+      if (identity.ok) {
+        store.updateScopes(connection.id, identity.value.scopes)
+        store.markConnected(connection.id)
+        recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+        return
+      }
+      recordReachability(connection, {
+        reachable: false,
+        unauthorized: identity.code === 'unauthorized',
+        detail: identity.message,
+      })
+    })().finally(() => {
+      probes.delete(connection.id)
+    })
+    probes.set(connection.id, probe)
+    return probe
+  }
+
+  async function checkAllReachability(): Promise<void> {
+    await Promise.all(store.list().map((connection) => probeReachability(connection)))
+  }
+
+  function start(): void {
+    if (reachabilityTimer) return
+    void checkAllReachability()
+    reachabilityTimer = setInterval(() => {
+      // Nobody is looking: a row nobody can see does not need to be right.
+      if (options.hasWindow && !options.hasWindow()) return
+      void checkAllReachability()
+    }, reachabilityIntervalMs)
+    reachabilityTimer.unref?.()
+  }
+
+  function onWake(): void {
+    void checkAllReachability()
+    for (const attachment of attachments.values()) {
+      if (attachment.released || attachment.socket) continue
+      if (!attachment.retryTimer) continue
+      // Dial now; the backoff was for a machine that had not changed, and
+      // this one just did.
+      clearTimeout(attachment.retryTimer)
+      attachment.retryTimer = null
+      void dial(attachment)
+    }
   }
 
   async function browse(connectionId: unknown): Promise<FleetBrowse> {
@@ -330,6 +725,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     // the scopes as they are NOW rather than as they were at pairing.
     const identity = await readRemoteIdentity({ endpoint: endpointOf(connection), token: connection.deviceToken })
     if (!identity.ok) {
+      recordReachability(connection, {
+        reachable: false,
+        unauthorized: identity.code === 'unauthorized',
+        detail: identity.message,
+      })
       return {
         connectionId: connection.id,
         reachable: false,
@@ -344,6 +744,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     }
     store.updateScopes(connection.id, identity.value.scopes)
     store.markConnected(connection.id)
+    recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
     const scopes = identity.value.scopes
 
     const gaps: FleetGap[] = []
@@ -616,6 +1017,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           // A revoked device (4401) is a decision someone made, not a blip:
           // retrying would be a loop against a door that has been locked.
           if (code === 4401) {
+            const revoked = store.find(attachment.connectionId)
+            if (revoked) recordReachability(revoked, { reachable: false, unauthorized: true, detail: reason })
             finish(attachment, reason)
             return
           }
@@ -641,6 +1044,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       // A refusal that will not change on retry is reported and ended; anything
       // that looks like a network is retried.
       if (opened.code === 'unauthorized' || opened.code.startsWith('terminal_')) {
+        if (opened.code === 'unauthorized') {
+          recordReachability(connection, { reachable: false, unauthorized: true, detail: opened.message })
+        }
         attachment.emit({ type: 'error', code: opened.code, message: opened.message })
         finish(attachment, opened.message)
         return
@@ -652,6 +1058,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     attachment.socket = opened.value
     attachment.attempts = 0
     store.markConnected(connection.id)
+    if (!reachabilityFor(connection).reachable) {
+      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+    }
     attachment.emit({ type: 'status', state: 'live', detail: `Connected to ${connection.machineName}.` })
     // The remote pty is sized for whichever pane attached last; re-sending this
     // pane's size after a reconnect is what stops a resumed session rendering to
@@ -766,15 +1175,42 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     })
   }
 
+  function getLiveState(): FleetLiveState {
+    return {
+      revision,
+      attachments: [...attachments.values()].map((attachment) => ({
+        attachId: attachment.attachId,
+        connectionId: attachment.connectionId,
+        machineName: store.find(attachment.connectionId)?.machineName ?? attachment.connectionId,
+        sessionId: attachment.sessionId,
+        state: attachment.state,
+        detail: attachment.detail,
+      })),
+      requests: [...outboundRequests.values()].map((request) => ({ ...request.view })),
+      reachability: [...reachability.values()].map((entry) => ({ ...entry })),
+    }
+  }
+
   return {
+    start,
+    onWake,
+    async checkReachability(connectionId): Promise<FleetLiveState> {
+      if (typeof connectionId === 'string') {
+        const connection = store.find(connectionId)
+        if (connection) await probeReachability(connection)
+      } else await checkAllReachability()
+      return getLiveState()
+    },
     listConnections: () => store.list(),
     pair,
     requestPairing,
     collectPairing,
     cancelPairing,
+    adoptReverseGrant,
     forget(connectionId): FleetConnection[] {
       if (typeof connectionId === 'string') {
         const forgotten = store.find(connectionId)
+        reachability.delete(connectionId)
         // Panes attached to a machine we just forgot have no credential left to
         // reconnect with; end them rather than leaving them retrying forever.
         for (const attachment of [...attachments.values()]) {
@@ -810,22 +1246,19 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
     detachTerminal,
 
-    getLiveState(): FleetLiveState {
-      return {
-        revision,
-        attachments: [...attachments.values()].map((attachment) => ({
-          attachId: attachment.attachId,
-          connectionId: attachment.connectionId,
-          machineName: store.find(attachment.connectionId)?.machineName ?? attachment.connectionId,
-          sessionId: attachment.sessionId,
-          state: attachment.state,
-          detail: attachment.detail,
-        })),
-      }
-    },
+    getLiveState,
 
     shutdown(): void {
       for (const attachment of [...attachments.values()]) detachTerminal(attachment.attachId)
+      if (reachabilityTimer) clearInterval(reachabilityTimer)
+      reachabilityTimer = null
+      for (const request of [...outboundRequests.values()]) {
+        // The process is going; the far end's copy lapses on its own. The
+        // reverse device stays revocable by name, so it is left alone.
+        if (request.timer) clearTimeout(request.timer)
+        request.timer = null
+      }
+      outboundRequests.clear()
     },
   }
 }

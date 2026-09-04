@@ -24,6 +24,7 @@ import {
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
+  TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
@@ -35,9 +36,11 @@ import {
   type TailnetTerminalStream,
 } from './tailnet-terminal-stream'
 import type { TerminalRemoteHost } from '../../terminal-remote-attach'
-import type { TailnetDeviceStore } from './tailnet-devices'
+import type { TailnetCollectOutcome, TailnetDeviceStore } from './tailnet-devices'
 import type { TailnetPeerResolver } from './tailnet-peer-identity'
 import { normalizeAddress } from './tailnet-peer-identity'
+import { parseTailnetEndpoint } from './tailnet-remote-client'
+import { normalizeTailnetScopes, type TailnetReverseGrant } from '../../../shared/tailnet'
 import { tailnetScopeGrantsAccess, type TailnetDevice, type TailnetScope } from '../../../shared/tailnet'
 import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet-scopes'
 import {
@@ -115,6 +118,15 @@ export type TailnetGatewayServerOptions = {
    * go and read the requests, not to be told about one it has not authorised.
    */
   onPairRequested?: () => void
+  /**
+   * An approved asker's collect carried the reverse half of a both-ways
+   * pairing (phase 6): a device the asker minted for THIS machine on its own
+   * listener. Only fired for a grant whose endpoint is the asker's own
+   * transport-proven address — a body cannot point this machine's credential
+   * store at a third party — and only on the collect that took our token,
+   * so it rides on an approval a person here already gave.
+   */
+  onReverseGrant?: (input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }) => void
   /**
    * Device activity, for the live-state push (remote-sessions-ux): a device's
    * RPC stream or terminal attachment opening or closing — fired exactly once
@@ -297,6 +309,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       await handlePairRequest(request, response, method)
       return
     }
+    if (path === TAILNET_PAIR_COLLECT_PATH && method === 'POST') {
+      await handlePairCollect(request, response)
+      return
+    }
 
     const device = authenticate(request)
     if (!device) {
@@ -384,7 +400,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // Every outcome is a 200: "your request was declined" and "it lapsed" are
       // answers to a well-formed question, not failures of it. The client
       // branches on `status`, which it must do anyway.
-      writeJson(response, 200, outcome)
+      writeJson(response, 200, wireCollectOutcome(outcome))
       return
     }
 
@@ -432,6 +448,41 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       comparisonCode: outcome.request.comparisonCode,
       expiresAt: outcome.request.expiresAt,
     })
+  }
+
+  /**
+   * The collect as a POST (phase 6): the same answer the GET gives, plus the
+   * one thing a GET cannot carry — the asker's reverse grant, adopted only
+   * when this very collect hands the asker OUR token (the approval a person
+   * here gave), and only when its endpoint is the address the asker is
+   * calling from. Anything else about the grant is refused silently: the
+   * pairing the person approved still completes; the extra half does not.
+   */
+  async function handlePairCollect(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await readJsonBody(request, response, MAX_CONTROL_BODY_BYTES)
+    if (body === undefined) return
+    const record = isRecord(body) ? body : {}
+    const outcome = options.devices.collectPairRequest(
+      typeof record.id === 'string' ? record.id : '',
+      typeof record.secret === 'string' ? record.secret : ''
+    )
+    if (outcome.status === 'approved' && outcome.asker && isRecord(record.reverse)) {
+      const peerAddress = normalizeAddress(request.socket.remoteAddress)
+      const grant = readReverseGrant(record.reverse, peerAddress)
+      if (grant) {
+        options.onReverseGrant?.({
+          grant,
+          askerName: outcome.asker.deviceName,
+          peerNode: outcome.asker.peerNode,
+        })
+      } else {
+        options.log?.(
+          `tailnet gateway ignored a reverse grant from ${peerAddress || 'an unknown address'}: `
+          + 'its endpoint was not the asker\'s own address or it was malformed.'
+        )
+      }
+    }
+    writeJson(response, 200, wireCollectOutcome(outcome))
   }
 
   async function handleMessage(
@@ -769,6 +820,38 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     },
     streamCount: () => streams.size,
     terminalStreamCount: () => terminalStreams.size,
+  }
+}
+
+/** The collect outcome as the asker may see it: never who asked (it knows) nor the store's bookkeeping. */
+function wireCollectOutcome(outcome: TailnetCollectOutcome): Record<string, unknown> {
+  const { asker: _asker, ...wire } = outcome
+  return wire
+}
+
+/**
+ * Read a reverse grant off a collect body, or null when it must not be kept.
+ *
+ * The endpoint's host must be the address the collect arrived from. That is
+ * the one fact the transport proves about the asker, and it is what stops a
+ * peer from handing this machine a credential that dials somewhere else.
+ */
+function readReverseGrant(value: Record<string, unknown>, peerAddress: string): TailnetReverseGrant | null {
+  if (!peerAddress) return null
+  const endpoint = typeof value.endpoint === 'string' ? parseTailnetEndpoint(value.endpoint) : null
+  if (!endpoint || normalizeAddress(endpoint.host) !== peerAddress) return null
+  const deviceToken = typeof value.deviceToken === 'string' ? value.deviceToken.trim() : ''
+  const deviceId = typeof value.deviceId === 'string' ? value.deviceId.trim() : ''
+  if (!deviceToken || !deviceId) return null
+  const machineName = typeof value.machineName === 'string' ? value.machineName.trim().slice(0, 120) : ''
+  const deviceName = typeof value.deviceName === 'string' ? value.deviceName.trim().slice(0, 120) : ''
+  return {
+    endpoint: `${endpoint.host.includes(':') ? `[${endpoint.host}]` : endpoint.host}:${endpoint.port}`,
+    machineName: machineName || endpoint.host,
+    deviceId,
+    deviceName,
+    deviceToken,
+    scopes: normalizeTailnetScopes(value.scopes),
   }
 }
 

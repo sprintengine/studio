@@ -12,6 +12,7 @@ import {
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
+  TAILNET_SET_NOTIFICATIONS_CHANNEL,
 } from '../../shared/tailnet'
 import { TAILNET_LIST_PEERS_CHANNEL } from '../../shared/tailnet-peers'
 import type { AutomationService } from '../automation/automation-service'
@@ -44,8 +45,13 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   // Answering a request is the same authority as minting a code, so it lives on
   // the same IPC-only front door: a remote device can ask, and only this
   // keyboard can say yes.
-  ipcMain.handle(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, (_event, id: unknown, scopes: unknown) =>
-    service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes })
+  // The code is the six digits on the ASKER's screen, typed here: main
+  // compares, so a window cannot approve what its person did not read.
+  ipcMain.handle(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, (_event, id: unknown, scopes: unknown, code: unknown) =>
+    service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes, code })
+  )
+  ipcMain.handle(TAILNET_SET_NOTIFICATIONS_CHANNEL, (_event, enabled: unknown) =>
+    service.setTailnetNotifications(enabled === true)
   )
   ipcMain.handle(TAILNET_DENY_PAIR_REQUEST_CHANNEL, (_event, id: unknown) =>
     service.denyTailnetPairRequest(typeof id === 'string' ? id : '')

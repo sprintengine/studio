@@ -3130,8 +3130,15 @@ export type ElectronApi = {
    * ones chosen here, and this is the only surface that can grant the terminal
    * tier to a person rather than to an agent on the local socket.
    */
-  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[]) => Promise<TailnetApprovePairRequestView>
+  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string) => Promise<TailnetApprovePairRequestView>
   tailnetDenyPairRequest: (id: string) => Promise<TailnetRemoteStatus>
+  /** Whether pairing and reachability events raise OS notifications (phase 3). Persisted beside the listener setting. */
+  tailnetSetNotifications: (enabled: boolean) => Promise<TailnetRemoteStatus>
+  /**
+   * Main asks the chrome to open the Remote popover — the click on an OS
+   * notification about a pair request or a machine's answer lands here.
+   */
+  onRemoteOpenRequested: (cb: () => void) => () => void
   /**
    * Machines on this tailnet, and which of them answer as a Studio (MC-2163).
    *
@@ -3165,9 +3172,14 @@ export type ElectronApi = {
    * Main holds the collect secret, so a window can neither dial the peer nor
    * take the token the approval mints.
    */
-  fleetRequestPairing: (endpoint: string) => Promise<FleetRequestPairingResult>
+  fleetRequestPairing: (
+    endpoint: string,
+    options?: { reverseScopes?: TailnetScope[] }
+  ) => Promise<FleetRequestPairingResult>
   fleetCollectPairing: (requestId: string) => Promise<FleetCollectPairingResult>
   fleetCancelPairing: (requestId: string) => Promise<void>
+  /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */
+  fleetCheckReachability: (connectionId?: string) => Promise<FleetLiveState>
   /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
   fleetForget: (connectionId: string) => Promise<FleetConnection[]>
   /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
