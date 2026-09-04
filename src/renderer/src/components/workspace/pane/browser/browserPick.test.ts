@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { buildBrowserElementBlock, normalizePickedElement } from './browserPick'
+import { AGENT_CURSOR_LINGER_MS, cursorPlacement, cursorVisible } from './agentCursor'
 import { rewriteUnroutableHost } from './openInPane'
 
 function run(name: string, body: () => void): void {
@@ -163,4 +164,16 @@ run('normalizePickedElement drops malformed payloads and caps every field', () =
     components: ['Button'],
     source: 'src/App.tsx:10:4',
   })
+})
+
+// The agent cursor's arithmetic: scaled with the device frame, gone after the
+// linger, and never shown while the person holds the page.
+run('the agent cursor scales with the frame and hides on a takeover', () => {
+  assert.deepEqual(cursorPlacement({ x: 100, y: 40 }, 0.5), { left: 50, top: 20 })
+  assert.deepEqual(cursorPlacement({ x: 100, y: 40 }, Number.NaN), { left: 100, top: 40 })
+  const event = { tabId: 't1', x: 1, y: 1, kind: 'move' as const, at: 10_000 }
+  assert.equal(cursorVisible(event, 10_000 + AGENT_CURSOR_LINGER_MS, 'agent'), true)
+  assert.equal(cursorVisible(event, 10_000 + AGENT_CURSOR_LINGER_MS + 1, 'agent'), false)
+  assert.equal(cursorVisible(event, 10_100, 'human'), false)
+  assert.equal(cursorVisible(null, 10_100, 'agent'), false)
 })

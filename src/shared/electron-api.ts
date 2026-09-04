@@ -12,6 +12,7 @@ import type {
   BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
+  BrowserPointerEvent,
   BrowserRegisterInput,
   BrowserRegisterResult,
   BrowserScreenshotResult,
@@ -3007,6 +3008,8 @@ export type ElectronApi = {
   browserNoteActive: (workspaceId: string, tabId: string | null) => Promise<void>
   /** An agent asked for a URL in this workspace's pane (browser.open); the renderer opens or navigates a tab. */
   onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void) => () => void
+  /** The agent's pointer is about to act at a point in a tab's viewport (the cursor overlay). */
+  onBrowserPointer: (cb: (event: BrowserPointerEvent) => void) => () => void
   /** An agent asked for a device viewport on a tab (browser.resize); the renderer owns viewport state. */
   onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void) => () => void
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void

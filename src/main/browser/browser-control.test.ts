@@ -65,15 +65,93 @@ function fixture() {
       inputDepth += delta
       inputDepths.push(inputDepth)
     },
+    onHumanInput: (listener) => {
+      humanListeners.push(listener)
+      return () => {}
+    },
+    notePointer: (event) => {
+      log.push(`pointer:${event.kind}@${event.x},${event.y}`)
+    },
   })
-  return { wc, control, badges, inputDepths, bump: () => (epoch += 1) }
+  const original = wc.debugger.sendCommand.bind(wc.debugger)
+  wc.debugger.sendCommand = async (method, params) => {
+    if (method === 'Input.dispatchMouseEvent') log.push(`dispatch:${String(params?.type)}`)
+    return original(method, params)
+  }
+  return {
+    wc,
+    control,
+    badges,
+    inputDepths,
+    log,
+    bump: () => (epoch += 1),
+    human: () => {
+      epoch += 1
+      for (const listener of humanListeners) listener('t1')
+    },
+  }
 }
+const humanListeners: Array<(tabId: string) => void> = []
+const log: string[] = []
 
 function evaluation(value: unknown) {
   return { result: { type: typeof value, value } }
 }
 
 async function main(): Promise<void> {
+  await run('the pointer overlay hears each move, click and wheel before the page does', async () => {
+    const { wc, control } = fixture()
+    log.length = 0
+    wc.debugger.respond = (method) => (method === 'Runtime.evaluate' ? evaluation({ x: 40, y: 20 }) : {})
+    await control.click('t1', { ref: 'e1' })
+    assert.deepEqual(log, ['pointer:move@40,20', 'dispatch:mouseMoved', 'pointer:click@40,20', 'dispatch:mousePressed', 'dispatch:mouseReleased'])
+    log.length = 0
+    await control.scroll('t1', null, 0, 300)
+    assert.deepEqual(log, ['pointer:wheel@40,20', 'dispatch:mouseWheel'])
+  })
+
+  await run('history: actions record their outcome, takeovers become one human entry, the ring is bounded', async () => {
+    const { wc, control, human } = fixture()
+    wc.debugger.respond = (method) => (method === 'Runtime.evaluate' ? evaluation({ x: 1, y: 1 }) : {})
+    assert.deepEqual(control.actionsOf('t1'), [], 'nothing before the first action')
+    await control.click('t1', { ref: 'e1' })
+    human()
+    human()
+    const failing = await control.click('t1', { selector: '' })
+    assert.equal(failing.ok, false)
+    const entries = control.actionsOf('t1')
+    assert.deepEqual(
+      entries.map((entry) => [entry.action, entry.status]),
+      [
+        ['click', 'succeeded'],
+        ['human', 'succeeded'],
+        ['click', 'failed'],
+      ],
+    )
+    assert.equal(entries[0].args, 'ref e1')
+    assert.ok(entries[2].error, 'a failure carries its message')
+    // An action the person interrupts says so.
+    wc.debugger.respond = (method) => {
+      if (method === 'Runtime.evaluate') {
+        human()
+        return evaluation({ x: 1, y: 1 })
+      }
+      return {}
+    }
+    await control.hover('t1', { ref: 'e2' })
+    // Ordered by start: the hover began, the person's takeover landed during it,
+    // and the hover ended interrupted — the sequence that explains the outcome.
+    const last = control.actionsOf('t1').slice(-2)
+    assert.deepEqual(last.map((entry) => [entry.action, entry.status]), [
+      ['hover', 'interrupted'],
+      ['human', 'succeeded'],
+    ])
+    // Bounded.
+    wc.debugger.respond = () => ({})
+    for (let i = 0; i < 80; i += 1) await control.press('t1', 'Enter')
+    assert.equal(control.actionsOf('t1').length, 50)
+  })
+
   await run('parseKeyChord: named keys, modifiers, single characters, and nonsense', () => {
     assert.deepEqual(parseKeyChord('Enter'), { key: 'Enter', code: 'Enter', keyCode: 13, modifiers: 0 })
     assert.deepEqual(parseKeyChord('shift+Tab'), { key: 'Tab', code: 'Tab', keyCode: 9, modifiers: 8 })

@@ -4,6 +4,7 @@ import type {
   BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
+  BrowserPointerEvent,
   BrowserRegisterInput,
   BrowserRegisterResult,
   BrowserScreenshotResult,
@@ -52,6 +53,7 @@ export const browserApi = {
     ipcRenderer.invoke('browser:note-active', { workspaceId, tabId }),
   onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void): (() => void) =>
     subscribe('browser:open-request', cb),
+  onBrowserPointer: (cb: (event: BrowserPointerEvent) => void): (() => void) => subscribe('browser:pointer', cb),
   onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void): (() => void) =>
     subscribe('browser:viewport-request', cb),
   onBrowserState: (cb: (state: BrowserTabState) => void): (() => void) => subscribe('browser:state', cb),
@@ -82,6 +84,7 @@ export const browserApi = {
   | 'browserLocalServers'
   | 'browserNoteActive'
   | 'onBrowserOpenRequest'
+  | 'onBrowserPointer'
   | 'onBrowserViewportRequest'
   | 'onBrowserState'
   | 'onBrowserFocusUrl'

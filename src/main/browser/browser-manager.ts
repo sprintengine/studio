@@ -10,8 +10,10 @@ import {
   isLoadableBrowserUrl,
   type BrowserCaptureInput,
   type BrowserClearResult,
+  type BrowserController,
   type BrowserHostKey,
   type BrowserLoadError,
+  type BrowserPointerEvent,
   type BrowserRegisterInput,
   type BrowserRegisterResult,
   type BrowserScreenshotResult,
@@ -64,8 +66,8 @@ const HOST_FORWARDED_CHORDS: readonly Chord[] = [
   { key: '0', shift: false, alt: false },
 ]
 const CAPTURE_TIMEOUT_MS = 5_000
-// How long the toolbar's Agent badge stays lit after the last tool call.
-const AGENT_BADGE_LINGER_MS = 1_500
+// How long a controller claim (agent or human) outlives its last input.
+const CONTROLLER_LINGER_MS = 1_500
 
 export type TerminalRootInfo = {
   sessionId: string
@@ -102,7 +104,7 @@ type BrowserTab = {
   // > 0 while the agent control layer is dispatching synthetic input: those
   // keystrokes reach `before-input-event` too and must not count as a human.
   agentInputDepth: number
-  agentActiveTimer: NodeJS.Timeout | null
+  controllerTimer: NodeJS.Timeout | null
 }
 
 // Appearance emulation is a DevTools-protocol feature (there is no per-guest
@@ -300,6 +302,24 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
   const tabs = new Map<string, BrowserTab>()
   const activeTabByWorkspace = new Map<string, string>()
   const unregisterListeners = new Set<(tabId: string) => void>()
+  const humanInputListeners = new Set<(tabId: string) => void>()
+
+  /** A claim on the page that lapses CONTROLLER_LINGER_MS after the last input. */
+  function claim(tab: BrowserTab, controller: BrowserController): void {
+    if (tab.state.controller !== controller) patch(tab, { controller })
+    if (tab.controllerTimer) clearTimeout(tab.controllerTimer)
+    tab.controllerTimer = setTimeout(() => {
+      tab.controllerTimer = null
+      if (tabs.get(tab.tabId) === tab && !tab.wc.isDestroyed()) patch(tab, { controller: 'none' })
+    }, CONTROLLER_LINGER_MS)
+  }
+
+  /** The person acted on the page: the epoch moves, the page is theirs, the control layer hears it. */
+  function humanTookOver(tab: BrowserTab): void {
+    tab.epoch += 1
+    claim(tab, 'human')
+    for (const listener of humanInputListeners) listener(tab.tabId)
+  }
   let browserSession: Session | null = null
 
   function ensureSession(): Session {
@@ -435,7 +455,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       shift: boolean
     }) => {
       if (input.type !== 'keyDown') return
-      if (tab.agentInputDepth === 0) tab.epoch += 1
+      if (tab.agentInputDepth === 0) humanTookOver(tab)
       const primary = process.platform === 'darwin' ? input.meta : input.control
       if (!primary) return
       const key = input.key.toLowerCase()
@@ -559,12 +579,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           zoomFactor: 1,
           colorScheme: 'system',
           devToolsOpen: wc.isDevToolsOpened(),
-          agentActive: false,
+          controller: 'none',
         },
         dispose: () => {},
         epoch: 0,
         agentInputDepth: 0,
-        agentActiveTimer: null,
+        controllerTimer: null,
       }
       tab.dispose = attach(tab)
       // Guests inherit the embedder's zoom; a tab is its own document.
@@ -576,7 +596,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     unregister(tabId: string): void {
       const tab = tabs.get(tabId)
       if (!tab) return
-      if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
+      if (tab.controllerTimer) clearTimeout(tab.controllerTimer)
       tab.dispose()
       tabs.delete(tabId)
       if (activeTabByWorkspace.get(tab.workspaceId) === tabId) activeTabByWorkspace.delete(tab.workspaceId)
@@ -626,16 +646,22 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       tab.host.send('browser:viewport-request', { tabId, viewport })
     },
 
-    /** Marks a tab as agent-driven for a moment; the toolbar shows the badge. */
+    /** The agent holds the page for a moment; the toolbar badge and the cursor overlay show it. */
     noteAgentActivity(tabId: string): void {
       const tab = requireTab(tabId)
-      if (!tab) return
-      if (!tab.state.agentActive) patch(tab, { agentActive: true })
-      if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
-      tab.agentActiveTimer = setTimeout(() => {
-        tab.agentActiveTimer = null
-        if (tabs.get(tabId) === tab && !tab.wc.isDestroyed()) patch(tab, { agentActive: false })
-      }, AGENT_BADGE_LINGER_MS)
+      if (tab) claim(tab, 'agent')
+    },
+
+    /** Called with the tab id whenever the person's own input moves the epoch. */
+    onHumanInput(listener: (tabId: string) => void): () => void {
+      humanInputListeners.add(listener)
+      return () => humanInputListeners.delete(listener)
+    },
+
+    /** Where the agent's pointer is about to act, for the host window's cursor overlay. */
+    notePointer(event: BrowserPointerEvent): void {
+      const tab = requireTab(event.tabId)
+      if (tab && !tab.host.isDestroyed()) tab.host.send('browser:pointer', event)
     },
 
     epochOf(tabId: string): number {
@@ -668,7 +694,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     navigate(tabId: string, url: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !isLoadableBrowserUrl(url)) return false
-      tab.epoch += 1
+      humanTookOver(tab)
       patch(tab, { error: null, loading: true, url })
       void tab.wc.loadURL(url).catch((error: unknown) => {
         // did-fail-load reports most failures with their code; a load the
@@ -738,7 +764,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     back(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !tab.wc.navigationHistory.canGoBack()) return false
-      tab.epoch += 1
+      humanTookOver(tab)
       tab.wc.navigationHistory.goBack()
       return true
     },
@@ -746,7 +772,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     forward(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab || !tab.wc.navigationHistory.canGoForward()) return false
-      tab.epoch += 1
+      humanTookOver(tab)
       tab.wc.navigationHistory.goForward()
       return true
     },
@@ -754,7 +780,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     reload(tabId: string, ignoreCache = false): boolean {
       const tab = requireTab(tabId)
       if (!tab) return false
-      tab.epoch += 1
+      humanTookOver(tab)
       patch(tab, { error: null })
       if (ignoreCache) tab.wc.reloadIgnoringCache()
       else tab.wc.reload()
@@ -764,7 +790,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     stop(tabId: string): boolean {
       const tab = requireTab(tabId)
       if (!tab) return false
-      tab.epoch += 1
+      humanTookOver(tab)
       tab.wc.stop()
       patch(tab, { loading: false })
       return true
@@ -920,7 +946,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     disposeAll(): void {
       const ids = [...tabs.keys()]
       for (const tab of tabs.values()) {
-        if (tab.agentActiveTimer) clearTimeout(tab.agentActiveTimer)
+        if (tab.controllerTimer) clearTimeout(tab.controllerTimer)
         tab.dispose()
       }
       tabs.clear()

@@ -25,6 +25,7 @@ import { Badge, IconButton, OverflowMenu, Tooltip } from '../../../ui'
 import { BrowserDeviceToolbar } from './BrowserDeviceToolbar'
 import { BrowserStartPage } from './BrowserStartPage'
 import { BrowserErrorPage } from './BrowserErrorPage'
+import { AgentBrowserCursor } from './AgentBrowserCursor'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 import { BrowserViewMenu } from './BrowserViewMenu'
 import { buildBrowserElementBlock, normalizePickedElement, readPickTheme, sendTextToFocusedAgent } from './browserPick'
@@ -469,7 +470,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         }}
         trailing={
           <>
-            {state?.agentActive ? (
+            {state?.controller === 'agent' ? (
               <Badge tone="accent" ariaLabel="An agent is driving this page">
                 Agent
               </Badge>
@@ -558,6 +559,10 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               tabIndex={active ? 0 : -1}
             />
           ) : null}
+          {/* The agent's hand, drawn over the guest in the frame's own space so
+              it scales with the device frame. A later sibling composites above
+              the <webview>; no stacking tier is needed. */}
+          <AgentBrowserCursor tabId={tab.id} scale={scale} controller={state?.controller ?? 'none'} />
         </div>
         {framed ? (
           <span

@@ -30,7 +30,7 @@ function tabState(tabId: string, url: string, overrides: Partial<BrowserTabState
     zoomFactor: 1,
     colorScheme: 'system',
     devToolsOpen: false,
-    agentActive: false,
+    controller: 'none',
     ...overrides,
   }
 }
@@ -111,6 +111,14 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
     waitFor: async () => ({ ok: false, code: 'timeout', message: 'Waited 5000ms' }),
     console: async () => ({ ok: true, entries: [] }),
     network: async () => ({ ok: true, entries: [] }),
+    actionsOf: (tabId) =>
+      tabId === 't1'
+        ? [
+            { id: 'a1', action: 'click', args: 'ref e1', status: 'succeeded', startedAt: '2026-09-04T09:00:00.000Z', completedAt: '2026-09-04T09:00:00.100Z' },
+            { id: 'a2', action: 'human', args: '', status: 'succeeded', startedAt: '2026-09-04T09:00:01.000Z', completedAt: '2026-09-04T09:00:02.000Z' },
+            { id: 'a3', action: 'type', args: '5 chars', status: 'interrupted', startedAt: '2026-09-04T09:00:01.500Z', completedAt: '2026-09-04T09:00:01.600Z', error: 'The person took over the browser; the action was abandoned.' },
+          ]
+        : [],
     ...controlOverrides,
   }
   const registrations = createBrowserTools({
@@ -132,7 +140,7 @@ function structured(result: { structuredContent?: Record<string, unknown> }): Re
 async function main(): Promise<void> {
   await run('every browser tool is classified: mutations in the set, the rest read-only', () => {
     const h = harness()
-    const readOnly = new Set(['browser.status', 'browser.snapshot', 'browser.screenshot', 'browser.wait_for', 'browser.console', 'browser.network'])
+    const readOnly = new Set(['browser.status', 'browser.snapshot', 'browser.screenshot', 'browser.wait_for', 'browser.console', 'browser.network', 'browser.actions'])
     for (const name of h.tools.keys()) {
       const mutation = BROWSER_MUTATION_TOOL_NAMES.includes(name)
       assert.equal(mutation || readOnly.has(name), true, `${name} is neither a mutation nor listed read-only`)
@@ -314,6 +322,19 @@ async function main(): Promise<void> {
     }
     const done = await h.tools.get('browser.navigate')!.handler({ tabId: 't1', url: 'http://localhost:5173/' }, bound)
     assert.equal((structured(done).tab as { active: boolean }).active, false, 't1 is not the tab the person is looking at')
+  })
+
+  await run('history rides status, snapshot and browser.actions', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/', { controller: 'human' }) })
+    const status = structured(await h.tools.get('browser.status')!.handler({}, bound))
+    const tab = (status.tabs as Array<Record<string, unknown>>)[0]
+    assert.equal(tab.controller, 'human')
+    assert.equal((tab.lastAction as { status: string }).status, 'interrupted')
+    const snap = structured(await h.tools.get('browser.snapshot')!.handler({}, bound))
+    assert.deepEqual((snap.actions as Array<{ action: string }>).map((entry) => entry.action), ['click', 'human', 'type'])
+    const all = structured(await h.tools.get('browser.actions')!.handler({}, bound))
+    assert.equal((all.actions as unknown[]).length, 3)
   })
 
   await run('set_appearance validates the scheme and lights the badge', async () => {

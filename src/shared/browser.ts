@@ -77,8 +77,23 @@ export type BrowserTabState = {
   zoomFactor: number
   colorScheme: 'system' | 'light' | 'dark'
   devToolsOpen: boolean
-  /** An agent tool acted on this tab within the last moment (toolbar badge). */
-  agentActive: boolean
+  /**
+   * Who holds the page: `agent` while a browser.* action runs (and a moment
+   * after), `human` for a moment after the person's own input or a toolbar
+   * command, else `none`. The toolbar badge and the agent cursor read it; an
+   * agent reads it from browser.status to wait for the person to finish.
+   */
+  controller: BrowserController
+}
+
+export type BrowserController = 'human' | 'agent' | 'none'
+
+/** Where the agent's pointer is, in CSS px of the guest viewport (`browser:pointer`). */
+export type BrowserPointerEvent = {
+  tabId: string
+  x: number
+  y: number
+  kind: 'move' | 'click' | 'wheel'
 }
 
 export type BrowserClearResult = { ok: true } | { ok: false; message: string }

@@ -17,6 +17,9 @@ import type { WebContents } from 'electron'
 export const SNAPSHOT_MAX_NODES = 400
 export const SNAPSHOT_MAX_CHARS = 24_000
 export const SNAPSHOT_MAX_NAME_CHARS = 80
+export const ACTION_HISTORY_MAX = 50
+// Consecutive human inputs closer than this are one takeover entry, not one per keystroke.
+const HUMAN_ACTION_COALESCE_MS = 2_000
 export const CONSOLE_BUFFER_MAX = 200
 export const NETWORK_BUFFER_MAX = 200
 export const EVALUATE_MAX_CHARS = 16_000
@@ -57,6 +60,19 @@ export type NetworkEntry = {
   at: number
 }
 
+/** One thing that happened to a tab: an agent action, or the person taking it back. */
+export type ActionEntry = {
+  id: string
+  /** The tool's verb (`click`, `type`, …) or `human` for the person's own input. */
+  action: string
+  /** A short rendering of the arguments, never the full text typed. */
+  args: string
+  status: 'running' | 'succeeded' | 'failed' | 'interrupted'
+  startedAt: string
+  completedAt?: string
+  error?: string
+}
+
 export type SnapshotResult = { ok: true; text: string; nodeCount: number; truncated: boolean; url: string; title: string }
 export type ScreenshotResult = { ok: true; data: string; mimeType: 'image/jpeg'; width: number; height: number }
 export type EvaluateResult = { ok: true; value: unknown; truncated: boolean }
@@ -67,6 +83,10 @@ export type BrowserControlManager = {
   epochOf(tabId: string): number
   noteAgentActivity(tabId: string): void
   noteAgentInput(tabId: string, delta: 1 | -1): void
+  /** Subscribe to the person's own input on any tab (the epoch bumps). */
+  onHumanInput(listener: (tabId: string) => void): () => void
+  /** Where the agent's pointer is about to act, for the cursor overlay. */
+  notePointer(event: { tabId: string; x: number; y: number; kind: 'move' | 'click' | 'wheel' }): void
 }
 
 /** What a snapshot ref or selector resolves to inside the page. */
@@ -77,6 +97,8 @@ type Session = {
   wc: WebContents
   console: ConsoleEntry[]
   network: NetworkEntry[]
+  /** Newest last; agent actions and the person's takeovers, so an `interrupted` explains itself. */
+  actions: ActionEntry[]
   attached: boolean
   dispose: () => void
 }
@@ -251,6 +273,33 @@ export function parseKeyChord(chord: string): { key: string; code: string; keyCo
 
 export function createBrowserControl(manager: BrowserControlManager) {
   const sessions = new Map<string, Session>()
+  let actionSequence = 0
+
+  // The person's input on a tab this layer knows becomes a `human` entry in
+  // that tab's history; a burst of keystrokes is one entry, extended.
+  manager.onHumanInput((tabId) => {
+    const s = sessions.get(tabId)
+    if (!s) return
+    const now = new Date()
+    const last = s.actions[s.actions.length - 1]
+    if (last && last.action === 'human' && last.completedAt && now.getTime() - Date.parse(last.completedAt) <= HUMAN_ACTION_COALESCE_MS) {
+      last.completedAt = now.toISOString()
+      return
+    }
+    pushBounded(s.actions, ACTION_HISTORY_MAX, {
+      id: nextActionId(),
+      action: 'human',
+      args: '',
+      status: 'succeeded',
+      startedAt: now.toISOString(),
+      completedAt: now.toISOString(),
+    })
+  })
+
+  function nextActionId(): string {
+    actionSequence += 1
+    return `a${Date.now().toString(36)}-${actionSequence.toString(36)}`
+  }
 
   function fail(code: BrowserControlError['code'], message: string): BrowserControlError {
     return { ok: false, code, message }
@@ -265,7 +314,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
       existing = undefined
     }
     if (!existing) {
-      const created: Session = { tabId, wc, console: [], network: [], attached: false, dispose: () => {} }
+      const created: Session = { tabId, wc, console: [], network: [], actions: [], attached: false, dispose: () => {} }
       const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => onCdpEvent(created, method, params)
       const onDetach = () => {
         created.attached = false
@@ -408,6 +457,8 @@ export function createBrowserControl(manager: BrowserControlManager) {
    */
   async function act<T extends { ok: true }>(
     tabId: string,
+    action: string,
+    args: string,
     fn: (s: Session, checkpoint: () => BrowserControlError | null) => Promise<T | BrowserControlError>,
   ): Promise<T | BrowserControlError> {
     const s = await session(tabId)
@@ -415,17 +466,31 @@ export function createBrowserControl(manager: BrowserControlManager) {
     const epoch = manager.epochOf(tabId)
     const checkpoint = () =>
       manager.epochOf(tabId) !== epoch ? fail('interrupted', 'The person took over the browser; the action was abandoned.') : null
+    const entry: ActionEntry = { id: nextActionId(), action, args: args.slice(0, 200), status: 'running', startedAt: new Date().toISOString() }
+    pushBounded(s.actions, ACTION_HISTORY_MAX, entry)
+    const finish = (status: ActionEntry['status'], error?: string) => {
+      entry.status = status
+      entry.completedAt = new Date().toISOString()
+      if (error) entry.error = error.slice(0, 300)
+    }
     // The badge lingers a moment past each call; a long action re-lights it
     // while it runs so it never goes dark mid-wait.
     manager.noteAgentActivity(tabId)
     const keepLit = setInterval(() => manager.noteAgentActivity(tabId), 1_000)
     try {
       const out = await fn(s, checkpoint)
-      // A yielded action does not re-light the badge: the person has the page.
-      if (out.ok) manager.noteAgentActivity(tabId)
+      if (out.ok) {
+        // A yielded action does not re-light the badge: the person has the page.
+        manager.noteAgentActivity(tabId)
+        finish('succeeded')
+      } else {
+        finish(out.code === 'interrupted' ? 'interrupted' : 'failed', out.message)
+      }
       return out
     } catch (error) {
-      return fail(error instanceof DeadlineError ? 'timeout' : 'cdp', error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      finish('failed', message)
+      return fail(error instanceof DeadlineError ? 'timeout' : 'cdp', message)
     } finally {
       clearInterval(keepLit)
     }
@@ -467,12 +532,16 @@ export function createBrowserControl(manager: BrowserControlManager) {
   }
 
   async function mouse(s: Session, type: string, x: number, y: number, extra: Record<string, unknown> = {}): Promise<void> {
+    // The overlay hears where the pointer is going BEFORE the page does, so the
+    // cursor is already there when the click lands.
+    const kind = type === 'mousePressed' ? 'click' : type === 'mouseWheel' ? 'wheel' : type === 'mouseMoved' ? 'move' : null
+    if (kind) manager.notePointer({ tabId: s.tabId, x, y, kind })
     await input(s, 'Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, ...extra })
   }
 
   return {
     async snapshot(tabId: string): Promise<SnapshotResult | BrowserControlError> {
-      return act(tabId, async (s) => {
+      return act(tabId, 'snapshot', '', async (s) => {
         const { value, exception } = await evaluateRaw(s, SNAPSHOT_SCRIPT, false)
         if (exception) return fail('cdp', exception)
         const out = value as { text: string; nodeCount: number; truncated: boolean; url: string; title: string }
@@ -487,7 +556,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     },
 
     async screenshot(tabId: string): Promise<ScreenshotResult | BrowserControlError> {
-      return act(tabId, async (s) => {
+      return act(tabId, 'screenshot', '', async (s) => {
         const image = await withDeadline(s.wc.capturePage(), CAPTURE_TIMEOUT_MS, 'The page did not render a capture in time.')
         const size = image.getSize()
         if (size.width === 0 || size.height === 0) return fail('cdp', 'The page has no visible area to capture.')
@@ -499,7 +568,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     },
 
     async click(tabId: string, target: Target, options: { button?: 'left' | 'right'; double?: boolean } = {}): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'click', describeTarget(target) + (options.double ? ' double' : '') + (options.button === 'right' ? ' right' : ''), async (s, checkpoint) => {
         const point = await locate(s, target)
         if ('ok' in point) return point
         const interrupted = checkpoint()
@@ -516,7 +585,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     },
 
     async hover(tabId: string, target: Target): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'hover', describeTarget(target), async (s, checkpoint) => {
         const point = await locate(s, target)
         if ('ok' in point) return point
         const interrupted = checkpoint()
@@ -532,7 +601,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
       text: string,
       options: { clear?: boolean; submit?: boolean } = {},
     ): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'type', `${target ? describeTarget(target) + ' ' : ''}${text.length} chars${options.clear ? ' clear' : ''}${options.submit ? ' submit' : ''}`, async (s, checkpoint) => {
         let point: { x: number; y: number } | null = null
         if (target) {
           const located = await locate(s, target)
@@ -573,7 +642,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     async press(tabId: string, chord: string): Promise<ActionResult | BrowserControlError> {
       const parsed = parseKeyChord(chord)
       if (!parsed) return fail('invalid', `"${chord}" is not a key I can press. Use names like Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a.`)
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'press', chord, async (s, checkpoint) => {
         const interrupted = checkpoint()
         if (interrupted) return interrupted
         const base = { key: parsed.key, code: parsed.code, windowsVirtualKeyCode: parsed.keyCode, modifiers: parsed.modifiers }
@@ -589,7 +658,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     },
 
     async scroll(tabId: string, target: Target | null, deltaX: number, deltaY: number): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'scroll', `${target && (target.ref || target.selector) ? describeTarget(target) + ' ' : ''}dx=${deltaX} dy=${deltaY}`, async (s, checkpoint) => {
         let point: { x: number; y: number }
         if (target && (target.ref || target.selector)) {
           const located = await locate(s, target)
@@ -607,7 +676,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     },
 
     async evaluate(tabId: string, expression: string): Promise<EvaluateResult | BrowserControlError> {
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'evaluate', expression, async (s, checkpoint) => {
         const interrupted = checkpoint()
         if (interrupted) return interrupted
         let evaluation: { value: unknown; exception: string | null }
@@ -640,7 +709,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     ): Promise<ActionResult | BrowserControlError> {
       if (!condition.text && !condition.selector) return fail('invalid', 'Give `text` or `selector` to wait for.')
       const timeoutMs = clampWait(condition.timeoutMs)
-      return act(tabId, async (s, checkpoint) => {
+      return act(tabId, 'wait_for', condition.selector ? `selector ${condition.selector}` : `text ${condition.text ?? ''}`, async (s, checkpoint) => {
         const probe = condition.selector
           ? `!!document.querySelector(${JSON.stringify(condition.selector)})`
           : `(document.body ? document.body.innerText : '').includes(${JSON.stringify(condition.text)})`
@@ -680,6 +749,11 @@ export function createBrowserControl(manager: BrowserControlManager) {
       return { ok: true, entries }
     },
 
+    /** A tab's history, newest last, without attaching to it; empty for a tab this layer never touched. */
+    actionsOf(tabId: string): ActionEntry[] {
+      return sessions.get(tabId)?.actions.map((entry) => ({ ...entry })) ?? []
+    },
+
     /** Forget a tab's session (the manager calls this when the tab is unregistered). */
     forget(tabId: string): void {
       const s = sessions.get(tabId)
@@ -713,6 +787,10 @@ function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Prom
       },
     )
   })
+}
+
+function describeTarget(target: Target): string {
+  return target.ref ? `ref ${target.ref}` : `selector ${target.selector ?? ''}`
 }
 
 function pushBounded<T>(list: T[], max: number, item: T): void {

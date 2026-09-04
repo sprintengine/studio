@@ -2,7 +2,7 @@ import type { BrowserTabState } from '../../shared/browser'
 import { normalizeBrowserUrlInput } from '../../shared/browser'
 import { BROWSER_DEVICE_PRESETS, normalizeBrowserViewport, presetViewport, type BrowserViewport } from '../../shared/browser-devices'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../shared/modules/mcp-tools'
-import type { BrowserControl, BrowserControlError } from '../browser/browser-control'
+import type { ActionEntry, BrowserControl, BrowserControlError } from '../browser/browser-control'
 
 // The `browser.*` gateway tools (browser-pane epic, child 6): an agent's view
 // of the workspace pane's browser tabs — the SAME tabs the person sees, not a
@@ -53,7 +53,7 @@ export type BrowserToolsDeps = {
   manager: BrowserToolsManager
   control: Pick<
     BrowserControl,
-    'snapshot' | 'screenshot' | 'click' | 'hover' | 'type' | 'press' | 'scroll' | 'evaluate' | 'waitFor' | 'console' | 'network'
+    'snapshot' | 'screenshot' | 'click' | 'hover' | 'type' | 'press' | 'scroll' | 'evaluate' | 'waitFor' | 'console' | 'network' | 'actionsOf'
   >
   /** Whether a workspace id names an open workspace. */
   hasWorkspace: (workspaceId: string) => boolean
@@ -122,18 +122,24 @@ const TARGET_PROPERTIES = {
 } as const
 
 /** What a tool result says about a tab: the fields an agent acts on, nothing internal. */
-export function describeTab(tab: BrowserTabState, active: boolean): Record<string, unknown> {
+export function describeTab(tab: BrowserTabState, active: boolean, lastAction: ActionEntry | null = null): Record<string, unknown> {
   return {
     tabId: tab.tabId,
     url: tab.url,
     title: tab.title,
     loading: tab.loading,
     active,
+    // Who holds the page right now: `human` means wait, `agent` means another
+    // action of yours (or another agent's) is on it.
+    controller: tab.controller,
     error: tab.error ? { code: tab.error.code, description: tab.error.description } : null,
     zoomFactor: tab.zoomFactor,
     colorScheme: tab.colorScheme,
+    ...(lastAction ? { lastAction } : {}),
   }
 }
+
+const SNAPSHOT_ACTIONS = 10
 
 export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[] {
   const { manager, control } = deps
@@ -206,7 +212,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const workspaceId = resolveWorkspace(args, context)
         if (typeof workspaceId !== 'string') return workspaceId
         const active = manager.activeTab(workspaceId)?.tabId ?? null
-        const tabs = manager.listTabs(workspaceId).map((tab) => describeTab(tab, tab.tabId === active))
+        const tabs = manager.listTabs(workspaceId).map((tab) => {
+          const history = control.actionsOf(tab.tabId)
+          return describeTab(tab, tab.tabId === active, history[history.length - 1] ?? null)
+        })
         return success({ tabs, activeTabId: active })
       },
     },
@@ -302,7 +311,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if ('content' in resolved) return resolved
         const snap = await control.snapshot(resolved.tabId)
         if (!snap.ok) return controlFailure(snap)
-        const structured = { url: snap.url, title: snap.title, nodeCount: snap.nodeCount, truncated: snap.truncated, snapshot: snap.text }
+        // What happened to this tab lately — yours and the person's — so a model
+        // that lost the thread (compaction, a second agent) sees it before acting.
+        const actions = control.actionsOf(resolved.tabId).slice(-SNAPSHOT_ACTIONS)
+        const structured = { url: snap.url, title: snap.title, nodeCount: snap.nodeCount, truncated: snap.truncated, actions, snapshot: snap.text }
         if (!bool(args, 'includeScreenshot')) return success(structured)
         const shot = await control.screenshot(resolved.tabId)
         if (!shot.ok) return success({ ...structured, screenshot: { error: shot.message } })
@@ -493,6 +505,22 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if (!result.ok) return controlFailure(result)
         const bounded = boundedEntries(result.entries)
         return success({ entries: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
+      },
+    },
+    {
+      name: 'browser.actions',
+      description:
+        'What happened to a browser tab lately: your actions with their outcome (succeeded / failed / interrupted) and the moments the person took the page back. Newest last. Read-only.',
+      inputSchema: {
+        type: 'object',
+        properties: { tabId: TARGET_PROPERTIES.tabId, workspaceId: TARGET_PROPERTIES.workspaceId },
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        const resolved = resolveTab(args, context)
+        if ('content' in resolved) return resolved
+        const bounded = boundedEntries(control.actionsOf(resolved.tabId))
+        return success({ actions: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
       },
     },
     {
