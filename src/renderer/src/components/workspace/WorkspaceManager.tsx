@@ -15,6 +15,7 @@ import { resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, re
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
+import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
@@ -1463,6 +1464,26 @@ export default function WorkspaceManager() {
       useWorkspaceStore.getState().applyHostedModelFeedResult(result),
     )
   }, [])
+
+  // CLI version advisories: the Settings switch is mirrored into main (which
+  // runs the hourly check), the first answer is asked for once the window is
+  // up, and every later push lands in the store.
+  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
+  useEffect(() => {
+    const api = typeof window === 'undefined' ? null : window.api
+    if (api && typeof api.cliVersionChecksSetEnabled === 'function') void api.cliVersionChecksSetEnabled(checkCliVersions)
+    if (checkCliVersions) {
+      const store = useWorkspaceStore.getState()
+      void store.refreshCliVersionAdvisories({ cliRuntimes: store.appSettings.cliRuntimes })
+    }
+  }, [checkCliVersions])
+  useEffect(
+    () =>
+      subscribeCliVersionAdvisoryChanges((result) =>
+        useWorkspaceStore.getState().applyCliVersionAdvisories(result),
+      ),
+    [],
+  )
 
   useEffect(
     () =>

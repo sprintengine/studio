@@ -1135,6 +1135,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
 // it is sticky thereafter (docking a file back flips it to workspace tabs).
 // Flip this one constant to make tabs the out-of-the-box default instead.
 export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
+export const DEFAULT_CHECK_CLI_VERSIONS = true
 
 export interface SettingsSliceState {
   appSettings: AppSettings
@@ -1174,6 +1175,9 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Ask each CLI's package registry for its newest version (the Settings
+  // switch "Check for CLI updates"). Mirrored into main, which runs the check.
+  checkCliVersions: boolean
   // Discovered Sprint Engine role registry for the active workspace (bundled +
   // workspace/user/plugin layers). In-memory only (re-fetched per workspace,
   // never persisted); powers the registry-discovered specialist packs in the
@@ -1192,6 +1196,7 @@ export interface SettingsSliceActions {
   setWorkspacePaneWidth: (width: number) => void
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  setCheckCliVersions: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
@@ -1356,6 +1361,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
     workspacePaneMaximised: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
 
@@ -1387,6 +1393,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setOpenFilesInExternalWindow: (enabled) =>
       set((state) => {
         state.openFilesInExternalWindow = enabled
+      }),
+
+    setCheckCliVersions: (enabled) =>
+      set((state) => {
+        state.checkCliVersions = enabled
       }),
 
     openSettingsOverlay: (opts) => {

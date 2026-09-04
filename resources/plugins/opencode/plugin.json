@@ -96,6 +96,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
+  "package": {"npm": "opencode-ai", "brew": "opencode"},
   "install": {
     "darwin": [
       {

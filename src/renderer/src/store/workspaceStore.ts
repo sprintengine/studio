@@ -106,6 +106,10 @@ import {
   type HostedModelFeedSlice,
 } from './slices/hostedModelFeedSlice'
 import {
+  createCliVersionAdvisorySlice,
+  type CliVersionAdvisorySlice,
+} from './slices/cliVersionAdvisorySlice'
+import {
   dedupeAutomationsHostWorkspaces,
   dropRetiredMultiloopWorkspaces,
   dropRetiredRoadmapWorkspaces,
@@ -149,7 +153,7 @@ import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomation
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, WorkspacePaneSliceActions {
+export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -172,6 +176,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setWorkspacePaneMaximised: (maximised: boolean) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  checkCliVersions: boolean
+  setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
   // `activeModalSurface === 'settings'` is what says it is showing.
   settingsOverlay: {
@@ -537,6 +543,7 @@ type SettingsEnvelopeState = {
   sidebarWidth: unknown
   workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
+  checkCliVersions: unknown
 }
 
 let lastWrittenSettingsSerialized: string | null = null
@@ -615,6 +622,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     sidebarWidth: state.sidebarWidth,
     workspacePaneWidth: state.workspacePaneWidth,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
+    checkCliVersions: state.checkCliVersions,
   }
 }
 
@@ -649,6 +657,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         sidebarWidth: s.sidebarWidth,
         workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
+        checkCliVersions: s.checkCliVersions,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
         workspaceWindows: normalizeWorkspaceWindows(
@@ -671,6 +680,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     sidebarWidth: s.sidebarWidth,
     workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
+    checkCliVersions: s.checkCliVersions,
     ...partializeRegistryFields(s),
   }
 }
@@ -1201,6 +1211,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createPluginsSlice(set),
       ...createCliAvailabilitySlice(set),
       ...createHostedModelFeedSlice(set),
+      ...createCliVersionAdvisorySlice(set),
       ...createWorkspacePaneSlice(set),
       ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),

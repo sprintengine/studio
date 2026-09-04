@@ -644,6 +644,40 @@ export type MarketplacePluginUninstallResult =
 
 export type MarketplaceRegistryState = 'ok' | 'empty' | 'offline' | 'fetch-error' | 'invalid-schema'
 
+// Whether an installed agent CLI is behind the newest version its package
+// registry publishes. `unknown` covers a
+// CLI with no `package` block, an unparsable version, or a registry that did
+// not answer; it is never rendered as "up to date". `updateCommand` is what
+// the Update button will run, chosen in main from the manifest and where the
+// binary lives; the renderer shows it and never composes one.
+export type CliVersionAdvisoryStatus = 'current' | 'behind_latest' | 'unknown'
+
+export type CliUpdateCommand = {
+  kind: 'cli-updater' | 'brew' | 'npm' | 'install-method'
+  command: string
+}
+
+export type CliVersionAdvisory = {
+  cli: AgentCli
+  status: CliVersionAdvisoryStatus
+  currentVersion: string | null
+  latestVersion: string | null
+  updateCommand: CliUpdateCommand | null
+  checkedAt: string
+}
+
+export type CliVersionAdvisoryMap = Partial<Record<AgentCli, CliVersionAdvisory>>
+
+export type CliVersionAdvisoriesInput = {
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  // Bypass the hour-long registry cache (Settings "Re-check").
+  force?: boolean
+}
+
+export type CliVersionAdvisoriesResult =
+  | { ok: true; advisories: CliVersionAdvisoryMap; checkedAt: string }
+  | { ok: false; message: string }
+
 // The hosted model feed (src/shared/hosted-model-feed.ts) as the main-process
 // client serves it. `ok: true` always carries a feed to render: live from
 // GitHub, the disk cache, or the bundled seed. `degraded` means the last fetch
@@ -3363,6 +3397,12 @@ export type ElectronApi = {
   hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
   hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
   onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
+  // CLI version advisories: installed version against the package registry's
+  // newest. `set-enabled` mirrors the Settings switch into main so the
+  // background check can be turned off; `changed` fires from the poller.
+  cliVersionAdvisories: (input?: CliVersionAdvisoriesInput) => Promise<CliVersionAdvisoriesResult>
+  cliVersionChecksSetEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>
+  onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>

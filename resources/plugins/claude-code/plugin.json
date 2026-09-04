@@ -120,6 +120,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
+  "package": {"npm": "@anthropic-ai/claude-code", "brew": "claude-code"},
   "update": {
     "args": ["update"]
   },

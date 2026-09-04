@@ -14,6 +14,7 @@ import type {
   PluginManifest,
 } from '../shared/plugin-manifest'
 import { getPluginManifest } from './plugin-registry-instance'
+import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { withMulticodeCliPath } from './cli-install'
 import {
   currentRuntimeEnv,
@@ -611,6 +612,43 @@ export async function updateCli(
       if (outcome.code !== 0) {
         runError = `Update command exited with code ${outcome.code}.`
       }
+    } catch (error) {
+      runError = error instanceof Error ? error.message : String(error)
+    }
+    const detected = await detectCli(cli, runtime, updateEnv)
+    const ok = detected.installed && runError === null
+    return {
+      ok,
+      cli,
+      installed: detected.installed,
+      version: detected.version,
+      resolvedPath: detected.resolvedPath,
+      log,
+      error: ok ? null : (runError ?? (detected.installed ? null : 'CLI not found on PATH after update.')),
+    }
+  }
+
+  // No updater of its own: update through the package manager that installed
+  // it — brew when the binary lives under Homebrew, else npm. Updating through
+  // a manager other than the one that installed it leaves the original copy
+  // ahead on PATH, so the update would look like it did nothing.
+  // `brew install` on an installed formula is a no-op, so this is the
+  // only path that actually moves a Homebrew-installed CLI forward.
+  const detectedBefore = await detectCli(cli, runtime)
+  const chosen = chooseCliUpdateCommand({ manifest, resolvedPath: detectedBefore.resolvedPath })
+  if (chosen && (chosen.kind === 'brew' || chosen.kind === 'npm')) {
+    const banner = `$ ${chosen.command}\n`
+    onData?.(banner)
+    let log = banner
+    const capture = (chunk: string): void => {
+      log += chunk
+      onData?.(chunk)
+    }
+    const updateEnv = managedInstallEnv() ?? undefined
+    let runError: string | null = null
+    try {
+      const outcome = await runDescriptor(buildInstallDescriptor({ shell: chosen.command, target }), capture, updateEnv)
+      if (outcome.code !== 0) runError = `Update command exited with code ${outcome.code}.`
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)
     }

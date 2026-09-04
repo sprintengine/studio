@@ -106,6 +106,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
+  "package": {"npm": "@xai-official/grok"},
   "install": {
     "darwin": [
       {

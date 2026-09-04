@@ -1100,6 +1100,12 @@ export default function SettingsPanel({
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
   const cliAvailabilityCheckedAt = useWorkspaceStore((s) => s.cliAvailabilityCheckedAt)
+  // Installed version against the registry's newest, per CLI. Main computes it
+  // hourly and on Re-check.
+  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
+  const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
+  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
+  const setCheckCliVersions = useWorkspaceStore((s) => s.setCheckCliVersions)
   const installedPluginRows = useMemo(
     () => orderInstalledPlugins(pluginCatalogEntries),
     [pluginCatalogEntries],
@@ -1174,6 +1180,40 @@ export default function SettingsPanel({
   const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
   const [cliInstallPending, setCliInstallPending] = useState(false)
   const [cliInstallMessage, setCliInstallMessage] = useState<RoleInstallMessage>(null)
+  // Per-CLI Update runs (the version advisory's button). `running` while the
+  // command is in flight; afterwards the notice says what happened when the
+  // version did not move or the command failed. A clean success needs no
+  // notice: the row's version changes and the advisory goes away.
+  const [cliUpdateRuns, setCliUpdateRuns] = useState<
+    Record<string, { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }>
+  >({})
+  const runCliUpdate = useCallback(
+    async (cli: AgentCli) => {
+      const api = window.api
+      if (typeof api.cliUpdate !== 'function') return
+      const runtime = cliRuntimeForPlugin(cli, cliRuntimes)
+      const before = cliAvailability[cli]?.version ?? null
+      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: true, notice: null } }))
+      let notice: { tone: 'warn' | 'error'; text: string } | null = null
+      try {
+        const result = await api.cliUpdate(cli, runtime)
+        if (!result.ok) {
+          notice = { tone: 'error', text: result.error ?? 'The update did not finish.' }
+        } else if (result.version && before && result.version.trim() === before.trim()) {
+          notice = {
+            tone: 'warn',
+            text: `The update finished but the version is still ${before}. Run it in a terminal to see why.`,
+          }
+        }
+      } catch (error) {
+        notice = { tone: 'error', text: error instanceof Error ? error.message : String(error) }
+      }
+      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: false, notice } }))
+      await refreshCliAvailability({ force: true, cliRuntimes })
+      void refreshCliVersionAdvisories({ force: true, cliRuntimes })
+    },
+    [cliAvailability, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories],
+  )
   // The CLI card whose detail panel is open (null = grid only). `installIntentId`
   // marks a card whose Install button was pressed, so its detail opens straight
   // into the install flow.
@@ -2186,7 +2226,16 @@ export default function SettingsPanel({
             now={agentsFreshnessNow}
             addPending={cliInstallPending}
             onAdd={() => void installCliFromFolder()}
-            onRecheck={() => void refreshCliAvailability({ force: true, cliRuntimes })}
+            onRecheck={() => {
+              void refreshCliAvailability({ force: true, cliRuntimes })
+              if (checkCliVersions) void refreshCliVersionAdvisories({ force: true, cliRuntimes })
+            }}
+          />
+          <CompoundSwitchRow
+            label="Check for CLI updates"
+            description="Asks each CLI's package registry for its newest version once an hour and offers Update when yours is behind."
+            checked={checkCliVersions}
+            onChange={setCheckCliVersions}
           />
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
@@ -2234,6 +2283,9 @@ export default function SettingsPanel({
                 const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
                 const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
                 const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
+                const advisory = checkCliVersions ? cliVersionAdvisories[plugin.id] : undefined
+                const behind = state.installed && advisory?.status === 'behind_latest' && !!advisory.latestVersion
+                const updateRun = cliUpdateRuns[plugin.id]
                 return (
                   <ProviderRow
                     key={plugin.id}
@@ -2264,6 +2316,16 @@ export default function SettingsPanel({
                             a folder is the one this list cannot otherwise
                             explain. */}
                         {plugin.source === 'bundled' ? null : ' · installed from a folder'}
+                        {/* The version advisory: the newest the
+                            registry publishes, and the command Update runs.
+                            Nothing here for a CLI that is current or unknown. */}
+                        {behind ? (
+                          <>
+                            {' · '}
+                            <span className="font-mono text-[color:var(--text-default)]">{advisory.latestVersion}</span>
+                            {updateRun?.running ? ' installing…' : ' available'}
+                          </>
+                        ) : null}
                       </>
                     }
                     expanded={selectedCliId === plugin.id}
@@ -2286,6 +2348,15 @@ export default function SettingsPanel({
                         >
                           Install
                         </PrimaryButton>
+                      ) : behind ? (
+                        <PrimaryButton
+                          size="xs"
+                          disabled={updateRun?.running === true}
+                          onClick={() => void runCliUpdate(plugin.id)}
+                        >
+                          {updateRun?.running ? <Spinner className="icon-sm" /> : null}
+                          Update
+                        </PrimaryButton>
                       ) : null
                     }
                   >
@@ -2294,6 +2365,13 @@ export default function SettingsPanel({
                         carries name, version, and state, so the control drops
                         its own name and status line rather than saying it
                         twice. */}
+                    {updateRun?.notice ? (
+                      <InlineNotice tone={updateRun.notice.tone} title={`${plugin.displayName} did not update.`} hint={updateRun.notice.text}>
+                        {advisory?.updateCommand ? (
+                          <span className="font-mono text-[color:var(--text-default)]">{advisory.updateCommand.command}</span>
+                        ) : null}
+                      </InlineNotice>
+                    ) : null}
                     <CliInstallControl
                       cli={plugin.id}
                       displayName={plugin.displayName}

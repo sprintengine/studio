@@ -118,6 +118,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
+  "package": {"npm": "@openai/codex", "brew": "codex"},
   "install": {
     "darwin": [
       {

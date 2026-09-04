@@ -349,6 +349,17 @@ export type PluginManifest = {
   detect?: PluginDetectSpec
   install?: PluginInstallSpec
   update?: PluginUpdateSpec
+  // Where the CLI is published, so the studio can ask a registry for the
+  // newest version (npm's `/<pkg>/latest`) and choose the update command
+  // (`brew upgrade <formula>` when the binary lives under Homebrew, else
+  // `npm install -g <pkg>@latest`). Absent for CLIs that install from a
+  // vendor script only (cursor, kimi-code): their version check is `unknown`.
+  package?: PluginPackageSpec
+}
+
+export type PluginPackageSpec = {
+  npm?: string
+  brew?: string
 }
 
 // Platform keys for install metadata. `wsl` is a logical target used when the

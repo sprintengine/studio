@@ -21,6 +21,7 @@ import { gitApi } from './api/git'
 import { layoutTemplatesApi } from './api/layout-templates'
 import { marketplaceApi } from './api/marketplace'
 import { hostedModelFeedApi } from './api/hosted-model-feed'
+import { cliVersionApi } from './api/cli-version'
 import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
@@ -67,6 +68,7 @@ const api = {
   ...clipboardApi,
   ...cliRuntimeApi,
   ...hostedModelFeedApi,
+  ...cliVersionApi,
   ...mobileBridgeApi,
   ...filesystemApi,
   ...soulsApi,
