@@ -84,6 +84,17 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        // Two preloads: the app's, and the browser guest's element picker
+        // (browser-pane epic), which main hands to the <webview> as a file
+        // URL and pins in `will-attach-webview`.
+        input: {
+          index: resolve('src/preload/index.ts'),
+          'browser-guest': resolve('src/preload/browser-guest.ts'),
+        },
+      },
+    },
   },
   renderer: {
     server: {

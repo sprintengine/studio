@@ -8,11 +8,13 @@ import type { AgentLaunchRecord } from './agent-launch'
 import type { BuildStamp } from './build-stamp'
 export type { BuildStamp } from './build-stamp'
 import type {
+  BrowserCaptureInput,
   BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
   BrowserRegisterInput,
   BrowserRegisterResult,
+  BrowserScreenshotResult,
   BrowserTabState,
   LocalServer,
 } from './browser'
@@ -2998,6 +3000,8 @@ export type ElectronApi = {
   browserOpenWindow: (tabId: string) => Promise<boolean>
   browserClearCookies: () => Promise<BrowserClearResult>
   browserClearCache: () => Promise<BrowserClearResult>
+  browserCapture: (input: BrowserCaptureInput) => Promise<BrowserScreenshotResult>
+  browserCopyScreenshot: (tabId: string) => Promise<BrowserClearResult>
   browserLocalServers: (workspaceId: string) => Promise<LocalServer[]>
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void

@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
+  BROWSER_PICK_CANCELLED_CHANNEL,
+  BROWSER_PICK_START_CHANNEL,
+  BROWSER_PICK_STOP_CHANNEL,
+  BROWSER_PICKED_CHANNEL,
   BROWSER_WEBPREFERENCES,
   type BrowserConfig,
   type BrowserHostKey,
+  type BrowserPickedElement,
   type BrowserTabState,
 } from '../../../../../../shared/browser'
 import {
@@ -14,13 +19,15 @@ import {
 } from '../../../../../../shared/browser-devices'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import type { WorkspacePaneTab } from '../../../../types/workspace'
-import type { EmbeddedWebviewElement } from '../../../../types/webview'
+import type { EmbeddedWebviewElement, WebviewIpcMessageEvent } from '../../../../types/webview'
 import { showToast } from '../../../../store/toastStore'
+import { IconButton, OverflowMenu, Tooltip } from '../../../ui'
 import { BrowserDeviceToolbar } from './BrowserDeviceToolbar'
 import { BrowserEmptyState } from './BrowserEmptyState'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 import { BrowserViewMenu } from './BrowserViewMenu'
+import { buildBrowserElementBlock, readPickTheme, sendTextToFocusedAgent } from './browserPick'
 
 // The browser tab (browser-pane epic): a `<webview>` guest the renderer mounts
 // and main drives. The element is created once per tab and never re-keyed —
@@ -39,10 +46,16 @@ const FILL: BrowserViewport = { mode: 'fill' }
 // Breathing room around a framed viewport, so the frame reads as a device
 // on a canvas rather than a page cut off at the edges.
 const CANVAS_INSET_PX = 12
+const MAX_TITLE_LENGTH = 200
+const MAX_URL_LENGTH = 2048
 
 let configPromise: Promise<BrowserConfig> | null = null
 function browserConfig(): Promise<BrowserConfig> {
-  configPromise ??= window.api.browserConfig()
+  configPromise ??= window.api.browserConfig().catch((error: unknown) => {
+    // A failed read must not brick every later tab: forget it and retry.
+    configPromise = null
+    throw error
+  })
   return configPromise
 }
 
@@ -82,6 +95,24 @@ function zoomDirectionFor(key: string, primary: boolean): 1 | -1 | 0 | null {
   return null
 }
 
+function InspectGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+      <path d="M3 3l5 12 1.8-4.7L14.5 8.5 3 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M12.5 2.5v2M13.5 3.5h-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CameraGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+      <path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h1.5l1-1.5h3l1 1.5H12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="8" cy="8.5" r="2.25" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
 type BrowserTabProps = {
   workspaceId: string
   tab: WorkspacePaneTab
@@ -94,6 +125,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [config, setConfig] = useState<BrowserConfig | null>(null)
   const [state, setState] = useState<BrowserTabState | null>(null)
+  const [picking, setPicking] = useState(false)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   // The URL the guest starts on. Read once: a later change to the tab record
   // (main reporting a navigation) must not re-navigate the guest.
@@ -101,6 +133,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const registeredRef = useRef(false)
   const updatePaneTab = useWorkspaceStore((s) => s.updatePaneTab)
   const notePaneRecentUrl = useWorkspaceStore((s) => s.notePaneRecentUrl)
+  const workspaceRoot = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   // A stable empty list: a selector minting `[]` per call is a new snapshot
   // every render, which zustand's useSyncExternalStore turns into an update
   // loop (React #185).
@@ -113,9 +146,14 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
 
   useEffect(() => {
     let cancelled = false
-    void browserConfig().then((next) => {
-      if (!cancelled) setConfig(next)
-    })
+    browserConfig().then(
+      (next) => {
+        if (!cancelled) setConfig(next)
+      },
+      () => {
+        if (!cancelled) showToast({ tone: 'error', title: 'The browser could not start' })
+      },
+    )
     return () => {
       cancelled = true
     }
@@ -152,6 +190,10 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     }
     element.addEventListener('dom-ready', register)
     element.addEventListener('did-attach', reattach)
+    // The attach may already have happened before this effect ran (the
+    // config arrives from a promise, after paint); try once eagerly —
+    // getWebContentsId throws until the guest exists, and that is caught.
+    register()
     return () => {
       element.removeEventListener('dom-ready', register)
       element.removeEventListener('did-attach', reattach)
@@ -163,19 +205,24 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   }, [config, tab.id, workspaceId])
 
   // Main's view of the tab, and the record the strip reads (title, URL,
-  // favicon) — written only when something changed, so a loading flicker does
-  // not churn the persisted workspace.
+  // favicon) — written only when the NORMALIZED value changed, so a loading
+  // flicker or an over-long title never churns the persisted workspace.
   useEffect(() => {
     return window.api.onBrowserState((next) => {
       if (next.tabId !== tab.id) return
       setState(next)
-      const url = next.url === 'about:blank' ? undefined : next.url
-      const title = next.title || undefined
+      const url = next.url === 'about:blank' || next.url.length > MAX_URL_LENGTH ? undefined : next.url
+      const title = next.title ? next.title.slice(0, MAX_TITLE_LENGTH) : undefined
       const faviconUrl = next.faviconUrl ?? undefined
       if (url !== tab.url || title !== tab.title || faviconUrl !== tab.faviconUrl) {
         updatePaneTab(workspaceId, tab.id, { url, title, faviconUrl })
       }
-      if (url && !next.loading && !next.error) notePaneRecentUrl(workspaceId, url)
+      // Recents are documents, not in-page moves: a hash-routed app is one
+      // entry, not eight.
+      const document = next.documentUrl
+      if (document && document !== 'about:blank' && !next.loading && !next.error) {
+        notePaneRecentUrl(workspaceId, document)
+      }
     })
   }, [notePaneRecentUrl, tab.faviconUrl, tab.id, tab.title, tab.url, updatePaneTab, workspaceId])
 
@@ -231,7 +278,111 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     [tab.id, updatePaneTab, workspaceId],
   )
 
-  const showEmpty = !state?.error && (!state?.url || state.url === 'about:blank')
+  // ── Inspect ────────────────────────────────────────────────────────────
+  // The picker runs in the guest preload; a pick comes back over the webview
+  // channel, is cropped by main, and lands at the focused agent's prompt.
+  const stopPicking = useCallback(() => {
+    setPicking(false)
+    void webviewRef.current?.send(BROWSER_PICK_STOP_CHANNEL)
+  }, [])
+
+  const startPicking = useCallback(() => {
+    const element = webviewRef.current
+    if (!element || !config?.preloadUrl) {
+      showToast({ tone: 'warn', title: 'Inspect is not available in this build' })
+      return
+    }
+    setPicking(true)
+    void element.send(BROWSER_PICK_START_CHANNEL, readPickTheme())
+    element.focus()
+  }, [config?.preloadUrl])
+
+  const handlePicked = useCallback(
+    async (picked: BrowserPickedElement) => {
+      setPicking(false)
+      let screenshotPath: string | null = null
+      if (workspaceRoot) {
+        const capture = await window.api.browserCapture({
+          tabId: tab.id,
+          workspaceRoot,
+          rect: picked.rect,
+          kind: 'element',
+        })
+        if (capture.ok) screenshotPath = capture.path
+      }
+      const block = buildBrowserElementBlock(picked, screenshotPath)
+      const sent = await sendTextToFocusedAgent(workspaceId, block)
+      if (sent.ok) {
+        showToast({ tone: 'good', title: 'Element sent to the agent', description: picked.selector })
+        return
+      }
+      await window.api.clipboardWriteText(block)
+      showToast({
+        tone: 'neutral',
+        title: 'Element copied',
+        description: sent.reason === 'no_agent' ? 'No agent is focused' : 'The focused agent has no live session',
+      })
+    },
+    [tab.id, workspaceId, workspaceRoot],
+  )
+
+  useEffect(() => {
+    const element = webviewRef.current
+    if (!element) return
+    const onMessage = (event: Event) => {
+      const message = event as WebviewIpcMessageEvent
+      if (message.channel === BROWSER_PICKED_CHANNEL) {
+        const payload = message.args[0] as BrowserPickedElement | undefined
+        if (payload && typeof payload === 'object') void handlePicked(payload)
+      } else if (message.channel === BROWSER_PICK_CANCELLED_CHANNEL) {
+        setPicking(false)
+      }
+    }
+    element.addEventListener('ipc-message', onMessage)
+    return () => element.removeEventListener('ipc-message', onMessage)
+  }, [handlePicked, config])
+
+  // A navigation tears the picker down with the document.
+  useEffect(() => {
+    if (picking && state?.loading) setPicking(false)
+  }, [picking, state?.loading])
+
+  // ── Screenshot ─────────────────────────────────────────────────────────
+  const capturePage = useCallback(
+    async (intent: 'copy' | 'save' | 'send') => {
+      if (intent === 'copy') {
+        const result = await window.api.browserCopyScreenshot(tab.id)
+        showToast(result.ok ? { tone: 'good', title: 'Screenshot copied' } : { tone: 'error', title: 'Screenshot failed', description: result.message })
+        return
+      }
+      if (!workspaceRoot) {
+        showToast({ tone: 'warn', title: 'Open a project folder to save screenshots' })
+        return
+      }
+      const result = await window.api.browserCapture({ tabId: tab.id, workspaceRoot, kind: 'screenshot' })
+      if (!result.ok) {
+        showToast({ tone: 'error', title: 'Screenshot failed', description: result.message })
+        return
+      }
+      const fileName = result.path.split('/').pop() ?? result.path
+      if (intent === 'save') {
+        showToast({ tone: 'good', title: 'Screenshot saved', description: fileName })
+        return
+      }
+      const sent = await sendTextToFocusedAgent(workspaceId, `Look at the screenshot at ${result.path}`)
+      if (sent.ok) showToast({ tone: 'good', title: 'Screenshot sent to the agent', description: fileName })
+      else {
+        await window.api.clipboardWriteText(result.path)
+        showToast({ tone: 'neutral', title: 'Screenshot saved, path copied', description: 'No agent is focused' })
+      }
+    },
+    [tab.id, workspaceId, workspaceRoot],
+  )
+
+  const hasPage = Boolean(state ? state.url && state.url !== 'about:blank' : initialSrcRef.current !== 'about:blank')
+  // Before the first state arrives, a restored tab is loading its remembered
+  // page: no empty state over it.
+  const showEmpty = state ? !state.error && (!state.url || state.url === 'about:blank') : initialSrcRef.current === 'about:blank'
   const framed = viewport.mode !== 'fill'
   const scale = framed ? fitViewportScale(viewport, canvasSize) : 1
   // The guest sits in ONE frame element in both modes; only the frame's
@@ -277,47 +428,77 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         onForward={() => void window.api.browserForward(tab.id)}
         onReload={() => void window.api.browserReload(tab.id)}
         onStop={() => void window.api.browserStop(tab.id)}
+        onAfterSubmit={() => webviewRef.current?.focus()}
         onOpenExternal={() => {
           void window.api.browserOpenExternal(tab.id).then((result) => {
             if (!result.ok) showToast({ tone: 'warn', title: result.message })
           })
         }}
         trailing={
-          <BrowserViewMenu
-            state={state}
-            deviceToolbarOn={viewport.mode !== 'fill'}
-            onHardReload={() => void window.api.browserReload(tab.id, true)}
-            onOpenDevTools={() => void window.api.browserOpenDevTools(tab.id)}
-            onOpenWindow={() => void window.api.browserOpenWindow(tab.id)}
-            onToggleDeviceToolbar={() =>
-              setViewport(viewport.mode === 'fill' ? presetViewport(DEFAULT_BROWSER_DEVICE_PRESET_ID) : FILL)
-            }
-            onColorScheme={(scheme) => void window.api.browserSetColorScheme(tab.id, scheme)}
-            onZoom={(direction) => void window.api.browserZoomStep(tab.id, direction)}
-            onClearCookies={() => {
-              void window.api.browserClearCookies().then((result) => {
-                if (!result.ok) {
-                  showToast({ tone: 'error', title: 'Cookies were not cleared', description: result.message })
-                  return
-                }
-                showToast({ tone: 'good', title: 'Cookies cleared' })
-                void window.api.browserReload(tab.id)
-              })
-            }}
-            onClearCache={() => {
-              void window.api.browserClearCache().then((result) => {
-                if (!result.ok) {
-                  showToast({ tone: 'error', title: 'The cache was not cleared', description: result.message })
-                  return
-                }
-                showToast({ tone: 'good', title: 'Cache cleared' })
-                void window.api.browserReload(tab.id, true)
-              })
-            }}
-          />
+          <>
+            <Tooltip content={picking ? 'Stop inspecting' : 'Inspect element'} placement="bottom">
+              <IconButton
+                onClick={() => (picking ? stopPicking() : startPicking())}
+                aria-label={picking ? 'Stop inspecting' : 'Inspect element'}
+                pressed={picking}
+                disabled={!hasPage}
+              >
+                <InspectGlyph />
+              </IconButton>
+            </Tooltip>
+            {hasPage ? (
+              // OverflowMenu draws the trigger button itself; a custom trigger
+              // is its CONTENT, never a second button inside it.
+              <OverflowMenu
+              ariaLabel="Screenshot"
+              trigger={() => <CameraGlyph />}
+              items={[
+                { id: 'copy', label: 'Copy screenshot', onSelect: () => void capturePage('copy') },
+                { id: 'save', label: 'Save to workspace', onSelect: () => void capturePage('save'), disabled: !workspaceRoot },
+                { id: 'send', label: 'Send to agent', onSelect: () => void capturePage('send'), disabled: !workspaceRoot },
+              ]}
+              />
+            ) : (
+              <IconButton aria-label="Screenshot" disabled>
+                <CameraGlyph />
+              </IconButton>
+            )}
+            <BrowserViewMenu
+              state={state}
+              deviceToolbarOn={framed}
+              onHardReload={() => void window.api.browserReload(tab.id, true)}
+              onOpenDevTools={() => void window.api.browserOpenDevTools(tab.id)}
+              onOpenWindow={() => void window.api.browserOpenWindow(tab.id)}
+              onToggleDeviceToolbar={() =>
+                setViewport(viewport.mode === 'fill' ? presetViewport(DEFAULT_BROWSER_DEVICE_PRESET_ID) : FILL)
+              }
+              onColorScheme={(scheme) => void window.api.browserSetColorScheme(tab.id, scheme)}
+              onZoom={(direction) => void window.api.browserZoomStep(tab.id, direction)}
+              onClearCookies={() => {
+                void window.api.browserClearCookies().then((result) => {
+                  if (!result.ok) {
+                    showToast({ tone: 'error', title: 'Cookies were not cleared', description: result.message })
+                    return
+                  }
+                  showToast({ tone: 'good', title: 'Cookies cleared' })
+                  void window.api.browserReload(tab.id)
+                })
+              }}
+              onClearCache={() => {
+                void window.api.browserClearCache().then((result) => {
+                  if (!result.ok) {
+                    showToast({ tone: 'error', title: 'The cache was not cleared', description: result.message })
+                    return
+                  }
+                  showToast({ tone: 'good', title: 'Cache cleared' })
+                  void window.api.browserReload(tab.id, true)
+                })
+              }}
+            />
+          </>
         }
       />
-      {viewport.mode !== 'fill' ? (
+      {framed ? (
         <BrowserDeviceToolbar viewport={viewport} onChange={setViewport} onClose={() => setViewport(FILL)} />
       ) : null}
       <div ref={canvasRef} className="relative min-h-0 flex-1 overflow-hidden">
@@ -333,6 +514,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               src={initialSrcRef.current}
               partition={config.partition}
               webpreferences={BROWSER_WEBPREFERENCES}
+              {...(config.preloadUrl ? { preload: config.preloadUrl } : {})}
               allowpopups="true"
               // Hidden under the empty state or the error page while either
               // shows, but never `visibility:hidden`: macOS blanks a hidden
@@ -353,7 +535,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         ) : null}
         {showEmpty ? (
           <div className="absolute inset-0">
-            <BrowserEmptyState workspaceId={workspaceId} recentUrls={recentUrls} onOpen={navigate} />
+            <BrowserEmptyState workspaceId={workspaceId} active={active} recentUrls={recentUrls} onOpen={navigate} />
           </div>
         ) : null}
         {state?.error ? (

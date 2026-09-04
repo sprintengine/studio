@@ -44,6 +44,8 @@ electron.vite.config.*.mjs
 
 # Debug Mode ephemeral state (one scratch file per agent terminal)
 .multi-code/debug/
+# Browser tab screenshots and element crops (browser-pane epic).
+.multi-code/browser/
 
 # Switchboard runtime state
 .multi-code/switchboard/

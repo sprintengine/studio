@@ -1,10 +1,12 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  BrowserCaptureInput,
   BrowserClearResult,
   BrowserConfig,
   BrowserHostKey,
   BrowserRegisterInput,
   BrowserRegisterResult,
+  BrowserScreenshotResult,
   BrowserTabState,
   LocalServer,
 } from '../../shared/browser'
@@ -40,6 +42,10 @@ export const browserApi = {
   browserOpenWindow: (tabId: string): Promise<boolean> => ipcRenderer.invoke('browser:open-window', { tabId }),
   browserClearCookies: (): Promise<BrowserClearResult> => ipcRenderer.invoke('browser:clear-cookies'),
   browserClearCache: (): Promise<BrowserClearResult> => ipcRenderer.invoke('browser:clear-cache'),
+  browserCapture: (input: BrowserCaptureInput): Promise<BrowserScreenshotResult> =>
+    ipcRenderer.invoke('browser:capture', input),
+  browserCopyScreenshot: (tabId: string): Promise<BrowserClearResult> =>
+    ipcRenderer.invoke('browser:copy-screenshot', { tabId }),
   browserLocalServers: (workspaceId: string): Promise<LocalServer[]> =>
     ipcRenderer.invoke('browser:local-servers', { workspaceId }),
   onBrowserState: (cb: (state: BrowserTabState) => void): (() => void) => subscribe('browser:state', cb),
@@ -65,6 +71,8 @@ export const browserApi = {
   | 'browserOpenWindow'
   | 'browserClearCookies'
   | 'browserClearCache'
+  | 'browserCapture'
+  | 'browserCopyScreenshot'
   | 'browserLocalServers'
   | 'onBrowserState'
   | 'onBrowserFocusUrl'

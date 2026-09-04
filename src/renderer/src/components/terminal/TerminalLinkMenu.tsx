@@ -5,6 +5,7 @@ import { focusOrAddFileTab, revealNavRailComponent } from '../../utils/modelRegi
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { isLoopbackUrl } from '../../../../shared/browser'
+import { openUrlInPane } from '../workspace/pane/browser/openInPane'
 import { dispatchFileReveal } from '../../utils/fileReveal'
 import { dispatchEditorFocusEvent } from '../../utils/editorFocus'
 import { basename } from '../../utils/paths'
@@ -77,10 +78,7 @@ export function TerminalLinkMenu({
               // A dev server on this machine opens in the pane's browser tab
               // (browser-pane epic); anything else still goes to the system
               // browser.
-              if (isLoopbackUrl(target.url)) {
-                useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'browser', url: target.url })
-                return
-              }
+              if (isLoopbackUrl(target.url) && openUrlInPane(workspaceId, target.url)) return
               const result = await window.api.openExternal(target.url)
               if (!result.ok) onError(result.message)
               return

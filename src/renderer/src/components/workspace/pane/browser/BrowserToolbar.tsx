@@ -22,7 +22,9 @@ type BrowserToolbarProps = {
   onReload: () => void
   onStop: () => void
   onOpenExternal: () => void
-  /** The right cluster's later occupants (inspect, screenshot, view menu). */
+  /** After Enter in the address field: the host hands focus to the guest. */
+  onAfterSubmit?: () => void
+  /** The right cluster: inspect, screenshot, the view menu. */
   trailing?: React.ReactNode
 }
 
@@ -41,7 +43,7 @@ const STOP = 'M4.5 4.5l7 7M11.5 4.5l-7 7'
 const EXTERNAL = 'M6.5 3H3v10h10V9.5M9.5 3H13v3.5M13 3 7.5 8.5'
 
 export const BrowserToolbar = forwardRef<BrowserToolbarHandle, BrowserToolbarProps>(function BrowserToolbar(
-  { state, onNavigate, onBack, onForward, onReload, onStop, onOpenExternal, trailing },
+  { state, onNavigate, onBack, onForward, onReload, onStop, onOpenExternal, onAfterSubmit, trailing },
   ref,
 ) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -70,6 +72,7 @@ export const BrowserToolbar = forwardRef<BrowserToolbarHandle, BrowserToolbarPro
     setDraft(null)
     onNavigate(next)
     inputRef.current?.blur()
+    onAfterSubmit?.()
   }
 
   const loading = state?.loading ?? false
@@ -136,10 +139,12 @@ export const BrowserToolbar = forwardRef<BrowserToolbarHandle, BrowserToolbarPro
       </Tooltip>
       {trailing}
       {loading ? (
+        // The one live-process motion: an indeterminate load has no progress
+        // to report, so the hairline breathes rather than pretending to fill.
         <span
           role="progressbar"
           aria-label="Loading page"
-          className="absolute inset-x-0 bottom-0 h-0.5 w-3/5 bg-[color:var(--accent-primary)]"
+          className="absolute inset-x-0 bottom-0 h-0.5 w-3/5 animate-pulse bg-[color:var(--accent-primary)] motion-reduce:animate-none"
         />
       ) : null}
     </div>

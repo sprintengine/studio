@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict'
+
+import { buildBrowserElementBlock } from './browserPick'
+import { rewriteUnroutableHost } from './openInPane'
+
+function run(name: string, body: () => void): void {
+  try {
+    body()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    console.error(`not ok - ${name}`)
+    throw error
+  }
+}
+
+run('the element block carries url, selector, component chain, source, html, styles and the crop path', () => {
+  const block = buildBrowserElementBlock(
+    {
+      url: 'http://localhost:5173/chat',
+      title: 'Chat',
+      selector: 'main > form > button.btn-primary',
+      tagName: 'button',
+      text: 'Sign in',
+      outerHtml: '<button class="btn-primary" type="submit">Sign in</button>',
+      rect: { x: 10, y: 20, width: 112, height: 34 },
+      viewport: { width: 390, height: 844 },
+      styles: { display: 'inline-flex', color: 'rgb(255, 255, 255)' },
+      components: ['SignInButton', 'SignInForm'],
+      source: 'src/components/SignIn.tsx:42:7',
+    },
+    '/repo/.multi-code/browser/element-localhost-5173-2026.png',
+  )
+  assert.equal(
+    block,
+    [
+      '<browser_element url="http://localhost:5173/chat" selector="main > form > button.btn-primary" component="SignInButton < SignInForm" source="src/components/SignIn.tsx:42:7">',
+      '<html><button class="btn-primary" type="submit">Sign in</button></html>',
+      '<styles>display:inline-flex; color:rgb(255, 255, 255)</styles>',
+      '</browser_element>',
+      'Screenshot: /repo/.multi-code/browser/element-localhost-5173-2026.png',
+    ].join('\n'),
+  )
+})
+
+run('a plain element without React or a crop still produces a well-formed block', () => {
+  const block = buildBrowserElementBlock(
+    {
+      url: 'http://localhost:3000/',
+      title: '',
+      selector: '#root > div:nth-of-type(2)',
+      tagName: 'div',
+      text: '',
+      outerHtml: '<div class="a"></div>',
+      rect: { x: 0, y: 0, width: 1, height: 1 },
+      viewport: { width: 1, height: 1 },
+      styles: {},
+      components: [],
+      source: null,
+    },
+    null,
+  )
+  assert.equal(
+    block,
+    ['<browser_element url="http://localhost:3000/" selector="#root > div:nth-of-type(2)">', '<html><div class="a"></div></html>', '</browser_element>'].join('\n'),
+  )
+})
+
+run('attribute values are escaped so a quote in a selector cannot break the block', () => {
+  const block = buildBrowserElementBlock(
+    {
+      url: 'http://localhost/',
+      title: '',
+      selector: '[data-testid="say \\"hi\\""]',
+      tagName: 'a',
+      text: '',
+      outerHtml: '<a></a>',
+      rect: { x: 0, y: 0, width: 1, height: 1 },
+      viewport: { width: 1, height: 1 },
+      styles: {},
+      components: [],
+      source: null,
+    },
+    null,
+  )
+  assert.ok(block.startsWith('<browser_element url="http://localhost/" selector="[data-testid=&quot;say \\&quot;hi\\&quot;&quot;]">'))
+})
+
+run('0.0.0.0 is rewritten to localhost; other hosts are untouched', () => {
+  assert.equal(rewriteUnroutableHost('http://0.0.0.0:8000/docs'), 'http://localhost:8000/docs')
+  assert.equal(rewriteUnroutableHost('http://127.0.0.1:8000/'), 'http://127.0.0.1:8000/')
+  assert.equal(rewriteUnroutableHost('not a url'), 'not a url')
+})
+
+console.log('browserPick tests passed')

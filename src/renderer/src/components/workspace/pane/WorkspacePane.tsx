@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
+import { browserTabLabel } from '../../../../../shared/browser'
 import { selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type {
@@ -56,6 +57,7 @@ type WorkspacePaneProps = {
 }
 
 export function paneTabLabel(tab: WorkspacePaneTab): string {
+  if (tab.kind === 'browser') return browserTabLabel(tab.url, tab.title)
   return tab.title?.trim() || paneKindDefinition(tab.kind).label
 }
 

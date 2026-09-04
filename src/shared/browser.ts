@@ -8,10 +8,54 @@ export const BROWSER_PARTITION = 'persist:sprintengine-browser'
 
 // The guest's webpreferences string. Whitespace-free `key=value` pairs — a
 // space in the attribute silently breaks parsing. `sandbox=true` is what keeps
-// a preload's Node access from ever reaching the page; `nodeIntegration`
-// stays off. Main re-asserts both in `will-attach-webview` whatever the
-// renderer wrote.
-export const BROWSER_WEBPREFERENCES = 'contextIsolation=true,sandbox=true,nodeIntegration=false'
+// the preload's Node access from ever reaching the page; `nodeIntegration`
+// stays off. `contextIsolation=false` because the element picker reads the
+// page's React fiber off DOM nodes, and an isolated world cannot see the main
+// world's expandos — a deliberate trade: the picker is the pane's reason to
+// exist, and `sandbox=true` is what actually contains the guest. The preload keeps
+// everything in closures and puts nothing on `window`. Main re-asserts all
+// three in `will-attach-webview` whatever the renderer wrote.
+export const BROWSER_WEBPREFERENCES = 'contextIsolation=false,sandbox=true,nodeIntegration=false'
+
+// Guest preload ↔ host renderer channels (webview `send` / `sendToHost`).
+export const BROWSER_PICK_START_CHANNEL = 'browser:pick:start'
+export const BROWSER_PICK_STOP_CHANNEL = 'browser:pick:stop'
+export const BROWSER_PICKED_CHANNEL = 'browser:picked'
+export const BROWSER_PICK_CANCELLED_CHANNEL = 'browser:pick:cancelled'
+
+// Colours the picker overlay draws with, resolved from the app's tokens by
+// the host and sent with the start message so the overlay matches the theme.
+export type BrowserPickTheme = {
+  accent: string
+  accentSoft: string
+  chipBackground: string
+  chipBorder: string
+  chipText: string
+}
+
+export type BrowserPickedElement = {
+  url: string
+  title: string
+  selector: string
+  tagName: string
+  text: string
+  outerHtml: string
+  /** Viewport (CSS px) rect of the element, for the crop. */
+  rect: { x: number; y: number; width: number; height: number }
+  viewport: { width: number; height: number }
+  styles: Record<string, string>
+  /** React owner chain, nearest first, when the page exposes its fiber. */
+  components: string[]
+  /** `file:line:col` from React's debug source, when the page ships it. */
+  source: string | null
+}
+
+export type BrowserScreenshotResult =
+  | { ok: true; path: string; width: number; height: number }
+  | { ok: false; message: string }
+
+export const BROWSER_MAX_OUTER_HTML = 4000
+export const BROWSER_PICK_CROP_PADDING = 20
 
 export type BrowserLoadError = {
   code: number
@@ -22,6 +66,8 @@ export type BrowserLoadError = {
 export type BrowserTabState = {
   tabId: string
   url: string
+  /** The last committed main-frame document, without in-page (hash/pushState) moves. */
+  documentUrl: string
   title: string
   faviconUrl: string | null
   loading: boolean
@@ -45,9 +91,25 @@ export type BrowserRegisterResult =
   | { ok: true; state: BrowserTabState }
   | { ok: false; reason: 'not_a_webview' | 'foreign_host' | 'unknown_webcontents' | 'already_registered' }
 
+export type BrowserCaptureInput = {
+  tabId: string
+  /** The workspace folder the PNG is written under (`.multi-code/browser/`). */
+  workspaceRoot: string
+  /** Guest-viewport rect to crop to; the whole page when absent. */
+  rect?: { x: number; y: number; width: number; height: number }
+  /** File name stem: `screenshot` or `element`. */
+  kind: 'screenshot' | 'element'
+}
+
+/** Whether a URL may be loaded in the guest at all: http(s) or a blank tab. */
+export function isLoadableBrowserUrl(url: string): boolean {
+  return url === 'about:blank' || /^https?:\/\//i.test(url)
+}
+
 export type BrowserConfig = {
   partition: string
-  webPreferences: string
+  /** file:// URL of the guest preload (the element picker); null when it is not built. */
+  preloadUrl: string | null
 }
 
 export type LocalServer = {

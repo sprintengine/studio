@@ -1,5 +1,5 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
-import type { BrowserRegisterInput } from '../../shared/browser'
+import type { BrowserCaptureInput, BrowserRegisterInput } from '../../shared/browser'
 import type { BrowserManager } from '../browser/browser-manager'
 
 // The embedded browser's IPC (browser-pane epic). Every handler resolves the
@@ -87,6 +87,29 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
 
   ipcMain.handle('browser:clear-cookies', () => manager.clearCookies())
   ipcMain.handle('browser:clear-cache', () => manager.clearCache())
+
+  ipcMain.handle('browser:capture', (_event, input: BrowserCaptureInput) => {
+    if (!tabIdOf(input) || typeof input.workspaceRoot !== 'string') {
+      return { ok: false, message: 'The capture request was incomplete.' }
+    }
+    const rect =
+      input.rect
+      && typeof input.rect === 'object'
+      && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite((input.rect as Record<string, unknown>)[key]))
+        ? input.rect
+        : undefined
+    return manager.captureScreenshot({
+      tabId: input.tabId,
+      workspaceRoot: input.workspaceRoot,
+      kind: input.kind === 'element' ? 'element' : 'screenshot',
+      ...(rect ? { rect } : {}),
+    })
+  })
+
+  ipcMain.handle('browser:copy-screenshot', (_event, input: { tabId: string }) => {
+    const tabId = tabIdOf(input)
+    return tabId ? manager.copyScreenshot(tabId) : { ok: false, message: 'This browser tab is gone.' }
+  })
 
   ipcMain.handle('browser:open-external', (_event, input: { tabId: string }) => {
     const tabId = tabIdOf(input)

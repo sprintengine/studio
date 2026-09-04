@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell, type WebContents } from 'electron'
-import { join } from 'path'
-import { BROWSER_PARTITION } from '../shared/browser'
+import { join, resolve } from 'path'
+import { BROWSER_PARTITION, isLoadableBrowserUrl } from '../shared/browser'
+import { guestPreloadPath } from './browser/browser-manager'
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowMaterial } from './window-material-store'
@@ -151,11 +152,27 @@ export function createMainWindow({
       event.preventDefault()
       return
     }
-    delete webPreferences.preload
+    if (typeof params.src === 'string' && params.src && !isLoadableBrowserUrl(params.src)) {
+      event.preventDefault()
+      return
+    }
+    // The only preload a guest may carry is the element picker we ship; any
+    // other path is dropped. The picker reads the page's React fiber, which
+    // an isolated world cannot see, so context isolation is off exactly when
+    // that preload is present — and the preload is sandboxed either way.
+    const picker = guestPreloadPath()
+    const requested = webPreferences.preload
+    if (picker && requested && resolve(requested) === resolve(picker)) {
+      webPreferences.preload = picker
+      webPreferences.contextIsolation = false
+    } else {
+      delete webPreferences.preload
+      webPreferences.contextIsolation = true
+    }
     webPreferences.sandbox = true
     webPreferences.nodeIntegration = false
     webPreferences.nodeIntegrationInSubFrames = false
-    webPreferences.contextIsolation = true
+    webPreferences.nodeIntegrationInWorker = false
     webPreferences.webSecurity = true
     webPreferences.allowRunningInsecureContent = false
   })

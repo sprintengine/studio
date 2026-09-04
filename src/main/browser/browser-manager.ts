@@ -1,12 +1,20 @@
 import { execFile } from 'node:child_process'
-import { BrowserWindow, net, session, shell, webContents, type Session, type WebContents } from 'electron'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { BrowserWindow, clipboard, session, shell, webContents, type Session, type WebContents } from 'electron'
 import {
   BROWSER_PARTITION,
+  BROWSER_PICK_CROP_PADDING,
+  isLoadableBrowserUrl,
+  type BrowserCaptureInput,
   type BrowserClearResult,
   type BrowserHostKey,
   type BrowserLoadError,
   type BrowserRegisterInput,
   type BrowserRegisterResult,
+  type BrowserScreenshotResult,
   type BrowserTabState,
   type LocalServer,
 } from '../../shared/browser'
@@ -38,10 +46,24 @@ const FAVICON_TIMEOUT_MS = 3_000
 const SERVER_PROBE_TIMEOUT_MS = 1_200
 
 // Chords the person expects to keep working while the guest has focus. The
-// guest sees the keystroke first; these are re-dispatched to the host window
-// (`browser:host-key`) so the app's own bindings — close tab, palette, pane
-// toggle, zoom — act, and the page never sees them.
-const HOST_FORWARDED_KEYS: ReadonlySet<string> = new Set(['w', 'k', 'b', 'p', '=', '+', '-', '0', 'j', 'e', 'g'])
+// guest sees the keystroke first; exactly these are re-dispatched to the host
+// window (`browser:host-key`) so the app's own bindings — close tab, palette,
+// pane toggle, Files/Git, zoom — act, and the page never sees them. Anything
+// not in this table stays the page's (Cmd+P prints, Cmd+G finds next).
+type Chord = { key: string; shift: boolean; alt: boolean }
+const HOST_FORWARDED_CHORDS: readonly Chord[] = [
+  { key: 'w', shift: false, alt: false },
+  { key: 'k', shift: false, alt: false },
+  { key: 'p', shift: true, alt: false },
+  { key: 'e', shift: true, alt: false },
+  { key: 'g', shift: true, alt: false },
+  { key: 'b', shift: false, alt: true },
+  { key: '=', shift: false, alt: false },
+  { key: '+', shift: true, alt: false },
+  { key: '-', shift: false, alt: false },
+  { key: '0', shift: false, alt: false },
+]
+const CAPTURE_TIMEOUT_MS = 5_000
 
 export type TerminalRootInfo = {
   sessionId: string
@@ -171,12 +193,14 @@ function stripUserAgent(userAgent: string): string {
     .trim()
 }
 
-async function fetchFaviconDataUrl(url: string): Promise<string | null> {
+// Fetched on the browser's own session: the page's cookies (an auth-gated dev
+// server) and the stripped user agent travel with it.
+async function fetchFaviconDataUrl(browserSession: Session, url: string): Promise<string | null> {
   if (!/^https?:\/\//i.test(url)) return null
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FAVICON_TIMEOUT_MS)
   try {
-    const response = await net.fetch(url, { signal: controller.signal })
+    const response = await browserSession.fetch(url, { signal: controller.signal })
     if (!response.ok) return null
     const type = response.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
     if (!type.startsWith('image/')) return null
@@ -190,20 +214,47 @@ async function fetchFaviconDataUrl(url: string): Promise<string | null> {
   }
 }
 
-async function probeLocalServer(url: string): Promise<boolean> {
+async function probeLocalServer(browserSession: Session, url: string): Promise<boolean> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), SERVER_PROBE_TIMEOUT_MS)
   try {
-    const response = await net.fetch(url, { method: 'GET', signal: controller.signal, redirect: 'manual' })
-    // A redirect is a web server answering; so is any page. A 5xx from a dev
-    // server mid-restart is still a web server — list it, the person can
-    // reload. Only a refused or non-HTTP socket is left out.
-    return response.status > 0
+    // Follow redirects: a root that redirects to /login is a web server
+    // answering (Electron's fetch REJECTS a manual redirect rather than
+    // returning an opaque response). Any resolved response — a 5xx from a dev
+    // server mid-restart included — is a web server; only a refused or
+    // non-HTTP socket is left out.
+    await browserSession.fetch(url, { method: 'GET', signal: controller.signal, redirect: 'follow' })
+    return true
   } catch {
     return false
   } finally {
     clearTimeout(timer)
   }
+}
+
+function fileStamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
+}
+
+function hostSlug(url: string): string {
+  try {
+    return new URL(url).host.replace(/[^a-z0-9.-]/gi, '-') || 'page'
+  } catch {
+    return 'page'
+  }
+}
+
+// The guest preload electron-vite emits beside the app's (out/preload/
+// browser-guest.js). Absent in a build without it, in which case the tab
+// simply has no element picker.
+export function guestPreloadPath(): string | null {
+  const candidate = join(__dirname, '../preload/browser-guest.js')
+  return existsSync(candidate) ? candidate : null
+}
+
+export function guestPreloadUrl(): string | null {
+  const path = guestPreloadPath()
+  return path ? pathToFileURL(path).toString() : null
 }
 
 export function createBrowserManager(deps: BrowserManagerDeps) {
@@ -230,6 +281,24 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
   function patch(tab: BrowserTab, next: Partial<BrowserTabState>): void {
     tab.state = { ...tab.state, ...next }
     publish(tab)
+  }
+
+  function capturePage(wc: WebContents, rect?: Electron.Rectangle): Promise<Electron.NativeImage> {
+    // capturePage can hang on a guest that is mid-teardown; a bounded wait
+    // turns that into a reported failure instead of a stuck toolbar.
+    return new Promise((resolvePromise, reject) => {
+      const timer = setTimeout(() => reject(new Error('The page did not answer the capture in time.')), CAPTURE_TIMEOUT_MS)
+      ;(rect ? wc.capturePage(rect) : wc.capturePage()).then(
+        (image) => {
+          clearTimeout(timer)
+          resolvePromise(image)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
   }
 
   function readNavigation(wc: WebContents): Pick<BrowserTabState, 'url' | 'title' | 'canGoBack' | 'canGoForward'> {
@@ -267,9 +336,15 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       patch(tab, { url: details.url, title: '', faviconUrl: null, error: null, loading: true })
     })
     on('did-navigate', () => {
-      patch(tab, { ...readNavigation(wc), error: null })
+      const navigation = readNavigation(wc)
+      patch(tab, { ...navigation, documentUrl: navigation.url, error: null })
       // A new document loses the emulated media; re-assert the scheme.
       if (tab.state.colorScheme !== 'system') void applyColorScheme(tab)
+    })
+    // The scheme rule, enforced where it matters: whatever a link, a script or
+    // a caller asks for, the guest only ever loads http(s) or a blank tab.
+    on('will-navigate', (event: { preventDefault: () => void }, url: string) => {
+      if (!isLoadableBrowserUrl(url)) event.preventDefault()
     })
     on('devtools-opened', () => {
       // DevTools takes the debugger slot; let go of ours and say so.
@@ -287,7 +362,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       const [first] = favicons
       if (!first) return
       const at = wc.getURL()
-      void fetchFaviconDataUrl(first).then((dataUrl) => {
+      void fetchFaviconDataUrl(ensureSession(), first).then((dataUrl) => {
         // Only if the page has not moved on meanwhile.
         if (!wc.isDestroyed() && tabs.get(tab.tabId) === tab && wc.getURL() === at) {
           patch(tab, { faviconUrl: dataUrl })
@@ -319,9 +394,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       const primary = process.platform === 'darwin' ? input.meta : input.control
       if (!primary) return
       const key = input.key.toLowerCase()
-      if (key === 'r' && !input.shift && !input.alt) {
+      if (key === 'r' && !input.alt) {
         event.preventDefault()
-        wc.reload()
+        if (input.shift) wc.reloadIgnoringCache()
+        else wc.reload()
         return
       }
       if (key === 'l' && !input.shift && !input.alt) {
@@ -329,7 +405,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         if (!tab.host.isDestroyed()) tab.host.send('browser:focus-url', { tabId: tab.tabId })
         return
       }
-      if (HOST_FORWARDED_KEYS.has(key)) {
+      const forwarded = HOST_FORWARDED_CHORDS.some(
+        (chord) => chord.key === key && chord.shift === input.shift && chord.alt === input.alt,
+      )
+      if (forwarded) {
         event.preventDefault()
         const hostKey: BrowserHostKey = {
           key: input.key,
@@ -389,7 +468,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
   return {
     getConfig() {
       ensureSession()
-      return { partition: BROWSER_PARTITION }
+      return { partition: BROWSER_PARTITION, preloadUrl: guestPreloadUrl() }
     },
 
     /**
@@ -403,6 +482,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       if (!wc || wc.isDestroyed()) return { ok: false, reason: 'unknown_webcontents' }
       if (wc.getType() !== 'webview') return { ok: false, reason: 'not_a_webview' }
       if (wc.hostWebContents?.id !== host.id) return { ok: false, reason: 'foreign_host' }
+      // One guest, one tab: a second tab id on the same WebContents would
+      // double every listener and let two records fight over one page.
+      for (const [otherId, other] of tabs) {
+        if (otherId !== input.tabId && other.wc === wc) return { ok: false, reason: 'already_registered' }
+      }
       const existing = tabs.get(input.tabId)
       if (existing) {
         if (existing.wc === wc) return { ok: true, state: existing.state }
@@ -420,6 +504,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         state: {
           tabId: input.tabId,
           ...readNavigation(wc),
+          documentUrl: wc.getURL(),
           faviconUrl: null,
           loading: wc.isLoading(),
           error: null,
@@ -460,13 +545,71 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
 
     navigate(tabId: string, url: string): boolean {
       const tab = requireTab(tabId)
-      if (!tab) return false
+      if (!tab || !isLoadableBrowserUrl(url)) return false
       patch(tab, { error: null, loading: true, url })
-      void tab.wc.loadURL(url).catch(() => {
-        // did-fail-load reports the failure with its code; a rejected promise
-        // for an aborted load carries nothing the person needs.
+      void tab.wc.loadURL(url).catch((error: unknown) => {
+        // did-fail-load reports most failures with their code; a load the
+        // guest never started (an immediate rejection that is not an abort)
+        // would otherwise leave the optimistic loading state stuck.
+        const code = error && typeof error === 'object' ? (error as { errno?: number; code?: string }) : null
+        if (code?.code === 'ERR_ABORTED' || code?.errno === -3) return
+        if (tab.state.loading && tab.state.url === url) {
+          patch(tab, {
+            loading: false,
+            error: { code: code?.errno ?? 0, description: code?.code ?? 'ERR_FAILED', url },
+          })
+        }
       })
       return true
+    },
+
+    /** PNG of the page (or a crop of it) into the workspace's `.multi-code/browser/`. */
+    async captureScreenshot(input: BrowserCaptureInput): Promise<BrowserScreenshotResult> {
+      const tab = requireTab(input.tabId)
+      if (!tab) return { ok: false, message: 'This browser tab is gone.' }
+      if (!isAbsolute(input.workspaceRoot) || !existsSync(input.workspaceRoot)) {
+        return { ok: false, message: 'The workspace folder is not available.' }
+      }
+      let rect: Electron.Rectangle | undefined
+      if (input.rect) {
+        const pad = BROWSER_PICK_CROP_PADDING
+        const x = Math.max(0, Math.floor(input.rect.x - pad))
+        const y = Math.max(0, Math.floor(input.rect.y - pad))
+        rect = {
+          x,
+          y,
+          width: Math.max(1, Math.ceil(input.rect.width + pad * 2)),
+          height: Math.max(1, Math.ceil(input.rect.height + pad * 2)),
+        }
+      }
+      try {
+        const image = await capturePage(tab.wc, rect)
+        const size = image.getSize()
+        if (size.width === 0 || size.height === 0) return { ok: false, message: 'The page had nothing to capture.' }
+        const directory = resolve(input.workspaceRoot, '.multi-code', 'browser')
+        await mkdir(directory, { recursive: true })
+        // The folder ignores itself, so a project that does not list it in
+        // its own .gitignore still never sees screenshots in `git status`.
+        const ignore = join(directory, '.gitignore')
+        if (!existsSync(ignore)) await writeFile(ignore, '*\n', 'utf8')
+        const file = join(directory, `${input.kind}-${hostSlug(tab.state.url)}-${fileStamp()}.png`)
+        await writeFile(file, image.toPNG())
+        return { ok: true, path: file, width: size.width, height: size.height }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'The capture failed.' }
+      }
+    },
+
+    async copyScreenshot(tabId: string): Promise<BrowserClearResult> {
+      const tab = requireTab(tabId)
+      if (!tab) return { ok: false, message: 'This browser tab is gone.' }
+      try {
+        const image = await capturePage(tab.wc)
+        clipboard.writeImage(image)
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'The capture failed.' }
+      }
     },
 
     back(tabId: string): boolean {
@@ -611,15 +754,22 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       const roots = deps.listTerminalRoots().filter((root) => root.workspaceId === workspaceId)
       if (roots.length === 0) return []
       const runPs = deps.runPs ?? (() => execFileTextOrNull('ps', ['-axo', 'pid=,ppid=,pcpu=,args=']))
-      const runLsof =
-        deps.runLsofListening ?? (() => execFileTextOrNull('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcn']))
-      const [psOut, lsofOut] = await Promise.all([runPs(), runLsof()])
-      if (psOut === null || lsofOut === null) return []
+      const psOut = await runPs()
+      if (psOut === null) return []
       const procs = parsePsTree(psOut)
+      const ownedByRoot = roots.map((root) => ({ root, owned: descendantPids(root.rootPid, procs) }))
+      const candidatePids = [...new Set(ownedByRoot.flatMap(({ owned }) => [...owned]))]
+      if (candidatePids.length === 0) return []
+      // `-a -p <pids>` scopes lsof to the terminals' own subtrees: a full
+      // `-iTCP` walk of every process on the machine takes seconds on macOS.
+      const runLsof =
+        deps.runLsofListening
+        ?? (() => execFileTextOrNull('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-a', '-p', candidatePids.join(','), '-F', 'pcn']))
+      const lsofOut = await runLsof()
+      if (lsofOut === null) return []
       const sockets = parseListeningSockets(lsofOut)
       const byPort = new Map<number, LocalServer>()
-      for (const root of roots) {
-        const owned = descendantPids(root.rootPid, procs)
+      for (const { root, owned } of ownedByRoot) {
         for (const socket of sockets) {
           if (!owned.has(socket.pid) || byPort.has(socket.port)) continue
           byPort.set(socket.port, {
@@ -632,7 +782,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           })
         }
       }
-      const probe = deps.probeServer ?? probeLocalServer
+      const browserSession = ensureSession()
+      const probe = deps.probeServer ?? ((url: string) => probeLocalServer(browserSession, url))
       const candidates = [...byPort.values()].sort((a, b) => a.port - b.port)
       const answers = await Promise.all(candidates.map((server) => probe(server.url)))
       return candidates.filter((_server, index) => answers[index])

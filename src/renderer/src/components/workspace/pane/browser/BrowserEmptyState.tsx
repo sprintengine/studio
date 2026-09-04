@@ -11,12 +11,20 @@ import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 
 const LOCAL_SERVER_POLL_MS = 4_000
 
-function useLocalServers(workspaceId: string): LocalServer[] | null {
+// Polls while — and only while — the surface is the one on screen: the tab
+// active, the pane visible, the window not hidden. A retained background tab
+// costs nothing.
+function useLocalServers(workspaceId: string, active: boolean): LocalServer[] | null {
   const [servers, setServers] = useState<LocalServer[] | null>(null)
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     let timer: number | null = null
     const poll = async () => {
+      if (document.visibilityState === 'hidden') {
+        timer = window.setTimeout(() => void poll(), LOCAL_SERVER_POLL_MS)
+        return
+      }
       try {
         const next = await window.api.browserLocalServers(workspaceId)
         if (!cancelled) setServers(next)
@@ -30,7 +38,7 @@ function useLocalServers(workspaceId: string): LocalServer[] | null {
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [workspaceId])
+  }, [active, workspaceId])
   return servers
 }
 
@@ -47,12 +55,13 @@ const ROW_CLASS = `flex h-control-sm w-full items-center gap-3 rounded-[7px] px-
 
 type BrowserEmptyStateProps = {
   workspaceId: string
+  active: boolean
   recentUrls: readonly string[]
   onOpen: (url: string) => void
 }
 
-export function BrowserEmptyState({ workspaceId, recentUrls, onOpen }: BrowserEmptyStateProps) {
-  const servers = useLocalServers(workspaceId)
+export function BrowserEmptyState({ workspaceId, active, recentUrls, onOpen }: BrowserEmptyStateProps) {
+  const servers = useLocalServers(workspaceId, active)
   const hasServers = (servers?.length ?? 0) > 0
   const hasRecent = recentUrls.length > 0
   const showHeadings = hasServers && hasRecent
@@ -72,10 +81,7 @@ export function BrowserEmptyState({ workspaceId, recentUrls, onOpen }: BrowserEm
           {servers!.map((server) => (
             <button key={server.url} type="button" onClick={() => onOpen(server.url)} className={ROW_CLASS}>
               <span className="font-mono text-meta text-[color:var(--text-strong)]">localhost:{server.port}</span>
-              <span className="min-w-0 truncate text-meta text-[color:var(--text-muted)]">
-                {server.command}
-                {server.terminalId ? ' · Terminal' : ' · Agent'}
-              </span>
+              <span className="min-w-0 truncate text-meta text-[color:var(--text-muted)]">{server.command}</span>
             </button>
           ))}
         </section>

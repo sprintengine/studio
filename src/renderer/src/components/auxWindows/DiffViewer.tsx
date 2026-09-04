@@ -31,8 +31,8 @@ type Props = {
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
   variant?: DiffViewerVariant
-  /** Pane host only: the canonical count of the view, for the tab strip. */
-  onItemCountChange?: (count: number) => void
+  /** Pane host only: the canonical count of the view, for the tab strip; null once the viewer is gone. */
+  onItemCountChange?: (count: number | null) => void
 }
 
 type DiffContent =
@@ -228,6 +228,7 @@ export function DiffViewer({ repoRoot, focusPath, focusKind, variant = 'window',
   useEffect(() => {
     onItemCountChange?.(items.length)
   }, [items.length, onItemCountChange])
+  useEffect(() => () => onItemCountChange?.(null), [onItemCountChange])
 
   const [currentIndex, setCurrentIndex] = useState(-1)
   const initializedRef = useRef(false)

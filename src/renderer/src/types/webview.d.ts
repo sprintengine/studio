@@ -9,6 +9,14 @@ export interface EmbeddedWebviewElement extends HTMLElement {
   src: string
   getWebContentsId(): number
   focus(): void
+  /** Message the guest preload (`ipcRenderer.on(channel)` there). */
+  send(channel: string, ...args: unknown[]): Promise<void>
+}
+
+/** The `ipc-message` DOM event a guest's `ipcRenderer.sendToHost` raises. */
+export interface WebviewIpcMessageEvent extends Event {
+  channel: string
+  args: unknown[]
 }
 
 declare module 'react' {

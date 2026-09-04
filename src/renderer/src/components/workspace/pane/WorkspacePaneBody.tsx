@@ -56,7 +56,7 @@ type PaneTabPanelProps = {
   tab: WorkspacePaneTab
   active: boolean
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
-  onDiffCountChange?: (count: number) => void
+  onDiffCountChange?: (count: number | null) => void
 }
 
 function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCountChange }: PaneTabPanelProps) {
@@ -113,7 +113,7 @@ type WorkspacePaneBodyProps = {
   tabs: WorkspacePaneTab[]
   activeTabId: string | null
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
-  onDiffCountChange?: (count: number) => void
+  onDiffCountChange?: (count: number | null) => void
 }
 
 export function WorkspacePaneBody({
@@ -138,6 +138,10 @@ export function WorkspacePaneBody({
             aria-hidden={!active}
             className={`absolute inset-0 ${active ? 'visible z-10' : offscreen ? 'z-0' : 'invisible z-0'}`}
             style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: active ? 'auto' : 'none' }}
+            // An offscreen layer is still in the DOM: `inert` keeps its address
+            // field and buttons out of the tab order (the invisible ones are
+            // unfocusable already).
+            {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
           >
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
               <PaneTabPanel
