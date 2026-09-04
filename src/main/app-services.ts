@@ -86,7 +86,9 @@ import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from '
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
 import { agentWorktreePaths } from '../shared/worktree-paths'
-import { cliResumeCapabilities, createTerminalRuntime, resolveSpawnEventSink } from './terminal-runtime'
+import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
+import { createBrowserManager } from './browser/browser-manager'
+import { isWorkspaceWindowWebContents } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { ConversationRuntime } from './conversation-runtime'
@@ -951,9 +953,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
   }
 
+  // The embedded browser's main half (browser-pane epic): adopts the guests the
+  // pane's browser tabs attach, drives them, and finds the dev servers this
+  // workspace's terminals are running.
+  const browserManager = createBrowserManager({
+    listTerminalRoots,
+    isHostWindow: isWorkspaceWindowWebContents,
+  })
+
   return {
     agentConfigImportService,
     agentStateService,
+    browserManager,
     sprintCreateService,
     automationService,
     backgroundModeStore,

@@ -1461,12 +1461,19 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
     })
     return
   }
+  // Layouts main still holds in their rail form (Files/Git docked): healed on
+  // the way in, and written back once so the heal converges instead of
+  // re-running on every snapshot.
+  const healedLayouts: { id: WorkspaceId; layoutModel: Workspace['layoutModel'] }[] = []
   useWorkspaceStore.setState((current) => {
     const currentById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
     const workspaces = snapshot.state.workspaces.map((raw) => {
       // Main's copy of a layout can still dock Files/Git in the rail until a
       // window's next layout write; heal it here as merge() does.
       const incoming = healRetiredRailLayout(raw)
+      if (incoming.layoutModel !== raw.layoutModel) {
+        healedLayouts.push({ id: incoming.id, layoutModel: incoming.layoutModel })
+      }
       const existing = currentById.get(incoming.id)
       if (!existing) return incoming
       return {
@@ -1494,6 +1501,9 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
       workspaceRegistryEmptyState: workspaces.length === 0 ? current.workspaceRegistryEmptyState : null,
     }
   })
+  for (const healed of healedLayouts) {
+    void workspaceSyncClient.dispatchUpdateWorkspaceLayout(healed.id, healed.layoutModel)
+  }
 }
 
 // Wire the main-mediated workspace sync bus. The client asks main for every

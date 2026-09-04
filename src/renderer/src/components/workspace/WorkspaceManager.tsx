@@ -120,6 +120,7 @@ import {
 } from './globalSurface/extensions/extensionsSurfaceHost'
 import { WorkspacePaneColumn } from './pane/WorkspacePaneColumn'
 import { isWorkspacePaneFocused } from './pane/paneFocus'
+import { closePaneTabAndItsTerminal, paneTerminalSessionId } from './pane/paneTerminals'
 import {
   claimSprintCreationForDoor,
   consumeSprintCreationDoorClaim,
@@ -487,7 +488,6 @@ export default function WorkspaceManager() {
   )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
-  const closePaneTab = useWorkspaceStore((s) => s.closePaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
   const togglePaneKind = useWorkspaceStore((s) => s.togglePaneKind)
   const visibleWorkspaceIdSet = useMemo(
@@ -524,8 +524,8 @@ export default function WorkspaceManager() {
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
   // The workspace pane column (browser-pane epic) is open when the ACTIVE
   // workspace's pane record says so; the card rounds its right edge to match.
-  const activePaneState = activeWorkspace?.paneState
-  const activePaneOpen = activePaneState?.open ?? false
+  // Render-time only — the command handler reads the store live instead.
+  const activePaneOpen = activeWorkspace?.paneState?.open ?? false
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Modules settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
@@ -746,9 +746,14 @@ export default function WorkspaceManager() {
       if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
     }
     // The Git panel mounts only while its pane tab is the one showing (the
-    // pane unmounts a hidden Git tab), so that is when its handlers can act.
+    // pane unmounts a hidden Git tab) and the git module is on — a disabled
+    // module renders the unavailable surface, whose handlers cannot act.
     const pane = commandWorkspace?.paneState
-    if (pane?.open && pane.tabs.some((tab) => tab.id === pane.activeTabId && tab.kind === 'git')) {
+    if (
+      pane?.open
+      && selectModuleEnabled(moduleEnablement, 'git')
+      && pane.tabs.some((tab) => tab.id === pane.activeTabId && tab.kind === 'git')
+    ) {
       context.gitPanelActive = true
     }
     if (terminalSessions.some((session) =>
@@ -3082,19 +3087,20 @@ export default function WorkspaceManager() {
       }
       if (!windowActiveWorkspaceId) return false
       // Primary+W closes the pane's active tab while the pane owns focus; the
-      // binding keeps its FlexLayout meaning everywhere else.
-      if (activePaneState?.open && activePaneState.activeTabId && isWorkspacePaneFocused()) {
-        const tab = activePaneState.tabs.find((candidate) => candidate.id === activePaneState.activeTabId)
-        if (tab?.kind === 'terminal' && tab.terminalId) {
-          void window.api.terminalKill(`terminal-${tab.terminalId}`).catch(() => {})
-        }
-        closePaneTab(windowActiveWorkspaceId, activePaneState.activeTabId)
+      // binding keeps its FlexLayout meaning everywhere else. Read live, not
+      // from the render closure: this callback is retained across renders and
+      // a stale `paneState` would close (and kill) the wrong tab.
+      const pane = useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState
+      if (pane?.open && pane.activeTabId && isWorkspacePaneFocused()) {
+        const tab = pane.tabs.find((candidate) => candidate.id === pane.activeTabId)
+        if (tab) closePaneTabAndItsTerminal(windowActiveWorkspaceId, tab)
         return true
       }
       return closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)
     }
     if (commandId === 'pane.toggle' && windowActiveWorkspaceId) {
-      setPaneOpen(windowActiveWorkspaceId, !activePaneOpen)
+      const open = useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false
+      setPaneOpen(windowActiveWorkspaceId, !open)
       return true
     }
     if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
@@ -4337,6 +4343,10 @@ async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> 
 
   collectLayoutSessions(workspace.layoutModel.layout as LayoutSessionNode)
   workspace.layoutModel.borders?.forEach((border) => collectLayoutSessions(border as LayoutSessionNode))
+  // The pane's terminal tabs own ptys the layout knows nothing about.
+  for (const tab of workspace.paneState?.tabs ?? []) {
+    if (tab.kind === 'terminal' && tab.terminalId) sessionIds.add(paneTerminalSessionId(tab.terminalId))
+  }
 
   await Promise.all(
     [...sessionIds].map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),

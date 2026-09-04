@@ -17,7 +17,6 @@ import {
 // Previews are rendered in a 300×110 viewBox.
 const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'agent', label })
 const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
-const files = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'explorer', label })
 
 // flexlayout shortcuts
 const agentTab = (id: string, name = id) => ({
@@ -27,15 +26,9 @@ const agentTab = (id: string, name = id) => ({
   config: { agentId: id },
 })
 const editorTab = { type: 'tab', name: 'Editor', component: 'editor' }
-const explorerTab = { type: 'tab', name: 'Files', component: 'explorer' }
-// Files / Git / Knowledge Graph are exclusive strip-less nav switches driven by
-// the sidebar PanelRail, so the tabset holding the explorer hides its strip.
-const navRailTabset = (weight: number) => ({
-  type: 'tabset',
-  weight,
-  enableTabStrip: false,
-  children: [explorerTab],
-})
+// Files is not a layout component any more: it is a workspace-pane tab
+// (browser-pane epic), opened from the identity chip or the pane's "+", so no
+// template docks it. The dev templates start on editor + agents.
 // An intentionally empty layout: no tabset, no seeded agent. Creating a
 // workspace from this template lands on WorkspaceLayout's empty-workspace rule
 // (countOpenTabs === 0), which opens the New chat launch surface in the tab its
@@ -94,11 +87,10 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
     id: 'solo-dev',
     name: 'Solo Dev',
-    description: 'Explorer, editor, and one AI terminal.',
+    description: 'Editor and one AI terminal.',
     previewSlots: [
-      files('Files', 4, 4, 56, 102),
-      editor('Editor', 64, 4, 148, 102),
-      agent('Agent', 216, 4, 80, 102),
+      editor('Editor', 4, 4, 196, 102),
+      agent('Agent', 204, 4, 92, 102),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -106,9 +98,8 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          navRailTabset(18),
-          { type: 'tabset', weight: 52, children: [editorTab] },
-          { type: 'tabset', weight: 30, children: [agentTab('agent-1', 'Agent')] },
+          { type: 'tabset', weight: 66, children: [editorTab] },
+          { type: 'tabset', weight: 34, children: [agentTab('agent-1', 'Agent')] },
         ],
       },
     },
@@ -118,10 +109,9 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     name: 'Duo Dev',
     description: 'Editor flow with two stacked AI terminals.',
     previewSlots: [
-      files('Files', 4, 4, 56, 102),
-      editor('Editor', 64, 4, 148, 102),
-      agent('Agent 1', 216, 4, 80, 49),
-      agent('Agent 2', 216, 57, 80, 49),
+      editor('Editor', 4, 4, 196, 102),
+      agent('Agent 1', 204, 4, 92, 49),
+      agent('Agent 2', 204, 57, 92, 49),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -129,11 +119,10 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          navRailTabset(18),
-          { type: 'tabset', weight: 52, children: [editorTab] },
+          { type: 'tabset', weight: 66, children: [editorTab] },
           {
             type: 'row',
-            weight: 30,
+            weight: 34,
             children: [
               { type: 'tabset', weight: 50, children: [agentTab('agent-1', 'Agent 1')] },
               { type: 'tabset', weight: 50, children: [agentTab('agent-2', 'Agent 2')] },
@@ -148,12 +137,11 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     name: 'Quad Dev',
     description: 'Editor plus four visible AI terminals.',
     previewSlots: [
-      files('Files', 4, 4, 50, 102),
-      editor('Editor', 58, 4, 140, 102),
-      agent('A1', 202, 4, 44, 49),
-      agent('A3', 202, 57, 44, 49),
-      agent('A2', 250, 4, 46, 49),
-      agent('A4', 250, 57, 46, 49),
+      editor('Editor', 4, 4, 146, 102),
+      agent('A1', 154, 4, 69, 49),
+      agent('A3', 154, 57, 69, 49),
+      agent('A2', 227, 4, 69, 49),
+      agent('A4', 227, 57, 69, 49),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -161,11 +149,10 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       layout: {
         type: 'row',
         children: [
-          navRailTabset(16),
-          { type: 'tabset', weight: 44, children: [editorTab] },
+          { type: 'tabset', weight: 52, children: [editorTab] },
           {
             type: 'row',
-            weight: 40,
+            weight: 48,
             children: [
               {
                 type: 'row',

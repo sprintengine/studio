@@ -20,6 +20,19 @@ const PlainTerminalPanel = React.lazy(() => import('../../panels/PlainTerminalPa
 const DiffViewer = React.lazy(() =>
   import('../../auxWindows/DiffViewer').then((module) => ({ default: module.DiffViewer })),
 )
+const BrowserTab = React.lazy(() =>
+  import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })),
+)
+
+// An inactive layer is normally `invisible`; a browser layer is parked
+// offscreen instead. Electron blanks a `visibility:hidden` guest for good on
+// macOS, and a guest fully outside the window stops compositing without
+// losing its page. Parking is the only hiding a browser layer survives.
+export const OFFSCREEN_LAYER_STYLE: React.CSSProperties = {
+  visibility: 'visible',
+  transform: 'translateX(-100000px)',
+  pointerEvents: 'none',
+}
 
 // The explicit, labelled unavailable state (never a silently blank surface) —
 // the same copy WorkspaceLayout shows for a disabled or stale FlexLayout tab.
@@ -41,11 +54,12 @@ function PaneUnavailable() {
 type PaneTabPanelProps = {
   workspaceId: string
   tab: WorkspacePaneTab
+  active: boolean
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   onDiffCountChange?: (count: number) => void
 }
 
-function PaneTabPanel({ workspaceId, tab, onStartFuturePlan, onDiffCountChange }: PaneTabPanelProps) {
+function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCountChange }: PaneTabPanelProps) {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   // The diff reads the worktree the workspace is mounted on, not the parent
   // checkout a run workspace's folderPath names (the WorkspaceIdentity rule).
@@ -71,6 +85,8 @@ function PaneTabPanel({ workspaceId, tab, onStartFuturePlan, onDiffCountChange }
       return tab.terminalId
         ? <PlainTerminalPanel workspaceId={workspaceId} terminalId={tab.terminalId} />
         : <PaneUnavailable />
+    case 'browser':
+      return <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
     case 'diff':
       return diffRepoRoot && selectModuleEnabled(moduleOverrides, 'git')
         ? (
@@ -112,6 +128,7 @@ export function WorkspacePaneBody({
       {tabs.map((tab) => {
         const active = tab.id === activeTabId
         if (!active && !paneKindRetainsPanel(tab.kind)) return null
+        const offscreen = !active && tab.kind === 'browser'
         return (
           <div
             key={tab.id}
@@ -119,13 +136,14 @@ export function WorkspacePaneBody({
             id={`pane-${workspaceId}-panel-${tab.id}`}
             aria-labelledby={`pane-${workspaceId}-tab-${tab.id}`}
             aria-hidden={!active}
-            className={`absolute inset-0 ${active ? 'visible z-10' : 'invisible z-0'}`}
-            style={{ pointerEvents: active ? 'auto' : 'none' }}
+            className={`absolute inset-0 ${active ? 'visible z-10' : offscreen ? 'z-0' : 'invisible z-0'}`}
+            style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: active ? 'auto' : 'none' }}
           >
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
               <PaneTabPanel
                 workspaceId={workspaceId}
                 tab={tab}
+                active={active}
                 onStartFuturePlan={onStartFuturePlan}
                 onDiffCountChange={onDiffCountChange}
               />

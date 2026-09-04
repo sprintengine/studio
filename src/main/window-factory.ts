@@ -1,5 +1,6 @@
-import { BrowserWindow, screen, shell } from 'electron'
+import { BrowserWindow, screen, shell, type WebContents } from 'electron'
 import { join } from 'path'
+import { BROWSER_PARTITION } from '../shared/browser'
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowMaterial } from './window-material-store'
@@ -51,6 +52,15 @@ export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial):
 // Show a window created with `deferShow`. Safe on a window that is already
 // visible or already gone: the boot reveal races a renderer signal against a
 // timeout, and the loser must be a no-op rather than a throw.
+// Whether a WebContents is one of the workspace windows — the only hosts the
+// embedded browser adopts a guest from (browser-manager.register).
+export function isWorkspaceWindowWebContents(contents: WebContents): boolean {
+  for (const win of workspaceWindows) {
+    if (!win.isDestroyed() && win.webContents === contents) return true
+  }
+  return false
+}
+
 export function revealMainWindow(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   win.show()
@@ -120,12 +130,34 @@ export function createMainWindow({
       // when idle (registered pollers unregister), so disabling throttling
       // does not burn CPU on dormant workspaces.
       backgroundThrottling: false,
+      // The workspace pane's browser tab is a <webview> guest (browser-pane
+      // epic, decision 1). Only workspace windows host one; see
+      // `will-attach-webview` below for what a guest may be.
+      webviewTag: true,
     },
   })
 
   workspaceWindows.add(win)
   win.on('closed', () => {
     workspaceWindows.delete(win)
+  })
+
+  // Every guest this window attaches is the embedded browser and nothing
+  // else: our partition, sandboxed, no Node in any frame. Whatever the
+  // renderer wrote on the tag is overruled here, so a compromised renderer
+  // cannot mint a privileged guest.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    if (params.partition !== BROWSER_PARTITION) {
+      event.preventDefault()
+      return
+    }
+    delete webPreferences.preload
+    webPreferences.sandbox = true
+    webPreferences.nodeIntegration = false
+    webPreferences.nodeIntegrationInSubFrames = false
+    webPreferences.contextIsolation = true
+    webPreferences.webSecurity = true
+    webPreferences.allowRunningInsecureContent = false
   })
 
   win.on('ready-to-show', () => {

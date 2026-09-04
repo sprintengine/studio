@@ -920,6 +920,9 @@ export type WorkspacePaneState = {
   open: boolean
   activeTabId: string | null
   tabs: WorkspacePaneTab[]
+  // The URLs this workspace's browser tabs visited last, newest first, for the
+  // new-tab surface. Optional: records written before the browser child exist.
+  recentUrls?: string[]
 }
 
 /**

@@ -10,6 +10,7 @@ import type {
 import { ContextMenu, IconButton, MenuItem, Tabs, Tooltip, type TabItem } from '../../ui'
 import { PANE_KINDS, paneKindDefinition } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
+import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
 import { WorkspacePaneBody } from './WorkspacePaneBody'
 import { WorkspacePaneLauncher } from './WorkspacePaneLauncher'
@@ -62,8 +63,8 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   const paneState = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.paneState)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? '')
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
-  const closePaneTab = useWorkspaceStore((s) => s.closePaneTab)
   const setActivePaneTab = useWorkspaceStore((s) => s.setActivePaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
   const setMaximised = useWorkspaceStore((s) => s.setWorkspacePaneMaximised)
@@ -84,16 +85,19 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   const closeTab = useCallback(
     (tabId: string) => {
       const tab = tabs.find((candidate) => candidate.id === tabId)
-      if (!tab) return
-      // A pane terminal's pty dies with its tab, exactly as a FlexLayout
-      // terminal tab's does (WorkspaceLayout.cleanupNode).
-      if (tab.kind === 'terminal' && tab.terminalId) {
-        void window.api.terminalKill(`terminal-${tab.terminalId}`).catch(() => {})
-      }
-      closePaneTab(workspaceId, tabId)
+      if (tab) closePaneTabAndItsTerminal(workspaceId, tab)
     },
-    [closePaneTab, tabs, workspaceId],
+    [tabs, workspaceId],
   )
+
+  // Closing the column with focus inside it would strand the keyboard in
+  // hidden chrome; the header's pane switch is where the gesture came from.
+  const closePane = useCallback(() => {
+    setPaneOpen(workspaceId, false)
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('[data-pane-switch]')?.focus()
+    })
+  }, [setPaneOpen, workspaceId])
 
   const closeTabsWhere = useCallback(
     (predicate: (tab: WorkspacePaneTab, index: number) => boolean) => {
@@ -129,17 +133,20 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
 
   return (
     <section
-      aria-label="Workspace pane"
+      aria-label={workspaceName ? `${workspaceName} pane` : 'Workspace pane'}
       {...{ [WORKSPACE_PANE_DATA_ATTRIBUTE]: workspaceId }}
       className="flex h-full min-h-0 flex-col"
     >
       {/* The strip: the pane's one band of chrome, on the header's 36px
-          baseline. Its empty run drags the window; the controls opt out. */}
-      <div className="app-drag flex h-[36px] shrink-0 items-center border-b border-[color:var(--border-default)] pl-1.5 pr-1">
-        <div className="app-no-drag flex min-w-0 flex-1 items-center overflow-x-auto">
+          baseline. Its empty run drags the window; the tabs and the controls
+          opt out. Tabs sit on the strip's bottom edge so the active underline
+          draws ON the hairline, as the tabs component specifies. */}
+      <div className="app-drag flex h-[36px] shrink-0 items-end border-b border-[color:var(--border-default)] pl-1.5 pr-1">
+        <div className="flex min-w-0 flex-1 items-end self-stretch overflow-x-auto overflow-y-hidden">
           {tabs.length > 0 && activeTabId ? (
             <Tabs
               ariaLabel="Pane tabs"
+              className="app-no-drag"
               idPrefix={`pane-${workspaceId}`}
               items={items}
               value={activeTabId}
@@ -159,7 +166,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             />
           ) : null}
         </div>
-        <div role="toolbar" aria-label="Pane controls" className="app-no-drag flex shrink-0 items-center gap-0.5">
+        <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
           <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} />
           <Tooltip content={maximised ? 'Restore pane' : 'Maximise pane'} placement="bottom">
             <IconButton
@@ -171,7 +178,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             </IconButton>
           </Tooltip>
           <Tooltip content="Close pane" placement="bottom">
-            <IconButton onClick={() => setPaneOpen(workspaceId, false)} aria-label="Close pane">
+            <IconButton onClick={closePane} aria-label="Close pane">
               <ClosePaneGlyph className="icon-sm" />
             </IconButton>
           </Tooltip>

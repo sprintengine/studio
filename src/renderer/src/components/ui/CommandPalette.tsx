@@ -5,7 +5,7 @@ import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialist
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../../types/workspace'
 import type { BuiltinSkill, WorkspaceSkill } from '../../../../shared/electron-api'
-import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { focusOrAddComponentTab, togglePanelRailComponent } from '../../utils/modelRegistry'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import {
@@ -373,7 +373,8 @@ export default function CommandPalette({
             label: 'Toggle File Explorer',
             shortcut: shortcutFor('panel.files.toggle'),
             run: () => {
-              togglePanelRailComponent(activeWorkspace.id, 'explorer', 'Files')
+              // Files is a workspace-pane tab (browser-pane epic).
+              useWorkspaceStore.getState().togglePaneKind(activeWorkspace.id, 'files')
               onClose()
             },
           },
@@ -391,7 +392,7 @@ export default function CommandPalette({
             label: 'Toggle Git Panel',
             shortcut: shortcutFor('panel.git.toggle'),
             run: () => {
-              togglePanelRailComponent(activeWorkspace.id, 'git', 'Git')
+              useWorkspaceStore.getState().togglePaneKind(activeWorkspace.id, 'git')
               onClose()
             },
           },
@@ -542,7 +543,7 @@ export default function CommandPalette({
               shortcut: shortcutFor('git.worktrees.open'),
               group: 'commands' as const,
               run: () => {
-                revealNavRailComponent(activeWorkspace.id, 'git', 'Git')
+                useWorkspaceStore.getState().openPaneTab(activeWorkspace.id, { kind: 'git' })
                 onClose()
               },
             },

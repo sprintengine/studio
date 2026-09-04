@@ -36,6 +36,7 @@ import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
+import { browserApi } from './api/browser'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
@@ -50,6 +51,7 @@ const api = {
   diagnosticsGetIpcStats: snapshotIpcStats,
   ...agentConfigImportApi,
   ...windowApi,
+  ...browserApi,
   ...splashApi,
   ...startupApi,
   ...buildStampApi,

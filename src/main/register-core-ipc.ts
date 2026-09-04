@@ -40,6 +40,7 @@ import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
+import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, openAuxWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -68,6 +69,7 @@ export function registerCoreIpc(
     confirmWindowClose: confirmWorkspaceWindowClose,
     openAuxWindow,
   })
+  registerBrowserIpc(ipcMain, services.browserManager)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,
   })

@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { BROWSER_MAX_RECENT_URLS } from '../../../../shared/browser'
 import type {
   Workspace,
   WorkspaceId,
@@ -102,7 +103,25 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
     typeof raw.activeTabId === 'string' && seenIds.has(raw.activeTabId)
       ? raw.activeTabId
       : tabs[0]?.id ?? null
-  return { open: raw.open === true, activeTabId, tabs }
+  const recentUrls = normalizeRecentUrls(raw.recentUrls)
+  return {
+    open: raw.open === true,
+    activeTabId,
+    tabs,
+    ...(recentUrls.length > 0 ? { recentUrls } : {}),
+  }
+}
+
+function normalizeRecentUrls(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const out: string[] = []
+  for (const candidate of input) {
+    if (typeof candidate !== 'string' || candidate.length > MAX_URL_LENGTH) continue
+    if (!/^https?:\/\//i.test(candidate) || out.includes(candidate)) continue
+    out.push(candidate)
+    if (out.length >= BROWSER_MAX_RECENT_URLS) break
+  }
+  return out
 }
 
 /** What persists: the favicon is a per-load cache and is fetched again on load. */
@@ -174,15 +193,20 @@ export interface WorkspacePaneSliceActions {
    * open it. Returns whether the kind is showing afterwards.
    */
   togglePaneKind: (id: WorkspaceId, kind: WorkspacePaneTabKind) => boolean
+  /** A browser tab finished loading `url`: remember it, newest first, deduped, capped. */
+  notePaneRecentUrl: (id: WorkspaceId, url: string) => void
 }
 
 type PaneSliceCarrier = { workspaces: Workspace[] }
 type PaneSliceSet = (mutator: (state: PaneSliceCarrier) => void) => void
 
+// The record to mutate: minted on first use, otherwise the one that is there.
+// Not re-normalized here — the writers below normalize what they changed — so
+// a no-op write (setPaneOpen to the value it already has) keeps identity and
+// wakes no subscriber.
 function paneOf(ws: Workspace): WorkspacePaneState {
-  const current = normalizeWorkspacePaneState(ws.paneState) ?? defaultWorkspacePaneState()
-  ws.paneState = current
-  return current
+  if (!ws.paneState) ws.paneState = defaultWorkspacePaneState()
+  return ws.paneState
 }
 
 function nextActiveAfterClose(tabs: WorkspacePaneTab[], closedIndex: number): string | null {
@@ -264,7 +288,19 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        paneOf(ws).open = open
+        const pane = paneOf(ws)
+        if (pane.open !== open) pane.open = open
+      }),
+
+    notePaneRecentUrl: (id, url) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const pane = paneOf(ws)
+        if (pane.recentUrls?.[0] === url) return
+        const recentUrls = normalizeRecentUrls([url, ...(pane.recentUrls ?? [])])
+        if (recentUrls.length === 0) return
+        ws.paneState = { ...pane, recentUrls }
       }),
 
     togglePaneKind: (id, kind) => {

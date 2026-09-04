@@ -168,6 +168,8 @@ export function PanelSwitches({
           aria-pressed={active}
           aria-label={label}
           className={buttonClass}
+          // The pane's own close control hands focus back here (WorkspacePane).
+          {...(panel.target.kind === 'pane' ? { 'data-pane-switch': '' } : {})}
         >
           <Icon className="size-icon-sm" />
         </button>

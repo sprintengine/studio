@@ -164,8 +164,10 @@ export function Tabs<T extends string = string>({
               'relative -mb-px inline-flex h-control-sm shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-meta',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               // The close glyph sits in this reserved trailing padding, so
-              // revealing it never reflows the label.
-              closable ? 'pr-8' : '',
+              // revealing it never reflows the label. A closable tab is a
+              // document tab (a page title, a file), so it also caps its
+              // width and truncates rather than letting one title own the row.
+              closable ? 'max-w-[220px] pr-8' : '',
               selected
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]',
@@ -173,7 +175,7 @@ export function Tabs<T extends string = string>({
             ].join(' ')}
           >
             {iconNode ? <span aria-hidden="true" className="inline-flex">{iconNode}</span> : null}
-            <span>{item.label}</span>
+            <span className={closable ? 'min-w-0 truncate' : undefined}>{item.label}</span>
             {item.count !== undefined ? (
               <span className="tabular-nums text-micro text-[color:var(--text-muted)]">
                 {item.count}

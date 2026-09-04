@@ -3,6 +3,7 @@ import type { AppMenuAcceleratorUpdate, AppMenuAcceleratorUpdateResult } from '.
 
 const MENU_ACCELERATOR_COMMAND_IDS = new Set([
   'app.settings.open',
+  'pane.toggle',
   'panel.files.toggle',
   'panel.editor.toggle',
   'panel.git.toggle',

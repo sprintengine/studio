@@ -121,12 +121,17 @@ export function WorkspaceAsideColumn({
       ref={asideRef}
       aria-label={label}
       aria-hidden={collapsed || undefined}
+      // A zero-width column is out of the accessibility tree AND out of the
+      // tab order: focus stranded in hidden chrome types into a hidden terminal.
+      {...(collapsed ? ({ inert: '' } as Record<string, string>) : {})}
       className={[
-        'flex h-full shrink-0 flex-col overflow-hidden bg-[color:var(--bg-canvas)]',
-        // Filling: the column floats over its row (the caller's `relative`
-        // wrapper) rather than growing beside the content, so the terminals
-        // underneath keep their size and nothing reflows on maximise.
-        fill ? 'absolute inset-0 z-[var(--z-pane)]' : 'relative',
+        'flex shrink-0 flex-col overflow-hidden bg-[color:var(--bg-canvas)]',
+        // Filling: the column floats over the card row (the caller's
+        // `relative` wrapper) below the 36px WorkspaceHeader rather than
+        // growing beside the content, so the header's controls stay reachable
+        // and the terminals underneath keep their size — nothing reflows on
+        // maximise.
+        fill ? 'absolute inset-x-0 bottom-0 top-[36px] z-[var(--z-pane)]' : 'relative h-full',
         // The side-pane's one hairline, on the inner edge. Dropped when the
         // column fills the row: there is nothing left to separate from.
         resizable ? 'border-l border-[color:var(--border-default)]' : '',

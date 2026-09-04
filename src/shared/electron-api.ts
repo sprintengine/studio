@@ -8,6 +8,14 @@ import type { AgentLaunchRecord } from './agent-launch'
 import type { BuildStamp } from './build-stamp'
 export type { BuildStamp } from './build-stamp'
 import type {
+  BrowserConfig,
+  BrowserHostKey,
+  BrowserRegisterInput,
+  BrowserRegisterResult,
+  BrowserTabState,
+  LocalServer,
+} from './browser'
+import type {
   FolderOpenRequest,
   FolderOpenResult,
   FolderOpenTargetAvailability,
@@ -2969,6 +2977,23 @@ export type ElectronApi = {
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  // The embedded browser (browser-pane epic, src/shared/browser.ts). The
+  // renderer mounts the `<webview>` and registers its WebContents id; main
+  // drives it and pushes `onBrowserState` for every registered tab.
+  browserConfig: () => Promise<BrowserConfig>
+  browserRegister: (input: BrowserRegisterInput) => Promise<BrowserRegisterResult>
+  browserUnregister: (tabId: string) => Promise<void>
+  browserState: (tabId: string) => Promise<BrowserTabState | null>
+  browserNavigate: (tabId: string, url: string) => Promise<boolean>
+  browserBack: (tabId: string) => Promise<boolean>
+  browserForward: (tabId: string) => Promise<boolean>
+  browserReload: (tabId: string, ignoreCache?: boolean) => Promise<boolean>
+  browserStop: (tabId: string) => Promise<boolean>
+  browserOpenExternal: (tabId: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  browserLocalServers: (workspaceId: string) => Promise<LocalServer[]>
+  onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
+  onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void
+  onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void) => () => void
   // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
   // splash renderer; `notifyBootComplete` is sent once by the primary workspace
   // window when its first frame is on screen, and is what closes the splash and

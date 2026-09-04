@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab, revealNavRailComponent } from '../../utils/modelRegistry'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
+import { isLoopbackUrl } from '../../../../shared/browser'
 import { dispatchFileReveal } from '../../utils/fileReveal'
 import { dispatchEditorFocusEvent } from '../../utils/editorFocus'
 import { basename } from '../../utils/paths'
@@ -73,6 +74,13 @@ export function TerminalLinkMenu({
           switch (action.id) {
             case 'open-url': {
               if (target.kind !== 'url') return
+              // A dev server on this machine opens in the pane's browser tab
+              // (browser-pane epic); anything else still goes to the system
+              // browser.
+              if (isLoopbackUrl(target.url)) {
+                useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'browser', url: target.url })
+                return
+              }
               const result = await window.api.openExternal(target.url)
               if (!result.ok) onError(result.message)
               return
@@ -104,7 +112,9 @@ export function TerminalLinkMenu({
             }
             case 'reveal-files': {
               if (target.kind !== 'file') return
-              revealNavRailComponent(workspaceId, 'explorer', 'Files')
+              // Files is a workspace-pane tab (browser-pane epic): open or
+              // focus it, then latch the reveal as before.
+              useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'files' })
               dispatchFileReveal({ workspaceId, path: target.resolvedPath })
               return
             }
