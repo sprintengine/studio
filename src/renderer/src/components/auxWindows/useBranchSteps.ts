@@ -13,9 +13,17 @@ import type {
  *
  * Read live and never cached across a change: a rebase or an amend
  * re-identifies commits, so a strip held from before one would be confidently
- * wrong about work that no longer exists under those hashes. `revision` is the
- * caller's git-status snapshot — the watcher already knows when the tree moved,
- * and re-reading on it is cheaper and more accurate than a timer.
+ * wrong about work that no longer exists under those hashes.
+ *
+ * TWO triggers, and the second exists because the first is not enough. The
+ * caller's git-status snapshot fires whenever the working tree moves, which is
+ * the common case and the cheap one. But `GitStatusSnapshot` carries no branch
+ * and no HEAD, so on a CLEAN tree a rebase, a `commit --amend` and a
+ * `git checkout other-branch` all leave its signature identical — and a review
+ * confirmed the strip then kept the previous branch's chips indefinitely, still
+ * clickable, because the reflog keeps the objects. So a slow interval backs the
+ * snapshot up. It is affordable because listing steps reads branch FACTS and no
+ * diff (`readBranchFacts`), and it only runs while the tab is showing.
  */
 export type BranchStepsState = {
   snapshot: BranchStepsSnapshot | null
@@ -26,6 +34,9 @@ export type BranchStepsState = {
 }
 
 const SPAN: BranchStepSelection = { kind: 'span' }
+
+/** How often the interval trigger described above re-reads the strip. */
+const REFRESH_MS = 10_000
 
 export function useBranchSteps(
   repoRoot: string | null,
@@ -43,7 +54,8 @@ export function useBranchSteps(
       return
     }
     let cancelled = false
-    void (async () => {
+    const read = async (): Promise<void> => {
+      if (document.hidden) return
       try {
         const next = await window.api.getBranchSteps(repoRoot)
         if (!cancelled) setSnapshot(next)
@@ -51,11 +63,22 @@ export function useBranchSteps(
         // Quiet: the strip falls back to the span, which always reads.
         if (!cancelled) setSnapshot(null)
       }
-    })()
+    }
+    void read()
+    const timer = window.setInterval(() => void read(), REFRESH_MS)
     return () => {
       cancelled = true
+      window.clearInterval(timer)
     }
   }, [repoRoot, enabled, revision])
+
+  // A repo change must not leave the previous repo's chips on screen while the
+  // new snapshot is in flight — the selection would be resolved against a strip
+  // belonging to somewhere else.
+  useEffect(() => {
+    setSnapshot(null)
+    setSelection(SPAN)
+  }, [repoRoot])
 
   // A selection can stop existing under us — a rebase drops the hash a person
   // had open. Resolving through the strip's own entries means the surface falls

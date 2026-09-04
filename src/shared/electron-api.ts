@@ -1619,6 +1619,12 @@ export type BranchStepFile = {
   oldPath?: string
 }
 
+/** One side of a step's diff, read at a revision. */
+export type RevFileResult =
+  | { kind: 'content'; content: string }
+  | { kind: 'absent' }
+  | { kind: 'too-large' }
+
 export type BranchStepDiff = {
   files: BranchStepFile[]
   additions: number
@@ -3402,11 +3408,12 @@ export type ElectronApi = {
     selection: BranchStepSelection
   ) => Promise<BranchStepDiff>
   /**
-   * A file's content at a revision, for one side of a step's diff. Null means
-   * the file was not present there — the correct original side for an addition
-   * and the correct modified side for a deletion.
+   * A file's content at a revision, for one side of a step's diff. `absent` is
+   * the correct original side for an addition and modified side for a deletion —
+   * and also what a rejected rev or an out-of-repo path resolves to, so a caller
+   * renders an empty pane rather than an error.
    */
-  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string) => Promise<string | null>
+  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string) => Promise<RevFileResult>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>

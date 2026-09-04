@@ -67,8 +67,12 @@ function repoWithCheckpoints(turns = 3): string {
     }).trim()
     git(dir, 'update-ref', `refs/multicode/checkpoints/${encoded}/turn/${turn}`, commit)
   }
-  // A ref of somebody else's that must survive untouched.
+  // Refs of other people's that must survive untouched — including two NEAR
+  // MISSES under our own namespace, which are what a prefix guard gets wrong.
   git(dir, 'update-ref', 'refs/notes/someone-elses', head)
+  git(dir, 'update-ref', 'refs/remotes/origin/main', head)
+  git(dir, 'update-ref', 'refs/multicode/mybackup', head)
+  git(dir, 'update-ref', 'refs/multicode/checkpointsOTHER/x', head)
   return dir
 }
 
@@ -79,8 +83,10 @@ function userData(indexJson: string | null): string {
   return dir
 }
 
+// Name AND object: comparing names alone would pass a sweep that reset a branch
+// to a different commit, which is precisely the harm the invariant forbids.
 function refsIn(dir: string, prefix: string): string[] {
-  return git(dir, 'for-each-ref', '--format=%(refname)', `${prefix}**`)
+  return git(dir, 'for-each-ref', '--format=%(refname) %(objectname)', `${prefix}**`)
     .split('\n')
     .filter(Boolean)
 }
@@ -113,14 +119,25 @@ void (async () => {
     const dir = repoWithCheckpoints(4)
     const headsBefore = refsIn(dir, 'refs/heads/')
     const notesBefore = refsIn(dir, 'refs/notes/')
-    assert.equal(refsIn(dir, 'refs/multicode/').length, 4)
+    assert.equal(
+      refsIn(dir, 'refs/multicode/checkpoints/').length,
+      4,
+      'four of ours, plus two near misses beside them'
+    )
 
-    const deleted = await sweepCheckpointRefs(dir)
+    const remotesBefore = refsIn(dir, 'refs/remotes/')
+    const swept = await sweepCheckpointRefs(dir)
 
-    assert.equal(deleted, 4)
-    assert.deepEqual(refsIn(dir, 'refs/multicode/'), [], 'every checkpoint ref is gone')
-    assert.deepEqual(refsIn(dir, 'refs/heads/'), headsBefore, 'branches untouched')
-    assert.deepEqual(refsIn(dir, 'refs/notes/'), notesBefore, 'other refs untouched')
+    assert.equal(swept.deleted, 4)
+    assert.equal(swept.ok, true)
+    assert.deepEqual(
+      refsIn(dir, 'refs/multicode/').map((line) => line.split(' ')[0]).sort(),
+      ['refs/multicode/checkpointsOTHER/x', 'refs/multicode/mybackup'],
+      'the near misses under our own namespace survive'
+    )
+    assert.deepEqual(refsIn(dir, 'refs/heads/'), headsBefore, 'branches byte-identical')
+    assert.deepEqual(refsIn(dir, 'refs/notes/'), notesBefore, 'other refs byte-identical')
+    assert.deepEqual(refsIn(dir, 'refs/remotes/'), remotesBefore, 'remotes byte-identical')
     // The working tree and index are not something this can reach, but assert it
     // anyway: it is the promise the retired machinery made and this inherits.
     assert.equal(git(dir, 'status', '--porcelain').trim(), '')
@@ -137,14 +154,35 @@ void (async () => {
     writeFileSync(join(dir, 'a.txt'), 'x\n')
     git(dir, 'add', '.')
     git(dir, 'commit', '-m', 'seed')
-    assert.equal(await sweepCheckpointRefs(dir), 0)
+    const swept = await sweepCheckpointRefs(dir)
+    assert.equal(swept.deleted, 0)
+    assert.equal(swept.ok, true, 'nothing to do IS finished')
   })
 
-  await run('a non-repo, a missing folder and a file path all report zero', async () => {
+  await run('a non-repo and a missing folder report zero, and NOT finished', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'multicode-sweep-plain-'))
     created.push(plain)
-    assert.equal(await sweepCheckpointRefs(plain), 0)
-    assert.equal(await sweepCheckpointRefs(join(plain, 'gone')), 0)
+    // Not a repo we could read, so not a repo we may forget: ok:false keeps the
+    // index and the next launch's attempt alive.
+    assert.deepEqual(await sweepCheckpointRefs(plain), { deleted: 0, ok: false })
+    assert.deepEqual(await sweepCheckpointRefs(join(plain, 'gone')), { deleted: 0, ok: false })
+  })
+
+  await run('a repo that cannot be swept KEEPS the index for the next launch', async () => {
+    const alive = repoWithCheckpoints(2)
+    const unreachable = join(tmpdir(), 'multicode-sweep-unmounted-volume')
+    const data = userData(
+      JSON.stringify({
+        workspaces: {
+          alive: { turns: [{ cwd: alive, ref: 'x' }] },
+          gone: { turns: [{ cwd: unreachable, ref: 'y' }] },
+        },
+      })
+    )
+    const result = await sweepRetiredCheckpoints(data)
+    assert.equal(result.refsDeleted, 2, 'the reachable repo is still swept')
+    assert.equal(result.indexRemoved, false, 'the marker survives so the other repo is retried')
+    assert.equal(existsSync(join(data, 'checkpoint-index.json')), true)
   })
 
   await run('stale temp index files go with the refs', async () => {
@@ -174,8 +212,10 @@ void (async () => {
     assert.equal(result.reposVisited, 2)
     assert.equal(result.refsDeleted, 5)
     assert.equal(result.indexRemoved, true)
-    assert.deepEqual(refsIn(repoA, 'refs/multicode/'), [])
-    assert.deepEqual(refsIn(repoB, 'refs/multicode/'), [])
+    assert.deepEqual(refsIn(repoA, 'refs/multicode/checkpoints/'), [])
+    assert.deepEqual(refsIn(repoB, 'refs/multicode/checkpoints/'), [])
+    // And the near misses beside them are still there in both.
+    assert.equal(refsIn(repoA, 'refs/multicode/').length, 2)
     assert.equal(existsSync(join(data, 'checkpoint-index.json')), false)
   })
 
@@ -204,32 +244,15 @@ void (async () => {
     assert.equal(existsSync(join(data, 'checkpoint-index.json.corrupt')), false)
   })
 
-  await run('a repo that has gone missing does not stop the others or the index', async () => {
-    const alive = repoWithCheckpoints(2)
-    const dead = join(tmpdir(), 'multicode-sweep-never-existed')
-    const data = userData(
-      JSON.stringify({
-        workspaces: {
-          gone: { turns: [{ cwd: dead, ref: 'x' }] },
-          here: { turns: [{ cwd: alive, ref: 'y' }] },
-        },
-      })
-    )
-    const result = await sweepRetiredCheckpoints(data)
-    assert.equal(result.refsDeleted, 2, 'the reachable repo was still swept')
-    assert.equal(result.indexRemoved, true, 'a dead entry must not strand the marker forever')
-    assert.deepEqual(refsIn(alive, 'refs/multicode/'), [])
-  })
-
   await run('a linked worktree in the index sweeps the shared ref store once', async () => {
     const dir = repoWithCheckpoints(2)
     const tree = join(dir, '..', `multicode-sweep-wt-${process.pid}`)
     created.push(tree)
     git(dir, 'worktree', 'add', '-b', 'wt', tree)
     // Refs live in the COMMON dir, so sweeping from the worktree clears them.
-    const deleted = await sweepCheckpointRefs(tree)
-    assert.equal(deleted, 2)
-    assert.deepEqual(refsIn(dir, 'refs/multicode/'), [])
+    const swept = await sweepCheckpointRefs(tree)
+    assert.equal(swept.deleted, 2)
+    assert.deepEqual(refsIn(dir, 'refs/multicode/checkpoints/'), [])
   })
 
   for (const dir of created) rmSync(dir, { recursive: true, force: true })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -315,6 +315,78 @@ void (async () => {
     assert.deepEqual(paths(diff.files), ['b.txt'])
   })
 
+  // ---- the second review's findings ---------------------------------------
+
+  // A hash reaches argv where git also looks for options, and `git show` accepts
+  // `--output=<file>`. A review confirmed this writing a file from main.
+  await run('an option-shaped hash never reaches git', async () => {
+    const dir = repo()
+    const target = join(tmpdir(), `multicode-steps-pwned-${process.pid}.txt`)
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: `--output=${target}` })
+    assert.deepEqual(diff.files, [], 'refused, not run')
+    assert.equal(existsSync(target), false, 'and nothing was written')
+    // Ordinary refs that are not hashes are refused too — only a hash is a hash.
+    assert.deepEqual((await diffBranchSelection(dir, { kind: 'commit', hash: 'HEAD' })).files, [])
+  })
+
+  await run('readFileAtRev refuses an option-shaped rev or path, and escapes nothing', async () => {
+    const dir = repo()
+    const target = join(tmpdir(), `multicode-steps-pwned2-${process.pid}.txt`)
+    assert.deepEqual(await readFileAtRev(dir, `--output=${target}`, 'a.txt'), { kind: 'absent' })
+    assert.equal(existsSync(target), false)
+    assert.deepEqual(await readFileAtRev(dir, 'HEAD', '--output=x'), { kind: 'absent' })
+    // Out of the repo entirely.
+    assert.deepEqual(await readFileAtRev(dir, 'HEAD', '../../../etc/hosts'), { kind: 'absent' })
+  })
+
+  // `--name-status` on a merge is a COMBINED diff and reports nothing, so every
+  // file the merge brought in fell through to combine()'s leftover branch and was
+  // labelled "Modified" — an added file shown as modified, a deleted one too.
+  await run('a merge step reports the right STATUS for each file, not just the path', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'b\n')
+    commit(dir, 'feature work')
+    git(dir, 'checkout', 'main')
+    unlinkSync(join(dir, 'a.txt'))
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    commit(dir, 'main adds c and deletes a')
+    git(dir, 'checkout', 'feat')
+    git(dir, 'merge', '--no-ff', '--no-edit', 'main')
+
+    const head = git(dir, 'rev-parse', 'HEAD').trim()
+    const diff = await diffBranchSelection(dir, { kind: 'commit', hash: head })
+    const byPath = new Map(diff.files.map((file) => [file.path, file.status]))
+    assert.equal(byPath.get('c.txt'), 'new', 'an added file is not "modified"')
+    assert.equal(byPath.get('a.txt'), 'deleted', 'nor is a deleted one')
+  })
+
+  // The row diffs an unborn HEAD against the empty tree; the pane ran
+  // `git diff HEAD`, which fails there, so the row said +2 and the pane nothing.
+  await run('an unborn HEAD shows its staged work, matching the row', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-unborn-'))
+    created.push(dir)
+    git(dir, 'init', '-b', 'main')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
+    git(dir, 'add', '-A')
+
+    const row = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    const span = await diffBranchSelection(dir, { kind: 'span' })
+    const tail = await diffBranchSelection(dir, { kind: 'uncommitted' })
+    assert.equal(row.additions, 2)
+    assert.equal(span.additions, 2, 'the pane agrees with the row')
+    assert.equal(tail.additions, 2, 'and so does the uncommitted step')
+  })
+
+  await run('a file too large to send is reported as such, not as an empty side', async () => {
+    const dir = repo()
+    const big = 'x\n'.repeat(3_000_000)
+    writeFileSync(join(dir, 'big.txt'), big)
+    commit(dir, 'a large file')
+    const result = await readFileAtRev(dir, 'HEAD', 'big.txt')
+    assert.equal(result.kind, 'too-large', 'an empty side would read as "newly added"')
+  })
+
   // ---- the seam with the sidebar row --------------------------------------
 
   // The row and this panel are two renderings of ONE reading. If they ever
@@ -346,11 +418,16 @@ void (async () => {
 
   // ---- the diff sides -----------------------------------------------------
 
-  await run('readFileAtRev returns content, and null for a file not there', async () => {
+  await run('readFileAtRev returns content, and `absent` for a file not there', async () => {
     const dir = repo()
-    assert.equal(await readFileAtRev(dir, 'HEAD', 'a.txt'), 'one\ntwo\nthree\n')
-    assert.equal(await readFileAtRev(dir, 'HEAD', 'never-existed.txt'), null)
-    assert.equal(await readFileAtRev(dir, 'nonsense-rev', 'a.txt'), null)
+    assert.deepEqual(await readFileAtRev(dir, 'HEAD', 'a.txt'), {
+      kind: 'content',
+      content: 'one\ntwo\nthree\n',
+    })
+    // `absent` rather than an error: it is the correct original side for an
+    // addition and modified side for a deletion, and the pane renders it empty.
+    assert.deepEqual(await readFileAtRev(dir, 'HEAD', 'never-existed.txt'), { kind: 'absent' })
+    assert.deepEqual(await readFileAtRev(dir, 'nonsense-rev', 'a.txt'), { kind: 'absent' })
   })
 
   for (const dir of created) rmSync(dir, { recursive: true, force: true })

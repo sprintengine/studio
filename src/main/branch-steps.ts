@@ -1,14 +1,15 @@
 import { readFile } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 
-import { parseNumstatZ, readBranchSpan, scopeOfSpan } from './git-branch-span'
-import { runGitCommand } from './git-utils'
+import { parseNumstatZ, readBranchFacts, scopeOfFacts } from './git-branch-span'
+import { isInsideRepo, runGitCommand } from './git-utils'
 import type {
   BranchStep,
   BranchStepDiff,
   BranchStepFile,
   BranchStepSelection,
   BranchStepsSnapshot,
+  RevFileResult,
 } from '../shared/electron-api'
 
 /**
@@ -27,6 +28,27 @@ import type {
 
 /** Untracked files bigger than this are listed without a line count. */
 const UNTRACKED_COUNT_LIMIT_BYTES = 1_000_000
+
+/** A blob bigger than this is reported as too large rather than sent to Monaco. */
+const REV_FILE_MAX_BYTES = 5 * 1024 * 1024
+
+/**
+ * What a commit hash must look like before it is handed to git.
+ *
+ * This is not paranoia about a hostile renderer; it is the difference between a
+ * positional argument and an OPTION. `git show` accepts `--output=<file>`, and
+ * an unvalidated hash sits in exactly that argv slot — a review confirmed
+ * `{ kind: 'commit', hash: '--output=/somewhere' }` writing a file from main.
+ * The same pattern and the same reasoning are already in `git-branch-actions.ts`
+ * (COMMIT_HASH_PATTERN) and `git-worktree-validation.ts`; these handlers are new
+ * and had simply not adopted it.
+ */
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i
+
+/** Anything git could read as an option, wherever a value is expected. */
+function looksLikeOption(value: string): boolean {
+  return value.startsWith('-')
+}
 
 /**
  * Field separator inside one `git log` record. A commit subject may contain
@@ -47,23 +69,25 @@ type NameStatusEntry = { path: string; status: BranchStepFile['status']; oldPath
  * an error: the uncommitted step still carries whatever is in the tree.
  */
 export async function listBranchSteps(cwd: string): Promise<BranchStepsSnapshot> {
-  const span = await readBranchSpan(cwd)
-  if (!span) {
+  // Facts, not the whole span: this needs branch/base/worktree and none of the
+  // numstat, and reading the span here ran a full `git diff` that was discarded.
+  const facts = await readBranchFacts(cwd)
+  if (!facts) {
     return { branch: null, baseOid: null, scope: 'folder', steps: [], hasUncommitted: false }
   }
 
-  // The shared rule, not a local copy: the row renders the same span and must
+  // The shared rule, not a local copy: the row renders the same reading and must
   // say the same thing about it.
-  const scope = scopeOfSpan(span)
+  const scope = scopeOfFacts(facts)
 
-  const steps = span.baseOid && span.aheadOfBase ? await readLog(cwd, span.baseOid) : []
+  const steps = facts.baseOid && facts.aheadOfBase ? await readLog(cwd, facts.baseOid) : []
 
   // "Anything at all in the working tree", tracked or not — the uncommitted
   // step must appear for a brand-new file, which `diff` alone cannot see.
   const dirty = await runGitCommand(cwd, ['status', '--porcelain', '-z', '--untracked-files=all'])
   const hasUncommitted = dirty.ok && dirty.stdout.trim().length > 0
 
-  return { branch: span.branch, baseOid: span.baseOid, scope, steps, hasUncommitted }
+  return { branch: facts.branch, baseOid: facts.baseOid, scope, steps, hasUncommitted }
 }
 
 async function readLog(cwd: string, baseOid: string): Promise<BranchStep[]> {
@@ -128,6 +152,10 @@ export async function diffBranchSelection(
   selection: BranchStepSelection
 ): Promise<BranchStepDiff> {
   if (selection.kind === 'commit') {
+    // The hash reaches argv as a POSITIONAL, which is also where git looks for
+    // options — see COMMIT_HASH_PATTERN above. An unusable one is an empty diff,
+    // not a git invocation.
+    if (!COMMIT_HASH_PATTERN.test(selection.hash)) return totals([])
     const base = [
       'show',
       '--format=',
@@ -138,6 +166,14 @@ export async function diffBranchSelection(
       // user's `diff.relative=true` would both under-count and hand back
       // cwd-relative paths no other surface here agrees with.
       '--no-relative',
+      // `-m --first-parent` for BOTH readings, and this pair is load-bearing on
+      // a merge: `--numstat` alone already gives the first-parent diff, but
+      // `--name-status` alone gives a COMBINED diff, which for an ordinary merge
+      // is EMPTY. Without this every file a merge brought in fell through to the
+      // leftover branch of combine() and was labelled "Modified" — an added file
+      // shown as modified, a deleted one too. Verified against real git.
+      '-m',
+      '--first-parent',
       selection.hash,
     ]
     return combine(
@@ -146,8 +182,16 @@ export async function diffBranchSelection(
     )
   }
 
+  // Both working-tree selections measure from what the facts say — which is
+  // git's empty tree on an unborn HEAD, where `git diff HEAD` fails outright and
+  // the pane would show nothing while the sidebar row showed the staged work.
+  const facts = await readBranchFacts(cwd)
   const from =
-    selection.kind === 'uncommitted' ? 'HEAD' : ((await readBranchSpan(cwd))?.baseOid ?? 'HEAD')
+    selection.kind === 'uncommitted'
+      ? // The tail is HEAD → working tree, except on an unborn HEAD where there
+        // is no HEAD to diff and the empty tree is the only honest start.
+        (facts?.hasHead === false ? facts.diffFrom : 'HEAD') ?? 'HEAD'
+      : (facts?.diffFrom ?? 'HEAD')
   const base = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-relative', from]
   const tracked = combine(
     await numstat(cwd, [...base, '--numstat', '-z']),
@@ -310,7 +354,28 @@ async function countLines(absolutePath: string): Promise<number> {
  * for an added file and the correct modified side for a deleted one — the
  * caller renders it as empty rather than as an error.
  */
-export async function readFileAtRev(cwd: string, rev: string, path: string): Promise<string | null> {
+export async function readFileAtRev(
+  cwd: string,
+  rev: string,
+  path: string
+): Promise<RevFileResult> {
+  // `git show` reads `--output=<file>` out of this argv slot, so a rev or a path
+  // that could be an option never reaches it. The path is also held inside the
+  // repo, matching what getGitFileAtStage already enforces for its own reads.
+  if (!rev || looksLikeOption(rev) || rev.includes(':')) return { kind: 'absent' }
+  if (!path || looksLikeOption(path)) return { kind: 'absent' }
+  const absolute = isAbsolute(path) ? path : join(cwd, path)
+  if (!isInsideRepo(cwd, absolute)) return { kind: 'absent' }
+
+  // `cat-file -s` resolves existence and size in one cheap call, the same idiom
+  // the staged/unstaged legs use. Without it a lockfile or a generated bundle
+  // goes whole through IPC into Monaco — and past runGitCommand's 20MB buffer it
+  // fails and renders as an EMPTY side, i.e. the file looks newly added.
+  const size = await runGitCommand(cwd, ['cat-file', '-s', `${rev}:${path}`])
+  if (!size.ok) return { kind: 'absent' }
+  const bytes = Number.parseInt(size.stdout.trim(), 10)
+  if (Number.isFinite(bytes) && bytes > REV_FILE_MAX_BYTES) return { kind: 'too-large' }
+
   const result = await runGitCommand(cwd, ['show', `${rev}:${path}`])
-  return result.ok ? result.stdout : null
+  return result.ok ? { kind: 'content', content: result.stdout } : { kind: 'absent' }
 }

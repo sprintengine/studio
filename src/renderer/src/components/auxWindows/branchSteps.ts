@@ -44,12 +44,20 @@ export type BranchDiffItem = DiffFileItem & {
  */
 export function stripEntriesFrom(snapshot: BranchStepsSnapshot | null): StripEntry[] {
   const steps = snapshot?.steps ?? []
+
+  // With no commits ahead of the base, the span and the tail read the SAME diff
+  // — `merge-base == HEAD`, so both are HEAD → working tree. Two chips that
+  // cannot differ is a control that lies about having a choice, and the item's
+  // acceptance says so: "a branch with no commits ahead of the base shows only
+  // the uncommitted step".
+  if (steps.length === 0) {
+    return snapshot?.hasUncommitted
+      ? [{ key: 'uncommitted', label: 'Uncommitted', selection: { kind: 'uncommitted' } }]
+      : [{ key: 'span', label: 'All changes', selection: { kind: 'span' } }]
+  }
+
   const entries: StripEntry[] = [
-    {
-      key: 'span',
-      label: steps.length > 0 ? `All commits ${steps.length}` : 'All changes',
-      selection: { kind: 'span' },
-    },
+    { key: 'span', label: `All commits ${steps.length}`, selection: { kind: 'span' } },
   ]
   if (snapshot?.hasUncommitted) {
     entries.push({ key: 'uncommitted', label: 'Uncommitted', selection: { kind: 'uncommitted' } })

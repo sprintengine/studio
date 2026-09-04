@@ -27,6 +27,12 @@ import { runGitCommand } from './git-utils'
  * cannot be deleted this launch, the index survives and the sweep runs again
  * next launch. A machine that never ran the checkpoint builds has no index and
  * does no work at all.
+ *
+ * That self-healing is only real if the index removal is GATED on every repo
+ * having actually finished — a review found it removing the index
+ * unconditionally, which orphaned the refs of any repo that was unmounted or
+ * whose `packed-refs` was locked by a concurrent gc, permanently, since this
+ * file deletes itself a release from now.
  */
 
 const INDEX_FILE = 'checkpoint-index.json'
@@ -83,13 +89,15 @@ export function checkoutsFromIndex(raw: string): string[] {
  * touched. A repo that has moved, is not a repo any more, or is read-only
  * simply reports zero.
  */
-export async function sweepCheckpointRefs(cwd: string): Promise<number> {
+export async function sweepCheckpointRefs(cwd: string): Promise<{ deleted: number; ok: boolean }> {
   const listed = await runGitCommand(cwd, [
     'for-each-ref',
     '--format=%(refname)',
     `${REFS_PREFIX}**`,
   ])
-  if (!listed.ok) return 0
+  // A repo we could not even LIST is not a repo we have finished with. Reporting
+  // ok:false keeps the index — and so the next launch's attempt — alive.
+  if (!listed.ok) return { deleted: 0, ok: false }
   const refs = listed.stdout
     .split('\n')
     .map((line) => line.trim())
@@ -102,13 +110,15 @@ export async function sweepCheckpointRefs(cwd: string): Promise<number> {
   // call in the app shares — for a migration that runs once and is then deleted
   // — is the worse trade. A ref that will not delete is skipped, not retried.
   let deleted = 0
+  let ok = true
   for (const ref of refs) {
     const result = await runGitCommand(cwd, ['update-ref', '-d', ref])
     if (result.ok) deleted += 1
+    else ok = false
   }
 
   await sweepTempIndexes(cwd)
-  return deleted
+  return { deleted, ok }
 }
 
 /**
@@ -173,16 +183,24 @@ export async function sweepRetiredCheckpoints(userDataDir: string): Promise<Chec
   const checkouts = checkoutsFromIndex(raw)
   result.reposVisited = checkouts.length
 
-  // Serially: these are git writes against repos the user may be working in,
-  // and a burst of `update-ref` transactions across many repos at launch is the
-  // wrong thing to do to a machine that is still starting up.
+  // Serially: these are git writes against repos the user may be working in, and
+  // a burst of `update-ref` transactions across many repos at launch is the wrong
+  // thing to do to a machine that is still starting up.
+  let allFinished = true
   for (const cwd of checkouts) {
-    result.refsDeleted += await sweepCheckpointRefs(cwd)
+    const swept = await sweepCheckpointRefs(cwd)
+    result.refsDeleted += swept.deleted
+    if (!swept.ok) allFinished = false
   }
 
-  // The index goes last, and only once the refs it named have been visited: it
-  // is the "already ran" marker, so removing it early would strand any repo we
-  // had not reached.
+  // The index goes last, and ONLY when every repo it named actually finished.
+  // A repo on an unmounted volume, or one whose refs are locked by a concurrent
+  // gc, must keep its entry: this file is deleted a release from now, so an
+  // index dropped over an unswept repo leaks its tree-pinning refs forever.
+  if (!allFinished) {
+    result.indexRemoved = false
+    return result
+  }
   try {
     await rm(indexPath, { force: true })
     result.indexRemoved = true

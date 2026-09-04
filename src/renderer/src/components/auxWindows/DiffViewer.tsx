@@ -4,7 +4,7 @@ import type * as Monaco from 'monaco-editor'
 import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
 import { detectLanguage, isImageFile } from '../../utils/files'
 import { joinFilePath } from '../../utils/paths'
-import { BranchStepStrip } from './BranchStepStrip'
+import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
 import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } from './branchSteps'
 import { useBranchSteps } from './useBranchSteps'
 import { MONO_FONT_STACK } from '../../utils/fonts'
@@ -89,17 +89,22 @@ async function readWorktreeSide(path: string): Promise<{ content: string; binary
 
 // One side of a commit step, read at a revision. A revision of null means the
 // file was not there — an addition's original, a deletion's modified — and the
-// honest render for that is an empty pane, not a read failure.
+// honest render for that is an empty pane, not a read failure. `absent` from
+// main means the same thing and is rendered the same way.
 async function readRevSide(
   repoRoot: string,
   path: string,
   rev: string | 'worktree' | null
-): Promise<{ content: string; binary: boolean }> {
-  if (rev === null) return { content: '', binary: false }
-  if (rev === 'worktree') return readWorktreeSide(joinFilePath(repoRoot, path))
-  const content = await window.api.getGitFileAtRev(repoRoot, rev, path)
-  if (content === null) return { content: '', binary: false }
-  return { content, binary: content.includes(NUL) }
+): Promise<{ content: string; binary: boolean; tooLarge: boolean }> {
+  if (rev === null) return { content: '', binary: false, tooLarge: false }
+  if (rev === 'worktree') {
+    const worktree = await readWorktreeSide(joinFilePath(repoRoot, path))
+    return { ...worktree, tooLarge: false }
+  }
+  const result = await window.api.getGitFileAtRev(repoRoot, rev, path)
+  if (result.kind === 'too-large') return { content: '', binary: false, tooLarge: true }
+  if (result.kind === 'absent') return { content: '', binary: false, tooLarge: false }
+  return { content: result.content, binary: result.content.includes(NUL), tooLarge: false }
 }
 
 async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<DiffContent> {
@@ -115,6 +120,7 @@ async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<Di
       readRevSide(repoRoot, branch.relativePath, branch.originalRev),
       readRevSide(repoRoot, branch.relativePath, branch.modifiedRev),
     ])
+    if (original.tooLarge || modified.tooLarge) return { state: 'too-large' }
     if (original.binary || modified.binary) return { state: 'binary' }
     return { state: 'ready', original: original.content, modified: modified.content, language }
   }
@@ -208,16 +214,23 @@ function DiffBody({
   currentItem,
   onMount,
   monacoTheme,
+  stepLoading,
 }: {
   content: DiffContent
   repoState: GitRepoState
   currentItem: DiffFileItem | null
   onMount: DiffOnMount
   monacoTheme: 'vs' | 'vs-dark'
+  /** A branch step's file list is still being read. */
+  stepLoading?: boolean
 }) {
   if (repoState === 'not-git') return <CenteredMessage>Not a Git repository.</CenteredMessage>
   if (!currentItem) {
     if (repoState === 'loading' || repoState === 'idle') return <CenteredMessage>Loading changes…</CenteredMessage>
+    // `repoState` goes ready as soon as `git status` returns, which is well
+    // before a step's own diff resolves. Without this the pane asserts "No
+    // changed files." — confidently, and wrongly — for the whole of that read.
+    if (stepLoading) return <CenteredMessage>Loading changes…</CenteredMessage>
     return <CenteredMessage>No changed files.</CenteredMessage>
   }
   if (content.state === 'loading') return <CenteredMessage>Loading diff…</CenteredMessage>
@@ -336,6 +349,11 @@ export function DiffViewer({
     if (!initializedRef.current || items.length === 0) return
     const index = findDiffFocusIndex(items, focusPath, focusKind)
     if (index < 0) return
+    // findDiffFocusIndex falls back to 0 when nothing matches. In the working
+    // tree that is harmless — the list IS the status — but a commit step holds
+    // only its own files, so a Git-panel row for a file this step never touched
+    // would silently move the cursor to an unrelated one. Stay put instead.
+    if (branchSteps && focusPath && items[index]?.path !== focusPath) return
     hunkIndexRef.current = 0
     pendingEdgeRef.current = null
     currentPathKeyRef.current = keyFor(items[index])
@@ -552,8 +570,21 @@ export function DiffViewer({
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        <DiffBody content={content} repoState={repoState} currentItem={currentItem} onMount={handleDiffMount} monacoTheme={monacoTheme} />
+      <div
+        className="relative min-h-0 flex-1"
+        // The panel the step strip's tabs control. Only when a strip is there to
+        // control it: a tabpanel with no tablist is a lie to a screen reader.
+        id={branchSteps ? BRANCH_STEP_PANEL_ID : undefined}
+        role={branchSteps ? 'tabpanel' : undefined}
+      >
+        <DiffBody
+          content={content}
+          repoState={repoState}
+          currentItem={currentItem}
+          onMount={handleDiffMount}
+          monacoTheme={monacoTheme}
+          stepLoading={branchSteps && steps.loading}
+        />
       </div>
     </div>
   )

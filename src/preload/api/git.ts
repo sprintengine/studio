@@ -22,6 +22,7 @@ import type {
   BranchStepDiff,
   BranchStepSelection,
   BranchStepsSnapshot,
+  RevFileResult,
   WorkspaceChangeSummary,
   GitStatusSnapshot,
   GitWorktreeCopyIncludedInput,
@@ -50,7 +51,7 @@ export const gitApi = {
     selection: BranchStepSelection
   ): Promise<BranchStepDiff> =>
     ipcRenderer.invoke('git:get-branch-step-diff', checkoutPath, selection),
-  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string): Promise<string | null> =>
+  getGitFileAtRev: (repoRoot: string, rev: string, filePath: string): Promise<RevFileResult> =>
     ipcRenderer.invoke('git:get-file-at-rev', repoRoot, rev, filePath),
   getGitFileBase: (repoRoot: string, filePath: string): Promise<GitFileBaseResult> =>
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
