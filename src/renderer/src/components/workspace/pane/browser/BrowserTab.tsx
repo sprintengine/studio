@@ -23,7 +23,7 @@ import type { EmbeddedWebviewElement, WebviewIpcMessageEvent } from '../../../..
 import { showToast } from '../../../../store/toastStore'
 import { Badge, IconButton, OverflowMenu, Tooltip } from '../../../ui'
 import { BrowserDeviceToolbar } from './BrowserDeviceToolbar'
-import { BrowserEmptyState } from './BrowserEmptyState'
+import { BrowserStartPage } from './BrowserStartPage'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 import { BrowserViewMenu } from './BrowserViewMenu'
@@ -569,7 +569,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         ) : null}
         {showEmpty ? (
           <div className="absolute inset-0">
-            <BrowserEmptyState workspaceId={workspaceId} active={active} recentUrls={recentUrls} onOpen={navigate} />
+            <BrowserStartPage workspaceId={workspaceId} active={active} recentUrls={recentUrls} onOpen={navigate} />
           </div>
         ) : null}
         {state?.error ? (

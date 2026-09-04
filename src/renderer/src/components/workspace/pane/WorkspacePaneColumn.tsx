@@ -82,7 +82,9 @@ export function WorkspacePaneColumn({
             // Inactive panes park offscreen rather than `invisible`: a browser
             // guest under visibility:hidden blanks for good on macOS
             // (WorkspacePaneBody.OFFSCREEN_LAYER_STYLE).
-            className={`absolute inset-0 ${active ? 'z-10' : 'z-0'}`}
+            // No stacking tier: every layer but the active one is offscreen,
+            // so nothing can paint over the front pane.
+            className="absolute inset-0"
             style={active ? { pointerEvents: 'auto' } : OFFSCREEN_LAYER_STYLE}
             aria-hidden={!active}
             {...(active ? {} : ({ inert: '' } as Record<string, string>))}

@@ -203,13 +203,13 @@ export function Tabs<T extends string = string>({
                 onCloseItem?.(item.id)
               }}
               className={[
-                'absolute right-2 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-sm',
+                'absolute right-2 top-1/2 inline-flex size-icon-sm -translate-y-1/2 items-center justify-center rounded-sm',
                 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
                 selected ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100',
                 FOCUS_RING_CLASS,
               ].join(' ')}
             >
-              <svg viewBox="0 0 16 16" fill="none" className="size-3" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
             </button>

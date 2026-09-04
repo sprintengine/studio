@@ -540,7 +540,7 @@ function PickerRowView({
         highlighted ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
       }`}
     >
-      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+      <span className="mt-0.5 flex size-icon-sm shrink-0 items-center justify-center">
         {checked ? (
           <CheckIcon className="icon-xs text-[color:var(--accent-primary)]" />
         ) : row.kind === 'skill' ? (

@@ -141,7 +141,9 @@ export function WorkspacePaneBody({
             id={`pane-${workspaceId}-panel-${tab.id}`}
             aria-labelledby={`pane-${workspaceId}-tab-${tab.id}`}
             aria-hidden={!selected}
-            className={`absolute inset-0 ${selected ? 'visible z-10' : offscreen ? 'z-0' : 'invisible z-0'}`}
+            // No stacking tier: an unselected panel is offscreen (browser) or
+            // invisible (terminal), so the selected one is the only paint.
+            className={`absolute inset-0 ${selected ? 'visible' : offscreen ? '' : 'invisible'}`}
             style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: selected ? 'auto' : 'none' }}
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are

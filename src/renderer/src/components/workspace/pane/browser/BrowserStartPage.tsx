@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react'
 
 import type { LocalServer } from '../../../../../../shared/browser'
+import { EmptyState } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 
-// A browser tab with nowhere to go yet. Two groups, headings only — the rows
-// are the explanation: the dev servers this workspace's terminals are running
-// (live, polled only while this is on screen) and the URLs this workspace
-// visited last. A group with nothing in it is absent; with one group left, so
-// is its heading (a heading must separate something from something else).
+// A browser tab with nowhere to go yet: the start page. Two groups, headings
+// only — the rows are the explanation: the dev servers this workspace's
+// terminals are running (live, polled only while this is on screen) and the
+// URLs this workspace visited last. A group with nothing in it is absent; with
+// one group left, so is its heading (a heading must separate something from
+// something else). With nothing at all to list, the kit's empty state says
+// what would fill it.
 
 const LOCAL_SERVER_POLL_MS = 4_000
 
@@ -53,22 +56,28 @@ function hostOf(url: string): string {
 
 const ROW_CLASS = `flex h-control-sm w-full items-center gap-3 rounded-[7px] px-3 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`
 
-type BrowserEmptyStateProps = {
+type BrowserStartPageProps = {
   workspaceId: string
   active: boolean
   recentUrls: readonly string[]
   onOpen: (url: string) => void
 }
 
-export function BrowserEmptyState({ workspaceId, active, recentUrls, onOpen }: BrowserEmptyStateProps) {
+export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: BrowserStartPageProps) {
   const servers = useLocalServers(workspaceId, active)
   const hasServers = (servers?.length ?? 0) > 0
   const hasRecent = recentUrls.length > 0
   const showHeadings = hasServers && hasRecent
 
   if (!hasServers && !hasRecent) {
-    // Nothing to offer yet: the address field above is the whole affordance.
-    return <div className="h-full bg-[color:var(--bg-app)]" />
+    return (
+      <div className="h-full bg-[color:var(--bg-app)]">
+        <EmptyState
+          title="Nothing to open yet"
+          body="Enter a URL above, or start a dev server in a terminal and it will be listed here."
+        />
+      </div>
+    )
   }
 
   return (
