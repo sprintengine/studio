@@ -888,7 +888,7 @@ export function addTerminalTab(
   }
 
   // No terminal tabset yet: dock beside real content, never inside the sidebar's
-  // nav pane (Files/Git/Backlog/Knowledge), which would bury the terminal under
+  // nav pane (Knowledge Graph), which would bury the terminal under
   // the open panel. When the nav pane is the only tabset, dock a fresh column on
   // the RIGHT edge of the root so terminals always open to the right of it.
   const targetTabset = activeContentTabset(model)
@@ -1309,18 +1309,18 @@ export function toggleComponentTab(
 // without a second copy of the width capture/restore pair.
 export type RailSide = 'left'
 
-// Strip-less navigational rail components. Backlog is a single-instance
-// navigational surface docked in ONE left pane whose FlexLayout tab strip is
-// hidden; the PanelSwitches button acts as an exclusive switch into it.
-// Knowledge Graph keeps the same nav-pane semantics but is reached through the
-// command palette / View menu rather than a rail glyph. Files and Git are NOT
-// here any more — they are workspace-pane tabs (browser-pane epic, store v73
-// strips their rail tabs). Sprint Engines is the instance-global Sprints door
-// surface, outside any per-workspace layout model. The Editor is deliberately
-// excluded: it owns a document tab strip so multiple open files stay
-// switchable (see toggleEditorRailComponent).
+// Strip-less navigational rail components: a single-instance navigational
+// surface docked in ONE left pane whose FlexLayout tab strip is hidden.
+// Knowledge Graph is the one left; it is reached through the command palette /
+// View menu. Files, Git and Backlog are NOT here any more — they are
+// workspace-pane tabs (browser-pane epic; store v73 strips the Files/Git rail
+// tabs, v74 the Backlog one) and the header's Backlog switch toggles the pane
+// tab. Sprint Engines is the instance-global Sprints door surface, outside any
+// per-workspace layout model. The Editor is deliberately excluded: it owns a
+// document tab strip so multiple open files stay switchable (see
+// toggleEditorRailComponent). The side-keyed machinery below stays generic so
+// a second nav component can come back without a rewrite.
 export const NAV_RAIL_COMPONENTS = new Set<string>([
-  'backlog',
   'memory-graph',
 ])
 
@@ -1372,6 +1372,9 @@ export function togglePanelRailComponent(
 ): boolean {
   const side = railSideOfComponent(component)
   if (side) return toggleRailComponent(workspaceId, component, name, side)
+  // Only the Editor has a non-rail toggle. A retired rail component (or any
+  // other) is refused rather than docked centre-stage as a document tab.
+  if (component !== 'editor') return false
   return toggleEditorRailComponent(workspaceId, component, name)
 }
 

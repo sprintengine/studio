@@ -6,22 +6,22 @@
 // Files and Git have no switches here: they are workspace-pane tabs now
 // (browser-pane epic), and the workspace identity cluster's project chip and
 // branch chip open them; the command palette and their keyboard shortcuts
-// (panel.files.toggle / panel.git.toggle) toggle them.
+// (panel.files.toggle / panel.git.toggle) toggle them. Backlog is a pane tab
+// too, but it keeps its switch: the glyph is the one entry point the panel
+// has in the header, and it toggles the pane's Backlog tab.
 //
 // AppTitleBar is global chrome, so the active workspace id is passed in (it is
 // window-scoped in WorkspaceManager and can't be resolved from the store alone);
 // the layout model and pane record are subscribed here so the active treatment
 // tracks any mutation of that workspace live.
 //
-// Two clusters, two columns: Backlog switches the left FlexLayout rail, the
-// pane switch the right-hand workspace pane, and they are independent —
-// opening one never closes the other.
+// Two clusters, one column: the Backlog switch toggles the pane's Backlog tab
+// (open it, bring it forward, or close it), the pane switch the pane itself.
 
 import { Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
-import { jsonModelHasComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
-import type { WorkspaceId } from '../../types/workspace'
+import type { WorkspaceId, WorkspacePaneTabKind } from '../../types/workspace'
 import {
   getEffectiveKeybindingLabel,
   platformKeybindingsFromApiPlatform,
@@ -44,10 +44,11 @@ type PanelDescriptor = {
   // module is disabled. Undefined for a panel that belongs to no module and is
   // therefore always offered.
   moduleId?: string
-  // What the switch drives: a strip-less FlexLayout rail component (active =
-  // the tab exists in the persisted layout) or the workspace pane column
-  // (active = the workspace's pane record says open).
-  target: { kind: 'rail'; component: string; tabName: string } | { kind: 'pane' }
+  // What the switch drives: one kind of workspace-pane tab (active = the pane
+  // is open on that kind's tab, the predicate `gitPanelActive` uses) or the
+  // workspace pane column itself (active = the workspace's pane record says
+  // open).
+  target: { kind: 'pane-tab'; tabKind: WorkspacePaneTabKind } | { kind: 'pane' }
   // Inline SVGs so we stay aligned with the existing 16 px chrome used by the
   // other header strip buttons.
   icon: (props: { className?: string }) => JSX.Element
@@ -61,7 +62,7 @@ export const PANELS: PanelDescriptor[] = [
     moduleId: 'backlog',
     label: 'Backlog',
     cluster: 'left',
-    target: { kind: 'rail', component: 'backlog', tabName: 'Backlog' },
+    target: { kind: 'pane-tab', tabKind: 'backlog' },
     icon: ({ className }) => (
       <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
         <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
@@ -108,16 +109,18 @@ export function PanelSwitches({
   leadingDivider = true,
   cluster = 'left',
 }: PanelSwitchesProps) {
-  // Subscribe to the active workspace's persisted layout and pane record so the
-  // active treatment re-renders whenever any path (switch click, View menu,
-  // accelerator, drag-and-drop, tab close) mutates either.
-  const layoutModel = useWorkspaceStore(
-    (state) => state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.layoutModel
-  )
+  // Subscribe to the active workspace's pane record so the active treatment
+  // re-renders whenever any path (switch click, "+" menu, accelerator, tab
+  // close, a reveal from another surface) mutates it.
   const paneOpen = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.paneState?.open ?? false
   )
+  const activePaneTabKind = useWorkspaceStore((state) => {
+    const pane = state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.paneState
+    return pane?.tabs.find((tab) => tab.id === pane.activeTabId)?.kind ?? null
+  })
   const setPaneOpen = useWorkspaceStore((state) => state.setPaneOpen)
+  const togglePaneKind = useWorkspaceStore((state) => state.togglePaneKind)
 
   // Hide a switch when its capability module is disabled — driven by each
   // descriptor's moduleId, so a new gated panel just sets moduleId.
@@ -138,15 +141,15 @@ export function PanelSwitches({
 
   const renderSwitch = (panel: PanelDescriptor) => {
     const Icon = panel.icon
-    const active = panel.target.kind === 'rail'
-      ? jsonModelHasComponent(layoutModel, panel.target.component)
+    const active = panel.target.kind === 'pane-tab'
+      ? paneOpen && activePaneTabKind === panel.target.tabKind
       : paneOpen
     const label = active ? panel.activeLabel ?? panel.label : panel.label
     const shortcut = panel.commandId ? shortcutFor(panel.commandId) : null
     const tooltip = shortcut ? `${label} (${shortcut})` : label
     const toggle = () => {
-      if (panel.target.kind === 'rail') {
-        togglePanelRailComponent(activeWorkspaceId, panel.target.component, panel.target.tabName)
+      if (panel.target.kind === 'pane-tab') {
+        togglePaneKind(activeWorkspaceId, panel.target.tabKind)
       } else {
         setPaneOpen(activeWorkspaceId, !paneOpen)
       }

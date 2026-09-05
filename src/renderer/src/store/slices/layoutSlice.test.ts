@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../workspaceStore'
 import {
   consolidateSwitchboardWorkspaceLayout,
   createLayoutSlice,
+  healRetiredRailLayout,
   hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
@@ -15,6 +16,7 @@ import {
   migrateSprintEngineLayout,
   modelContainsComponent,
   sprintEngineTabsLayoutModel,
+  stripRetiredRailTabsFromLayout,
   stripSettingsTabsFromLayout,
   stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
@@ -309,9 +311,10 @@ const templateGuidedBriefTab = findTab(guidedBriefTemplate.layout, 'guided-brief
 assert.equal(guidedBriefTemplate.layout.global?.tabEnableClose, true)
 assert.equal(templateGuidedBriefTab.enableClose, false)
 
-// Nav-rail strip migration: a tabset holding only Backlog / Knowledge Graph
-// switches loses its strip; a tabset mixing a nav switch with the editor
-// keeps its strip (so the editor's file tabs survive) and self-heals later.
+// Nav-rail strip migration: a tabset holding only the Knowledge Graph switch
+// loses its strip; a tabset mixing a nav switch with the editor keeps its
+// strip (so the editor's file tabs survive) and self-heals later. (Backlog
+// was the other nav switch until store v74 moved it into the workspace pane.)
 const navRailLayoutForStripMigration: IJsonModel = {
   global: {},
   borders: [],
@@ -322,7 +325,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
         type: 'tabset',
         weight: 18,
         children: [
-          { type: 'tab', name: 'Backlog', component: 'backlog' },
+          { type: 'tab', name: 'Knowledge Graph', component: 'memory-graph' },
         ],
       },
       {
@@ -346,7 +349,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
 const navStripHidden = hideNavRailTabStrip(navRailLayoutForStripMigration) as IJsonModel
 const navOnlyTabset = findTabset(navStripHidden, (record) => {
   const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'backlog')
+  return children.length === 1 && (children[0] as Record<string, unknown>)?.component === 'memory-graph'
 })!
 const mixedEditorTabset = findTabset(navStripHidden, (record) => {
   const children = Array.isArray(record.children) ? record.children : []
@@ -450,5 +453,50 @@ assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.layoutModel,
   sprintLayout,
 )
+
+// The rail-to-pane heal (store v73 Files/Git, v74 Backlog): a persisted layout
+// that still docks a retired rail tab loses it, and the surface comes back as
+// a pane tab — adopted into a record that already has a pane.
+{
+  const railLayout: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        { type: 'tabset', weight: 18, enableTabStrip: false, children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }] },
+        { type: 'tabset', weight: 82, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
+      ],
+    },
+  }
+  const withPane = {
+    id: 'heal-ws',
+    layoutModel: railLayout,
+    paneState: { open: false, activeTabId: 'f', tabs: [{ id: 'f', kind: 'files' }] },
+  } as unknown as Workspace
+  const healed = healRetiredRailLayout(withPane)
+  assert.notEqual(healed, withPane)
+  assert.equal(modelContainsComponent(healed.layoutModel, 'backlog'), false, 'the rail tab is stripped')
+  assert.equal(modelContainsComponent(healed.layoutModel, 'agent'), true, 'the rest of the layout survives')
+  assert.deepEqual(healed.paneState?.tabs.map((tab) => tab.kind), ['files', 'backlog'])
+  assert.equal(healed.paneState?.open, true)
+  assert.equal(healed.paneState?.activeTabId, healed.paneState?.tabs[1].id)
+  assert.equal(healRetiredRailLayout(healed), healed, 'idempotent and reference-preserving once healed')
+
+  const paneless = { id: 'heal-ws-2', layoutModel: railLayout } as unknown as Workspace
+  const seeded = healRetiredRailLayout(paneless)
+  assert.deepEqual(seeded.paneState?.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.equal(modelContainsComponent(seeded.layoutModel, 'backlog'), false)
+
+  const stripped = stripRetiredRailTabsFromLayout(railLayout) as IJsonModel
+  assert.equal(modelContainsComponent(stripped, 'backlog'), false)
+
+  // An empty root tabset — what FlexLayout persists after the last tab closes —
+  // was never stripped, so the heal hands the same record back; otherwise every
+  // registry snapshot would write the layout back to main again.
+  const emptyTabset = { id: 'heal-ws-3', layoutModel: { global: {}, borders: [], layout: { type: 'tabset', children: [] } } } as unknown as Workspace
+  assert.equal(healRetiredRailLayout(emptyTabset), emptyTabset)
+  assert.equal(stripRetiredRailTabsFromLayout(emptyTabset.layoutModel), emptyTabset.layoutModel)
+}
 
 console.log('layoutSlice.test.ts: ok')

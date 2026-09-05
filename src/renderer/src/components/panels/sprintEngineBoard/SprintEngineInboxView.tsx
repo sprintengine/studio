@@ -5,8 +5,7 @@ import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
 import { joinFilePath, parentPath } from '../../../utils/paths'
-import { revealNavRailComponent } from '../../../utils/modelRegistry'
-import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
+import { revealBacklogItemInPane } from '../../workspace/pane/backlogPaneReveal'
 import { useSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { epicMetaBySlug, epicSlug, type BacklogEpicMeta } from '../../../utils/backlogEpics'
@@ -159,8 +158,7 @@ export function SprintEngineInboxView({
   const handleOpenInBacklog = useCallback(
     (backlogPath: string) => {
       if (!workspaceId) return
-      revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
-      dispatchBacklogReveal({ workspaceId, relativePath: backlogPath })
+      revealBacklogItemInPane(workspaceId, backlogPath)
     },
     [workspaceId],
   )
