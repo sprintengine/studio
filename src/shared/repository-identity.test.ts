@@ -6,6 +6,7 @@ import {
   pickPrimaryRemote,
   repositoryIdentityFromRemote,
   sameRepository,
+  stripRemoteCredentials,
 } from './repository-identity'
 
 // one-project-across-machines (MC-2406): every spelling of one remote is one
@@ -38,6 +39,11 @@ function main(): void {
     name: 'multicode',
   })
   assert.equal(repositoryIdentityFromRemote(''), null)
+  // A token in the URL never leaves the reader; the key was never carrying it.
+  const tokened = repositoryIdentityFromRemote('https://me:ghp_secret@github.com/acme/multicode.git')
+  assert.equal(tokened?.remoteUrl, 'https://github.com/acme/multicode.git')
+  assert.equal(tokened?.canonicalKey, 'github.com/acme/multicode')
+  assert.equal(stripRemoteCredentials('git@github.com:acme/multicode.git'), 'git@github.com:acme/multicode.git', 'scp-style user is the ssh login, not a secret')
 
   // `git remote -v` parsing: fetch URLs only, one per remote.
   const remotes = parseRemoteFetchUrls(

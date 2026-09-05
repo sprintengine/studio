@@ -17,6 +17,12 @@ import {
 // the next read after the hold lapses, which is soon enough for a grouping.
 
 const HOLD_MS = 60_000
+// A folder on a spun-down volume must not hang every `workspace.list` behind
+// it: past this, the identity is "not known" and cached as such for the hold.
+const READ_TIMEOUT_MS = 3_000
+// A read that did not complete (timed out, git threw) is not "no remote":
+// it is retried after a short pause rather than held for the full minute.
+const RETRY_AFTER_FAILURE_MS = 10_000
 
 type Held = { at: number; identity: RepositoryIdentity | null }
 const held = new Map<string, Held>()
@@ -43,22 +49,36 @@ export async function readRepositoryIdentity(
   if (cached && now() - cached.at < HOLD_MS) return cached.identity
   const pending = inFlight.get(key)
   if (pending) return pending
-  const read = (async () => {
+  const TIMED_OUT = Symbol('timed-out')
+  const read = (async (): Promise<{ identity: RepositoryIdentity | null; settled: boolean }> => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), READ_TIMEOUT_MS)
+      timer.unref?.()
+    })
     try {
-      const root = await getGitRepoRoot(trimmed)
-      if (!root) return null
-      const stdout = await runGit(root, ['remote', '-v'])
-      const primary = pickPrimaryRemote(parseRemoteFetchUrls(stdout))
-      return primary ? repositoryIdentityFromRemote(primary.remoteUrl) : null
+      const answer = await Promise.race([
+        (async () => {
+          const root = await getGitRepoRoot(trimmed)
+          if (!root) return null
+          const stdout = await runGit(root, ['remote', '-v'])
+          const primary = pickPrimaryRemote(parseRemoteFetchUrls(stdout))
+          return primary ? repositoryIdentityFromRemote(primary.remoteUrl) : null
+        })(),
+        timeout,
+      ])
+      return answer === TIMED_OUT ? { identity: null, settled: false } : { identity: answer, settled: true }
     } catch {
-      return null
+      return { identity: null, settled: false }
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   })()
-  inFlight.set(key, read)
+  inFlight.set(key, read.then((outcome) => outcome.identity))
   try {
-    const identity = await read
-    held.set(key, { at: now(), identity })
-    return identity
+    const outcome = await read
+    held.set(key, { at: outcome.settled ? now() : now() - HOLD_MS + RETRY_AFTER_FAILURE_MS, identity: outcome.identity })
+    return outcome.identity
   } finally {
     inFlight.delete(key)
   }

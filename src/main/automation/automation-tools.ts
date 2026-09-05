@@ -238,19 +238,19 @@ export type AutomationBackends = {
     baseRef?: string
   }): Promise<{ worktreePath: string; branch: string } | { error: string }>
   /**
-   * The checkout facts a remote launch panel needs before choosing where a
-   * chat runs (checkout-and-branch-on-remote-create): whether the folder is
-   * a repository, its branch, the trunk, every local branch, and the
-   * worktrees the repository holds. Read-only; never throws for a non-repo
-   * (that is the `git: false` answer).
-   */
-  /**
    * Which repository a folder is a clone of (one-project-across-machines):
    * its primary remote, normalised. Null for a non-repo or a remote-less one.
    * Served on `workspace.list` so a paired Studio can match this machine's
    * copy of a repository to its own. Cached in main; never throws.
    */
   readRepositoryIdentity(folderPath: string): Promise<RepositoryIdentity | null>
+  /**
+   * The checkout facts a remote launch panel needs before choosing where a
+   * chat runs (checkout-and-branch-on-remote-create): whether the folder is
+   * a repository, its branch, the trunk, every local branch, and the
+   * worktrees the repository holds. Read-only; never throws for a non-repo
+   * (that is the `git: false` answer).
+   */
   readWorkspaceCheckout(workspaceRoot: string): Promise<{
     git: boolean
     branch: string | null

@@ -189,10 +189,28 @@ export type MachineAvailability =
   | { state: 'lacks'; reason: string }
   | { state: 'unreachable'; reason: string }
 
+/** A machine's last browse, stamped so a stale or failed one is asked again. */
+type MachineBrowseEntry = 'loading' | { browse: FleetBrowse; at: number }
+const MACHINE_BROWSE_HOLD_MS = 30_000
+
+function browseOf(entry: MachineBrowseEntry | undefined): FleetBrowse | 'loading' | undefined {
+  return entry === 'loading' || entry === undefined ? entry : entry.browse
+}
+
+function machineBrowseStale(entry: MachineBrowseEntry | undefined, now = Date.now()): boolean {
+  if (entry === undefined) return true
+  if (entry === 'loading') return false
+  return !entry.browse.reachable || entry.browse.unauthorized || now - entry.at > MACHINE_BROWSE_HOLD_MS
+}
+
 /** Which of a machine's workspaces is the repository in hand, if any. */
 export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity | null): FleetWorkspace | null {
   if (!identity) return null
-  return browse.workspaces.find((workspace) => sameRepository(workspace.repository, identity)) ?? null
+  const copies = browse.workspaces.filter((workspace) => sameRepository(workspace.repository, identity))
+  // A plain checkout over a worktree of the same repository (its worktrees
+  // share its remote): the copy a person means is the clone, not a branch
+  // of it that happens to be open there.
+  return copies.find((workspace) => !/\/\.multicode-worktrees\//u.test(workspace.folderPath ?? '')) ?? copies[0] ?? null
 }
 
 export function machineAvailabilityOf(
@@ -383,13 +401,16 @@ export default function NewAgentPanel({
   // (one-project-across-machines): the machine dropdown says which machines
   // have the project in hand, and a pick that keeps the project reads its
   // workspace off this rather than asking the machine again.
-  const [machineBrowses, setMachineBrowses] = React.useState<Map<string, FleetBrowse | 'loading'>>(() => new Map())
+  const [machineBrowses, setMachineBrowses] = React.useState<Map<string, MachineBrowseEntry>>(() => new Map())
   const browseMachine = React.useCallback((connection: FleetConnection): Promise<FleetBrowse> => {
-    setMachineBrowses((current) => (current.has(connection.id) ? current : new Map(current).set(connection.id, 'loading')))
+    setMachineBrowses((current) => {
+      const existing = current.get(connection.id)
+      return existing && existing !== 'loading' ? current : new Map(current).set(connection.id, 'loading')
+    })
     return window.api
       .fleetBrowse(connection.id)
       .then((browse) => {
-        setMachineBrowses((current) => new Map(current).set(connection.id, browse))
+        setMachineBrowses((current) => new Map(current).set(connection.id, { browse, at: Date.now() }))
         return browse
       })
       .catch((error: unknown) => {
@@ -404,10 +425,15 @@ export default function NewAgentPanel({
           terminals: [],
           gaps: [],
         }
-        setMachineBrowses((current) => new Map(current).set(connection.id, failed))
+        setMachineBrowses((current) => new Map(current).set(connection.id, { browse: failed, at: Date.now() }))
         return failed
       })
   }, [])
+  // The identity in hand, readable at the moment a browse RESOLVES rather
+  // than when the pick was made: the remembered machine is picked as soon as
+  // the machine list arrives, usually before the local folder's identity has
+  // been read, and a `keep` captured then would be null.
+  const activeIdentityRef = React.useRef<RepositoryIdentity | null>(null)
   // One launch at a time: the remote create waits on a real CLI starting on
   // another machine, and a second Enter during that window must read as
   // "starting", never as a second agent.
@@ -466,14 +492,17 @@ export default function NewAgentPanel({
   const activeIdentity: RepositoryIdentity | null = remoteTarget
     ? remoteTarget.picked?.repository ?? null
     : localIdentity
+  activeIdentityRef.current = activeIdentity
   const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {
       // Back to This Mac with a project in hand: keep it when a local clone
       // of the same repository is open here (changing the machine keeps the
       // project when it exists there); otherwise the line returns
-      // to the folder it was scoped to before, as it always did.
-      const twin = keep
+      // to the folder it was scoped to before, as it always did. The folder
+      // the door is already scoped to wins when it is that repository.
+      const scopedIsTwin = Boolean(keep && workspaceRoot && sameRepository(localIdentities.get(folderIdentityKey(workspaceRoot)), keep))
+      const twin = keep && !scopedIsTwin
         ? (projectOptions ?? []).find((option) => sameRepository(localIdentities.get(folderIdentityKey(option.path)), keep))
         : null
       if (twin && onSelectProject && twin.path !== workspaceRoot) onSelectProject(twin.path)
@@ -518,12 +547,13 @@ export default function NewAgentPanel({
           // nothing to choose, and the machine's copy of the project already
           // in hand (one-project-across-machines) — switching the machine
           // keeps the project.
-          const kept = machineCopyOf(browse, keep)
+          const kept = machineCopyOf(browse, keep ?? activeIdentityRef.current)
           return {
             ...current,
             scopes: browse.scopes,
             workspaces: browse.workspaces,
-            picked: kept ?? (browse.workspaces.length === 1 ? browse.workspaces[0]! : null),
+            // A choice already made meanwhile is never overwritten by a late answer.
+            picked: current.picked ?? kept ?? (browse.workspaces.length === 1 ? browse.workspaces[0]! : null),
           }
         })
       })
@@ -1002,15 +1032,16 @@ export default function NewAgentPanel({
                 machines={remoteMachines}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
-                availability={(machine) => machineAvailabilityOf(machine, machineBrowses.get(machine.id), activeIdentity)}
+                availability={(machine) => machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)}
                 // With a project in hand, opening the list asks every machine
-                // not yet asked what it holds, so the rows can say which
-                // have it. Without one there is nothing to filter by, and
-                // the list is the plain machine list it always was.
+                // what it holds — once, then again when the answer is old or
+                // was "not answering" (a machine asleep at the first open
+                // must be pickable once it wakes). Without a project there
+                // is nothing to filter by, and the list is the plain one.
                 onOpen={() => {
                   if (!activeIdentity) return
                   for (const machine of remoteMachines) {
-                    if (!machineBrowses.has(machine.id)) void browseMachine(machine)
+                    if (machineBrowseStale(machineBrowses.get(machine.id))) void browseMachine(machine)
                   }
                 }}
                 projectName={activeIdentity?.name ?? null}
@@ -1521,8 +1552,8 @@ function MachineScopePicker({
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
   const focusChecked = React.useCallback((surface: HTMLElement) => {
     const target =
-      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]')
-      ?? surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]')
+      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]:not([disabled])')
+      ?? surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]:not([disabled])')
     target?.focus()
     if (target && document.activeElement !== target) {
       requestAnimationFrame(() => {
@@ -1756,8 +1787,8 @@ function RemoteCheckoutPicker({
     menuRadioRowKeyDown(event, '[data-checkout-option="true"]', activate)
   const focusChecked = React.useCallback((surface: HTMLElement) => {
     const target =
-      surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"][aria-checked="true"]')
-      ?? surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"]')
+      surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"][aria-checked="true"]:not([disabled])')
+      ?? surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"]:not([disabled])')
     target?.focus()
   }, [])
   return (

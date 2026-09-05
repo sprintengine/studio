@@ -171,7 +171,25 @@ const NULL_FOLDER_KEY = '__no_folder__'
  * answer depends on which OTHER folders are open.
  */
 export function resolveGroupKeys(workspaces: readonly Workspace[], identities: FolderIdentityMap): Map<string, string> {
-  const localByIdentity = new Map<string, string>()
+  return resolveGroups(workspaces, identities).keys
+}
+
+/**
+ * The header facts a merged group takes from its local folder (the row that
+ * founds the group may be the remote one, which has no folder of its own).
+ */
+export type LocalGroupHeader = { key: string; folderPath: string; missing: boolean }
+
+export function resolveGroups(
+  workspaces: readonly Workspace[],
+  identities: FolderIdentityMap
+): { keys: Map<string, string>; headers: Map<string, LocalGroupHeader> } {
+  // The local twin per repository, chosen by a rule that does not move when
+  // rows are reordered or a chat is added: a plain checkout over a worktree
+  // (a worktree shares its checkout's remote, and is its own header), then
+  // the lexically first folder. Otherwise a remote row hopped between the
+  // two headers on unrelated actions.
+  const localByIdentity = new Map<string, { key: string; folder: string; worktree: boolean }>()
   const keys = new Map<string, string>()
   for (const workspace of workspaces) {
     const key = groupKeyOf(workspace)
@@ -179,17 +197,32 @@ export function resolveGroupKeys(workspaces: readonly Workspace[], identities: F
     const folder = workspace.folderPath?.trim()
     if (!folder || workspace.remoteOrigin) continue
     const identity = identities.get(folderIdentityKey(folder))
-    if (identity?.canonicalKey && !localByIdentity.has(identity.canonicalKey)) {
-      localByIdentity.set(identity.canonicalKey, key)
+    if (!identity?.canonicalKey) continue
+    const candidate = {
+      key,
+      folder: folderIdentityKey(folder),
+      worktree: Boolean(workspace.worktree) || /\/\.multicode-worktrees\//u.test(folderIdentityKey(folder)),
     }
+    const current = localByIdentity.get(identity.canonicalKey)
+    const better =
+      !current
+      || (current.worktree && !candidate.worktree)
+      || (current.worktree === candidate.worktree && candidate.folder < current.folder)
+    if (better) localByIdentity.set(identity.canonicalKey, candidate)
   }
   for (const workspace of workspaces) {
     const repository = workspace.remoteOrigin?.repository
     if (!repository?.canonicalKey) continue
     const local = localByIdentity.get(repository.canonicalKey)
-    if (local) keys.set(workspace.id, local)
+    if (local) keys.set(workspace.id, local.key)
   }
-  return keys
+  const headers = new Map<string, LocalGroupHeader>()
+  for (const workspace of workspaces) {
+    const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
+    if (workspace.remoteOrigin || !workspace.folderPath || headers.has(key)) continue
+    headers.set(key, { key, folderPath: workspace.folderPath, missing: workspace.folderMissing === true })
+  }
+  return { keys, headers }
 }
 
 /** True when a remote-born row is filed under a LOCAL folder's header, and so must mark its machine itself. */
@@ -259,7 +292,11 @@ function remoteGroupDisplayName(workspace: Workspace): string {
   return fleetMachineNamesOf(workspace)[0] ?? 'No folder'
 }
 
-function buildFolderGroups(workspaces: Workspace[], keyOf: (workspace: Workspace) => string = groupKeyOf): FolderGroup[] {
+function buildFolderGroups(
+  workspaces: Workspace[],
+  keyOf: (workspace: Workspace) => string = groupKeyOf,
+  headers: ReadonlyMap<string, LocalGroupHeader> = new Map()
+): FolderGroup[] {
   const groupOrder: string[] = []
   const groups = new Map<string, FolderGroup>()
 
@@ -268,17 +305,18 @@ function buildFolderGroups(workspaces: Workspace[], keyOf: (workspace: Workspace
     if (!groups.has(key)) {
       groupOrder.push(key)
       // A remote row filed under a local folder never founds the group with
-      // its own machine header: the key it was given belongs to a local
-      // folder, whose row founds it (or, in the odd case that folder's rows
-      // are all hidden, the row keeps the machine header by the fallback below).
-      const remote = key === groupKeyOf(workspace) ? remoteGroupOf(workspace) : null
+      // its own machine header: the header is the local folder's, read off
+      // the header map whatever row happens to come first in the list.
+      const merged = key !== groupKeyOf(workspace) ? headers.get(key) ?? null : null
+      const remote = merged ? null : remoteGroupOf(workspace)
+      const folderPath = merged ? merged.folderPath : workspace.folderPath
       groups.set(key, {
         key,
-        displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(workspace.folderPath),
+        displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(folderPath),
         // A remote group has no LOCAL path: nothing here may reveal, forget,
         // or create into a folder that lives on another machine.
-        fullPath: remote ? null : workspace.folderPath,
-        missing: remote ? false : workspace.folderMissing === true,
+        fullPath: remote ? null : folderPath,
+        missing: remote ? false : merged ? merged.missing : workspace.folderMissing === true,
         workspaces: [],
         remote,
       })
@@ -1287,12 +1325,17 @@ export default function WorkspaceSidebar({
   const folderIdentities = useFolderRepositoryIdentities(
     useMemo(() => railWorkspaces.map((workspace) => (workspace.remoteOrigin ? null : workspace.folderPath)), [railWorkspaces])
   )
-  const groupKeyById = useMemo(() => resolveGroupKeys(workspaces, folderIdentities), [workspaces, folderIdentities])
+  // Resolved over the rail's rows, not every workspace: a local folder whose
+  // rows are all hidden or archived is not a header a remote row can join.
+  const resolvedGroups = useMemo(() => resolveGroups(railWorkspaces, folderIdentities), [railWorkspaces, folderIdentities])
   const keyOf = useCallback(
-    (workspace: Workspace) => groupKeyById.get(workspace.id) ?? groupKeyOf(workspace),
-    [groupKeyById]
+    (workspace: Workspace) => resolvedGroups.keys.get(workspace.id) ?? groupKeyOf(workspace),
+    [resolvedGroups]
   )
-  const groups = useMemo(() => buildFolderGroups(railWorkspaces, keyOf), [railWorkspaces, keyOf])
+  const groups = useMemo(
+    () => buildFolderGroups(railWorkspaces, keyOf, resolvedGroups.headers),
+    [railWorkspaces, keyOf, resolvedGroups]
+  )
 
   // A workspace is "live" while it shows a status dot — working, failed, or
   // waiting on input. Live rows sort above idle ones in the activity ordering.
@@ -2732,7 +2775,10 @@ export default function WorkspaceSidebar({
         {confirmForget ? (
           (() => {
             const group = groups.find((g) => g.fullPath === confirmForget)
-            const count = group?.workspaces.length ?? 0
+            // Forgetting a folder closes its LOCAL rows; a paired machine's
+            // clone filed under it keeps its own machine header afterwards,
+            // so it is not counted as something this closes.
+            const count = group?.workspaces.filter((workspace) => !workspace.remoteOrigin).length ?? 0
             return (
               <>
                 <ModalHeader

@@ -99,6 +99,19 @@ async function main(): Promise<void> {
     workspaceRoot: '/Users/me/relay',
   }
   const workspaces = [
+    // The remote clone of acme/multicode comes FIRST in the list: the group
+    // it joins must still be headed by the local folder, not by "No folder".
+    workspace('w0', 'Zulu', null, {
+      remoteOrigin: {
+        connectionId: 'c1',
+        machineName: 'MacBook Air',
+        workspaceId: 'rw3',
+        workspaceName: 'multicode',
+        workspaceRoot: '/Users/air/multicode',
+        repository: { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' },
+      },
+      layoutModel: { layout: { type: 'row', children: [] } },
+    }),
     workspace('w1', 'Alpha', '/projA'),
     workspace('w2', 'Bravo', '/projA'),
     // Born on the Air; its pane is open — on a worktree the create minted
@@ -213,6 +226,8 @@ async function main(): Promise<void> {
   assert.ok(!identityReads.includes('/Users/air/multicode'), 'a remote root is never asked on this disk')
   const localSection = headers[0]!.closest('section')!
   const localRows = [...localSection.querySelectorAll('[role="treeitem"]')]
+  assert.equal(headerText[0], 'projA', 'a remote row listed before the local rows does not found a "No folder" header')
+  assert.ok(localRows.some((row) => row.textContent?.includes('Zulu')), 'the remote row listed first files under the local header too')
   const foxtrot = localRows.find((row) => row.textContent?.includes('Foxtrot'))
   assert.ok(foxtrot, 'the remote clone of an open repository files under that repository\'s local header')
   assert.ok(foxtrot!.querySelector('[data-remote-under-local="true"]'), 'and wears the machine mark on its own line')

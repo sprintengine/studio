@@ -61,7 +61,7 @@ function browseFor(access: FleetBrowse['terminalAccess']): FleetBrowse {
     unauthorized: false,
     scopes: access === 'control' ? ['workspace:read', 'terminal:control'] : ['workspace:read', 'terminal:observe'],
     terminalAccess: access,
-    workspaces: [{ id: 'ws-1', name: 'Atlas', mode: 'code', folderPath: '/repos/atlas' }],
+    workspaces: [{ id: 'ws-1', name: 'Atlas', mode: 'code', folderPath: '/repos/atlas', repository: null }],
     terminals: [
       {
         sessionId: 'session_one',

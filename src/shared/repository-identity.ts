@@ -68,7 +68,18 @@ export function repositoryNameFromKey(canonicalKey: string): string {
 export function repositoryIdentityFromRemote(remoteUrl: string): RepositoryIdentity | null {
   const canonicalKey = canonicalRepositoryKey(remoteUrl)
   if (!canonicalKey) return null
-  return { canonicalKey, remoteUrl: remoteUrl.trim(), name: repositoryNameFromKey(canonicalKey) }
+  return { canonicalKey, remoteUrl: stripRemoteCredentials(remoteUrl.trim()), name: repositoryNameFromKey(canonicalKey) }
+}
+
+/**
+ * A remote URL as `git remote -v` prints it can carry a token
+ * (`https://user:ghp_…@github.com/a/b.git`). The identity travels over the
+ * gateway to every `workspace:read` device and into the workspace registry,
+ * so the userinfo is cut before the URL leaves the reader. The key never had
+ * it (`new URL().hostname`, and the scp form keeps host and path only).
+ */
+export function stripRemoteCredentials(remoteUrl: string): string {
+  return remoteUrl.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1')
 }
 
 /**

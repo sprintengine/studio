@@ -1356,7 +1356,7 @@ async function main(): Promise<void> {
     // Back to This Mac: the local clone of the same repository is the project.
     await pickMachine(view, 'This Mac')
     await settle()
-    assert.deepEqual(selected, [], 'the door was already on /proj, the local clone, so nothing is re-selected')
+    assert.equal(selected.length, 0, 'the door was already on /proj, the local clone, so nothing is re-selected')
     assert.equal(machineTrigger(view)?.textContent?.trim(), 'This Mac')
     view.unmount()
 

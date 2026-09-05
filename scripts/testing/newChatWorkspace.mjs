@@ -2,10 +2,9 @@
 //
 // The New workspace hub and its creation wizard are gone
 // (new-chat-is-the-only-way-in / retire-the-new-workspace-hub, 2026-09-04):
-// New chat is the only door into a workspace, so a pass that used to click
-// `New Workspace`, type into `my-workspace` and press `Skip the rest and
-// create` now does what a person does — opens New chat, picks the folder,
-// and starts. Every pass under scripts/testing/ goes through this file, so a
+// New chat is the only door into a workspace, so a pass that used to walk
+// the hub's wizard (name the workspace, browse, skip the rest) now does what
+// a person does — opens New chat, picks the folder, and starts. Every pass under scripts/testing/ goes through this file, so a
 // change to the door is one edit here rather than nine.
 //
 // How the folder is chosen: the selector's Browse… row opens the OS folder
@@ -113,6 +112,15 @@ export async function createWorkspaceThroughNewChat(page, { folder, timeout = 30
   // The scope line's project control: "Choose a project" on a profile with
   // nothing open, or the current project's name. Either way it opens the
   // selector whose sources lead with Browse….
+  // A machine remembered from earlier in the session would put the door on
+  // that machine's project list; a pass wants This Mac.
+  const machineTrigger = page.locator('[data-machine-trigger="true"]')
+  if ((await machineTrigger.count()) > 0 && !/^This Mac/.test(((await machineTrigger.first().textContent()) ?? '').trim())) {
+    await domClick(machineTrigger)
+    const thisMac = page.getByRole('menuitemradio', { name: /^This Mac/ })
+    await waitForCount(page, thisMac, (n) => n > 0, timeout, 'the machine list')
+    await domClick(thisMac)
+  }
   const folderName = basename(folder)
   const trigger = page.locator('[data-project-trigger="true"]')
   await waitForCount(page, trigger, (n) => n > 0, timeout, 'the door’s project control')
