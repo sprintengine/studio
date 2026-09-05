@@ -140,6 +140,12 @@ let lockedSessionId = null
 // failure. The runtime's stall watch reads live output, not this cadence, so
 // a quiet `thinking` is still caught.
 let lastEvent = null
+// The directory OpenCode was launched in, from the plugin context (MC-2440).
+// OpenCode never changes its working directory mid-session, so stamping the
+// launch directory on every frame is an honest observation for the session's
+// whole life — it is what lets the app notice a session launched by hand into
+// a worktree it did not create.
+let launchDirectory = null
 
 async function report(phase, event, sessionId) {
   if (!phase) return
@@ -161,6 +167,7 @@ async function report(phase, event, sessionId) {
     event: event || null,
     ts: Date.now(),
   }
+  if (launchDirectory) frame.cwd = launchDirectory
   await writeFrame(socketPath, frame)
 }
 
@@ -168,7 +175,13 @@ async function report(phase, event, sessionId) {
 // object. The generic `event` hook receives the typed lifecycle event stream;
 // `tool.execute.before/after` are separate named hooks (not part of that stream)
 // and give the tool_use phase, mirroring Claude's PreToolUse/PostToolUse split.
-export const MulticodeAgentState = async () => {
+export const MulticodeAgentState = async (context) => {
+  // `directory` is the session's working directory in OpenCode's plugin
+  // context (its `worktree` is the git root, which is the derived fact the app
+  // computes itself). Older builds may pass no context: the frame then carries
+  // no cwd and the app keeps launch intent.
+  const directory = context && typeof context.directory === 'string' ? context.directory.trim() : ''
+  if (directory) launchDirectory = directory
   return {
     event: async ({ event }) => {
       try {

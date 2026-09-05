@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
+import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -313,6 +314,14 @@ export type AgentStateFrame = {
   // frame (a long prompt is a normal prompt, not an anomaly — unlike a 4KB
   // "path", which signals a broken reporter).
   prompt?: string
+  // The session's current working directory as the CLI's hook payload reports
+  // it (`cwd` is in the base payload of every Claude Code / Codex / Grok hook),
+  // forwarded by the reporter on every frame that carries one (MC-2440). A cwd
+  // only changes through a tool call, so the PostToolUse frame that follows
+  // carries the new one — no dedicated event is registered for it. Untrusted:
+  // shape-checked on receipt (absolute, capped) and a bad value drops the
+  // field, never the frame — the phase it rides with is still real.
+  cwd?: string
 }
 
 const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
@@ -385,7 +394,21 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
     const trimmed = prompt.trim()
     if (trimmed) frame.prompt = trimmed.slice(0, MAX_AGENT_PROMPT_LENGTH)
   }
+  const cwd = parseFrameCwd(raw.cwd)
+  if (cwd) frame.cwd = cwd
   return frame
+}
+
+// A reported cwd must be absolute (a relative value is meaningless off the
+// reporter's own process cwd) and bounded; anything else drops the field.
+// Trailing whitespace is trimmed — a `\n`-terminated value from a reporter that
+// piped a command's output is still the same directory.
+export function parseFrameCwd(raw: unknown): string | null {
+  const value = optionalString(raw)?.trim()
+  if (!value) return null
+  if (value.length > MAX_OBSERVED_CWD_LENGTH) return null
+  if (!isAbsoluteObservedPath(value)) return null
+  return value
 }
 
 // A malformed wakeup drops (frame stands without it) — the reporter is

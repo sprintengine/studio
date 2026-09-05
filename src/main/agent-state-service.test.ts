@@ -320,10 +320,38 @@ async function run(): Promise<void> {
       cwd: '/tmp',
     })
     await waitFor(() => grokFrames.length >= 1)
-    const grokFrame = JSON.parse(grokFrames[0]) as { sessionId?: string; event?: string }
+    const grokFrame = JSON.parse(grokFrames[0]) as { sessionId?: string; event?: string; cwd?: string }
     assert.equal(grokFrame.event, 'UserPromptSubmit', 'camelCase hookEventName carried as the raw event')
     assert.equal(grokFrame.sessionId, 'grok-session', 'camelCase sessionId carried into the frame')
+    assert.equal(grokFrame.cwd, '/tmp', 'the payload cwd rides every frame (MC-2440)')
     grokServer.close()
+
+    // --- reporter observed cwd (MC-2440) -----------------------------------
+    // Claude's CwdChanged names the destination `new_cwd`; it wins over a
+    // stale `cwd` on the same payload. A payload with no cwd yields no field.
+    const cwdSockPath = join(sockDir, 'cwd-instance.sock')
+    const cwdFrames: string[] = []
+    const cwdServer = await listenLines(cwdSockPath, cwdFrames)
+    await runReporter(cwdSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'CwdChanged',
+      session_id: 'cwd-session',
+      old_cwd: '/repo',
+      new_cwd: '/repo/.claude/worktrees/feature ',
+    })
+    await waitFor(() => cwdFrames.length >= 1)
+    const cwdFrame = JSON.parse(cwdFrames[0]) as { event?: string; cwd?: string; phase?: string }
+    assert.equal(cwdFrame.event, 'CwdChanged')
+    assert.equal(cwdFrame.cwd, '/repo/.claude/worktrees/feature', 'new_cwd forwarded, trimmed')
+    assert.equal(cwdFrame.phase, undefined, 'the reporter asserts no phase for an observation event')
+    await runReporter(cwdSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'cwd-session',
+      tool_name: 'Bash',
+    })
+    await waitFor(() => cwdFrames.length >= 2)
+    const noCwdFrame = JSON.parse(cwdFrames[1]) as { cwd?: string }
+    assert.equal(noCwdFrame.cwd, undefined, 'a payload without a cwd carries no cwd field')
+    cwdServer.close()
   }
 
   console.log('agent-state-service.test.ts: all assertions passed')
