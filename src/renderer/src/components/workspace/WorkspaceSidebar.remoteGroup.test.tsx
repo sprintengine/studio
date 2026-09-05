@@ -154,8 +154,14 @@ async function main(): Promise<void> {
   const remoteRows = [...remoteSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')
   assert.ok(remoteRows.some((text) => text.includes('Charlie')) && remoteRows.some((text) => text.includes('Delta')),
     'both remote-born rows file under the machine header')
-  assert.ok(remoteRows.every((text) => text.includes('MacBook Air')),
-    'each row still wears the provenance mark — including the one whose pane closed')
+  // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): line 2 —
+  // provenance included — exists only while the row has an open terminal. The
+  // row whose pane is open wears the machine; the row whose pane closed is a
+  // one-liner, and its provenance is the header's, which it still files under.
+  assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('MacBook Air'),
+    'the row with an open pane wears the provenance mark')
+  assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('MacBook Air'),
+    'the row whose pane closed has no second line — the header names its machine')
   assert.ok(remoteHeader.querySelector('svg'), 'the header carries the shared machine glyph')
   assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
 
