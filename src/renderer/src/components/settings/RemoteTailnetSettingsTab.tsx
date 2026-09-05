@@ -357,6 +357,7 @@ export function RemoteTailnetSettingsTab() {
           scanning={scanning}
           connections={presence.fleet}
           reachability={presence.fleetReachability}
+          devices={status?.devices ?? []}
           now={now}
           onScan={() => void scanPeers()}
           onConnect={(endpoint, reverseScopes) => void connect(endpoint, reverseScopes)}

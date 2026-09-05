@@ -266,6 +266,7 @@ export default function FleetPanel({ workspaceId }: Props) {
               scanning={scanning}
               connections={connections}
               reachability={presence.fleetReachability}
+              devices={presence.status?.devices ?? []}
               now={slowNow}
               onScan={() => void scanPeers()}
               onConnect={(endpoint, reverseScopes) => void requestPairing(endpoint, reverseScopes)}

@@ -1,6 +1,6 @@
 import React from 'react'
 
-import type { TailnetScope } from '../../../../shared/tailnet'
+import type { TailnetDevice, TailnetScope } from '../../../../shared/tailnet'
 import type { FleetConnection, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { Checkbox, OutlineButton, PrimaryButton, StatusDot, Tooltip } from '../ui'
@@ -20,6 +20,7 @@ export function PeerPicker({
   scanning,
   connections,
   reachability,
+  devices,
   now,
   onScan,
   onConnect,
@@ -34,6 +35,8 @@ export function PeerPicker({
   scanning: boolean
   connections: readonly FleetConnection[]
   reachability: ReadonlyMap<string, FleetMachineReachability>
+  /** Devices paired to this machine, so a paired phone is not read as a missing Studio. */
+  devices?: readonly TailnetDevice[]
   now: number
   onScan: () => void
   onConnect: (endpoint: string, reverseScopes: TailnetScope[] | null) => void
@@ -43,8 +46,8 @@ export function PeerPicker({
   intro?: string
 }) {
   const view = React.useMemo(
-    () => peerPickerView({ scan, scanning, connections, reachability, now }),
-    [scan, scanning, connections, reachability, now]
+    () => peerPickerView({ scan, scanning, connections, reachability, devices, now }),
+    [scan, scanning, connections, reachability, devices, now]
   )
   // The reverse offer, chosen once for the list: the structured families by
   // default, the terminal tier never — arbitrary shell on THIS machine is a
