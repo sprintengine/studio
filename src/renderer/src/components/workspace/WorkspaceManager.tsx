@@ -214,6 +214,18 @@ const CORE_SETTINGS_MODAL_SURFACE = {
   label: 'Settings',
   Component: SettingsModalSurface,
 } as const
+// The Diff popout (the pane-to-popup mechanism, 2026-09-05): the pane's Diff
+// tab floated at workbench width. Core like Settings — it is the shell's own
+// pane growing a bigger view of itself, not a module's surface — and never
+// listed as a trigger: the pane strip's "Open in a popup" is its one way in,
+// after latching the target (pane/diffPopoutTarget.ts).
+const DiffPopoutSurface = React.lazy(() => import('./pane/DiffPopoutSurface'))
+const CORE_DIFF_MODAL_SURFACE = {
+  id: 'diff',
+  moduleId: 'core',
+  label: 'Diff',
+  Component: DiffPopoutSurface,
+} as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
@@ -962,6 +974,7 @@ export default function WorkspaceManager() {
   const activeModalSurfaceEntry = useMemo(() => {
     if (!activeModalSurface) return null
     if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
+    if (activeModalSurface === 'diff') return CORE_DIFF_MODAL_SURFACE
     return resolveActiveModalSurface(
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
