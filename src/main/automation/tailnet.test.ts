@@ -20,6 +20,7 @@ import {
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
+import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
 import {
   isAllowedTailnetBindAddress,
   isTailnetAddress,
@@ -658,6 +659,74 @@ export async function testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff(): Pr
   } finally {
     rmSync(userDataDir, { recursive: true, force: true })
   }
+}
+
+// ── Uploads from a paired device (backlog id 88) ─────────────────────────────
+
+export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Promise<void> {
+  const cwd = '/Users/someone/repo'
+  // The ordinary case: inside the thread's own folder, under a per-session dir.
+  const ok = resolveUploadDestination({ cwd, sessionId: 'sess_1', name: 'shot.png' })
+  assert.equal(ok.ok, true)
+  if (ok.ok) {
+    assert.equal(ok.path, '/Users/someone/repo/.multi-code/uploads/sess_1/shot.png')
+    assert.ok(ok.path.startsWith(cwd + '/'), 'the file lands under the working directory')
+  }
+
+  // Traversal, in every shape a phone could send it. None of these may produce
+  // a path outside the folder; each becomes a leaf name instead.
+  for (const name of [
+    '../../../../etc/passwd',
+    '..\\..\\Windows\\System32\\drivers\\etc\\hosts',
+    '/etc/passwd',
+    'C:\\Windows\\win.ini',
+    '....//....//escape.txt',
+    '.',
+    '..',
+  ]) {
+    const attempt = resolveUploadDestination({ cwd, sessionId: 'sess_1', name })
+    assert.equal(attempt.ok, true, `${name} should be sanitised, not refused`)
+    if (attempt.ok) {
+      assert.ok(
+        attempt.path.startsWith('/Users/someone/repo/.multi-code/uploads/sess_1/'),
+        `${name} escaped to ${attempt.path}`
+      )
+      assert.doesNotMatch(attempt.path.split('/uploads/sess_1/')[1] ?? '', /[\\/]/u, `${name} kept a separator`)
+    }
+  }
+
+  // A session id is a path segment too, and it is not more trusted than a name.
+  const forgedSession = resolveUploadDestination({ cwd, sessionId: '../../..', name: 'shot.png' })
+  assert.equal(forgedSession.ok, true)
+  if (forgedSession.ok) {
+    assert.ok(forgedSession.path.startsWith('/Users/someone/repo/.multi-code/uploads/'), 'a forged session id escaped')
+  }
+
+  // No working directory is a refusal, not a fallback to somewhere convenient:
+  // an agent confined to its project cannot read a file outside it, so the
+  // upload would "succeed" and be useless.
+  for (const cwdless of [null, undefined, '', '   ', 'relative/path']) {
+    const refused = resolveUploadDestination({ cwd: cwdless, sessionId: 'sess_1', name: 'shot.png' })
+    assert.equal(refused.ok, false, `${String(cwdless)} should be refused`)
+    if (!refused.ok) assert.equal(refused.code, 'invalid_session')
+  }
+}
+
+export async function testUploadNamesAreLeavesAndNeverOverwrite(): Promise<void> {
+  assert.equal(sanitizeUploadName('holiday photo.png'), 'holiday photo.png')
+  assert.equal(sanitizeUploadName('  ../../secret.env  '), 'secret.env')
+  assert.equal(sanitizeUploadName('..'), 'upload', 'a name that sanitises to nothing still gets one')
+  assert.equal(sanitizeUploadName(''), 'upload')
+  assert.equal(sanitizeUploadName('a\u0000b\u001fc.txt'), 'abc.txt', 'control characters are removed')
+  assert.equal(sanitizeUploadName('what:is*this?.png'), 'what_is_this_.png')
+  assert.ok(sanitizeUploadName('x'.repeat(400)).length <= 120, 'a name cannot be unbounded')
+
+  // Two photos from a camera roll carry the same name far more often than not,
+  // and silently replacing the first is a loss nobody can see from a phone.
+  const taken = new Set(['shot.png', 'shot (2).png'])
+  assert.equal(uniqueName('shot.png', taken), 'shot (3).png')
+  assert.equal(uniqueName('notes', new Set(['notes'])), 'notes (2)')
+  assert.equal(uniqueName('fresh.png', taken), 'fresh.png')
 }
 
 // ── Pairing and authentication ───────────────────────────────────────────────
@@ -1868,6 +1937,8 @@ const tests = [
   testBindAddressAllowsOnlyTailnetOrLoopback,
   testDisabledMeansNoListeningTcpSocket,
   testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingElse,
+  testUploadDestinationsCannotEscapeTheThreadsFolder,
+  testUploadNamesAreLeavesAndNeverOverwrite,
   testTheListenerBindsWhenTailscaleComesUpAfterTheApp,
   testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff,
   testUnpairedClientsGet401AndPairedClientsDriveTheGateway,
