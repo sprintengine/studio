@@ -503,6 +503,7 @@ export default function WorkspaceManager() {
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
+  const recordWorkspaceTurnEnd = useWorkspaceStore((s) => s.recordWorkspaceTurnEnd)
   const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
   const projectLaunchedAgentSessions = useWorkspaceStore((s) => s.projectLaunchedAgentSessions)
@@ -708,6 +709,7 @@ export default function WorkspaceManager() {
   const notificationsRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
+  const reportedTurnEndRef = useRef<Map<string, number>>(new Map())
   // Prompt timestamps already offered to the auto-titler, per session. The store
   // action is idempotent, but calling it on every broadcast would run an immer
   // `set` per snapshot and churn subscribers for nothing.
@@ -1982,6 +1984,25 @@ export default function WorkspaceManager() {
         recordWorkspaceTerminalActivity(workspaceId, lastInputAt)
       }
 
+      // Persist "last finished" the same way, from the hook-reported turn end
+      // each session carries, so a parked chat still knows when its agent
+      // stopped after the session is gone (owner, 2026-09-05).
+      const turnEndByWorkspace = new Map<string, number>()
+      for (const session of sessions) {
+        if (typeof session.workspaceId !== 'string') continue
+        if (typeof session.lastTurnEndedAt !== 'number') continue
+        const current = turnEndByWorkspace.get(session.workspaceId)
+        if (current === undefined || session.lastTurnEndedAt > current) {
+          turnEndByWorkspace.set(session.workspaceId, session.lastTurnEndedAt)
+        }
+      }
+      for (const [workspaceId, at] of turnEndByWorkspace) {
+        const lastReported = reportedTurnEndRef.current.get(workspaceId)
+        if (lastReported !== undefined && lastReported >= at) continue
+        reportedTurnEndRef.current.set(workspaceId, at)
+        recordWorkspaceTurnEnd(workspaceId, at)
+      }
+
       // Name a new chat after the first real prompt sent inside it, so a sidebar
       // of them says what each was for instead of "Chat 44". The store action
       // owns the rules — it no-ops once a workspace's name is locked, and skips a
@@ -2058,6 +2079,7 @@ export default function WorkspaceManager() {
     }
   }, [
     recordWorkspaceTerminalActivity,
+    recordWorkspaceTurnEnd,
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
     autoTitleWorkspaceFromPrompt,
@@ -2248,7 +2270,8 @@ export default function WorkspaceManager() {
         : null
       const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastInputAt)
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
-      const idleSince = deriveWorkspaceIdleSince(workspace.id, terminalSessions, persistedLastInputAt)
+      const persistedTurnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
+      const idleSince = deriveWorkspaceIdleSince(workspace.id, terminalSessions, persistedLastInputAt, persistedTurnEndedAt)
       const lastInputAt = deriveWorkspaceLastInputAt(workspace.id, terminalSessions, persistedLastInputAt)
       // When the turn started, for the sidebar row's "how long has it been
       // working" counter. NOT `activity.kind === 'working' && activity.since`:

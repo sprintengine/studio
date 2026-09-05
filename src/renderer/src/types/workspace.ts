@@ -1028,6 +1028,11 @@ export type Workspace = {
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null
+  // When an agent in this workspace last finished a turn (hook-reported Stop),
+  // monotonic like `lastTerminalActivityAt`. The sidebar's idle time for a
+  // parked chat with no live session, so it says when the agent finished
+  // rather than when the person last typed — or nothing.
+  lastTurnEndedAt?: number | null
   // When set, the workspace is archived: hidden from the sidebar rail and the
   // Sprints aside's default lenses, but fully intact on disk and in the store —
   // visible under the aside's Archived lens and still findable in search.

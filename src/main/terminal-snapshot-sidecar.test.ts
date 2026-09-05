@@ -33,6 +33,8 @@ function sampleSidecar(overrides: Partial<TerminalSnapshotSidecar> = {}): Termin
     agentId: 'agent-1',
     cli: 'claude-code',
     cliSessionId: 'session-abc',
+    // The turn end rides the sidecar so rehydration idles from the finish.
+    lastTurnEndedAt: 1_699_999_000_000,
     snapshot: 'painted screen content',
     ...overrides,
   }

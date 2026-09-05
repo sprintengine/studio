@@ -1425,6 +1425,13 @@ export type TerminalSessionSnapshot = {
   lastOutputAt: number | null
   lastInputAt: number | null
   lastVisibleAt: number | null
+  // When the agent's last turn ended — the hook-reported Stop, epoch ms. Kept
+  // apart from `activity`, which the reaper's suspend and the quit path
+  // overwrite with the moment the PROCESS died, so a parked chat can say when
+  // it actually finished. Survives suspend, resume and an app restart (carried
+  // in the snapshot sidecar). Absent for plain terminals and before the first
+  // turn end.
+  lastTurnEndedAt?: number | null
   activity: SessionActivity
   // Authoritative phase from lifecycle hooks, when available. Absent for
   // sessions whose CLI emits no hooks (the legacy idle-timer `activity` above

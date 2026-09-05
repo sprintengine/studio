@@ -26,15 +26,6 @@ import type { Workspace } from '../../types/workspace'
 // - an unchanged sweep commits nothing, so the sidebar does not re-render
 //   for a no-op minute.
 // A row missing its summary simply shows no git facts; nothing here throws.
-//
-// Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): the caller
-// passes only the rows that have an open terminal. A parked chat is not asked
-// about at all — its branch and ±lines would be the checkout's present state,
-// not anything the chat did, and after a restart every parked chat on one
-// checkout read the same numbers. Membership is therefore a LIVENESS set as
-// much as an identity set: a row whose last terminal exits leaves it and its
-// facts are pruned on the sweep that follows; a row that gains one joins it and
-// is swept at once, because the membership change re-runs the effect.
 
 const REFRESH_MS = 60_000
 const CONCURRENCY = 4

@@ -501,6 +501,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
 // ── Claude Code CLI Terminal IPC ──────────────────────────────────────────────
 
 const terminals = new Map<string, TerminalSession>()
+// A resume disposes the suspended record and re-spawns under the same id; the
+// turn-end stamp rides across that gap here so the fresh session still says
+// when the agent last finished (the sidebar's idle time) until its next Stop.
+const resumeTurnEndCarryover = new Map<string, number>()
+function takeResumeTurnEnd(sessionId: string): number | null {
+  const at = resumeTurnEndCarryover.get(sessionId) ?? null
+  resumeTurnEndCarryover.delete(sessionId)
+  return at
+}
 
 // In-flight listener work from both agent-session seams (exit + phase). Shutdown
 // drains this set, so a consumer whose reaction to an event is asynchronous —
@@ -987,6 +996,7 @@ function writeTerminalSnapshotSidecar(
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
+    lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
     rawReplay: payload.rawReplay,
   })
@@ -1029,6 +1039,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     executionMode: sidecar.executionMode,
     worktreeId: sidecar.worktreeId,
     worktreePath: sidecar.worktreePath,
+    lastTurnEndedAt: typeof sidecar.lastTurnEndedAt === 'number' ? sidecar.lastTurnEndedAt : null,
     replaySnapshot: snapshot,
     rawReplay: snapshot ? undefined : sidecar.rawReplay,
   })
@@ -1078,6 +1089,9 @@ async function resumeTerminal(
         message: `Agent CLI "${resumeCli}" cannot report agent status (its plugin declares no lifecycle-hook support), so this session cannot be resumed as an agent. Its frozen view is kept.`,
         exitCode: 1,
       } satisfies TerminalSpawnResult
+    }
+    if (typeof existing.lastTurnEndedAt === 'number') {
+      resumeTurnEndCarryover.set(payload.sessionId, existing.lastTurnEndedAt)
     }
     disposeTerminal(payload.sessionId)
   }
@@ -1995,6 +2009,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
+  // The moment the turn ended, kept apart from `activity` (owner, 2026-09-05):
+  // the reaper's suspend and the quit-path sidecar both restamp activity with
+  // when the PROCESS died, which is what every parked row used to show as its
+  // idle time. A held turn end (subagents still running) is not an end; a
+  // failed turn is still a stop, and the failure keeps its own precedence in
+  // the renderer.
+  if (resolution.turnEnd) session.lastTurnEndedAt = frame.ts
 
   // The person's own prompt, carried only on UserPromptSubmit. Retained on the
   // session so the terminal tab can show "what was I working on here?" and a new
@@ -3351,6 +3372,7 @@ async function spawnTerminalFromIpc(
         isDisposed: false,
         activity: createInitialTerminalActivity(startedAt),
         agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
+        lastTurnEndedAt: takeResumeTurnEnd(sessionId),
         outputChunks: [],
         outputChunkBytes: [],
         outputChunkStart: 0,

@@ -290,6 +290,7 @@ export interface WorkspacesSliceActions {
   setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
   archiveStaleWorkspaces: () => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
+  recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   forgetFolder: (folderPath: string) => void
   addWorkspace: (
     template: LayoutTemplate,
@@ -976,6 +977,17 @@ export function createWorkspacesSlice(
         // Real work revives an archived workspace — typing is the one signal
         // that the user is back in it, so it reappears in the rail.
         if (typeof ws.archivedAt === 'number') ws.archivedAt = null
+      }),
+
+    // Monotonic like the stamp above, fed from the hook-reported turn end of any
+    // agent in the workspace (WorkspaceManager mirrors it off the session
+    // snapshots). An agent finishing is not the person returning, so it never
+    // un-archives.
+    recordWorkspaceTurnEnd: (id, at) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        if (typeof ws.lastTurnEndedAt !== 'number' || ws.lastTurnEndedAt < at) ws.lastTurnEndedAt = at
       }),
 
     forgetFolder: (folderPath) =>

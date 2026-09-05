@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   assertWorkspaceDisplayActivityPriority()
   assertAwaitingInputHookSurfacesAsNeedsInput()
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
+  assertIdleSinceIsWhenTheAgentFinished()
   assertWorkingSinceOnlyCountsAHookReportedTurn()
   assertTerminalTabRecencyUsesIdleTransition()
   assertAgentTabRecencyFallbackChain()
@@ -112,6 +113,44 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
 // The sidebar row's "working for 4m" clock. Owner report 2026-09-04: resuming a
 // suspended terminal started it with nothing asked of the agent, because every
 // session is born `working` in the lifecycle phase `starting`.
+// Owner, 2026-09-05: after a restart every parked chat read the same idle time
+// — the moment the app quit — because the reaper's suspend and the quit-path
+// sidecar restamp activity with when the process died. The hook-reported turn
+// end is the honest stamp, and it must win over exit/suspend, survive into the
+// persisted workspace record, and never outrank a genuine failure.
+function assertIdleSinceIsWhenTheAgentFinished(): void {
+  const suspendedAfterFinishing = session({
+    sessionId: 'suspended',
+    processAlive: false,
+    suspended: true,
+    // Suspended (activity restamped) at 900, but the agent finished at 400.
+    activity: { kind: 'exited', at: 900, exitCode: 0 },
+    lastTurnEndedAt: 400,
+  })
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [suspendedAfterFinishing]), 400, 'the finish, not the suspend')
+
+  const stillWorking = session({
+    sessionId: 'working',
+    activity: { kind: 'working', since: 1_000 },
+    lastTurnEndedAt: 400,
+  })
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [stillWorking]), 400, 'a turn in flight keeps the last finish (the row hides it while working)')
+
+  const failed = session({
+    sessionId: 'failed',
+    activity: { kind: 'failed', at: 950, exitCode: 1 },
+    lastTurnEndedAt: 400,
+  })
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [failed]), 950, 'a failure keeps its own stamp')
+
+  // No session at all (parked, sidecar not yet rehydrated): the persisted
+  // stamps stand in, whichever is later; either alone suffices.
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [], 300, 700), 700)
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [], 800, 700), 800)
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [], null, 700), 700)
+  assert.equal(deriveWorkspaceIdleSince('workspace_1', [], null, null), null)
+}
+
 function assertWorkingSinceOnlyCountsAHookReportedTurn(): void {
   // A session freshly resumed: born working, phase 'starting', stamped by the
   // lifecycle rather than reported by a hook. No turn, so no clock.
@@ -722,6 +761,7 @@ function session(
     lastOutputAt: input.lastOutputAt ?? null,
     lastInputAt: input.lastInputAt ?? null,
     lastVisibleAt: input.lastVisibleAt ?? null,
+    lastTurnEndedAt: input.lastTurnEndedAt ?? null,
     activity: input.activity ?? { kind: 'idle', since: 0 },
     agentState: input.agentState,
     lastPrompt: input.lastPrompt,

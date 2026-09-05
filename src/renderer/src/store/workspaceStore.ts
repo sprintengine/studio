@@ -241,6 +241,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
   archiveStaleWorkspaces: () => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
+  recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
   setAuthState: (authState: MulticodeAuthState) => void

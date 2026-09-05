@@ -138,23 +138,38 @@ export function deriveWorkspaceTerminalActivity(
 // When every terminal is at rest, recency starts from the moment the workspace
 // actually became idle: the newest idle transition across its sessions. This is
 // separate from last-input recency, which remains the ordering signal.
+// When the workspace went quiet, for the sidebar row's idle time. Per session
+// the hook-reported turn end wins (owner, 2026-09-05): a suspended or exited
+// session's activity stamp says when the process died — the reaper's sweep, or
+// the app quitting, which stamps every session at once — not when the agent
+// finished. A failure keeps its own stamp. With no session at all (a parked
+// chat after a restart, before its sidecar is rehydrated) the persisted turn
+// end and last-typed stamps stand in, whichever is later.
 export function deriveWorkspaceIdleSince(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  persistedLastInputAt?: number | null
+  persistedLastInputAt?: number | null,
+  persistedTurnEndedAt?: number | null
 ): number | null {
   let idleSince: number | null = null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
     const activity = session.activity
-    const at = activity.kind === 'idle'
-      ? activity.since
-      : activity.kind === 'exited' || activity.kind === 'failed'
-        ? activity.at
-        : null
+    const at = activity.kind === 'failed'
+      ? activity.at
+      : typeof session.lastTurnEndedAt === 'number'
+        ? session.lastTurnEndedAt
+        : activity.kind === 'idle'
+          ? activity.since
+          : activity.kind === 'exited'
+            ? activity.at
+            : null
     if (at !== null && (idleSince === null || at > idleSince)) idleSince = at
   }
-  return idleSince ?? deriveWorkspaceLastInputAt(workspaceId, sessions, persistedLastInputAt)
+  if (idleSince !== null) return idleSince
+  const lastInputAt = deriveWorkspaceLastInputAt(workspaceId, sessions, persistedLastInputAt)
+  if (typeof persistedTurnEndedAt !== 'number') return lastInputAt
+  return lastInputAt === null ? persistedTurnEndedAt : Math.max(lastInputAt, persistedTurnEndedAt)
 }
 
 // True when any agent terminal in the workspace reports an authoritative

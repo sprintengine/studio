@@ -85,6 +85,10 @@ export type TerminalSession = {
   // I working on here?") and names a new chat after its first real prompt.
   // Absent for plain terminals, for hookless CLIs, and until the first prompt.
   lastPrompt?: SessionPrompt
+  // When the agent's last turn ended (hook-reported Stop). Stamped in
+  // ingestAgentStateFrame, carried across resume and through the snapshot
+  // sidecar; never overwritten by suspend/exit. See the snapshot field.
+  lastTurnEndedAt?: number | null
   // When the agent self-scheduled a wakeup (ScheduleWakeup hook frame), the
   // epoch-ms time it fires. The timer lives inside the CLI process, so the idle
   // reaper holds the session until then (terminal-reap-policy). Cleared by a
@@ -340,6 +344,10 @@ type SuspendedPlaceholderSessionInput = {
   // When the sidecar was written (the suspend/quit moment) — the honest "last
   // output" time for the painted content.
   savedAt: number
+  // When the agent's last turn ended, if the sidecar carried it. Seeds the
+  // placeholder's idle stamp so the sidebar row says when the agent finished,
+  // not when the app quit — every quit-path sidecar shares one savedAt.
+  lastTurnEndedAt?: number | null
   kind?: TerminalKind
   workspaceId?: string
   agentId?: string
@@ -376,13 +384,18 @@ export function createSuspendedPlaceholderSession(
     exitedAt: null,
     isDisposed: false,
     suspended: true,
-    activity: { kind: 'idle', since: input.savedAt },
+    // At rest since the turn ended when the sidecar knows it, else since the
+    // sidecar was written. The quit path writes every agent's sidecar at one
+    // moment, so without the turn end every rehydrated row read the same
+    // "idle since the app quit" (owner, 2026-09-05).
+    activity: { kind: 'idle', since: input.lastTurnEndedAt ?? input.savedAt },
     // A frozen view is at rest by construction — stamped, not guessed from
     // output timing (an in-process suspend keeps the live phase; this is the
     // restart-rehydration path, where no phase survived).
     ...((input.kind ?? 'agent') === 'agent'
-      ? { agentState: { phase: 'idle' as const, since: input.savedAt, source: 'lifecycle' as const } }
+      ? { agentState: { phase: 'idle' as const, since: input.lastTurnEndedAt ?? input.savedAt, source: 'lifecycle' as const } }
       : {}),
+    lastTurnEndedAt: input.lastTurnEndedAt ?? null,
     outputChunks: [],
     outputChunkBytes: [],
     outputChunkStart: 0,
@@ -495,6 +508,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     // plain terminals carry none.
     agentState: session.agentState,
     lastPrompt: session.lastPrompt,
+    lastTurnEndedAt: session.lastTurnEndedAt ?? null,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,

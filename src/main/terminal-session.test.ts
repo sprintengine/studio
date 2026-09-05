@@ -3,6 +3,7 @@ import {
   appendTerminalOutput,
   createFailedTerminalSession,
   createInitialTerminalActivity,
+  createSuspendedPlaceholderSession,
   getTerminalLastSeenAt,
   getTerminalSnapshot,
   isTerminalProcessAlive,
@@ -42,6 +43,31 @@ function main(): void {
   assertStaleRuleExemptsVisibleSessionsWithLiveSender()
   assertStaleRuleUsesMostRecentUserSignal()
   assertSuspendedSessionIsNotAlive()
+  assertPlaceholderIdlesSinceTheTurnEnd()
+}
+
+// Owner, 2026-09-05: the quit path writes every agent's sidecar at one moment,
+// so a placeholder idling from `savedAt` made every rehydrated row read the
+// same time. With the turn end on the sidecar the placeholder idles from the
+// finish; without it, savedAt remains the honest fallback.
+function assertPlaceholderIdlesSinceTheTurnEnd(): void {
+  const withTurnEnd = createSuspendedPlaceholderSession({
+    sessionId: 'placeholder-1',
+    savedAt: 9_000,
+    lastTurnEndedAt: 4_000,
+    replaySnapshot: 'painted',
+  })
+  assert.deepEqual(withTurnEnd.activity, { kind: 'idle', since: 4_000 })
+  assert.equal(withTurnEnd.agentState?.since, 4_000)
+  assert.equal(getTerminalSnapshot(withTurnEnd).lastTurnEndedAt, 4_000, 'the snapshot carries it to the renderer')
+
+  const withoutTurnEnd = createSuspendedPlaceholderSession({
+    sessionId: 'placeholder-2',
+    savedAt: 9_000,
+    replaySnapshot: 'painted',
+  })
+  assert.deepEqual(withoutTurnEnd.activity, { kind: 'idle', since: 9_000 })
+  assert.equal(getTerminalSnapshot(withoutTurnEnd).lastTurnEndedAt, null)
 }
 
 function assertSpawnSnapshotStartsWorking(): void {

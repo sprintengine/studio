@@ -486,39 +486,6 @@ function ShowOlderRow({
  * is remote-flavoured even while the peer sleeps. Each pane is an open
  * terminal for the row's head stack, exactly as a local live session is.
  */
-/**
- * The open terminals a row shows as heads, and the one liveness test the row
- * has (the-diff-an-agent-made, decision 9): the local sessions whose process is
- * alive, plus the fleet panes the layout mounts from other machines. A
- * suspended or exited local session is not open — `isLiveTerminal` is the
- * filter the caller applies before building the map — so a chat whose agent
- * has been parked has no heads, no line 2, and no git facts.
- */
-export function rowOpenTerminals(
-  workspace: Workspace,
-  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<{ sessionId: string; cli?: string }>>
-): Array<{ sessionId: string; cli?: string; remote?: boolean }> {
-  return [
-    ...(liveSessionsByWorkspaceId.get(workspace.id) ?? []).map((session) => ({
-      sessionId: session.sessionId,
-      ...(session.cli ? { cli: session.cli } : {}),
-    })),
-    ...fleetPanesOf(workspace).map((pane) => ({
-      sessionId: pane.tabId,
-      ...(pane.cli ? { cli: pane.cli } : {}),
-      remote: true,
-    })),
-  ]
-}
-
-/** Whether a row has any open terminal at all — the gate on its second line and its git poll. */
-export function rowHasOpenTerminals(
-  workspace: Workspace,
-  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<unknown>>
-): boolean {
-  return (liveSessionsByWorkspaceId.get(workspace.id)?.length ?? 0) > 0 || fleetPanesOf(workspace).length > 0
-}
-
 export function fleetPanesOf(workspace: Workspace): Array<{ tabId: string; machineName: string; cli?: string }> {
   const panes: Array<{ tabId: string; machineName: string; cli?: string }> = []
   const walk = (node: unknown): void => {
@@ -948,19 +915,7 @@ export default function WorkspaceSidebar({
     }
     return map
   }, [terminalSessions])
-  // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): line 2 exists
-  // only while the row has an open terminal. The git poll is therefore asked
-  // about live rows alone — a suspended chat never reads a branch, so it can
-  // never wear the checkout's current numbers as if they were its own, which
-  // is exactly what every parked chat on `multicode` did after a restart. A
-  // row that leaves this list drops out of the poll's membership and its
-  // facts are pruned with it; a row that joins is swept on the next tick the
-  // membership change triggers.
-  const liveWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => rowHasOpenTerminals(workspace, sessionsByWorkspaceId)),
-    [workspaces, sessionsByWorkspaceId]
-  )
-  const gitSummaries = useSidebarGitSummaries(liveWorkspaces)
+  const gitSummaries = useSidebarGitSummaries(workspaces)
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
@@ -1701,21 +1656,17 @@ export default function WorkspaceSidebar({
       tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
     // Line 2's facts (remote-sessions-ux): open terminals, remote provenance,
-    // branch, ±lines. Heads: one chip per open terminal — the local live
-    // sessions AND the fleet panes the layout mounts from other machines, so a
-    // remote-born row never shows the machine glyph over an empty stack.
-    const rowSessions = rowOpenTerminals(workspace, sessionsByWorkspaceId)
-    // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
-    // no open terminal is the one-liner it always was — title only, with idle
-    // recency keeping its old seat in the line-1 status cluster. Its branch and
-    // ±lines are not facts about a chat that is not running; they are the
-    // checkout's current state, which a parked chat has no claim on. So the
-    // second line, and everything on it, is gated on the heads: no terminal,
-    // no line 2. (The poll above already asks about live rows only; the gate
-    // here keeps the render honest even mid-transition.)
-    const rowIsLive = rowSessions.length > 0
-    const fleetMachines = rowIsLive ? provenanceMachinesOf(workspace) : []
-    const gitSummary = rowIsLive ? gitSummaries[workspace.id] : undefined
+    // branch, ±lines. A row with none of them stays the one-liner it was —
+    // idle recency then keeps its old seat in the line-1 status cluster.
+    // Heads: one chip per open terminal — the local live sessions AND the
+    // fleet panes the layout mounts from other machines, so a remote-born row
+    // never shows the machine glyph over an empty stack.
+    const rowSessions = [
+      ...(sessionsByWorkspaceId.get(workspace.id) ?? []),
+      ...fleetPanesOf(workspace).map((pane) => ({ sessionId: pane.tabId, cli: pane.cli, remote: true })),
+    ]
+    const fleetMachines = provenanceMachinesOf(workspace)
+    const gitSummary = gitSummaries[workspace.id]
     const rowBranch = gitSummary?.branch ?? null
     const rowAdditions = gitSummary?.additions ?? 0
     const rowDeletions = gitSummary?.deletions ?? 0
@@ -1725,7 +1676,12 @@ export default function WorkspaceSidebar({
     // work to attribute, whose uncommitted numbers the row still shows because
     // they are the honest thing to say, but never as the agent's work.
     const rowDiffScope = gitSummary?.scope ?? 'folder'
-    const metaHasSubstance = rowIsLive
+    const metaHasSubstance =
+      rowSessions.length > 0
+      || fleetMachines.length > 0
+      || rowBranch !== null
+      || rowAdditions > 0
+      || rowDeletions > 0
 
     // The row's status seat: run glyph / working dots + elapsed / tone dot /
     // idle recency, with the hover-revealed row actions layered over it.
