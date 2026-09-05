@@ -353,8 +353,7 @@ title, none above the buttons. See *Hairlines carry the structure*.
 ## Accessibility
 
 A gate, not a preference. No design system supplies it for you.
-  The toast card is the one sanctioned glass surface (ruling 2026-09-04):
-  a corner-sized blur, pinned to the toast by the conformance lint.
+
 - WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.
 - Body text clears AA on its own surface. `text.subtle` and `text.disabled`
   never carry actionable copy alone. The ink ramp orders identically in both
