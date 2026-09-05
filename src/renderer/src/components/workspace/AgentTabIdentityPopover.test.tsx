@@ -23,7 +23,7 @@ const ROLELESS: AgentTabIdentity = {
   cliLabel: 'Claude Code',
   sessionId: 'a21ac8e7-548f-6f89',
   taskId: null,
-  worktree: null,
+  checkout: null,
   status: { tone: 'good', pulse: true, label: 'Working' },
   lastMessage: null,
 }
@@ -64,11 +64,38 @@ assert.match(roleless, /Main checkout/, 'a main-checkout agent says so plainly')
 
 const onWorktree = card({
   ...ROLELESS,
-  worktree: { branch: 'feat/tab-identity', cwd: '/tmp/wt/feat-tab-identity' },
+  checkout: { kind: 'worktree', branch: 'feat/tab-identity', cwd: '/tmp/wt/feat-tab-identity', observed: false },
 })
 assert.match(onWorktree, /feat\/tab-identity/, 'a worktree agent shows its branch')
 assert.equal(/Main checkout/.test(onWorktree), false, 'worktree agent is not labelled main checkout')
 assert.match(onWorktree, /title="\/tmp\/wt\/feat-tab-identity"/, 'worktree cwd is available on hover')
+
+// Observed checkouts (MC-2440): what the agent's own hooks report, resolved
+// through git — so an agent that created a worktree mid-run, went back to the
+// primary checkout, or wandered into a plain folder is described truthfully.
+const observedWorktree = card({
+  ...ROLELESS,
+  checkout: { kind: 'worktree', branch: 'agent/feature', cwd: '/repo/.claude/worktrees/feature', observed: true },
+})
+assert.match(observedWorktree, /agent\/feature/, 'an observed worktree shows its branch')
+assert.match(observedWorktree, /title="\/repo\/.claude\/worktrees\/feature"/, 'the observed worktree root is on hover')
+
+const observedMain = card({
+  ...ROLELESS,
+  checkout: { kind: 'main', branch: 'main', cwd: '/repo', observed: true },
+})
+assert.match(observedMain, /Main checkout/, 'an observed primary checkout still says main checkout')
+assert.match(observedMain, /<span[^>]*>main<\/span>/, 'and names the branch the hooks saw')
+assert.match(observedMain, /title="\/repo"/, 'the primary checkout root is on hover')
+
+const detachedMain = card({ ...ROLELESS, checkout: { kind: 'main', branch: null, cwd: '/repo', observed: true } })
+assert.match(detachedMain, /Main checkout/)
+assert.equal(/>main<\/span>/.test(detachedMain), false, 'a detached HEAD shows no branch token')
+
+const onFolder = card({ ...ROLELESS, checkout: { kind: 'folder', cwd: '/Users/me/scratch', observed: true } })
+assert.match(onFolder, /Folder/, 'a cwd outside any repository is a folder, not a checkout')
+assert.match(onFolder, /\/Users\/me\/scratch/, 'and shows where')
+assert.equal(/Main checkout/.test(onFolder), false, 'a folder is never called the main checkout')
 
 // --- Last message: on THIS card, never a second hover surface --------------
 // An agent tab used to open the identity card and a prompt-peek popover at the

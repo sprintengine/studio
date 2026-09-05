@@ -71,6 +71,29 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     getTerminalSessionsSignature([base[1], base[0]])
   )
 
+  // An observed checkout (MC-2440) must survive the dedupe — the tab glyph and
+  // identity card render it: both the cwd moving and git's later answer for it.
+  const observedMoved = [
+    session({
+      sessionId: 'a',
+      activity: { kind: 'working', since: 1 },
+      lastOutputAt: 100,
+      observedCheckout: { cwd: '/wt', at: 5, resolved: false, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false },
+    }),
+    base[1],
+  ]
+  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(observedMoved), 'a cwd move re-renders')
+  const observedResolved = [
+    session({
+      sessionId: 'a',
+      activity: { kind: 'working', since: 1 },
+      lastOutputAt: 100,
+      observedCheckout: { cwd: '/wt', at: 5, resolved: true, gitRoot: '/wt', repoRoot: '/repo', branch: 'agent/x', isLinkedWorktree: true },
+    }),
+    base[1],
+  ]
+  assert.notEqual(getTerminalSessionsSignature(observedMoved), getTerminalSessionsSignature(observedResolved), 'git answering re-renders')
+
   // An activity-kind transition changes the signature.
   const activityChanged = [
     session({ sessionId: 'a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
@@ -765,6 +788,7 @@ function session(
     activity: input.activity ?? { kind: 'idle', since: 0 },
     agentState: input.agentState,
     lastPrompt: input.lastPrompt,
+    observedCheckout: input.observedCheckout,
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,
     retainedOutputBytes: input.retainedOutputBytes ?? 0,

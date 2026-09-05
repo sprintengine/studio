@@ -26,6 +26,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
+import { observedCheckoutKind } from '../../../../shared/observed-checkout'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
 import {
@@ -47,7 +48,7 @@ import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
-import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { AgentTabIdentityPopover, type AgentTabCheckout, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
@@ -1238,18 +1239,40 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       } else {
         renderValues.leading = null
       }
-      // Worktree glyph. Workspace-level: any agent in a worktree-backed workspace
-      // earns it, because the cwd-redirect slices run every terminal in the
-      // worktree. Plus the standalone per-agent persisted case: an agent whose
-      // `execution.mode === 'worktree'` earns it even in a workspace that is not
-      // itself worktree-backed (a persisted worktree agent), reading its own cwd.
-      const agentWorktree: { cwd: string | null; branch: string | null } | null =
+      // Where the agent runs. Observed first (MC-2440): the session's own hooks
+      // report its cwd and git resolves it, so an agent that created a worktree
+      // and moved into it — or left one — is shown where it actually is. Until
+      // that answers, launch intent: workspace-level (any agent in a worktree-
+      // backed workspace, because the cwd-redirect slices run every terminal in
+      // the worktree) or the per-agent persisted `execution.mode === 'worktree'`.
+      const observed = agentSession?.observedCheckout
+      const observedKind = observedCheckoutKind(observed)
+      const launchWorktree: { cwd: string | null; branch: string | null } | null =
         worktreeGitRoot
           ? { cwd: worktreeGitRoot, branch: worktreeBranch }
           : agent?.execution.mode === 'worktree'
             ? { cwd: agent.execution.cwd ?? null, branch: worktreeBranch }
             : null
-      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree, worktreeMissing)
+      const agentCheckout: AgentTabCheckout | null =
+        observed && observedKind === 'worktree'
+          ? { kind: 'worktree', branch: observed.branch, cwd: observed.gitRoot, observed: true }
+          : observed && observedKind === 'main'
+            ? { kind: 'main', branch: observed.branch, cwd: observed.gitRoot, observed: true }
+            : observed && observedKind === 'folder'
+              ? { kind: 'folder', cwd: observed.cwd, observed: true }
+              : launchWorktree
+                ? { kind: 'worktree', ...launchWorktree, observed: false }
+                : null
+      // The tab glyph marks a worktree. An observed worktree exists (git just
+      // answered for it), so the missing state only applies to launch intent.
+      const agentWorktree = agentCheckout?.kind === 'worktree'
+        ? { cwd: agentCheckout.cwd, branch: agentCheckout.branch }
+        : null
+      renderValues.leading = withWorktreeGlyph(
+        renderValues.leading,
+        agentWorktree,
+        agentCheckout?.kind === 'worktree' && !agentCheckout.observed && worktreeMissing,
+      )
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.
@@ -1343,7 +1366,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         cliLabel: agent?.cli ? labelForCliRuntime(agent.cli) : null,
         sessionId: agentSessionId ?? null,
         taskId: currentTaskId ?? null,
-        worktree: agentWorktree,
+        checkout: agentCheckout,
         status: identityStatus,
         lastMessage: tabPrompt ?? null,
       }
