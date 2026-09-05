@@ -22,7 +22,7 @@ import type {
 import {
   deriveRepoMergeBlockers,
   type RepoMergeBlockers,
-} from '../../../../../../shared/sprintengine/roadmap-surface'
+} from '../../../../../../shared/sprintengine/repo-merge-blockers'
 import {
   buildSprintEngineAgentRosterForState,
   deriveSprintEngineRepoMergeRollup,

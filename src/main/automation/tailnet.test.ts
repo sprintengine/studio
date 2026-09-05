@@ -694,7 +694,6 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   assert.equal(requiredScopeForTool('sprint.status', false), 'sprint:read')
   assert.equal(requiredScopeForTool('sprintengine.task.next', true), 'sprint:operate')
   assert.equal(requiredScopeForTool('backlog.update', true), 'backlog:operate')
-  assert.equal(requiredScopeForTool('horizon.approve', true), 'horizon:operate')
   // The catch-all family, including a tool this mapping has never seen.
   assert.equal(requiredScopeForTool('review_submit_brief', true), 'workspace:operate')
   assert.equal(requiredScopeForTool('some.future.tool', true), 'workspace:operate')

@@ -13,7 +13,6 @@ import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { mobileRelayRendererModule } from './mobile-relay-module'
 import { reviewRendererModule } from './review-module'
-import { roadmapRendererModule } from './roadmap-module'
 import { sprintEngineRendererModule } from './sprint-engine-module'
 import { switchboardRendererModule } from './switchboard-module'
 import { voiceDictationRendererModule } from './voice-dictation-module'
@@ -34,7 +33,6 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   designWizardRendererModule,
   reviewRendererModule,
   automationsRendererModule,
-  roadmapRendererModule,
   mobileRelayRendererModule,
   voiceDictationRendererModule,
 ]

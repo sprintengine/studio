@@ -1,13 +1,12 @@
-// The horizon's roster picker (MC-1880 / MC-1882), lifted out of
-// RoadmapEditorPanel so the plan column keeps using the SAME menu the policy bar
-// does rather than growing a lookalike. It PURELY picks: "Manage rosters…" is
-// the only action row (owner ruling 2026-07-26 — one door, no per-roster edit
-// rows and no separate create row).
+// The roster picker (MC-1880 / MC-1882): the New sprint dialog's choice of
+// which saved roster staffs the run. It PURELY picks: "Manage rosters…" is the
+// only action row (owner ruling 2026-07-26 — one door, no per-roster edit rows
+// and no separate create row).
 //
-// Two triggers, one menu body. The policy control is a bordered field; a step
-// row is a compact chip — resting, never hover-only (MC-2066) — that gains one
-// extra leading option: "Use the horizon's roster", which clears the override
-// and names what the step falls back to, so the choice is never made blind.
+// Two triggers, one menu body. The policy control is a bordered field; the row
+// variant is a compact chip — resting, never hover-only (MC-2066). The Horizon
+// step rows that used the chip, and their "Use the horizon's roster" option,
+// retired with Horizon on 2026-09-05.
 
 import { useCallback, useState } from 'react'
 
@@ -36,10 +35,9 @@ const ROW_ROSTER_TRIGGER_BASE =
 // the thing that decides who does the work was the least visible thing on the
 // surface, reachable only by hovering the row it belongs to.
 //
-// The three tiers stay distinguishable without hover. INHERITED is quiet — it is
-// the common case and says the horizon decides — but it is legible at rest. An
-// OVERRIDE is a bordered chip, because a step deciding for itself is the
-// interesting state. A MISSING roster is loud, because that step cannot start —
+// The tiers stay distinguishable without hover. An OVERRIDE is a bordered chip,
+// because a row deciding for itself is the interesting state. A MISSING roster
+// is loud, because that run cannot start —
 // but loud is a warn `StatusDot` leading the label, never a tone-tinted border
 // or tone ink (status is a glyph, chrome stays neutral; design-system audit
 // 2026-09-02). The chip keeps the override's bordered shape so a missing
@@ -55,17 +53,14 @@ export function RosterMenu({
   selectedName,
   onSelect,
   onManageRosters,
-  inherit,
   variant = 'control',
-  ariaLabel = 'Roster for every sprint this horizon starts',
+  ariaLabel = 'Roster for this sprint',
 }: {
   /** The user's saved rosters, as records — the menu shows what each staffs. */
   rosters: ReadonlyArray<SprintEngineRoster>
   selectedName: string | null
   onSelect: (name: string | undefined) => void
   onManageRosters: () => void
-  /** Step rows only: clearing the override, and the name it falls back to. */
-  inherit?: { selected: boolean; resolvedLabel: string; onChoose: () => void }
   variant?: 'control' | 'row'
   ariaLabel?: string
 }): JSX.Element {
@@ -80,25 +75,9 @@ export function RosterMenu({
     && !rosters.some((roster) => roster.name.trim().toLowerCase() === selectedName.trim().toLowerCase()),
   )
   const triggerLabel = noRolesSelected ? JUST_AN_AGENT_LABEL : selectedName ?? JUST_AN_AGENT_LABEL
-  // On a step row, "inherited" is the ABSENCE of an override — exactly
-  // `inherit.selected`. The tone must never be derived from the label, or a step
-  // that deliberately picks the same roster the horizon uses would read as
-  // inherited and become invisible as an override.
-  const triggerTone: 'inherited' | 'override' | 'missing' = missing
-    ? 'missing'
-    : inherit?.selected
-      ? 'inherited'
-      : 'override'
-  // …and the same source of truth carries the tier to a screen reader, which
-  // cannot see the border that distinguishes the two. Without it "Mobile UI"
-  // reads identically whether the step chose it or the horizon did.
-  const triggerTier = missing
-    ? ' (not found)'
-    : inherit
-      ? inherit.selected
-        ? ' (inherited from this horizon)'
-        : ' (set for this step)'
-      : ''
+  const triggerTone: 'inherited' | 'override' | 'missing' = missing ? 'missing' : 'override'
+  // The tier reaches a screen reader too, which cannot see the border.
+  const triggerTier = missing ? ' (not found)' : ''
   const pick = (name: string | undefined): void => {
     onSelect(name)
     setOpen(false)
@@ -177,28 +156,6 @@ export function RosterMenu({
       }}
     >
       <div onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}>
-        {inherit ? (
-          <>
-            <MenuItem
-              checked={inherit.selected}
-              selection="one-of"
-              onClick={() => {
-                inherit.onChoose()
-                setOpen(false)
-              }}
-              trailing={trailing(
-                inherit.selected,
-                isNoRolesRosterRef(inherit.resolvedLabel) ? JUST_AN_AGENT_LABEL : inherit.resolvedLabel,
-                'max-w-[7.5rem] truncate',
-              )}
-            >
-              Use the horizon&apos;s roster
-            </MenuItem>
-            {/* Spacing separates the groups — never hairlines (owner, 2026-08-06:
-                "we don't need these, we can just use spacing instead"). */}
-            <div aria-hidden="true" className="h-1.5" />
-          </>
-        ) : null}
         {/* A missing roster leads, so the problem is the first thing read. It is
             the current choice, so it is checked — and it cannot be re-chosen, so
             the row is disabled rather than a control that does nothing. The

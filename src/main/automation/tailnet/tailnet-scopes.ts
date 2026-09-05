@@ -47,9 +47,8 @@ export function requiredScopeForTool(toolName: string, isMutation: boolean): Tai
   return `${toolFamily(toolName)}:${isMutation ? 'operate' : 'read'}` as TailnetScope
 }
 
-function toolFamily(toolName: string): 'workspace' | 'sprint' | 'backlog' | 'horizon' {
+function toolFamily(toolName: string): 'workspace' | 'sprint' | 'backlog' {
   if (toolName.startsWith('backlog.')) return 'backlog'
-  if (toolName.startsWith('horizon.')) return 'horizon'
   // `sprint.*` are the app-side sprint tools; `sprintengine.*` are the canonical
   // run tools proxied to the Python boundary. Both act on a sprint run.
   if (toolName.startsWith('sprint.') || toolName.startsWith('sprintengine.')) return 'sprint'

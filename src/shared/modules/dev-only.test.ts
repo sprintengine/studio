@@ -6,7 +6,7 @@ import { DEV_ONLY_MODULE_IDS, isDevOnlyModule, activeForChannel } from './dev-on
 // The dev-only ids are the surfaces gated out of production builds.
 assert.deepEqual(
   [...DEV_ONLY_MODULE_IDS].sort(),
-  ['mobile-relay', 'review', 'roadmap', 'switchboard', 'voice-dictation'],
+  ['mobile-relay', 'review', 'switchboard', 'voice-dictation'],
   'dev-only ids must be exactly the gated surfaces'
 )
 
@@ -21,7 +21,6 @@ for (const id of DEV_ONLY_MODULE_IDS) {
 
 assert.equal(isDevOnlyModule('switchboard'), true)
 assert.equal(isDevOnlyModule('voice-dictation'), true)
-assert.equal(isDevOnlyModule('roadmap'), true)
 assert.equal(isDevOnlyModule('review'), true)
 assert.equal(isDevOnlyModule('git'), false)
 assert.equal(isDevOnlyModule('agent-runtime'), false)
@@ -33,7 +32,6 @@ const manifests = [
   { id: 'switchboard' },
   { id: 'mobile-relay' },
   { id: 'voice-dictation' },
-  { id: 'roadmap' },
   { id: 'review' },
 ]
 const getId = (m: { id: string }) => m.id

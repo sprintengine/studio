@@ -20,7 +20,6 @@ export const PAIR_SCOPE_ROWS = [
     { label: 'Workspaces — read & operate', scopes: ['workspace:read', 'workspace:operate'], defaultOn: true },
     { label: 'Sprints — read & operate', scopes: ['sprint:read', 'sprint:operate'], defaultOn: true },
     { label: 'Backlog — read & operate', scopes: ['backlog:read', 'backlog:operate'], defaultOn: true },
-    { label: 'Horizons — read & operate', scopes: ['horizon:read', 'horizon:operate'], defaultOn: true },
     { label: 'Terminals — control', scopes: ['terminal:observe', 'terminal:control'], note: 'arbitrary shell', defaultOn: false },
 ];
 /** Digits only, at most six: "481 972" read off a screen is the same answer as "481972". */

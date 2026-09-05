@@ -1,7 +1,4 @@
-import { app } from 'electron'
-
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
-import { readRoadmapHomeProjectPath } from '../roadmap-home-store'
 import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
 import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
@@ -11,7 +8,7 @@ import { listKnownWorkspaceRoots } from '../workspace-roots'
 import { writeDiagnosticLog } from '../diagnostics-service'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
-import { RoadmapAppFrontDoorToken, SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
+import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -49,15 +46,6 @@ export const sprintEngineModule: CapabilityModule = {
     const sprintRuntime = host.requireService(SprintRuntimeToken)
     const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
     const prMergePoller = host.requireService(SprintPullRequestMergePollerToken)
-
-    // Every main-side scan for runs unions the roadmap's home project with the
-    // roots it was given, so a run the orchestrator started in a project that is
-    // not an open workspace is still found — the Sprints door must show every run
-    // this Multicode is driving, and boot discovery must resume every one of them.
-    const withRoadmapHomeProject = (roots: string[]): string[] => {
-      const home = readRoadmapHomeProjectPath(app.getPath('userData'))
-      return home && !roots.includes(home) ? [...roots, home] : roots
-    }
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,
@@ -116,18 +104,7 @@ export const sprintEngineModule: CapabilityModule = {
       // truth even if the run was never registered with the scheduler.
       cancelRun: async (payload) => {
         const result = await artifacts.cancelRun(payload)
-        if (result.ok) {
-          sprintRuntime.cancelRun(payload.statePath)
-          // A roadmap lane may be running this sprint: reconcile now so the
-          // board parks promptly instead of on the next 60s engine tick.
-          // Resolved lazily — the roadmap lives in the automations module,
-          // which may be disabled or not yet registered.
-          try {
-            void host.requireService(RoadmapAppFrontDoorToken).reconcile().catch(() => undefined)
-          } catch {
-            /* roadmap module absent — nothing to steer */
-          }
-        }
+        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
         return result
       },
       createPullRequest: artifacts.createPullRequest,
@@ -141,9 +118,7 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRole: artifacts.readRegistryRole,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
-      // The renderer sends its OPEN-workspace roots; the roadmap's home project
-      // is unioned in for the reason above.
-      listRuns: ({ roots }) => listSprintRuns(withRoadmapHomeProject(roots)),
+      listRuns: ({ roots }) => listSprintRuns(roots),
     })
 
     // MC-1567: the main-owned automation mode intent (read / set / one-time
@@ -170,7 +145,7 @@ export const sprintEngineModule: CapabilityModule = {
     host.onStartup(async () => {
       try {
         const report = await discoverSprintRunsAtBoot({
-          listWorkspaceRoots: () => withRoadmapHomeProject(listKnownWorkspaceRoots(workspaceSync.getSnapshot())),
+          listWorkspaceRoots: () => listKnownWorkspaceRoots(workspaceSync.getSnapshot()),
           readAutomationMode: async (statePath) => {
             const result = await automation.readAutomationMode({ statePath })
             return result.ok ? result.record : null
@@ -206,7 +181,7 @@ export const sprintEngineModule: CapabilityModule = {
     host.onStartup(async () => {
       try {
         const report = await prMergePoller.start({
-          listWorkspaceRoots: () => withRoadmapHomeProject(listKnownWorkspaceRoots(workspaceSync.getSnapshot())),
+          listWorkspaceRoots: () => listKnownWorkspaceRoots(workspaceSync.getSnapshot()),
         })
         if (report.watching.length === 0 && report.skippedStale.length === 0) return
         void writeDiagnosticLog({

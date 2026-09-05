@@ -69,7 +69,6 @@ import type {
   SprintEngineLaunchSettings,
   SprintEngineLaunchSettingsRecord,
 } from './sprintengine/launch-settings'
-import type { RoadmapStateView } from './sprintengine/roadmap-surface'
 import type { SprintRunSummary, SprintRunsChangedEvent } from './sprintengine/runSummary'
 import type {
   SprintRuntimeOp,
@@ -2111,42 +2110,6 @@ export type SprintEngineArtifactCommandResult =
   | { ok: true; data: SprintEngineMutationRefreshData }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
-// Roadmap steering surface (MC-1620 / T7). The read returns the orchestrator's
-// per-lane state views; each command is a lane-scoped human action the orchestrator
-// reconciles against (approve the next start, merge a delivered lane, resume a
-// parked lane, pause a running lane). `RoadmapStateView` is defined once in shared
-// (`sprintengine/roadmap-surface.ts`) — imported type-only, so there is no runtime
-// import cycle with this module.
-// The roadmap is instance-global (one plan per Multicode, MC-1688), so a command
-// no longer carries a `workspaceRoot` — the main driver derives the home project
-// (D1). A command names only the roadmap file + the lane it steers.
-export type RoadmapLaneCommandInput = { roadmapRef: string; lane: string }
-// Resume carries the human's explicit acknowledgement that starting a step over
-// discards a run that already delivered (MC-1909); without it the orchestrator
-// refuses that case rather than doing it silently.
-export type RoadmapResumeLaneInput = RoadmapLaneCommandInput & { replanDeliveredRun?: boolean }
-// A consequence the caller must acknowledge before the command will run.
-export type RoadmapCommandConfirmation = 'replan_delivered_run'
-export type RoadmapLaneCommandResult = {
-  ok: boolean
-  message?: string
-  confirm?: RoadmapCommandConfirmation
-}
-export type RoadmapStatesReadResult =
-  | { ok: true; roadmaps: RoadmapStateView[] }
-  | { ok: false; message: string }
-// The home-project setting (D1): which project's repo holds the instance roadmap.
-export type RoadmapHomeResult = { path: string | null }
-// The plan-file mutations the steering surface drives (MC-1718), each one atomic
-// main-process op. Activate/skip reuse the lane-command result; create returns the
-// new draft's roadmap ref.
-export type RoadmapActivateInput = { roadmapRef: string }
-// Delete a horizon file (MC-1917). Refused while a sprint is running on it.
-export type RoadmapDeleteInput = { roadmapRef: string }
-export type RoadmapSkipStepInput = { ref: string; reason: string }
-export type RoadmapCreateInput = { projectRoot: string; name: string }
-export type RoadmapCreateResult = { ok: true; roadmapRef: string } | { ok: false; message: string }
-
 export type SprintEngineProjectionReadResult =
   // `token` is a cheap file-change fingerprint (mtime:size) the caller can pass
   // back as `knownToken` to skip re-reading an unchanged projection. When the
@@ -3683,27 +3646,6 @@ export type ElectronApi = {
   ensureSprintEngineTaskWorktree: (
     input: SprintEngineTaskWorktreeInput
   ) => Promise<SprintEngineTaskWorktreeResult>
-  /** Read the single instance roadmap's per-lane steering state for the board (MC-1688). */
-  readRoadmapStates: () => Promise<RoadmapStatesReadResult>
-  /** Approve the next start for a lane awaiting the human (advance: approve). */
-  approveRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
-  /** Merge a lane's delivered pull request through the orchestrator (merge: manual). */
-  mergeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
-  /** Resume a parked lane: a failure re-plans a fresh sprint; a manual pause continues in place. */
-  resumeRoadmapLane: (input: RoadmapResumeLaneInput) => Promise<RoadmapLaneCommandResult>
-  /** Pause a lane: hold advancement/merge/start-next without stopping the running sprint. */
-  pauseRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
-  /** The home project holding the instance roadmap (D1), or null when unset. */
-  getRoadmapHomeProject: () => Promise<RoadmapHomeResult>
-  /** Set (or clear, with null) the home project; triggers a reconcile (MC-1689). */
-  setRoadmapHomeProject: (path: string | null) => Promise<RoadmapLaneCommandResult>
-  /** Make a draft the single active roadmap: promote-then-demote in one atomic op (MC-1718). */
-  activateRoadmap: (input: RoadmapActivateInput) => Promise<RoadmapLaneCommandResult>
-  deleteRoadmap: (input: RoadmapDeleteInput) => Promise<RoadmapLaneCommandResult>
-  /** Skip a step off the active roadmap's plan in one atomic op (MC-1718). */
-  skipRoadmapStep: (input: RoadmapSkipStepInput) => Promise<RoadmapLaneCommandResult>
-  /** Create a new draft roadmap, adopting its project as the home when none is set (MC-1718). */
-  createRoadmap: (input: RoadmapCreateInput) => Promise<RoadmapCreateResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>

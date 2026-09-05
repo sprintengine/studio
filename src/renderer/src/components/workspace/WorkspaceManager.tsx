@@ -4047,8 +4047,8 @@ export default function WorkspaceManager() {
             flat darkening scrim (NEVER backdrop-filter — terminals render at
             60fps behind it), FocusTrap, Escape/scrim close, focus restored to
             the trigger glyph on close. Settings, Plugins, Automations and
-            Design live here; the true doors (Sprints, Backlog, Roadmap,
-            Reviews) keep the page mount above. With no bar/rail slot providers
+            Design and Reviews live here; the true doors (Sprints) keep the
+            page mount above. With no bar/rail slot providers
             in scope, GlobalSurfaceShell renders its documented inline fallback
             — bar on top, aside rail beside the canvas — which is exactly the
             modal-interior anatomy. */}

@@ -20,7 +20,6 @@ export const DEV_ONLY_MODULE_IDS: readonly string[] = [
   'switchboard', // Switchboard & Watchtower (Watchtower rides inside this module)
   'mobile-relay',
   'voice-dictation', // Voice module
-  'roadmap', // not production-ready yet; remove from this list to release
   'review', // not production-ready yet; remove from this list to release
 ]
 

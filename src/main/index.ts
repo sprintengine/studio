@@ -12,10 +12,7 @@ import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import {
-  AutomationsAppFrontDoorToken,
-  RoadmapAppFrontDoorToken,
-} from './module-host/service-tokens'
+import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
 import type { CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
@@ -89,7 +86,6 @@ const activeMainModules = activeForChannel(
   createBundledMainModules({
     automations: {
       checkProviderPermission: checkAutomationProviderPermission,
-      isRoadmapReconcileEnabled: () => enabledMainModuleIds.has('roadmap'),
     },
   }),
   (module) => module.manifest.id,
@@ -168,10 +164,6 @@ applyModuleEnablementLive = async (overrides) => {
 // report automations_module_unavailable).
 services.setAutomationsAppFrontDoorResolver(
   () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null
-)
-// Roadmap.* tools ← the same Automations module, which constructs the orchestrator.
-services.setRoadmapAppFrontDoorResolver(
-  () => moduleLoad.kernel.hostFor('@host').getService(RoadmapAppFrontDoorToken) ?? null
 )
 // Module enablement for gateway tools that belong to a capability module: the
 // resolved set is recomputed on every override the renderer pushes, so a module

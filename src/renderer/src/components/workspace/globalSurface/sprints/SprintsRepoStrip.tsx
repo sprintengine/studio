@@ -11,7 +11,7 @@
 // engine's `pr-merge` stays the final authority for every merge.
 
 import type { SprintEngineTask, SprintEngineVcsRepo } from '../../../../../../shared/sprintengine/run-types'
-import type { RepoMergeBlockers } from '../../../../../../shared/sprintengine/roadmap-surface'
+import type { RepoMergeBlockers } from '../../../../../../shared/sprintengine/repo-merge-blockers'
 import { InlineNotice, StatusDot, TruncatedText } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import {

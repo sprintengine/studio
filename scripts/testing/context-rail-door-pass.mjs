@@ -106,7 +106,6 @@ const DOORS = [
   ['Sprints', 'sprints'],
   ['Backlog', 'backlog'],
   ['Extensions', 'extensions'],
-  ['Horizon', 'roadmap'],
   ['Reviews', 'reviews'],
 ]
 

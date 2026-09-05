@@ -13,16 +13,6 @@ import type {
   SprintEngineLaunchSettingsWriteAck,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
-  RoadmapActivateInput,
-  RoadmapDeleteInput,
-  RoadmapCreateInput,
-  RoadmapCreateResult,
-  RoadmapHomeResult,
-  RoadmapLaneCommandInput,
-  RoadmapLaneCommandResult,
-  RoadmapResumeLaneInput,
-  RoadmapSkipStepInput,
-  RoadmapStatesReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
@@ -212,30 +202,6 @@ export const sprintEngineApi = {
     input: { statePath: string }
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:run:cancel', input),
-  // Roadmap steering surface. The roadmap is instance-global (one plan per
-  // Multicode, MC-1688), so the read + lane commands carry no workspaceRoot — the
-  // main driver derives the home project (D1). No imperative side-channel: each
-  // command writes orchestrator/roadmap state, then the reconcile tick acts on it.
-  readRoadmapStates: (): Promise<RoadmapStatesReadResult> => ipcRenderer.invoke('roadmap:states:read'),
-  approveRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:lane:approve', input),
-  mergeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:lane:merge', input),
-  resumeRoadmapLane: (input: RoadmapResumeLaneInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:lane:resume', input),
-  pauseRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:lane:pause', input),
-  getRoadmapHomeProject: (): Promise<RoadmapHomeResult> => ipcRenderer.invoke('roadmap:home:get'),
-  setRoadmapHomeProject: (path: string | null): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:home:set', { path }),
-  activateRoadmap: (input: RoadmapActivateInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:activate', input),
-  deleteRoadmap: (input: RoadmapDeleteInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:delete', input),
-  skipRoadmapStep: (input: RoadmapSkipStepInput): Promise<RoadmapLaneCommandResult> =>
-    ipcRenderer.invoke('roadmap:step:skip', input),
-  createRoadmap: (input: RoadmapCreateInput): Promise<RoadmapCreateResult> =>
-    ipcRenderer.invoke('roadmap:create', input),
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
     const ch = SPRINT_RUNTIME_OP_CHANNEL
     const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
@@ -274,17 +240,6 @@ export const sprintEngineApi = {
   | 'pushSprintRuntimeStopReason'
   | 'resumeSprintRuntimeRun'
   | 'cancelSprintEngineRun'
-  | 'readRoadmapStates'
-  | 'approveRoadmapLane'
-  | 'mergeRoadmapLane'
-  | 'resumeRoadmapLane'
-  | 'pauseRoadmapLane'
-  | 'getRoadmapHomeProject'
-  | 'setRoadmapHomeProject'
-  | 'activateRoadmap'
-  | 'deleteRoadmap'
-  | 'skipRoadmapStep'
-  | 'createRoadmap'
   | 'onSprintRuntimeOp'
   | 'listSprintRuns'
   | 'onSprintRunsChanged'

@@ -40,7 +40,6 @@ async function main(): Promise<void> {
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { RosterEditor } = await import('./RosterEditor')
-  const { RosterManagerModal } = await import('./RosterManagerModal')
   const { useRosterEditor } = await import('../workspace/newWorkspace/useRosterEditor')
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
 
@@ -173,51 +172,6 @@ async function main(): Promise<void> {
     assert.equal(editor().selectedRosterId, savedA!.id, 'clicking the rail row selects it')
     assert.equal(railA!.getAttribute('aria-pressed'), 'true', 'the selected row is pressed for AT')
     unmount()
-  })
-
-  await check('RosterManagerModal is shell plus editor: dialog chrome outside, the same rail inside', async () => {
-    const container: HTMLElement = dom.window.document.createElement('div')
-    dom.window.document.body.appendChild(container)
-    const root = createRoot(container)
-    let chosen: string | null = null
-    await act(async () => {
-      root.render(
-        <RosterManagerModal
-          workspaceRoot={null}
-          onClose={() => {}}
-          onRosterChosen={(name) => { chosen = name }}
-        />,
-      )
-    })
-
-    const dialog = container.querySelector('[role="dialog"]')
-    assert.ok(dialog, 'the modal keeps its dialog shell')
-    assert.equal(dialog!.getAttribute('aria-modal'), 'true', 'and its aria-modal')
-    assert.ok(container.querySelector('.overlay-scrim'), 'and its scrim')
-    assert.match(
-      container.textContent ?? '',
-      /Rosters are shared\. Editing one here changes it everywhere/,
-      'the shared-rosters wording stays on the host',
-    )
-    assert.ok(
-      dialog!.querySelector('input[placeholder="New roster name"]'),
-      'the editor rail renders inside the shell',
-    )
-
-    // The footer still returns the selected roster to Horizon.
-    const railRow = Array.from(container.querySelectorAll('button')).find(
-      (element) => element.textContent?.includes('Rail A'),
-    )
-    await click(railRow)
-    const useButton = Array.from(container.querySelectorAll('button')).find(
-      (element) => element.textContent === 'Use for this horizon',
-    )
-    assert.ok(useButton, 'the footer keeps its choose action')
-    await click(useButton)
-    assert.equal(chosen, 'Rail A', 'choosing still hands the roster name back to Horizon')
-
-    root.unmount()
-    container.remove()
   })
 
   if (failures > 0) {

@@ -254,42 +254,19 @@ async function main(): Promise<void> {
     }
   }
 
-  // Where a door puts its project filter (MC-1816). Read off the rendered DOM as
-  // relationships — which control it is, what it is called, and what it comes
-  // BEFORE — so the two doors can be compared without either one's markup
-  // standing in for the other's.
-  const FOLLOWING = 4 // Node.DOCUMENT_POSITION_FOLLOWING
-  function projectFilterPlacement(searchAriaLabel: string, rowListSelector: string): unknown {
-    const search = container.querySelector(`input[aria-label="${searchAriaLabel}"]`)
-    assert.ok(search, 'the door exposes a search field')
-    // Everything that narrows the list — the project lens included — lives behind
-    // ONE glyph beside that field. A standalone project Select stacked above the
-    // search is the shape this contract exists to keep out.
-    const standalone = container.querySelector('button[aria-label="Filter by project"]')
-    assert.equal(standalone, null, 'and no standalone project Select beside it')
-    const glyph = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter"]')
-    assert.ok(glyph, 'and a filter glyph holding the narrowing axes')
-    const rows = container.querySelector(rowListSelector)
-    assert.ok(rows, 'and a row list')
-    return {
-      collapsedBehindAGlyph: glyph.getAttribute('aria-haspopup') === 'menu',
-      followsSearch: Boolean(search.compareDocumentPosition(glyph) & FOLLOWING),
-      leadsRows: Boolean(glyph.compareDocumentPosition(rows) & FOLLOWING),
-    }
-  }
-
   // jsdom ships no types, so annotate the mount point: without it every query
   // off `container` degrades to `unknown` and nothing in this file is checked.
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. Two doors + four modal surfaces coexist on the real kernel ══════
+  // ═══ 1. One door + four modal surfaces coexist on the real kernel ══════
   // Registration is module-owned and eager, so this reads the SAME host the app
   // boots with — not a hand-built one. Doors→modals (2026-09-01): Automations,
   // Extensions (user-facing "Plugins") and Design left the top-nav door band
-  // for the modal-surface registry — so the doors that remain are the work
-  // pages: Sprints (item 1763), Roadmap, Reviews. Both registries render as
-  // rows of the sidebar's Extensions section (app shell, 2026-09-05).
+  // for the modal-surface registry, Reviews followed on 2026-09-05 and Horizon
+  // retired the same day — so the one door that remains is the work page:
+  // Sprints (item 1763). Both registries render as rows of the sidebar's
+  // Extensions section (app shell, 2026-09-05).
   // Design is owned by its OWN bundled `design` module, not by `design-wizard`
   // (MC-1860).
   {
@@ -300,7 +277,6 @@ async function main(): Promise<void> {
       doorOrder,
       [
         ['sprints', 20],
-        ['roadmap', 40],
       ],
       'the door registry holds only the true doors, in the mockup’s sidebar order',
     )
@@ -351,7 +327,7 @@ async function main(): Promise<void> {
       !host.getModalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
       'the Design trigger leaves with the design module',
     )
-    console.log('ok - two doors + four modal surfaces, each backed and gated by its module')
+    console.log('ok - one door + four modal surfaces, each backed and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════
@@ -430,13 +406,6 @@ async function main(): Promise<void> {
   const railRows = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
   assert.equal(railRows.length, 2, 'both runs list once the index reads')
   console.log('ok - retrying an unreadable index recovers the surface in place')
-
-  // Held for the cross-door comparison in section 4: the two doors must place
-  // their project filter identically, and only one of them is mounted at a time.
-  const sprintsFilterPlacement = projectFilterPlacement(
-    'Search sprints across every project',
-    'ul[role="list"][aria-label^="Sprints:"]',
-  )
 
   // ═══ 3. Resident vs workspace-deleted, on the same door ═══════════════════
   // The live run's workspace is open, so its workspace-only actions are live and
@@ -908,7 +877,6 @@ async function main(): Promise<void> {
   // inline fallback is their modal-interior anatomy.
   {
     const { ContextRailSlotContext } = await import('./contextRail')
-    const { default: RoadmapGlobalSurface } = await import('./RoadmapGlobalSurface')
 
     // The emptiest world there is: no project open, so every door resolves to
     // nothing rather than to content. Every IPC these doors reach that is not
@@ -924,7 +892,6 @@ async function main(): Promise<void> {
 
     const doors: Array<[string, React.ComponentType]> = [
       ['sprints', SprintsGlobalSurface],
-      ['roadmap', RoadmapGlobalSurface],
       ['reviews', ReviewsGlobalSurface],
     ]
     for (const [id, Surface] of doors) {
@@ -971,7 +938,7 @@ async function main(): Promise<void> {
       host.remove()
       slot.remove()
     }
-    console.log('ok - all three doors declare a rail while loading and while empty')
+    console.log('ok - every door declares a rail while loading and while empty')
   }
 
   // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════

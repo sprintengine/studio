@@ -144,7 +144,7 @@ async function assertMatchingKnownVersionYieldsTheUnchangedFastPath(): Promise<v
   assert.deepEqual(data, { unchanged: true, snapshotVersion: knownVersion },
     'a matching knownSnapshotVersion returns only the change-token, no snapshot content')
   // No content-bearing keys leaked into the fast-path result.
-  for (const key of ['sprintEngines', 'workspaces', 'backlog', 'automations', 'roadmaps', 'commands']) {
+  for (const key of ['sprintEngines', 'workspaces', 'backlog', 'automations', 'commands']) {
     assert.equal(key in data, false, `fast-path result must not carry ${key}`)
   }
   service.shutdown()

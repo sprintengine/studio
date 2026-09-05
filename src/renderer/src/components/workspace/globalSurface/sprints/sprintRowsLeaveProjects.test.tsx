@@ -415,13 +415,13 @@ async function main(): Promise<void> {
 
   // Another door open: Sprints is no longer the context.
   await act(async () => {
-    useWorkspaceStore.setState({ activeGlobalSurface: 'roadmap' } as never)
+    useWorkspaceStore.setState({ activeGlobalSurface: 'another-door' } as never)
   })
   await renderNav()
   assert.equal(
     navHost.querySelector('button')?.getAttribute('aria-current'),
     null,
-    'an open Roadmap door owns the selection instead',
+    'another open door owns the selection instead',
   )
   console.log('ok - the context rule yields to whichever door is actually open')
 

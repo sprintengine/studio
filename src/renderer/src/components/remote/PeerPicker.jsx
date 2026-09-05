@@ -30,7 +30,7 @@ waitingOn, intro, }) {
           {scanning ? 'Scanning' : 'Scan'}
         </OutlineButton>
       </div>
-      {canOfferReverse ? (<Checkbox checked={reverse} onChange={setReverse} label="Also let that machine drive this Mac (workspaces, sprints, backlog, horizons — not terminals)"/>) : null}
+      {canOfferReverse ? (<Checkbox checked={reverse} onChange={setReverse} label="Also let that machine drive this Mac (workspaces, sprints, backlog — not terminals)"/>) : null}
       {view.emptyMessage ? (<p className="text-meta text-[color:var(--text-muted)]">{view.emptyMessage}</p>) : (<div className="divide-y divide-[color:var(--bg-selected)]" data-peer-picker>
           {view.rows.map((row) => (<div key={row.peer.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0" data-peer-state={row.state}>
               <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]"/>

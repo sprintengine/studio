@@ -23,7 +23,6 @@ import { readTrustedModulesSync } from './modules/trust-store'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
-import type { RoadmapAppFrontDoor } from './roadmap-orchestrator'
 import {
   addOrUpdateBacklogLink,
   listBacklogItems,
@@ -288,9 +287,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // resolve it lazily, at call time. Until the module is up, both report the
   // module as unavailable rather than buffering.
   let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
-  // The instance roadmap's front door (roadmap.* tools) is provided by the same
-  // module and resolved lazily for the same reason — null until the module is up.
-  let resolveRoadmapAppFrontDoor: () => RoadmapAppFrontDoor | null = () => null
   // Live main-process module enablement, injected by index.ts once the manifest
   // universe exists; it recomputes on every override the renderer pushes, so a
   // module the user just switched off is off here on the next call. Until then
@@ -800,9 +796,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           repairIntegrity: repairBacklogIntegrity,
         },
         getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
-        // The instance roadmap's read + plan + steer surface for the roadmap.* tools;
-        // null until the automations module (which owns the orchestrator) is up.
-        getRoadmapFrontDoor: () => resolveRoadmapAppFrontDoor(),
         listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
         readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
         // The mobile companion over the gateway (tailnet-mobile-transport):
@@ -891,12 +884,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
         cancelSprintRun: async (payload) => {
           const result = await sprintEngineArtifacts.cancelRun(payload)
-          if (result.ok) {
-            sprintRuntime.cancelRun(payload.statePath)
-            // A roadmap lane may be running this sprint: reconcile now so the
-            // board parks promptly instead of on the next 60s engine tick.
-            void resolveRoadmapAppFrontDoor()?.reconcile().catch(() => undefined)
-          }
+          if (result.ok) sprintRuntime.cancelRun(payload.statePath)
           return result
         },
         // Sprint steering (MC-1654): artifact review + task mutation, all through
@@ -1032,9 +1020,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // catalogue automation through this door, and gets null while the module is
     // down rather than a second way into the automations store.
     getAutomationsAppFrontDoor: (): AutomationsAppFrontDoor | null => resolveAutomationsAppFrontDoor(),
-    setRoadmapAppFrontDoorResolver(resolver: () => RoadmapAppFrontDoor | null): void {
-      resolveRoadmapAppFrontDoor = resolver
-    },
     setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
       resolveModuleEnabled = resolver
     },

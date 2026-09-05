@@ -58,7 +58,6 @@ import type {
   MobileSnapshotCollection,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileAutomationSnapshots } from './automations'
-import { readMobileRoadmapRiders } from './roadmapRider'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
 import { deriveWorkspaceId } from './workspace-id'
@@ -305,20 +304,6 @@ export class MobileSprintEngineSnapshotService {
     const automations = collections.has('automations')
       ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))).flat()
       : []
-    // Read-only roadmap progress riders (MC-1620). Additive and rides the existing
-    // `sprintEngines` scope — no new relay scope, so an old phone that never reads
-    // `roadmaps` is untouched (scopes freeze at pair time).
-    // Stamped with the same relay-safe project token the other collections carry
-    // (MC-1583). The riders from every root are flattened into one list, so the
-    // token is the only thing that tells the phone which project a horizon is for.
-    const roadmaps = collections.has('sprintEngines')
-      ? (await Promise.all(workspaceRoots.map(async (workspaceRoot) => {
-          const riders = await readMobileRoadmapRiders(workspaceRoot).catch(() => [])
-          const projectKey = deriveWorkspaceId(workspaceRoot)
-          return riders.map((rider) => ({ ...rider, ...(projectKey ? { projectKey } : {}) }))
-        }))).flat()
-      : []
-
     return {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
@@ -343,14 +328,12 @@ export class MobileSprintEngineSnapshotService {
         workspaces: workspaces.map(withoutReadTimeStamp),
         backlog: backlog.map(withoutReadTimeStamp),
         automations,
-        roadmaps,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       sprintEngines,
       workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
       ...(automations.length > 0 ? { automations } : {}),
-      ...(roadmaps.length > 0 ? { roadmaps } : {}),
     }
   }
 

@@ -16,7 +16,7 @@ import React, { useCallback, useState } from 'react'
 
 import { parsePullRequestUrl } from '../../../../../shared/review/pr-url'
 import type { SprintEnginePullRequestState, SprintEngineVcsRepo } from '../../../../../shared/sprintengine/run-types'
-import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/roadmap-surface'
+import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/repo-merge-blockers'
 import { sprintEngineRepoDisplayName } from '../../../../../shared/backlog/sprintengine-links'
 import { OutlineButton, useConfirmDialog } from '../../ui'
 import type { StatusTone } from '../../ui/tokens'
