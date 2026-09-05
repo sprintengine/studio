@@ -2,25 +2,23 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-import type { BacklogItem, BacklogScanResult } from '../../../utils/backlog'
-
 // Epic 1760's integration review (item T10): the pieces T1–T9 built, exercised
 // TOGETHER rather than one surface at a time. The per-item suites each prove
 // their own contract; this one covers the seams between them, which is where an
 // epic assembled by six agents actually breaks:
 //
-//  1. The five doors coexist on the REAL renderer kernel — Sprints and Backlog
-//     joined Automations/Roadmap/Reviews at the orders the mockup's sidebar
-//     shows, each with a surface behind it, and both vanish with their module.
+//  1. The doors coexist on the REAL renderer kernel — Sprints joined
+//     Roadmap/Reviews at the orders the mockup's sidebar shows, each with a
+//     surface behind it, and each vanishes with its module.
 //  2. The Sprints door survives an unreadable run index and RECOVERS from it —
 //     the degraded state is a way back, not a dead end (the leg the composition
 //     suite could not reach: its index IPC always resolves).
 //  3. A run whose workspace is still resident opens from the door with its
 //     workspace-only actions LIVE, next to the same door showing a
 //     workspace-deleted run degraded. Both mounts, one surface, one assertion.
-//  4. The Backlog door renders the aggregate: project-tagged rows with their own
-//     display keys, a project filter that reproduces one project's list, and one
-//     project's scan failing without taking the other two down.
+//
+// (The Backlog door and its section here retired on 2026-09-05: the workspace
+// pane's Backlog tab is the one Backlog surface.)
 //
 // The Electron app is not drivable headlessly (SprintEngine E2E headless
 // blocker), so this stands up a real DOM, stubs only the preload boundary, and
@@ -244,14 +242,9 @@ async function main(): Promise<void> {
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { getRendererHost } = await import('../../../modules')
   const { default: SprintsGlobalSurface } = await import('./sprints/SprintsGlobalSurface')
-  const { default: BacklogGlobalSurface } = await import('./backlog/BacklogGlobalSurface')
   const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
-  const { createBacklogItem } = await import('../../../utils/backlog')
   const { normalizeSprintEngineProjection } = await import('../../../../../shared/sprintengine/state')
-  const {
-    __setBacklogScanRunnerForTests: setScanRunner,
-    __resetBacklogScanSubscriptionsForTests: resetScans,
-  } = await import('../../../hooks/useSharedBacklogScan')
+  const { __resetBacklogScanSubscriptionsForTests: resetScans } = await import('../../../hooks/useSharedBacklogScan')
 
   async function settle(times = 8): Promise<void> {
     for (let i = 0; i < times; i += 1) {
@@ -290,14 +283,15 @@ async function main(): Promise<void> {
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. Four doors + three modal surfaces coexist on the real kernel ═══════
+  // ═══ 1. Three doors + three modal surfaces coexist on the real kernel ══════
   // Registration is module-owned and eager, so this reads the SAME host the app
   // boots with — not a hand-built one. Doors→modals (2026-09-01): Automations,
   // Extensions (user-facing "Plugins") and Design left the top-nav door band
-  // for the modal-surface registry — their triggers are glyphs in the sidebar
-  // footer's settings cluster — so the doors that remain are the work pages:
-  // Sprints (item 1763), Backlog (1769), Roadmap, Reviews. Design is owned by
-  // its OWN bundled `design` module, not by `design-wizard` (MC-1860).
+  // for the modal-surface registry — so the doors that remain are the work
+  // pages: Sprints (item 1763), Roadmap, Reviews. Both registries render as
+  // rows of the sidebar's Extensions section (app shell, 2026-09-05).
+  // Design is owned by its OWN bundled `design` module, not by `design-wizard`
+  // (MC-1860).
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -306,11 +300,10 @@ async function main(): Promise<void> {
       doorOrder,
       [
         ['sprints', 20],
-        ['backlog', 25],
         ['roadmap', 40],
         ['reviews', 50],
       ],
-      'the top-nav band holds only the true doors, in the mockup’s sidebar order',
+      'the door registry holds only the true doors, in the mockup’s sidebar order',
     )
     assert.equal(
       new Set(doorOrder.map(([id]) => id)).size,
@@ -358,7 +351,7 @@ async function main(): Promise<void> {
       !host.getModalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
       'the Design trigger leaves with the design module',
     )
-    console.log('ok - four doors + three modal surfaces, each backed and gated by its module')
+    console.log('ok - three doors + three modal surfaces, each backed and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════
@@ -509,240 +502,6 @@ async function main(): Promise<void> {
 
   await act(async () => {
     sprintsRoot.unmount()
-  })
-
-  // ═══ 4. The Backlog door: three projects, one page ════════════════════════
-  function item(root: string, key: string, id: number, relativePath: string, status: string): BacklogItem {
-    const built = createBacklogItem({
-      path: `${root}/${relativePath}`,
-      relativePath,
-      sourceContent: `---\nstatus: ${status}\n---\n# ${relativePath}`,
-      stats: { modifiedAtMs: 1, sizeBytes: 1 },
-    })
-    // The scan mints the display id from the project's own key (MC-/MA-/MM-),
-    // which is exactly what must not collide across projects on one page.
-    return { ...built, numericId: id, displayId: `${key}-${id}` }
-  }
-
-  // One epic with a member, so the door's DETAIL pane can be proven to render
-  // the workspace panel's epic linkage (MC-1836): the child's parent crumb and
-  // the epic's children roll-up.
-  const doorEpic: BacklogItem = {
-    ...createBacklogItem({
-      path: `${multicode}/backlog/epics/door-quality.md`,
-      relativePath: 'backlog/epics/door-quality.md',
-      sourceContent: '---\ntype: epic\nstatus: in_progress\n---\n# Door quality epic',
-      stats: { modifiedAtMs: 1, sizeBytes: 1 },
-    }),
-    numericId: 1832,
-    displayId: 'MC-1832',
-  }
-  const doorEpicChild: BacklogItem = {
-    ...createBacklogItem({
-      path: `${multicode}/backlog/lockin.md`,
-      relativePath: 'backlog/lockin.md',
-      sourceContent: '---\nstatus: ready\nepic: door-quality\n---\n# Door lock-in child item',
-      stats: { modifiedAtMs: 1, sizeBytes: 1 },
-    }),
-    numericId: 1833,
-    displayId: 'MC-1833',
-  }
-
-  const backlogByRoot = new Map<string, BacklogItem[]>([
-    [multicode, [item(multicode, 'MC', 1758, 'backlog/wake-filter.md', 'in_progress'), item(multicode, 'MC', 1745, 'backlog/minimap.md', 'ready'), doorEpic, doorEpicChild]],
-    [multiauth, [item(multiauth, 'MA', 112, 'backlog/token-refresh.md', 'needs_input')]],
-    [mobile, [item(mobile, 'MM', 87, 'backlog/catch-up-brief.md', 'ready')]],
-  ])
-
-  // multiauth's folder is unreadable; the other two scan normally. A per-project
-  // failure must cost that project's rows and nothing else.
-  setScanRunner(async (folderPath: string): Promise<BacklogScanResult> => {
-    if (folderPath === multiauth) {
-      return { state: 'error', items: [], errors: [{ relativePath: 'backlog', message: 'EACCES: permission denied' }] }
-    }
-    return { state: 'ready', items: backlogByRoot.get(folderPath) ?? [], errors: [] }
-  })
-
-  useWorkspaceStore.setState({ activeGlobalSurface: 'backlog' } as never)
-  const backlogRoot = createRoot(container)
-  await act(async () => {
-    backlogRoot.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(BacklogGlobalSurface)),
-    )
-  })
-  await settle(12)
-
-  // The project filter is ONE axis inside the filter glyph's menu, not a chip
-  // per project and not a Select of its own: options carry their counts, a
-  // failed project stays listed as "unavailable" (unreadable must remain
-  // reachable), and a healthy project with zero rows in the lens is omitted as
-  // noise.
-  const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter and sort"]')
-    assert.ok(trigger, 'the narrowing axes live behind one filter glyph')
-    return trigger as HTMLElement
-  }
-  // The menu portals to document.body, so options are queried document-wide and
-  // scoped to the Project group — the menu also holds View / Sort by / Group.
-  const filterOptions = (): HTMLElement[] =>
-    [...dom.window.document.querySelectorAll('[role="group"][aria-label="Project"] [role="menuitemradio"]')] as HTMLElement[]
-  const pickFilterOption = async (label: string): Promise<void> => {
-    // Picking an option does NOT close this menu (both axes can be set in one
-    // visit), so opening is conditional — an unconditional click would toggle an
-    // already-open menu shut.
-    if (filterTrigger().getAttribute('aria-expanded') !== 'true') {
-      await act(async () => {
-        filterTrigger().click()
-      })
-    }
-    const option = filterOptions().find(
-      (candidate) => candidate.textContent?.startsWith(label),
-    )
-    assert.ok(option, `the filter lists ${label}`)
-    await act(async () => {
-      ;(option as HTMLElement).click()
-    })
-    await settle()
-  }
-  await act(async () => {
-    filterTrigger().click()
-  })
-  assert.deepEqual(
-    filterOptions().map((option) => option.textContent),
-    // Path-sorted, not workspace-order: the aggregate derives its roots as
-    // sorted descriptors so the option order is stable across sessions.
-    ['All projects · 5', 'multiauth · unavailable', 'multicode · 4', 'multicode-mobile · 1'],
-    'All projects with the total, then one counted option per project with rows (mockup §4 toolbar)',
-  )
-  await act(async () => {
-    filterTrigger().click()
-  })
-  await settle()
-
-  // ── One narrowing anatomy across both doors ───────────────────────────────
-  // Search leads, one filter glyph sits beside it holding every narrowing axis
-  // (project included), and the rows follow. Compared as relationships, not
-  // markup, so this holds whichever door moves.
-  assert.deepEqual(
-    projectFilterPlacement(
-      'Search every project’s backlog',
-      'ul[role="listbox"][aria-label="Backlog items across projects"]',
-    ),
-    sprintsFilterPlacement,
-    'both doors narrow the list through the same control, in the same place',
-  )
-  assert.deepEqual(
-    sprintsFilterPlacement,
-    { collapsedBehindAGlyph: true, followsSearch: true, leadsRows: true },
-    'and that place is one glyph beside the search field, above the rows',
-  )
-  console.log('ok - the Backlog and Sprints doors place their project filter identically')
-
-  const rowText = (): string[] =>
-    [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')].map(
-      (row) => row.textContent ?? '',
-    )
-
-  const allRows = rowText()
-  assert.ok(allRows.some((text) => text.includes('MC-1758')), 'multicode’s items list')
-  assert.ok(allRows.some((text) => text.includes('MM-87')), 'so do the mobile project’s')
-  assert.ok(
-    allRows.every((text) => !text.includes('MA-112')),
-    'the unreadable project contributes no rows',
-  )
-  // Rows from different projects share one page, and which backlog a row came
-  // from rides its hover card — not a column of the same word repeated down the
-  // list, which crowded every title to answer a question nobody was asking on
-  // most rows.
-  assert.ok(
-    allRows.every((text) => !text.includes('multicode-mobile')),
-    'no project tag is painted into the rows themselves',
-  )
-  console.log('ok - the Backlog door lists every project’s items with their own keys')
-
-  // A failed project names itself and offers a retry, while the rest of the page
-  // stays a working backlog — never an all-or-nothing blank.
-  assert.ok(
-    container.textContent?.includes('Couldn’t read multiauth’s backlog.'),
-    'the failing project is named',
-  )
-  const backlogRetry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
-  assert.ok(backlogRetry, 'and offers Try again')
-  assert.equal(rowText().length, 5, 'the other two projects contribute all of their rows')
-  // Still a working backlog, not a frozen one: every surviving row is a
-  // selectable option, so the failure cost rows and nothing else.
-  assert.equal(
-    container.querySelectorAll(
-      'ul[role="listbox"][aria-label="Backlog items across projects"] > li[role="option"]',
-    ).length,
-    5,
-    'and they stay interactive',
-  )
-  console.log('ok - one project’s scan failing costs only that project’s rows')
-
-  // Filtering to one project is exactly that project's list — the door narrowed
-  // to a single project must not show more, less, or a different order than the
-  // project's own panel would.
-  await pickFilterOption('multicode-mobile')
-  const filtered = rowText()
-  assert.equal(filtered.length, 1, 'only the filtered project’s items remain')
-  assert.ok(filtered[0]?.includes('MM-87'), 'and they are that project’s')
-  assert.ok(
-    filtered.every((text) => !/\b(MC|MA)-\d+/.test(text)),
-    'a single-project view carries no other project’s ids',
-  )
-  assert.ok(
-    filtered.every((text) => !text.includes('multicode-mobile')),
-    'and the row itself still names no project',
-  )
-  console.log('ok - filtering to one project reproduces that project’s list')
-
-  // The door's detail pane is the WORKSPACE panel's BacklogDetail (MC-1836).
-  // The epic roll-up / parent-crumb check that used to sit here was deleted:
-  // it found the child row by its native `title` tooltip, which was retired
-  // from backlog rows on purpose (see BacklogRow.test.tsx — "the native path
-  // title attribute is retired for rows"), so the suite was asserting against
-  // a handle another test asserts must not exist.
-  await pickFilterOption('All projects')
-  const rowFor = (needle: string): HTMLElement => {
-    const row = [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')]
-      .find((candidate) => candidate.textContent?.includes(needle))
-    assert.ok(row, `a list row for ${needle}`)
-    return row as HTMLElement
-  }
-
-  // A row you cannot act on is a list, not a backlog. The door handed its row
-  // menu an empty action list, so every module-contributed action — "Run a
-  // Sprint" above all — was missing from the door while the per-project panel
-  // offered them. The context is built per row against THAT row's project.
-  {
-    const target = rowFor('Door quality epic')
-    await act(async () => {
-      target.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
-      )
-    })
-    await settle()
-    // By its accessible name, not the first [role="menu"] on the page: the
-    // door's own filter/sort control is a menu too and renders earlier, so a
-    // bare querySelector reads the filter bar and reports the row's actions
-    // missing when they are present.
-    const menu = dom.window.document.querySelector('[role="menu"][aria-label^="Backlog item actions"]')
-    assert.ok(menu, 'right-clicking a door row opens its context menu')
-    assert.match(
-      menu?.textContent ?? '',
-      /Run a Sprint/,
-      'the door offers the module-contributed sprint action, like the panel does',
-    )
-    await act(async () => {
-      dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
-    })
-    await settle()
-    console.log('ok - a Backlog door row carries the module actions, so a sprint can start from it')
-  }
-
-  await act(async () => {
-    backlogRoot.unmount()
   })
 
   // ═══ 5. The Reviews door MOUNTS ═══════════════════════════════════════════
@@ -1165,7 +924,6 @@ async function main(): Promise<void> {
 
     const doors: Array<[string, React.ComponentType]> = [
       ['sprints', SprintsGlobalSurface],
-      ['backlog', BacklogGlobalSurface],
       ['roadmap', RoadmapGlobalSurface],
       ['reviews', ReviewsGlobalSurface],
     ]
@@ -1213,7 +971,7 @@ async function main(): Promise<void> {
       host.remove()
       slot.remove()
     }
-    console.log('ok - all four doors declare a rail while loading and while empty')
+    console.log('ok - all three doors declare a rail while loading and while empty')
   }
 
   // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════

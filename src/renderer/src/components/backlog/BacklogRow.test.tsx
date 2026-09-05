@@ -480,13 +480,8 @@ const backlogPanelSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/panels/BacklogPanel.tsx'),
   'utf8',
 )
-const backlogDoorSource = readFileSync(
-  join(
-    process.cwd(),
-    'src/renderer/src/components/workspace/globalSurface/backlog/BacklogGlobalSurface.tsx',
-  ),
-  'utf8',
-)
+// The Backlog door retired 2026-09-05 (the workspace pane's Backlog tab is the
+// one Backlog surface now), so the panel is the only list these contracts read.
 // The wizard's backlog source picker died with the sprint flow (MC-2062); the
 // New sprint dialog is the creation surface that composes the shared row now.
 const sourcePickerSource = readFileSync(
@@ -512,11 +507,10 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
     /resolveBacklogRowColor\(item, epicMeta\?\.color \?\? null\)/,
     'row color resolves via the shared helper, factoring the epic identity colour between the manual highlight and the derived risk heat',
   )
-  // Both row surfaces — the panel list and the door list — paint through the one
-  // seam, so the paint order below cannot hold in one and drift in the other.
+  // The row surface paints through the one seam, so the paint order below
+  // cannot drift from it.
   for (const [surface, source] of [
     ['panel', backlogPanelSource],
-    ['door', backlogDoorSource],
   ] as const) {
     assert.match(
       source,
@@ -1004,17 +998,8 @@ run('an unselected Backlog row title sits at --text-default, and selection lifts
   }
 })
 
-run('the Backlog door list opts into the selection tier as the surface primary pane', () => {
-  assert.match(
-    backlogDoorSource,
-    /role="listbox"[\s\S]{0,900}?data-selection-pane="primary"/,
-    'the listbox that holds the rows is the pane — the CSS rebinds the tokens on the row inside it',
-  )
-})
-
-run('both Backlog surfaces hand the row its selected flag, so fill and ink cannot drift apart', () => {
+run('the Backlog panel hands the row its selected flag, so fill and ink cannot drift apart', () => {
   for (const [name, source] of [
-    ['the door', backlogDoorSource],
     ['the panel', backlogPanelSource],
   ] as const) {
     assert.match(source, /<BacklogRowContent[\s\S]{0,600}?selected=\{selected\}/, `${name} passes it to the row`)
