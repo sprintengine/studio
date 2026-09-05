@@ -949,11 +949,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         existing: React.ReactNode,
         wt: { cwd: string | null; branch: string | null } | null,
         missing = false,
+        // The missing tooltip for an OBSERVED directory that vanished: the
+        // default sentence describes the workspace worktree's spawn fallback,
+        // which is not a promise about a per-agent directory.
+        missingTitle?: string,
       ): React.ReactNode => {
         if (!wt) return existing
         const heading = wt.branch ? `Worktree · ${wt.branch}` : 'Running in a git worktree'
         const title = missing
-          ? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
+          ? missingTitle ?? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
           : wt.cwd
             ? `${heading}\n${wt.cwd}`
             : heading
@@ -1287,7 +1291,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           : null
       const agentWorktreeMissing = agentCheckout?.kind === 'missing'
         || (agentCheckout?.kind === 'worktree' && worktreeMissing && (!agentCheckout.observed || observedAtWorkspaceWorktree))
-      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree, agentWorktreeMissing)
+      renderValues.leading = withWorktreeGlyph(
+        renderValues.leading,
+        agentWorktree,
+        agentWorktreeMissing,
+        agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
+      )
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.

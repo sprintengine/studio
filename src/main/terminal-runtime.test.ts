@@ -342,6 +342,7 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
   const worktreeRoot = join(workspaceRoot, '.multicode-worktrees', 'ws', 'feature')
   const resolveCalls: string[] = []
   let blockResolution: Promise<void> | null = null
+  let gone = true
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
     requireAuthenticatedUser: () => undefined,
@@ -359,6 +360,9 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
         return { gitRoot: workspaceRoot, repoRoot: workspaceRoot, branch: 'main', isLinkedWorktree: false }
       }
       if (cwd === '/unanswerable') return null
+      if (cwd === '/gone') return gone
+        ? { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false, missing: true }
+        : { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
       return { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
     },
   })
@@ -476,12 +480,30 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     assert.equal(snapshot()?.observedCheckout?.resolved, true)
 
     // A resolver that cannot answer leaves the observation unresolved (never
-    // "folder"), so consumers fall back to launch intent.
+    // "folder"), so consumers fall back to launch intent — and that outcome is
+    // broadcast, or the renderer would keep showing the checkout just left.
     const t3 = t2 + 2000
-    runtime.ingestAgentStateFrame(frame({ event: 'UserPromptSubmit', ts: t3, cwd: '/unanswerable' }))
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: t3, cwd: '/unanswerable' }))
     await settle()
     assert.equal(snapshot()?.observedCheckout?.cwd, '/unanswerable')
     assert.equal(snapshot()?.observedCheckout?.resolved, false, 'null from the resolver stays unresolved')
+    assert.ok(
+      mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
+      'an unanswerable move still broadcasts the unresolved observation'
+    )
+
+    // A directory that vanished reads missing; when it comes back as a plain
+    // folder the flag must not stick to the next answer.
+    gone = true
+    runtime.ingestAgentStateFrame(frame({ ts: t3 + 100, cwd: '/gone' }))
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.missing, true, 'a vanished cwd is missing')
+    gone = false
+    runtime.ingestAgentStateFrame(frame({ event: 'Stop', ts: t3 + 200, cwd: '/gone' }))
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.resolved, true)
+    assert.equal(snapshot()?.observedCheckout?.missing, undefined, 'a recreated directory is no longer missing')
 
     // A slow resolution that finishes after a newer cwd arrived is discarded.
     let release: () => void = () => undefined
@@ -524,6 +546,33 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     assert.equal(snapshot()?.suspended, false)
     assert.equal(snapshot()?.observedCheckout?.cwd, '/race/src', 'resume carries the observation onto the fresh session')
     assert.equal(snapshot()?.observedCheckout?.gitRoot, workspaceRoot)
+
+    // A second session launched into a directory another session answered
+    // moments ago asks fresh on its first observation: the cached answer may
+    // predate a branch switch made just before this launch.
+    const secondId = 'session-observed-2'
+    const second = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: secondId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-observed',
+      agentId: secondId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(second.ok, true, JSON.stringify(second))
+    try {
+      const callsBeforeSecond = resolveCalls.length
+      runtime.ingestAgentStateFrame(frame({ agentId: secondId, event: 'SessionStart', ts: Date.now(), cwd: insideSrc }))
+      await settle()
+      assert.equal(resolveCalls.length, callsBeforeSecond + 1, 'a first observation bypasses the cache')
+    } finally {
+      runtime.ipcHandlers.killTerminal(secondId)
+    }
   } finally {
     runtime.ipcHandlers.killTerminal(sessionId)
     await rm(workspaceRoot, { recursive: true, force: true })

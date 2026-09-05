@@ -1994,12 +1994,15 @@ function runAgentStallCheck(session: TerminalSession): void {
 // unresolved observation renders as launch intent, so publishing it would only
 // flicker a worktree tab back to "main" until git answers a few ms later. The
 // resolution broadcasts.
-function observeSessionCwd(session: TerminalSession, cwd: string, ts: number): boolean {
+function observeSessionCwd(session: TerminalSession, cwd: string, ts: number, options: { fresh: boolean }): boolean {
   const current = session.observedCheckout
   if (current && current.at > ts) return false
   if (current && current.cwd === cwd) return false
   session.observedCheckout = unresolvedObservedCheckout(cwd, ts)
-  scheduleObservedCheckoutResolution(session, { fresh: false })
+  // A session's FIRST observation asks fresh: another session's cached
+  // answer for the same directory may predate a branch switch made just
+  // before this one was launched into it.
+  scheduleObservedCheckoutResolution(session, { fresh: options.fresh || !current })
   return true
 }
 
@@ -2047,17 +2050,33 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
   void Promise.resolve()
     .then(() => cached ?? resolveObservedCheckout(target.cwd))
     .then((facts) => {
-      if (!facts) return
-      if (!cached) rememberObservedCheckout(target.cwd, facts, Date.now())
       if (session.observedCheckoutSeq !== ticket) return
       const current = session.observedCheckout
       if (!current || current.cwd !== target.cwd) return
-      const next = { ...current, resolved: true, ...facts }
+      const live = !session.isDisposed && terminals.get(session.sessionId) === session
+      if (!facts) {
+        // Unanswerable: the observation stays unresolved, and that IS the
+        // news — without a broadcast the renderer would keep showing the
+        // checkout the session just left.
+        if (live) broadcastTerminalSessionsChanged()
+        return
+      }
+      if (!cached) rememberObservedCheckout(target.cwd, facts, Date.now())
+      // Built from the facts, never spread over the previous answer: a stale
+      // `missing` must not survive the directory coming back.
+      const next: ObservedCheckout = {
+        cwd: current.cwd,
+        at: current.at,
+        resolved: true,
+        gitRoot: facts.gitRoot,
+        repoRoot: facts.repoRoot,
+        branch: facts.branch,
+        isLinkedWorktree: facts.isLinkedWorktree,
+        ...(facts.missing ? { missing: true } : {}),
+      }
       if (sameObservedCheckout(current, next)) return
       session.observedCheckout = next
-      if (!session.isDisposed && terminals.get(session.sessionId) === session) {
-        broadcastTerminalSessionsChanged()
-      }
+      if (live) broadcastTerminalSessionsChanged()
     })
     .catch((error) => {
       logMainPerfEvent('TerminalRuntime', 'observed-checkout-resolve-failed', {
@@ -2065,6 +2084,7 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
         cwd: target.cwd,
         error: error instanceof Error ? error.message : String(error),
       })
+      if (!session.isDisposed && terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
     })
 }
 
@@ -2098,7 +2118,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // Where the session is (MC-2440) rides every frame that carries a cwd and
   // is applied BEFORE the phase drop below: an informational Notification or an
   // event the spec does not name still tells the truth about the cwd.
-  const observedChanged = frame.cwd ? observeSessionCwd(session, frame.cwd, frame.ts) : false
+  // A turn end or session start that itself moves the cwd asks git fresh, as
+  // the same events do for an unchanged cwd below.
+  const observedChanged = frame.cwd
+    ? observeSessionCwd(session, frame.cwd, frame.ts, {
+        fresh: resolved.action === 'apply' && (resolved.turnEnd || resolved.phase === 'starting'),
+      })
+    : false
 
   // A frame whose event the spec does not name (or whose discriminator value
   // is not allow-listed — Claude's informational Notification types) drops

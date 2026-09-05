@@ -21,6 +21,7 @@
  *      caller leaves the observation unresolved and falls back to launch
  *      intent rather than reading "folder" into a tooling failure.
  */
+import { realpath } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { pathExists, runGitCommand } from './git-utils'
@@ -111,13 +112,18 @@ export function hostCwdForResolution(cwd: string, platform: NodeJS.Platform = pr
 }
 
 export async function resolveCheckoutForCwd(reportedCwd: string): Promise<ResolvedCheckoutFacts | null> {
-  const cwd = hostCwdForResolution(reportedCwd)
-  if (!cwd) return null
+  const hostCwd = hostCwdForResolution(reportedCwd)
+  if (!hostCwd) return null
 
   // A vanished directory (a pruned worktree) is reported as missing — the git
   // call would only fail with a chdir error that says nothing about repos, and
   // the tab must be able to show "removed" rather than a plain folder.
-  if (!(await pathExists(cwd))) return MISSING_DIRECTORY
+  if (!(await pathExists(hostCwd))) return MISSING_DIRECTORY
+  // Canonical, because git's `--absolute-git-dir` answer is realpath-resolved
+  // while an old git's relative `--git-common-dir` is resolved against THIS
+  // path: through a symlinked cwd the two would name the same dir twice and
+  // read as a linked worktree.
+  const cwd = await realpath(hostCwd).catch(() => hostCwd)
 
   const top = await runGitCommand(cwd, ['rev-parse', '--show-toplevel'], CLEAN_GIT_ENV)
   if (!top.ok) return saysNotARepo(top.stderr, top.message) ? NOT_A_CHECKOUT : null
