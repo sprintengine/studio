@@ -15,7 +15,6 @@ import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileR
 import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
 import { IconButton, OutlineButton, PrimaryButton } from '../ui/Buttons'
 import { EmptyState } from '../ui/EmptyState'
-import { PanelHeader } from '../ui/PanelHeader'
 import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
@@ -28,6 +27,7 @@ import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEng
 
 const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_EXPANDED_PATHS: string[] = []
+const EMPTY_TREE_ROWS: TreeRow[] = []
 
 type Entry = {
   name: string
@@ -770,6 +770,14 @@ function ExplorerTree({
     [rootEntries, expandedPaths, childrenByPath]
   )
 
+  // The root row (owner 2026-09-05): the folder
+  // itself heads the tree, name strong and path muted, and its chevron folds
+  // the whole tree. It is chrome the tree draws for itself, not an Entry —
+  // nothing selects, renames, moves or deletes it — and a search ignores the
+  // fold, since a search that returns nothing on purpose is a lie.
+  const rootName = rootPath.split(/[/\\]/).filter(Boolean).pop() ?? rootPath
+  const [rootCollapsed, setRootCollapsed] = useState(false)
+
   const isSearching = query.trim().length > 0
   const searchRows = useMemo(
     () => buildSearchTreeRows(rootPath, searchResults),
@@ -777,7 +785,9 @@ function ExplorerTree({
   )
   const activeRows = isSearching
     ? searchRows
-    : visibleRows
+    : rootCollapsed
+      ? EMPTY_TREE_ROWS
+      : visibleRows
   const selectedEntries = useMemo(
     () => activeRows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
     [activeRows, selectedPaths]
@@ -2124,6 +2134,31 @@ function ExplorerTree({
           rootDropActive ? 'ring-1 ring-inset ring-[color:var(--accent-primary)]' : ''
         }`}
       >
+        <div
+          role="treeitem"
+          // A row, so a press on it never starts the background rubber-band.
+          data-file-explorer-row="true"
+          aria-expanded={isSearching || !rootCollapsed}
+          aria-selected={false}
+          aria-label={rootName}
+          onClick={() => {
+            if (!isSearching) setRootCollapsed((current) => !current)
+            focusTree()
+          }}
+          className="group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        >
+          <ChevronIcon
+            expanded={isSearching || !rootCollapsed}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              if (!isSearching) setRootCollapsed((current) => !current)
+            }}
+          />
+          <FolderIcon expanded={isSearching || !rootCollapsed} />
+          <span className="shrink-0 font-medium text-[color:var(--text-strong)]">{rootName}</span>
+          <span className="min-w-0 truncate text-micro text-[color:var(--text-muted)]">{rootPath}</span>
+        </div>
         {activeRows.map(({ entry, depth }) => {
           const isSelected = selectedPaths.has(entry.path)
           const isFocused = entry.path === selectedPath
@@ -2185,7 +2220,8 @@ function ExplorerTree({
                     : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
               }`}
-              style={{ paddingLeft: `${8 + depth * 14}px` }}
+              // One level in from the root row above.
+              style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
             >
               {entry.isDir ? (
                 <>
@@ -2320,14 +2356,14 @@ function ExplorerTree({
 // disk. The staggered indents and chevron/icon/label rhythm match the resting
 // tree so the check reads as a quiet load instead of a "Checking…" message.
 const FILE_EXPLORER_SKELETON_ROWS: { indent: number; width: number }[] = [
-  { indent: 0, width: 52 },
-  { indent: 1, width: 64 },
-  { indent: 1, width: 44 },
-  { indent: 2, width: 58 },
-  { indent: 0, width: 48 },
-  { indent: 1, width: 70 },
-  { indent: 1, width: 40 },
-  { indent: 0, width: 56 },
+  { indent: 0, width: 40 },
+  { indent: 1, width: 52 },
+  { indent: 2, width: 64 },
+  { indent: 2, width: 44 },
+  { indent: 3, width: 58 },
+  { indent: 1, width: 48 },
+  { indent: 2, width: 70 },
+  { indent: 1, width: 56 },
 ]
 
 function FileExplorerSkeleton(): JSX.Element {
@@ -2456,68 +2492,64 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
     setRevealToken((current) => (current === 0 ? 1 : current))
   }, [canRevealActiveFile])
 
-  const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? folderPath ?? ''
-
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]">
-      {rootName && (
-        <>
-          <PanelHeader
-            title={rootName}
-            // The search band below draws the panel's one rule. Keeping the
-            // header's as well stacks two hairlines and boxes the search into a
-            // strip of its own — the defect PanelHeader's `divider` documents.
-            // With no folder open there is no search band, so the header keeps it.
-            divider={!folderReadyPath}
-            overflow={
-              folderReadyPath ? (
-                <>
-                  <Tooltip content="New file" placement="bottom">
-                    <IconButton aria-label="New file" onClick={() => requestCreateEntry('file')}>
-                      <NewFileIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip content="New folder" placement="bottom">
-                    <IconButton aria-label="New folder" onClick={() => requestCreateEntry('dir')}>
-                      <NewFolderIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
-                    <IconButton
-                      aria-label="Reveal active file"
-                      onClick={revealActiveFile}
-                      disabled={!canRevealActiveFile}
-                    >
-                      <RevealActiveFileIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Refresh files" placement="bottom">
-                    <IconButton
-                      aria-label="Refresh files"
-                      onClick={() => {
-                        setRefreshToken((current) => current + 1)
-                        void refreshGitStatus()
-                      }}
-                    >
-                      <RefreshFilesIcon />
-                    </IconButton>
-                  </Tooltip>
-                </>
-              ) : undefined
-            }
-          />
-
-          {folderReadyPath && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-              <InboxSearchInput
-                value={query}
-                onChange={setQuery}
-                ariaLabel="Search files"
-                placeholder="Search files…"
-              />
-            </div>
-          )}
-        </>
+      {/*
+       * The panel's one chrome row: search on the left, the four tree actions
+       * on the right (owner, 2026-09-05).
+       *
+       * It used to be a PanelHeader titled with the folder name, the actions
+       * in its overflow slot, and the search band on a second row below it.
+       * The name now lives where IDEs put it — as the ROOT ROW of the
+       * tree, with its path beside it — so the header was a band of chrome
+       * restating the first row of the surface. Same ruling, same geometry as
+       * the Git and Backlog panes' bands, so the three pane tabs start their
+       * content level. With no folder ready there is nothing to search or act
+       * on, and the empty state below carries the path.
+       */}
+      {folderReadyPath && (
+        <div className="flex h-[36px] shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] pl-2 pr-1.5">
+          <div className="flex min-w-0 flex-1">
+            <InboxSearchInput
+              value={query}
+              onChange={setQuery}
+              ariaLabel="Search files"
+              placeholder="Search files…"
+            />
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Tooltip content="New file" placement="bottom">
+              <IconButton aria-label="New file" onClick={() => requestCreateEntry('file')}>
+                <NewFileIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip content="New folder" placement="bottom">
+              <IconButton aria-label="New folder" onClick={() => requestCreateEntry('dir')}>
+                <NewFolderIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
+              <IconButton
+                aria-label="Reveal active file"
+                onClick={revealActiveFile}
+                disabled={!canRevealActiveFile}
+              >
+                <RevealActiveFileIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip content="Refresh files" placement="bottom">
+              <IconButton
+                aria-label="Refresh files"
+                onClick={() => {
+                  setRefreshToken((current) => current + 1)
+                  void refreshGitStatus()
+                }}
+              >
+                <RefreshFilesIcon />
+              </IconButton>
+            </Tooltip>
+          </div>
+        </div>
       )}
 
       <div className="flex-1 overflow-y-auto">
