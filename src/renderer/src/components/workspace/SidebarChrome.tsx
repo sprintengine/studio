@@ -32,7 +32,6 @@ import SprintEngineWordmark from '../brand/SprintEngineWordmark'
 import { Popover, Tooltip } from '../ui'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 
 // The row's icon buttons. `control-xs` is the system's icon-button step
 // (principles.md, "Space and size"), and with four of them sharing the row with
@@ -225,24 +224,28 @@ export function SidebarChrome<MenuItem extends string>({
 }: SidebarChromeProps<MenuItem>) {
   // Only rendered while the sidebar is expanded (the whole sidebar is hidden when
   // collapsed — the collapsed launcher lives in WorkspaceHeader instead).
-  const reserveTrafficLights = isMac && !isFullScreen
+  //
+  // No traffic-light reserve here any more (app shell, 2026-09-05): the
+  // app rail stands between this column and the window's left edge, and the
+  // native lights land in its top reserve. `isFullScreen` stays on the props
+  // because the rail's reserve is the same on every platform and this row no
+  // longer needs to know.
+  void isFullScreen
 
   // The width at which the wordmark still fits beside everything the row must
   // keep. Below it the mark drops out and the four controls stay — the sidebar is
   // drag-resizable down to SIDEBAR_MIN_WIDTH (200), and one row cannot hold all
-  // five plus the macOS reserve at that width.
+  // five at that width.
   //
   // The row is: [leading] + mark 100 + (4 × 26 controls + 3 × 2 gaps + 8 pad) 118.
-  // Leading is the 78px traffic-light reserve, or the 34px app-menu cluster on
-  // win/linux (4 pad + 30 button), or nothing on macOS in fullscreen.
+  // Leading is the 34px app-menu cluster on win/linux (4 pad + 30 button), or
+  // nothing on macOS.
   //
   // Literal class strings, never interpolated: Tailwind generates a container
   // query only from a variant it can see in the source text.
-  const wordmarkVisibility = reserveTrafficLights
-    ? 'hidden @[296px]:inline-flex' // 78 + 100 + 118
-    : isMac
-      ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
-      : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
+  const wordmarkVisibility = isMac
+    ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
+    : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
 
   return (
     // ONE row (owner, 2026-07-30): one chrome row per content region. Height-
@@ -251,17 +254,11 @@ export function SidebarChrome<MenuItem extends string>({
     // below owns the single "the list starts here" rule (principles.md,
     // Composition).
     //
-    // On macOS the 78px traffic-light reserve is the wordmark's left inset, so
-    // the mark cannot also sit on the rail's 16px text edge; in fullscreen the
-    // reserve collapses and it moves left with it. That is the cost of one row,
-    // and one row is the ruling.
-    //
     // `@container` so the wordmark can drop out below the width that fits it
     // (owner, 2026-07-30: at narrow widths the mark is the thing to lose, not a
     // control). The four icon buttons are the row's floor — they are the
     // functional controls and never drop.
     <div className="@container app-drag flex h-[36px] shrink-0 items-center">
-      {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
       {!isMac ? (
         <div className="flex shrink-0 items-center pl-1">
           <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />

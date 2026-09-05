@@ -80,6 +80,9 @@ import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
+import { AppRail } from './AppRail'
+import SidebarAccountBar from './SidebarAccountBar'
+import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
@@ -483,6 +486,9 @@ export default function WorkspaceManager() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sidebarCollapsed = useWorkspaceStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
+  // The app rail's active section (app shell, 2026-09-05).
+  const sidebarSection = useWorkspaceStore((s) => s.sidebarSection)
+  const setSidebarSection = useWorkspaceStore((s) => s.setSidebarSection)
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
   const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
@@ -1026,6 +1032,20 @@ export default function WorkspaceManager() {
   const leaveGlobalSurface = useCallback(() => {
     surfaceTrigger.leave(closeGlobalSurface)
   }, [surfaceTrigger, closeGlobalSurface])
+
+  // A rail glyph names a section of the sidebar column, so choosing one shows
+  // that column: it expands a collapsed sidebar, and it leaves any open door,
+  // whose rail would otherwise keep the column. Choosing the section already
+  // showing is a no-op rather than a toggle, so the rail always has a
+  // selected section.
+  const selectSidebarSection = useCallback(
+    (section: SidebarSection) => {
+      if (activeGlobalSurface) leaveGlobalSurface()
+      setSidebarSection(section)
+      if (sidebarCollapsed) setSidebarCollapsed(false)
+    },
+    [activeGlobalSurface, leaveGlobalSurface, setSidebarCollapsed, setSidebarSection, sidebarCollapsed],
+  )
 
   // The same trigger-focus restore, offered to the door itself. The bar chevron
   // is rendered inside the surface's tree by `GlobalSurfaceShell`, so without this
@@ -2746,7 +2766,9 @@ export default function WorkspaceManager() {
     closeGlobalSurface()
     closeModalSurface()
     setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeModalSurface, presentNewChatPanel])
+    // A chat is a Home thing: the tree is where its row will appear.
+    setSidebarSection('home')
+  }, [closeGlobalSurface, closeModalSurface, presentNewChatPanel, setSidebarSection])
   // Closing ON PURPOSE — ×, Escape, or the chat starting — is the one thing
   // besides launch that forgets the draft. Every other way off the door
   // (Back, a sidebar click, a door, the New sprint dialog) only parks it:
@@ -3678,6 +3700,28 @@ export default function WorkspaceManager() {
       <ToastHost />
 
       <div className="relative flex min-h-0 flex-1 flex-row">
+      {/* The app rail (app shell, 2026-09-05): the window's far-left
+          column of section glyphs. It stays put whether the sidebar beside it
+          is expanded, collapsed, or taken over by a door's rail, and it carries
+          the account + Settings cluster at its foot. */}
+      <AppRail
+        section={sidebarSection}
+        onSelectSection={selectSidebarSection}
+        accountSlot={
+          <SidebarAccountBar
+            collapsed
+            authState={authState}
+            authMessage={authMessage}
+            accountOpen={accountOpen}
+            setAccountOpen={setAccountOpen}
+            startLogin={startLogin}
+            refreshAuthState={refreshAuthState}
+            logout={logout}
+            openSettings={openSettings}
+            settingsOpen={settingsOpen}
+          />
+        }
+      />
       <WorkspaceSidebar
         workspaces={visibleWorkspaces}
         activeWorkspaceId={windowActiveWorkspaceId}
@@ -3724,6 +3768,7 @@ export default function WorkspaceManager() {
           // changes no workspace id, and the id-keyed park would not fire.
           setNewChatPanelState(null)
           setActiveWorkspaceForWindow(workspaceWindowId, id)
+          setSidebarSection('home')
         }}
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
         onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
@@ -3736,15 +3781,6 @@ export default function WorkspaceManager() {
         onSetSidebarCollapsed={setSidebarCollapsed}
         sidebarWidth={sidebarWidth}
         onSetSidebarWidth={setSidebarWidth}
-        authState={authState}
-        authMessage={authMessage}
-        accountOpen={accountOpen}
-        setAccountOpen={setAccountOpen}
-        startLogin={startLogin}
-        refreshAuthState={refreshAuthState}
-        logout={logout}
-        openSettings={openSettings}
-        settingsOpen={settingsOpen}
       />
       {/* The content column and the workspace pane column share this row so
           the pane can (a) stand beside the WorkspaceHeader at full height and

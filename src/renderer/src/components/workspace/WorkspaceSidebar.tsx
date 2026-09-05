@@ -29,7 +29,7 @@ import {
   type Tone,
 } from '../ui'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import SidebarAccountBar from './SidebarAccountBar'
+import { ExtensionsRail } from './ExtensionsRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   type HighlightColor,
@@ -125,18 +125,6 @@ type WorkspaceSidebarProps = {
   // Persisted expanded width (px) and its setter, for drag-to-resize.
   sidebarWidth: number
   onSetSidebarWidth: (width: number) => void
-  // Account + Settings cluster, relocated from WorkspaceTopBar to the sidebar
-  // bottom (Cursor-parity layout). The handlers stay owned by WorkspaceManager;
-  // the sidebar only mounts the controls at their new home.
-  authState: MulticodeAuthState
-  authMessage: string | null
-  accountOpen: boolean
-  setAccountOpen: React.Dispatch<React.SetStateAction<boolean>>
-  startLogin: () => void | Promise<void>
-  refreshAuthState: () => void | Promise<void>
-  logout: () => void | Promise<void>
-  openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
-  settingsOpen: boolean
 }
 
 type FolderGroup = {
@@ -908,16 +896,13 @@ export default function WorkspaceSidebar({
   onSetSidebarCollapsed,
   sidebarWidth,
   onSetSidebarWidth,
-  authState,
-  authMessage,
-  accountOpen,
-  setAccountOpen,
-  startLogin,
-  refreshAuthState,
-  logout,
-  openSettings,
-  settingsOpen,
 }: WorkspaceSidebarProps) {
+  // Which of the app rail's sections this column shows. The tree stays mounted
+  // and hidden under Extensions (its folds and scroll offset are the
+  // operator's), and both step aside while a door's rail owns the column.
+  const sidebarSection = useWorkspaceStore((s) => s.sidebarSection)
+  const extensionsSection = sidebarSection === 'extensions'
+  const homeHidden = extensionsSection || Boolean(contextRailActive)
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
@@ -2145,75 +2130,47 @@ export default function WorkspaceSidebar({
        * emptying the column for it would trade a problem it does not have for a
        * blank rail. */}
       {contextRail}
-      <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${contextRailActive ? 'hidden' : ''}`}>
-        {/* Instance-level top-nav cluster. Every door carries an explicit `order`
-            — the shell's own built-ins (Create=0, Sprints=20, Connectors=30)
-            alongside module-contributed doors (Automations=10 and Roadmap=40, from
-            the sidebar-nav host contribution point) — and one merged sort renders
-            the band deterministically: Create → Automations → Sprints → Connectors
-            → Roadmap (D4). A gated door drops out when its module is off without
-            disturbing the order of the rest.
-
-            Create: New chat, the one way in (owner, 2026-09-04). The split "+"
-            and its create menu went with the New workspace hub; sprints start
-            from the Sprints door. The row keeps the tab-extract drop target. */}
-        {(
-          [
-            {
-              id: 'create',
-              order: 0,
-              node: (
-                <div className="flex items-stretch gap-px">
-                  <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
-                    <button
-                      type="button"
-                      onClick={onNewChat}
-                      onDragOver={handleTabDragOverNew}
-                      onDragLeave={handleTabDragLeaveNew}
-                      onDrop={handleTabDropOnNew}
-                      className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
-                        tabDropTarget?.kind === 'new'
-                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                      }`}
-                    >
-                      <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
-                      </span>
-                    </button>
-                  </Tooltip>
-                </div>
-              ),
-            },
-            // Automations (order 10), Sprints (order 20), and Extensions
-            // (order 30, the old Connectors slot — MC-1847 B1) are all
-            // module-contributed doors in the moduleNavEntries block below —
-            // each left this hardcoded list for its own full-page surface, so
-            // their built-in buttons retired.
-            // Module-contributed doors (Roadmap). Lazy, so wrapped in Suspense; a
-            // brief null while its bundle loads is fine for a nav row. The row id
-            // is namespaced so a module entry id can never collide with a shell
-            // door's React key (a module picks its own entry id freely).
-            ...moduleNavEntries.map((entry) => ({
-              id: `module:${entry.id}`,
-              order: entry.order,
-              node: (
-                <React.Suspense fallback={null}>
-                  <entry.Component collapsed={sidebarCollapsed} />
-                </React.Suspense>
-              ),
-            })),
-          ] as Array<{ id: string; order: number; node: React.ReactNode } | null>
-        )
-          .filter((row): row is { id: string; order: number; node: React.ReactNode } => row !== null)
-          .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-          .map((row) => <React.Fragment key={row.id}>{row.node}</React.Fragment>)}
+      {/* The Extensions section (app shell, 2026-09-05): the list of
+          doors and modal surfaces the top-nav band above the tree used to hold.
+          The app rail's Extensions glyph shows it in place of the tree; a door
+          opened from it swaps its own rail into this column exactly as before.
+          Unmounted rather than hidden — unlike the tree it keeps no fold or
+          scroll state worth preserving across a section switch. */}
+      {extensionsSection && !contextRailActive ? (
+        <ExtensionsRail collapsed={sidebarCollapsed} navEntries={moduleNavEntries} />
+      ) : null}
+      <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
+        {/* Home's one control above the tree: New chat, the one way in (owner,
+            2026-09-04). The doors that used to share this band — Sprints,
+            Backlog, Horizon, Reviews — live under the app rail's Extensions
+            glyph now, so the tree starts one row down. The row keeps the
+            tab-extract drop target. */}
+        <div className="flex items-stretch gap-px">
+          <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={onNewChat}
+              onDragOver={handleTabDragOverNew}
+              onDragLeave={handleTabDragLeaveNew}
+              onDrop={handleTabDropOnNew}
+              className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                tabDropTarget?.kind === 'new'
+                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+              }`}
+            >
+              <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+              </span>
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       <div
         aria-hidden="true"
-        className={`mx-2 my-2 h-px bg-[color:var(--border-subtle)] ${contextRailActive ? 'hidden' : ''}`}
+        className={`mx-2 my-2 h-px bg-[color:var(--border-subtle)] ${homeHidden ? 'hidden' : ''}`}
       />
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
@@ -2247,7 +2204,7 @@ export default function WorkspaceSidebar({
           sits in the section-header family's 38px column. */}
       <nav
         ref={treeRef}
-        className={`flex-1 overflow-y-auto pb-2 ${contextRailActive ? 'hidden' : ''}`}
+        className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
         role="tree"
         onScroll={(event) => {
           treeScrollTopRef.current = event.currentTarget.scrollTop
@@ -2441,28 +2398,9 @@ export default function WorkspaceSidebar({
           )
         })}
       </nav>
-
-      {/* Sidebar-bottom account + Settings, relocated from WorkspaceTopBar
-          (Cursor-parity). Pinned to the bottom because the <nav> above is
-          flex-1; this is where the Automations rail used to sit (now a top-nav
-          entry). */}
-      {/* The drilled-in rail's bottom row is Back, so the account cluster steps
-          aside with the rest of this column's content — one rail, one thing
-          pinned at its foot. It returns with the rail. */}
-      <div className={`flex flex-col ${contextRailActive ? 'hidden' : ''}`}>
-      <SidebarAccountBar
-        collapsed={sidebarCollapsed}
-        authState={authState}
-        authMessage={authMessage}
-        accountOpen={accountOpen}
-        setAccountOpen={setAccountOpen}
-        startLogin={startLogin}
-        refreshAuthState={refreshAuthState}
-        logout={logout}
-        openSettings={openSettings}
-        settingsOpen={settingsOpen}
-      />
-      </div>
+      {/* The account + Settings cluster that used to pin to this column's foot
+          lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever
+          section this column happens to be showing. */}
 
 
       {/* Context menu (workspace row) */}

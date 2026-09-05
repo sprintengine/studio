@@ -1,9 +1,7 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { IconButton, OutlineButton, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import { MENU_ITEM_CLASS } from '../ui/menuClasses'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
-import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
-import { useWorkspaceStore } from '../../store/workspaceStore'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
@@ -52,54 +50,10 @@ function GearIcon({ className }: { className?: string }) {
 // and bordered buttons; a toolbar of lifted glyphs would read as a row of
 // tiles and would spend depth on chrome rather than on the one primary action.
 
-// The modal-surface trigger glyphs (doors→modals, 2026-09-01): one icon button
-// per registered modal surface, enablement-filtered and order-sorted by the
-// host registry, rendered immediately before the gear. Self-contained like a
-// sidebar nav entry — it reads the local window's store and acts on it; the
-// footer only owns placement. A plain open runs the surface's `onOpen` first
-// (the Plugins surface discards a stale deep-link latch there), then opens the
-// modal.
-function ModalSurfaceTriggers() {
-  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
-  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
-  // Third-party renderer modules can finish loading after first render (the
-  // boot timeout race WorkspaceManager's moduleRegistryGeneration handles):
-  // without this bump an SDK module's registerModalSurface would mount fine
-  // but its trigger — the only user-visible way in — would stay absent until
-  // an unrelated module toggle or a reload.
-  const [registryGeneration, setRegistryGeneration] = React.useState(0)
-  React.useEffect(
-    () => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)),
-    [],
-  )
-  const surfaces = useMemo(
-    () => getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
-    [moduleOverrides, registryGeneration],
-  )
-  return (
-    <>
-      {surfaces.map((surface) => {
-        const open = activeModalSurface === surface.id
-        return (
-          <Tooltip key={surface.id} content={surface.label} placement="top">
-            <IconButton
-              size="md"
-              pressed={open}
-              onClick={() => {
-                surface.onOpen?.()
-                openModalSurface(surface.id)
-              }}
-              aria-label={surface.label}
-            >
-              <surface.Icon className="size-icon-md" />
-            </IconButton>
-          </Tooltip>
-        )
-      })}
-    </>
-  )
-}
+// The modal-surface trigger glyphs that used to sit here beside the gear
+// (doors→modals, 2026-09-01) are rows of the sidebar's Extensions section now
+// (ExtensionsRail, app shell 2026-09-05): one home for every surface a
+// person can open, whether it mounts as a door or as a modal.
 
 function sentenceCase(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1).replace(/_/g, ' ') : value
@@ -362,17 +316,11 @@ export default function SidebarAccountBar({
     >
       {accountControl}
       {collapsed ? (
-        <>
-          <ModalSurfaceTriggers />
-          {settingsButton}
-        </>
+        settingsButton
       ) : (
-        // With the account control now icon-only, the settings cluster pins to
+        // With the account control now icon-only, the settings gear pins to
         // the row's right edge; the account badge holds the left.
-        <div className="ml-auto flex items-center gap-1.5">
-          <ModalSurfaceTriggers />
-          {settingsButton}
-        </div>
+        <div className="ml-auto flex items-center gap-1.5">{settingsButton}</div>
       )}
     </div>
   )

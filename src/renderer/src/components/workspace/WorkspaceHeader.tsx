@@ -14,7 +14,6 @@ import { IconButton, Tooltip } from '../ui'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { AppMenuButton } from './SidebarChrome'
-import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
 import type { WorkspaceId } from '../../types/workspace'
 
@@ -130,10 +129,11 @@ export function WorkspaceHeader<MenuItem extends string>({
   attentionQueue,
   onOpenDiagnostics,
 }: WorkspaceHeaderProps<MenuItem>) {
-  // With the sidebar hidden, the window's top-left is this header — so the
-  // traffic-light inset (mac) / app-menu (win-linux) and the open-sidebar /
-  // search / New Agent launcher relocate to the header's left.
-  const reserveTrafficLights = sidebarCollapsed && isMac && !isFullScreen
+  // With the sidebar hidden, the app-menu (win-linux) and the open-sidebar /
+  // search / New Agent launcher relocate to the header's left. No traffic-light
+  // reserve any more (app shell, 2026-09-05): the app rail stays put
+  // when the sidebar collapses, and the lights sit in its top reserve.
+  void isFullScreen
   // How much room the left block actually has, so the identity cluster knows how
   // much of itself to fold into its overflow menu. Measured off THIS block
   // rather than the window: it is what narrows when the sidebar opens, and the
@@ -141,7 +141,6 @@ export function WorkspaceHeader<MenuItem extends string>({
   const [fold, foldRef] = useMeasuredTitleBarFold()
   return (
     <div className="app-drag flex h-[36px] shrink-0 items-center border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-      {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
       {/* Left: (collapsed) window launcher, then panel switches + identity. */}
       <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
         {sidebarCollapsed ? (

@@ -49,7 +49,7 @@ import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
-import { createSettingsSlice, normalizeAppSettings } from './slices/settingsSlice'
+import { createSettingsSlice, normalizeAppSettings, type SidebarSection } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
 import {
@@ -217,6 +217,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   activeModalSurface: string | null
   openModalSurface: (surfaceId: string) => void
   closeModalSurface: () => void
+  // The app rail's active section (Home / Extensions), deciding what the
+  // sidebar column shows. Transient like activeGlobalSurface.
+  sidebarSection: SidebarSection
+  setSidebarSection: (section: SidebarSection) => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (

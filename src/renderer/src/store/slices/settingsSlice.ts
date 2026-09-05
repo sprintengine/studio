@@ -1159,6 +1159,14 @@ export interface SettingsSliceState {
   // replaces another. Activating a workspace clears it (workspacesSlice), so
   // a reveal always lands on a visible workspace.
   activeModalSurface: string | null
+  // Which of the app rail's sections the sidebar column is showing (the
+  // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
+  // the list of doors and modal surfaces the top-nav band used to hold. Per
+  // window and transient like activeGlobalSurface — a restart lands on Home.
+  // Opening a door flips it to `extensions` (the door's rail then replaces
+  // the column, and the rail glyph says where the operator is); selecting a
+  // workspace or starting a chat flips it to `home`.
+  sidebarSection: SidebarSection
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -1189,7 +1197,10 @@ export interface SettingsSliceState {
   agentConfigAdoptionResult: AgentConfigAdoptionResult | null
 }
 
+export type SidebarSection = 'home' | 'extensions'
+
 export interface SettingsSliceActions {
+  setSidebarSection: (section: SidebarSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
@@ -1356,6 +1367,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     runSummaryOverlay: { open: false, workspaceId: null },
     activeGlobalSurface: null,
     activeModalSurface: null,
+    sidebarSection: 'home',
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
@@ -1368,6 +1380,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSprintEngineRoleRegistry: (registry) =>
       set((state) => {
         state.sprintEngineRoleRegistry = registry
+      }),
+
+    setSidebarSection: (section) =>
+      set((state) => {
+        state.sidebarSection = section
       }),
 
     setSidebarCollapsed: (collapsed) =>
@@ -1469,6 +1486,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.activeGlobalSurface = 'roadmap'
         state.activeModalSurface = null
+        state.sidebarSection = 'extensions'
       }),
 
     openGlobalSurface: (surfaceId) =>
@@ -1478,6 +1496,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         // routes the card region, and leaving it under the modal's scrim made
         // history back/forward look dead — the destination mounted invisibly.
         state.activeModalSurface = null
+        // Every door lives under the rail's Extensions section, so the rail
+        // glyph follows the door — and closing the door lands back on the
+        // list it was opened from rather than on the workspaces tree.
+        state.sidebarSection = 'extensions'
       }),
 
     closeGlobalSurface: () =>
