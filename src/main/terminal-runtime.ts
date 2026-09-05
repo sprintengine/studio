@@ -20,8 +20,8 @@ import type {
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
 import { applyBackgroundWork, deriveActivityFromPhase, evaluateAgentStall, holdTurnEndForBackgroundWork, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
-import { resolveCheckoutForCwd, type ObservedCheckoutResolver } from './checkout-resolve'
-import { parseObservedCheckout, sameObservedCheckout, unresolvedObservedCheckout } from '../shared/observed-checkout'
+import { resolveCheckoutForCwd, type ObservedCheckoutResolver, type ResolvedCheckoutFacts } from './checkout-resolve'
+import { parseObservedCheckout, sameObservedCheckout, unresolvedObservedCheckout, type ObservedCheckout } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -517,6 +517,15 @@ function takeResumeTurnEnd(sessionId: string): number | null {
   const at = resumeTurnEndCarryover.get(sessionId) ?? null
   resumeTurnEndCarryover.delete(sessionId)
   return at
+}
+// The observed checkout (MC-2440) rides the same gap: a resumed agent keeps
+// saying where it was until its first hook frame re-observes (the resumed
+// CLI's SessionStart re-resolves it, since the branch may have moved).
+const resumeObservedCheckoutCarryover = new Map<string, ObservedCheckout>()
+function takeResumeObservedCheckout(sessionId: string): ObservedCheckout | undefined {
+  const checkout = resumeObservedCheckoutCarryover.get(sessionId)
+  resumeObservedCheckoutCarryover.delete(sessionId)
+  return checkout
 }
 
 // In-flight listener work from both agent-session seams (exit + phase). Shutdown
@@ -1102,6 +1111,9 @@ async function resumeTerminal(
     }
     if (typeof existing.lastTurnEndedAt === 'number') {
       resumeTurnEndCarryover.set(payload.sessionId, existing.lastTurnEndedAt)
+    }
+    if (existing.observedCheckout) {
+      resumeObservedCheckoutCarryover.set(payload.sessionId, existing.observedCheckout)
     }
     disposeTerminal(payload.sessionId)
   }
@@ -1976,16 +1988,47 @@ function runAgentStallCheck(session: TerminalSession): void {
 }
 
 // Observed checkout (MC-2440): record where the session's hooks say it IS.
-// Returns true when the cwd moved (a broadcast-worthy change); a frame older
-// than the current observation cannot roll it backwards, and the same cwd
-// again is a no-op — the `at` stays the moment the session ARRIVED there.
+// Returns true when the cwd moved; a frame older than the current observation
+// cannot roll it backwards, and the same cwd again is a no-op — the `at` stays
+// the moment the session ARRIVED there. The move itself is not broadcast: an
+// unresolved observation renders as launch intent, so publishing it would only
+// flicker a worktree tab back to "main" until git answers a few ms later. The
+// resolution broadcasts.
 function observeSessionCwd(session: TerminalSession, cwd: string, ts: number): boolean {
   const current = session.observedCheckout
   if (current && current.at > ts) return false
   if (current && current.cwd === cwd) return false
   session.observedCheckout = unresolvedObservedCheckout(cwd, ts)
-  scheduleObservedCheckoutResolution(session)
+  scheduleObservedCheckoutResolution(session, { fresh: false })
   return true
+}
+
+// Recent answers by cwd, so an agent whose tool calls alternate between two
+// directories (a build in the worktree, a test in the main checkout) costs one
+// round of git per directory per window rather than per tool call. A turn end
+// or session start asks fresh — that is the moment a branch move is noticed.
+const OBSERVED_CHECKOUT_CACHE_TTL_MS = 15_000
+const OBSERVED_CHECKOUT_CACHE_LIMIT = 64
+const observedCheckoutCache = new Map<string, { facts: ResolvedCheckoutFacts; at: number }>()
+
+function rememberObservedCheckout(cwd: string, facts: ResolvedCheckoutFacts, now: number): void {
+  observedCheckoutCache.delete(cwd)
+  observedCheckoutCache.set(cwd, { facts, at: now })
+  while (observedCheckoutCache.size > OBSERVED_CHECKOUT_CACHE_LIMIT) {
+    const oldest = observedCheckoutCache.keys().next().value
+    if (oldest === undefined) break
+    observedCheckoutCache.delete(oldest)
+  }
+}
+
+function recentObservedCheckout(cwd: string, now: number): ResolvedCheckoutFacts | null {
+  const entry = observedCheckoutCache.get(cwd)
+  if (!entry) return null
+  if (now - entry.at > OBSERVED_CHECKOUT_CACHE_TTL_MS) {
+    observedCheckoutCache.delete(cwd)
+    return null
+  }
+  return entry.facts
 }
 
 // Ask git what the observed cwd is (primary checkout, linked worktree, plain
@@ -1995,15 +2038,17 @@ function observeSessionCwd(session: TerminalSession, cwd: string, ts: number): b
 // consumers keep launch intent rather than reading "folder" into a failure.
 // Re-run on every turn end and session start as well as on a cwd change,
 // because the branch can move in place (`git checkout` mid-turn).
-function scheduleObservedCheckoutResolution(session: TerminalSession): void {
+function scheduleObservedCheckoutResolution(session: TerminalSession, options: { fresh: boolean }): void {
   const target = session.observedCheckout
   if (!target) return
   const ticket = (session.observedCheckoutSeq ?? 0) + 1
   session.observedCheckoutSeq = ticket
+  const cached = options.fresh ? null : recentObservedCheckout(target.cwd, Date.now())
   void Promise.resolve()
-    .then(() => resolveObservedCheckout(target.cwd))
+    .then(() => cached ?? resolveObservedCheckout(target.cwd))
     .then((facts) => {
       if (!facts) return
+      if (!cached) rememberObservedCheckout(target.cwd, facts, Date.now())
       if (session.observedCheckoutSeq !== ticket) return
       const current = session.observedCheckout
       if (!current || current.cwd !== target.cwd) return
@@ -2059,10 +2104,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // is not allow-listed — Claude's informational Notification types) drops
   // here: the prior phase stands, exactly as when the reporter used to filter
   // these client-side.
-  if (resolved.action !== 'apply') {
-    if (observedChanged && terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
-    return
-  }
+  if (resolved.action !== 'apply') return
 
   // Background work the session still owns (agent-state.ts): a session start
   // owns nothing from its previous life; a `background` event opens or closes
@@ -2086,7 +2128,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // mid-turn, a resume after work landed elsewhere): re-ask git at every turn
   // end and session start. A cwd change already scheduled its own resolution.
   if (!observedChanged && (resolution.turnEnd || resolution.phase === 'starting')) {
-    scheduleObservedCheckoutResolution(session)
+    scheduleObservedCheckoutResolution(session, { fresh: true })
   }
 
   // The person's own prompt, carried only on UserPromptSubmit. Retained on the
@@ -2160,7 +2202,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (resolution.phase === 'awaiting_input')
   if (
-    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged || observedChanged)
+    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged)
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()
@@ -3445,6 +3487,7 @@ async function spawnTerminalFromIpc(
         activity: createInitialTerminalActivity(startedAt),
         agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
         lastTurnEndedAt: takeResumeTurnEnd(sessionId),
+        observedCheckout: takeResumeObservedCheckout(sessionId),
         outputChunks: [],
         outputChunkBytes: [],
         outputChunkStart: 0,

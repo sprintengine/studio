@@ -65,6 +65,7 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.observedCheckout?.gitRoot ?? '',
       session.observedCheckout?.branch ?? '',
       session.observedCheckout?.isLinkedWorktree ?? false,
+      session.observedCheckout?.missing ?? false,
     ])
   return JSON.stringify(rows)
 }

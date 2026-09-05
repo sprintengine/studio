@@ -27,6 +27,7 @@ import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
 import { observedCheckoutKind } from '../../../../shared/observed-checkout'
+import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
 import {
@@ -1253,26 +1254,40 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           : agent?.execution.mode === 'worktree'
             ? { cwd: agent.execution.cwd ?? null, branch: worktreeBranch }
             : null
+      // The hover path is the observed cwd itself (where the agent sits, which
+      // may be a subdirectory of the checkout), never the git root.
       const agentCheckout: AgentTabCheckout | null =
         observed && observedKind === 'worktree'
-          ? { kind: 'worktree', branch: observed.branch, cwd: observed.gitRoot, observed: true }
+          ? { kind: 'worktree', branch: observed.branch, cwd: observed.cwd, observed: true }
           : observed && observedKind === 'main'
-            ? { kind: 'main', branch: observed.branch, cwd: observed.gitRoot, observed: true }
+            ? { kind: 'main', branch: observed.branch, cwd: observed.cwd, observed: true }
             : observed && observedKind === 'folder'
               ? { kind: 'folder', cwd: observed.cwd, observed: true }
-              : launchWorktree
-                ? { kind: 'worktree', ...launchWorktree, observed: false }
-                : null
-      // The tab glyph marks a worktree. An observed worktree exists (git just
-      // answered for it), so the missing state only applies to launch intent.
+              : observed && observedKind === 'missing'
+                ? { kind: 'missing', cwd: observed.cwd, observed: true }
+                : launchWorktree
+                  ? { kind: 'worktree', ...launchWorktree, observed: false }
+                  : observed
+                    ? { kind: 'unverified', cwd: observed.cwd, observed: true }
+                    : null
+      // The tab glyph marks a worktree, in the danger tone when its directory
+      // is gone: the workspace-level focus-time check covers a launch-intent
+      // worktree and an observed one at the same root; git's own answer covers
+      // an observed directory that vanished (kind 'missing').
+      // git answers forward-slashed on every platform (`C:/…`) while the
+      // workspace root keeps the OS separator, so compare with one separator.
+      const slashed = (value: string) => value.replace(/\\/g, '/')
+      const observedAtWorkspaceWorktree = Boolean(
+        observed?.gitRoot && worktreeGitRoot && samePath(slashed(observed.gitRoot), slashed(worktreeGitRoot)),
+      )
       const agentWorktree = agentCheckout?.kind === 'worktree'
         ? { cwd: agentCheckout.cwd, branch: agentCheckout.branch }
-        : null
-      renderValues.leading = withWorktreeGlyph(
-        renderValues.leading,
-        agentWorktree,
-        agentCheckout?.kind === 'worktree' && !agentCheckout.observed && worktreeMissing,
-      )
+        : agentCheckout?.kind === 'missing'
+          ? { cwd: agentCheckout.cwd, branch: null }
+          : null
+      const agentWorktreeMissing = agentCheckout?.kind === 'missing'
+        || (agentCheckout?.kind === 'worktree' && worktreeMissing && (!agentCheckout.observed || observedAtWorkspaceWorktree))
+      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree, agentWorktreeMissing)
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.

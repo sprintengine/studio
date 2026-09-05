@@ -92,6 +92,16 @@ const detachedMain = card({ ...ROLELESS, checkout: { kind: 'main', branch: null,
 assert.match(detachedMain, /Main checkout/)
 assert.equal(/>main<\/span>/.test(detachedMain), false, 'a detached HEAD shows no branch token')
 
+const removed = card({ ...ROLELESS, checkout: { kind: 'missing', cwd: '/repo/.claude/worktrees/gone', observed: true } })
+assert.match(removed, /Removed/, 'a vanished directory says so')
+assert.match(removed, /worktrees\/gone/, 'and names it')
+assert.equal(/Main checkout/.test(removed), false)
+
+const unverified = card({ ...ROLELESS, checkout: { kind: 'unverified', cwd: '/home/me/proj', observed: true } })
+assert.match(unverified, /Unverified/, 'a cwd git could not answer for is neither main nor a folder')
+assert.match(unverified, /\/home\/me\/proj/, 'but where it is, is shown')
+assert.equal(/Main checkout/.test(unverified), false, 'never claims main for an unverifiable cwd')
+
 const onFolder = card({ ...ROLELESS, checkout: { kind: 'folder', cwd: '/Users/me/scratch', observed: true } })
 assert.match(onFolder, /Folder/, 'a cwd outside any repository is a folder, not a checkout')
 assert.match(onFolder, /\/Users\/me\/scratch/, 'and shows where')

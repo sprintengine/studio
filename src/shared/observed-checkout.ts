@@ -35,6 +35,12 @@ export type ObservedCheckout = {
   branch: string | null
   /** True when `gitRoot` is a linked worktree (`git worktree add`), false for a primary checkout or a non-repo. */
   isLinkedWorktree: boolean
+  /**
+   * True when the observed cwd no longer exists on disk (a worktree pruned out
+   * from under the agent). Only meaningful with `resolved: true` and no
+   * `gitRoot`; distinguishes "removed" from a plain folder.
+   */
+  missing?: boolean
 }
 
 /** Cap on a reported cwd; a longer value signals a broken reporter and drops the field. */
@@ -50,7 +56,7 @@ export function isAbsoluteObservedPath(value: string): boolean {
   if (value.length === 0) return false
   if (value.startsWith('/')) return true
   if (/^[A-Za-z]:[\\/]/.test(value)) return true
-  if (value.startsWith('\\\\')) return true
+  if (/^\\\\[^\\]/.test(value)) return true
   return false
 }
 
@@ -76,15 +82,20 @@ export function parseObservedCheckout(raw: unknown): ObservedCheckout | null {
   if (at === null) return null
   const resolved = raw.resolved === true
   if (!resolved) return unresolvedObservedCheckout(cwd, at)
-  const gitRoot = optionalPath(raw.gitRoot)
+  const absolutePath = (value: unknown): string | null => {
+    const path = optionalPath(value)
+    return path && isAbsoluteObservedPath(path) ? path : null
+  }
+  const gitRoot = absolutePath(raw.gitRoot)
   return {
     cwd,
     at,
     resolved: true,
     gitRoot,
-    repoRoot: gitRoot ? optionalPath(raw.repoRoot) : null,
+    repoRoot: gitRoot ? absolutePath(raw.repoRoot) : null,
     branch: gitRoot && typeof raw.branch === 'string' && raw.branch.length > 0 && raw.branch.length <= 512 ? raw.branch : null,
     isLinkedWorktree: Boolean(gitRoot) && raw.isLinkedWorktree === true,
+    ...(!gitRoot && raw.missing === true ? { missing: true } : {}),
   }
 }
 
@@ -99,6 +110,7 @@ export function sameObservedCheckout(a: ObservedCheckout | null | undefined, b: 
     && a.repoRoot === b.repoRoot
     && a.branch === b.branch
     && a.isLinkedWorktree === b.isLinkedWorktree
+    && (a.missing ?? false) === (b.missing ?? false)
   )
 }
 
@@ -109,12 +121,13 @@ export function unresolvedObservedCheckout(cwd: string, at: number): ObservedChe
 
 /**
  * The checkout kind a consumer renders. `unknown` while unresolved (fall back
- * to launch intent); `folder` when the cwd is outside every git work tree.
+ * to launch intent, showing the raw cwd as unverified); `folder` when the cwd
+ * is outside every git work tree; `missing` when it no longer exists at all.
  */
-export type ObservedCheckoutKind = 'unknown' | 'worktree' | 'main' | 'folder'
+export type ObservedCheckoutKind = 'unknown' | 'worktree' | 'main' | 'folder' | 'missing'
 
 export function observedCheckoutKind(checkout: ObservedCheckout | null | undefined): ObservedCheckoutKind {
   if (!checkout || !checkout.resolved) return 'unknown'
-  if (!checkout.gitRoot) return 'folder'
+  if (!checkout.gitRoot) return checkout.missing ? 'missing' : 'folder'
   return checkout.isLinkedWorktree ? 'worktree' : 'main'
 }

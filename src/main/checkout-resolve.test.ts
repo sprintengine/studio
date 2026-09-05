@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { NOT_A_CHECKOUT, hostCwdForResolution, resolveCheckoutForCwd } from './checkout-resolve'
+import { MISSING_DIRECTORY, NOT_A_CHECKOUT, hostCwdForResolution, parseCommonGitDir, resolveCheckoutForCwd } from './checkout-resolve'
 
 const execFileAsync = promisify(execFile)
 
@@ -45,8 +45,19 @@ function assertHostPathTranslation(): void {
   assert.equal(hostCwdForResolution('C:\\Users\\me', 'darwin'), null)
 }
 
+function assertCommonGitDirParsing(): void {
+  // git ≥ 2.31 answers absolute; older git ECHOES the unknown --path-format
+  // flag with exit 0, which must read as "unsupported", never as a path.
+  assert.equal(parseCommonGitDir('/repo/.git\n', '/repo/src'), '/repo/.git')
+  assert.equal(parseCommonGitDir('--path-format=absolute\n.git\n', '/repo'), null, 'an echoed flag is not a path')
+  assert.equal(parseCommonGitDir('.git\n', '/repo'), '/repo/.git', 'relative answers resolve against the cwd git ran in')
+  assert.equal(parseCommonGitDir('../.git\n', '/repo/src'), '/repo/.git')
+  assert.equal(parseCommonGitDir('', '/repo'), null)
+}
+
 async function run(): Promise<void> {
   assertHostPathTranslation()
+  assertCommonGitDirParsing()
   const scratch = await mkdtemp(join(tmpdir(), 'multicode-checkout-resolve-'))
   try {
     // --- a primary checkout ---------------------------------------------
@@ -110,7 +121,7 @@ async function run(): Promise<void> {
     // A removed worktree (pruned out from under the agent) is a folder that
     // no longer exists — reported as not a checkout, never as a git failure.
     await rm(worktree, { recursive: true, force: true })
-    assert.deepEqual(await resolveCheckoutForCwd(worktree), NOT_A_CHECKOUT, 'a vanished cwd is not a checkout')
+    assert.deepEqual(await resolveCheckoutForCwd(worktree), MISSING_DIRECTORY, 'a vanished cwd is reported missing, not as a folder')
 
     // Inside the `.git` directory itself there is no work tree.
     assert.deepEqual(
@@ -118,6 +129,21 @@ async function run(): Promise<void> {
       NOT_A_CHECKOUT,
       'the .git directory is not a work tree'
     )
+
+    // --- GIT_DIR leaking from the app's environment ------------------------
+    // With GIT_DIR exported, git answers for THAT repo from any directory; the
+    // resolver clears it so a plain folder stays a plain folder.
+    const originalGitDir = process.env.GIT_DIR
+    process.env.GIT_DIR = join(repo, '.git')
+    try {
+      assert.deepEqual(await resolveCheckoutForCwd(plain), NOT_A_CHECKOUT, 'an inherited GIT_DIR must not make a folder a checkout')
+    } finally {
+      if (originalGitDir === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = originalGitDir
+    }
+
+    // A cwd that is a regular file is not a checkout either.
+    assert.deepEqual(await resolveCheckoutForCwd(join(repo, 'README.md')), NOT_A_CHECKOUT, 'a file cwd is not a checkout')
 
     // --- git cannot answer ------------------------------------------------
     // A git that fails for a reason other than "no repository here" must

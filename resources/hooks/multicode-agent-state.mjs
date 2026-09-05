@@ -234,8 +234,26 @@ async function main() {
   // registration for it ever fires, but the app registers no such event.
   // Absent on CLIs whose payloads carry no cwd (Cursor): the app then keeps
   // its launch intent.
-  const cwd = str(payload?.new_cwd) ?? str(payload?.newCwd) ?? str(payload?.cwd)
-  if (cwd) {
+  //
+  // NOT forwarded from a subagent's hooks: Claude Code stamps `agent_id` on
+  // every payload that fires from within a subagent (its own docs: "use this
+  // field, not agent_type, to distinguish subagent calls from main-thread
+  // calls"), and a subagent may run in an isolated worktree of its own — its
+  // cwd is not where the session is, and forwarding it would bounce the tab
+  // between the two per tool call. Codex names the same marker `agent_id`.
+  //
+  // Cursor is the exception: its base payload carries `workspace_roots`
+  // (the directory cursor-agent was launched in) and its Shell tool adds a
+  // per-command `cwd` — the `workingDirectory` of ONE command, not where the
+  // session lives. Cursor has no persisted cd, so the launch root is the
+  // honest session cwd (the same semantics as OpenCode's `directory`) and the
+  // per-command value is ignored.
+  const subagentId = str(payload?.agent_id) ?? str(payload?.agentId)
+  const workspaceRoots = Array.isArray(payload?.workspace_roots) ? payload.workspace_roots : null
+  const cwd = workspaceRoots
+    ? str(workspaceRoots[0])
+    : str(payload?.new_cwd) ?? str(payload?.newCwd) ?? str(payload?.cwd)
+  if (cwd && !subagentId) {
     const trimmed = cwd.trim()
     if (trimmed && trimmed.length <= MAX_CWD_LENGTH) frame.cwd = trimmed
   }

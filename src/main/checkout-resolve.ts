@@ -25,7 +25,7 @@ import { basename, dirname, isAbsolute, resolve } from 'path'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { pathExists, runGitCommand } from './git-utils'
 
-export type ResolvedCheckoutFacts = Pick<ObservedCheckout, 'gitRoot' | 'repoRoot' | 'branch' | 'isLinkedWorktree'>
+export type ResolvedCheckoutFacts = Pick<ObservedCheckout, 'gitRoot' | 'repoRoot' | 'branch' | 'isLinkedWorktree' | 'missing'>
 
 export type ObservedCheckoutResolver = (cwd: string) => Promise<ResolvedCheckoutFacts | null>
 
@@ -36,6 +36,9 @@ export const NOT_A_CHECKOUT: ResolvedCheckoutFacts = Object.freeze({
   isLinkedWorktree: false,
 })
 
+/** The observed directory is gone (a pruned worktree): not a checkout, and not a folder either. */
+export const MISSING_DIRECTORY: ResolvedCheckoutFacts = Object.freeze({ ...NOT_A_CHECKOUT, missing: true })
+
 // Git's own vocabulary for "there is no repository / work tree here" — every
 // other failure is git not answering, which must not be read as a plain folder.
 const NOT_A_REPO_PATTERNS = [
@@ -43,16 +46,46 @@ const NOT_A_REPO_PATTERNS = [
   /must be run in a work tree/i,
   /cannot be used without a working tree/i,
   /this operation must be run in a work tree/i,
+  // A cwd that is a file, or vanished between the stat and the spawn: git
+  // could not even enter it, which says "no checkout here", not "git broke".
+  /cannot change to/i,
+  /not a directory/i,
 ]
+
+// The app process may inherit GIT_DIR / GIT_WORK_TREE from the shell that
+// launched it (a dev workflow); with those set, git answers for THAT repo from
+// any directory and every folder would resolve as a checkout. Clear them: the
+// question here is always "what does this directory contain?".
+const CLEAN_GIT_ENV: NodeJS.ProcessEnv = {
+  GIT_DIR: undefined,
+  GIT_WORK_TREE: undefined,
+  GIT_COMMON_DIR: undefined,
+  GIT_INDEX_FILE: undefined,
+}
 
 function saysNotARepo(stderr: string, message: string | null): boolean {
   const text = `${stderr}\n${message ?? ''}`
   return NOT_A_REPO_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+/**
+ * The common git dir from a `rev-parse … --git-common-dir` answer, absolute.
+ * Older git (< 2.31) does not know `--path-format=absolute` — and rev-parse
+ * ECHOES an unknown flag to stdout with exit 0 rather than failing, so the
+ * "fallback on failure" shape is dead code: the echoed flag must be detected
+ * as the signal. A relative answer is relative to the cwd git was run in
+ * (`../.git` from a subdirectory). Exported for its unit test.
+ */
+export function parseCommonGitDir(stdout: string, cwd: string): string | null {
+  const value = firstLine(stdout)
+  if (!value || value.startsWith('--')) return null
+  return isAbsolute(value) ? value : resolve(cwd, value)
+}
+
 // git prints paths forward-slashed on every platform; a Windows toplevel comes
-// back as `C:/…`. Keep git's own form (it is realpath-resolved, and every
-// comparison the renderer makes is separator- and case-insensitive).
+// back as `C:/…`. Keep git's own form (it is realpath-resolved); the one
+// comparison the renderer makes against it (the workspace's worktree root)
+// normalizes separators and case on its side.
 function firstLine(stdout: string): string {
   return stdout.split(/\r?\n/)[0]?.trim() ?? ''
 }
@@ -81,30 +114,28 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
   const cwd = hostCwdForResolution(reportedCwd)
   if (!cwd) return null
 
-  // A vanished directory (a pruned worktree) is honestly "not a checkout": the
-  // git call would fail with a chdir error that says nothing about repositories.
-  if (!(await pathExists(cwd))) return NOT_A_CHECKOUT
+  // A vanished directory (a pruned worktree) is reported as missing — the git
+  // call would only fail with a chdir error that says nothing about repos, and
+  // the tab must be able to show "removed" rather than a plain folder.
+  if (!(await pathExists(cwd))) return MISSING_DIRECTORY
 
-  const top = await runGitCommand(cwd, ['rev-parse', '--show-toplevel'])
+  const top = await runGitCommand(cwd, ['rev-parse', '--show-toplevel'], CLEAN_GIT_ENV)
   if (!top.ok) return saysNotARepo(top.stderr, top.message) ? NOT_A_CHECKOUT : null
   const gitRoot = firstLine(top.stdout)
   if (!gitRoot) return NOT_A_CHECKOUT
 
-  const own = await runGitCommand(cwd, ['rev-parse', '--absolute-git-dir'])
+  const own = await runGitCommand(cwd, ['rev-parse', '--absolute-git-dir'], CLEAN_GIT_ENV)
   const ownGitDir = own.ok ? firstLine(own.stdout) : ''
 
-  // `--path-format=absolute` needs git ≥ 2.31; older builds answer relative to
-  // the cwd (mirrors isLinkedWorktree in git-branch-span.ts).
+  // Prefer git's own absolute answer (git ≥ 2.31); an older git echoes the
+  // unknown `--path-format` flag instead (see parseCommonGitDir), in which
+  // case ask again without it and resolve the relative answer against cwd.
   let commonGitDir = ''
-  const absolute = await runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
-  if (absolute.ok) {
-    commonGitDir = firstLine(absolute.stdout)
-  } else {
-    const relative = await runGitCommand(cwd, ['rev-parse', '--git-common-dir'])
-    if (relative.ok) {
-      const value = firstLine(relative.stdout)
-      if (value) commonGitDir = isAbsolute(value) ? value : resolve(cwd, value)
-    }
+  const absolute = await runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], CLEAN_GIT_ENV)
+  commonGitDir = absolute.ok ? parseCommonGitDir(absolute.stdout, cwd) ?? '' : ''
+  if (!commonGitDir) {
+    const relative = await runGitCommand(cwd, ['rev-parse', '--git-common-dir'], CLEAN_GIT_ENV)
+    if (relative.ok) commonGitDir = parseCommonGitDir(relative.stdout, cwd) ?? ''
   }
 
   const isLinkedWorktree = Boolean(ownGitDir && commonGitDir && resolve(ownGitDir) !== resolve(commonGitDir))
@@ -115,7 +146,7 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
     ? dirname(commonGitDir)
     : isLinkedWorktree ? null : gitRoot
 
-  const head = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+  const head = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], CLEAN_GIT_ENV)
   const branch = head.ok ? firstLine(head.stdout) || null : null
 
   return { gitRoot, repoRoot, branch, isLinkedWorktree }

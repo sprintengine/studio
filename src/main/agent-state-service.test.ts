@@ -351,6 +351,32 @@ async function run(): Promise<void> {
     await waitFor(() => cwdFrames.length >= 2)
     const noCwdFrame = JSON.parse(cwdFrames[1]) as { cwd?: string }
     assert.equal(noCwdFrame.cwd, undefined, 'a payload without a cwd carries no cwd field')
+    // A subagent's hook (Claude stamps agent_id; a worktree-isolated subagent
+    // has a cwd of its own) forwards its event but never its cwd.
+    await runReporter(cwdSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'cwd-session',
+      tool_name: 'Bash',
+      cwd: '/repo/.claude/worktrees/subagent-scratch',
+      agent_id: 'agent-7f3a',
+      agent_type: 'general-purpose',
+    })
+    await waitFor(() => cwdFrames.length >= 3)
+    const subagentFrame = JSON.parse(cwdFrames[2]) as { event?: string; cwd?: string }
+    assert.equal(subagentFrame.event, 'PostToolUse', 'the subagent event still reaches main')
+    assert.equal(subagentFrame.cwd, undefined, 'a subagent cwd is never forwarded as the session cwd')
+    // Cursor: the launch root wins over the Shell tool's per-command cwd.
+    await runReporter(cwdSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'postToolUse',
+      conversation_id: 'cursor-chat',
+      workspace_roots: ['/Users/me/proj'],
+      tool_name: 'Shell',
+      cwd: '/tmp',
+    })
+    await waitFor(() => cwdFrames.length >= 4)
+    const cursorFrame = JSON.parse(cwdFrames[3]) as { cwd?: string; sessionId?: string }
+    assert.equal(cursorFrame.cwd, '/Users/me/proj', 'Cursor reports its launch root, not a command\'s working directory')
+    assert.equal(cursorFrame.sessionId, 'cursor-chat')
     cwdServer.close()
   }
 

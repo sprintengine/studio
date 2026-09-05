@@ -44,6 +44,11 @@ export type AgentTabCheckout =
   | { kind: 'worktree'; branch: string | null; cwd: string | null; observed: boolean }
   | { kind: 'main'; branch: string | null; cwd: string | null; observed: true }
   | { kind: 'folder'; cwd: string; observed: true }
+  // The observed directory no longer exists (a worktree pruned under the agent).
+  | { kind: 'missing'; cwd: string; observed: true }
+  // A cwd was observed but git could not answer for it on this host (no git,
+  // a WSL-internal path on a Windows main): say where, claim nothing more.
+  | { kind: 'unverified'; cwd: string; observed: true }
 
 // Hover opens after a beat so a quick sweep across the tab strip never flickers
 // cards open; focus opens immediately so keyboard users don't wait. The close
@@ -82,8 +87,9 @@ const BranchGlyph = () => (
 // The Checkout row. A worktree names its branch behind the branch glyph (the
 // same mark the tab carries); the primary checkout says so plainly and adds
 // its branch once the hooks have reported one; a folder outside any repository
-// says that rather than pretending to be a checkout. The full path rides the
-// hover title in every case it is known.
+// says that rather than pretending to be a checkout; a removed directory and
+// an unverifiable cwd each say exactly that. The full path rides the hover
+// title in every case it is known.
 function CheckoutValue({ checkout }: { checkout: AgentTabCheckout | null }) {
   if (!checkout) return <>Main checkout</>
   if (checkout.kind === 'worktree') {
@@ -94,10 +100,18 @@ function CheckoutValue({ checkout }: { checkout: AgentTabCheckout | null }) {
       </span>
     )
   }
-  if (checkout.kind === 'folder') {
+  if (checkout.kind === 'folder' || checkout.kind === 'unverified') {
     return (
       <span className="inline-flex max-w-full items-center gap-1.5" title={checkout.cwd}>
-        <span>Folder</span>
+        <span>{checkout.kind === 'folder' ? 'Folder' : 'Unverified'}</span>
+        <span className="truncate font-mono text-[color:var(--text-muted)]">{checkout.cwd}</span>
+      </span>
+    )
+  }
+  if (checkout.kind === 'missing') {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5" title={`Removed — ${checkout.cwd}`}>
+        <span className="text-[color:var(--tone-error)]">Removed</span>
         <span className="truncate font-mono text-[color:var(--text-muted)]">{checkout.cwd}</span>
       </span>
     )
