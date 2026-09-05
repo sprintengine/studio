@@ -134,6 +134,7 @@ type BackendsOverrides = {
   readSprintTokenUsage?: AutomationBackends['readSprintTokenUsage']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
+  readRepositoryIdentity?: AutomationBackends['readRepositoryIdentity']
   listPlugins?: AutomationBackends['listPlugins']
   ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
   getModuleRegistrySnapshot?: AutomationBackends['getModuleRegistrySnapshot']
@@ -275,6 +276,7 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     readWorkspaceCheckout:
       overrides.readWorkspaceCheckout
       ?? (async () => ({ git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] })),
+    readRepositoryIdentity: overrides.readRepositoryIdentity ?? (async () => null),
     listPlugins: overrides.listPlugins ?? (() => []),
     ensureBuiltinSkillInstalled: overrides.ensureBuiltinSkillInstalled ?? (async () => true),
     // module.*/marketplace.*: no registry mirrored and nothing installed unless
@@ -543,13 +545,32 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
       activity: { kind: 'idle', since: 20 },
     } as unknown as TerminalSessionSnapshot,
   ]
-  const tools = createAutomationTools(backendsOf({ workspaces: [workspace, restartSurvivor], sessions }))
+  const identityReads: string[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [workspace, restartSurvivor],
+      sessions,
+      readRepositoryIdentity: async (folderPath) => {
+        identityReads.push(folderPath)
+        return folderPath === '/repo/old'
+          ? { canonicalKey: 'github.com/acme/old', remoteUrl: 'git@github.com:acme/old.git', name: 'old' }
+          : null
+      },
+    })
+  )
 
   const list = await tool(tools, 'workspace.list').handler({})
   assert.equal(list.isError, undefined)
-  const listed = list.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
+  const listed = list.structuredContent as {
+    workspaces: Array<{ id: string; detail: string; repository: { canonicalKey: string } | null }>
+  }
   assert.equal(listed.workspaces.length, 2)
   assert.deepEqual(listed.workspaces.map((entry) => entry.detail), ['full', 'full'])
+  // one-project-across-machines: each folder's repository rides the listing,
+  // null where the reader has nothing, so a paired Studio can match clones.
+  assert.deepEqual(identityReads, ['/repo/old'], 'read once per folder; a folderless workspace is not asked about')
+  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-old')?.repository?.canonicalKey, 'github.com/acme/old')
+  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-1')?.repository, null)
 
   // A gateway tool operates on the restart survivor with no live agent
   // terminal — the case that used to fail `workspace_without_folder`.

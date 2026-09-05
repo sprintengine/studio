@@ -75,6 +75,8 @@ let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () =>
   gaps: [],
 })
 
+// Which repository a local folder is (one-project-across-machines); null = no remote.
+let localIdentityAnswer: (folderPath: string) => Record<string, unknown> | null = () => null
 // The picked remote project's checkout facts (checkout-and-branch-on-remote-create).
 let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (_c, workspaceId) => ({
   ok: true,
@@ -87,6 +89,7 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
   fleetListConnections: async () => fleetConnections,
   fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
   fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) => fleetCheckoutAnswer(connectionId, workspaceId),
+  getGitRepositoryIdentity: async (folderPath: string) => localIdentityAnswer(folderPath),
   onFleetEvent: () => () => {},
   defaultWorkspaceParentDir: async () => '/w',
   getPathForFile: () => '/tmp/shot.png',
@@ -1169,6 +1172,69 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  await check('New worktree stays closed while the checkout is being read, and a detached remote forks its trunk', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false,
+      scopes: ['workspace:operate', 'terminal:control'],
+      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
+    })
+    let release: (value: Record<string, unknown>) => void = () => {}
+    fleetCheckoutAnswer = () => new Promise<Record<string, unknown>>((resolve) => { release = resolve }) as never
+    const remoteLaunches: Array<Record<string, unknown>> = []
+    const view = await remoteRender({ onLaunchRemote: async (launch: Record<string, unknown>) => { remoteLaunches.push(launch) } })
+    await settle()
+    await pickMachine(view, 'Air')
+    await settle()
+    const checkoutTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
+    await click(checkoutTrigger())
+    let menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
+    let rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
+    assert.equal(rows[1]!.disabled, true, 'while the checkout is unread the worktree row is closed')
+    assert.ok(rows[1]!.textContent?.includes('Reading the checkout'), 'and says it is reading')
+    assert.equal(dom.window.document.activeElement, rows[0], 'focus lands on the checked row on open')
+    await act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    // The read lands on a detached checkout: no branch, a trunk to fork.
+    await act(async () => {
+      release({
+        ok: true,
+        checkout: {
+          workspaceId: 'w1', git: true, branch: null, defaultBranch: 'main',
+          branches: [{ name: 'main', current: false }], worktrees: [],
+        },
+      })
+    })
+    await settle()
+    assert.ok(view.container.querySelector('[data-branch-fact="true"]')?.textContent?.includes('detached'), 'the fact says detached')
+    await click(checkoutTrigger())
+    menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
+    rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
+    assert.equal(rows[1]!.disabled, false, 'once read, a repo with a trunk can fork')
+    await click(rows[1])
+    await settle()
+    assert.equal(view.container.querySelector('[data-branch-trigger="true"]')?.textContent?.trim(), 'From main', 'the trunk is the base when there is no branch')
+    const textarea = view.container.querySelector('textarea')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+      setter.call(textarea, 'go')
+      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+    await settle()
+    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'worktree', baseRef: 'main' }, 'what is shown is what is sent')
+    view.unmount()
+    fleetCheckoutAnswer = (_c, workspaceId) => ({
+      ok: true,
+      checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
+    })
+  })
+
   await check('a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim New worktree with the real reason', async () => {
     seedStore()
     resetRememberedMachineForTests()
@@ -1188,7 +1254,7 @@ async function main(): Promise<void> {
       const menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
       const row = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')][1]!
       const hint = row.textContent ?? ''
-      const disabled = row.getAttribute('aria-disabled')
+      const disabled = row.disabled ? 'true' : null
       await click(row)
       await settle()
       const after = view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')?.textContent?.trim()
@@ -1220,6 +1286,100 @@ async function main(): Promise<void> {
       ok: true,
       checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
     })
+  })
+
+  await check('with a project in hand the machine list says which machines have it, picking one keeps the project, and This Mac returns to the local clone', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+    fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
+    const browsed: string[] = []
+    fleetBrowseAnswer = (id) => {
+      browsed.push(id)
+      return {
+        connectionId: id,
+        reachable: id !== 'm3',
+        unreachableReason: id === 'm3' ? 'Down is asleep.' : null,
+        unauthorized: false,
+        scopes: ['workspace:operate', 'terminal:control'],
+        terminalAccess: 'control',
+        workspaces:
+          id === 'm1'
+            ? [
+                { ...workspace('w1', 'other', '/srv/other'), repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' } },
+                { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
+              ]
+            : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
+        terminals: [],
+        gaps: [],
+      }
+    }
+    const selected: string[] = []
+    const view = await remoteRender({
+      folderPath: '/proj',
+      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      onSelectProject: (path: string) => selected.push(path),
+    })
+    await settle()
+    await settle()
+    assert.deepEqual(browsed, [], 'nothing is asked until the list is opened')
+    const menu = await openMachineMenu(view)
+    await settle()
+    await settle()
+    assert.deepEqual(browsed.sort(), ['m1', 'm2', 'm3'], 'opening the list asks every machine what it holds — once')
+    const rowsByName = new Map(
+      [...menu.querySelectorAll<HTMLButtonElement>('[data-machine-option="true"]')].map((row) => [
+        (row.querySelector('span.block')?.textContent ?? row.textContent ?? '').trim(),
+        row,
+      ])
+    )
+    const air = rowsByName.get('Air')!
+    const mini = rowsByName.get('Mini')!
+    const down = rowsByName.get('Down')!
+    assert.equal(air.getAttribute('data-machine-availability'), 'has')
+    assert.equal(air.disabled, false)
+    assert.ok(air.textContent?.includes('Has multicode'), `the row names the copy; got: ${air.textContent}`)
+    assert.equal(mini.getAttribute('data-machine-availability'), 'lacks')
+    assert.equal(mini.disabled, true, 'a machine without the project is dimmed, not removed')
+    assert.ok(mini.textContent?.includes('No copy of multicode on Mini'), `with the reason; got: ${mini.textContent}`)
+    assert.equal(down.disabled, true)
+    assert.ok(down.textContent?.includes('Down is asleep.'), 'an unreachable machine carries its reason')
+    assert.equal(rowsByName.get('This Mac')!.disabled, false, 'This Mac is always open')
+
+    await click(air)
+    await settle()
+    await settle()
+    assert.ok(buttonWithText(view.container, 'multicode-air'), 'picking the machine keeps the project: its copy is chosen, not the first row')
+    assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
+
+    // Back to This Mac: the local clone of the same repository is the project.
+    await pickMachine(view, 'This Mac')
+    await settle()
+    assert.deepEqual(selected, [], 'the door was already on /proj, the local clone, so nothing is re-selected')
+    assert.equal(machineTrigger(view)?.textContent?.trim(), 'This Mac')
+    view.unmount()
+
+    // From a remote project to This Mac when the door is scoped elsewhere.
+    resetRememberedMachineForTests()
+    const elsewhere = await remoteRender({
+      folderPath: '/other',
+      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      onSelectProject: (path: string) => selected.push(path),
+    })
+    await settle()
+    await pickMachine(elsewhere, 'Air')
+    await settle()
+    // Two projects on the Air and none in hand (/other has no identity): an explicit pick.
+    await click(buttonWithText(elsewhere.container, 'Choose a project'))
+    const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
+    await click(buttonWithText(projects, 'multicode-air'))
+    await settle()
+    await pickMachine(elsewhere, 'This Mac')
+    await settle()
+    assert.deepEqual(selected, ['/proj'], 'This Mac keeps the project by selecting the open local clone of it')
+    elsewhere.unmount()
+    localIdentityAnswer = () => null
   })
 
   await check('the local access menu walks with the arrows and selects on Enter', async () => {

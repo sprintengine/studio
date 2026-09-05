@@ -2934,7 +2934,24 @@ export default function WorkspaceManager() {
   // persist lastNewChatAgent and seed the solo workspace), then close the panel.
   // `folderPathOverride` is the project the door's own selector picked;
   // omitting it falls back to the panel's scope.
+  // One confirm at a time: minting a worktree takes real seconds on a large
+  // repo (copyIncludedFiles), and a second Enter during that window used to
+  // mint a second worktree and a second chat.
+  const newChatConfirmInFlight = useRef(false)
   const confirmNewChat = async (
+    confirm: AgentComposerConfirm,
+    folderPathOverride?: string | null,
+    startupPrompt?: string,
+  ) => {
+    if (newChatConfirmInFlight.current) return
+    newChatConfirmInFlight.current = true
+    try {
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt)
+    } finally {
+      newChatConfirmInFlight.current = false
+    }
+  }
+  const confirmNewChatNow = async (
     confirm: AgentComposerConfirm,
     folderPathOverride?: string | null,
     startupPrompt?: string,
@@ -3032,6 +3049,9 @@ export default function WorkspaceManager() {
         workspaceId: launch.remoteWorkspaceId,
         workspaceName: launch.remoteWorkspaceName,
         workspaceRoot: launch.remoteWorkspaceRoot,
+        // Which repository that is, as the machine served it, so the sidebar
+        // can file the row with a local clone of the same repository.
+        repository: launch.remoteRepository,
         // What the chat landed on: the worktree's branch as the remote minted
         // it, or the checkout's branch as the panel read it before asking.
         checkout: {

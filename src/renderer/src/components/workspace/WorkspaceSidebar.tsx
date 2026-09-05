@@ -3,6 +3,7 @@ import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon }
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -155,6 +156,47 @@ type FolderGroup = {
 
 const NULL_FOLDER_KEY = '__no_folder__'
 
+/**
+ * Which header each row files under, with repository identity applied
+ * (one-project-across-machines): a remote-born row whose machine reported
+ * the same repository as an OPEN local folder files under that folder's
+ * header — the person's project is one thing wherever its clones live — and
+ * wears the machine mark on its own line, since the header no longer says
+ * it. Everything else keeps `groupKeyOf`: local folders group by path
+ * exactly as before (two local clones of one repository stay two folders —
+ * a local worktree is deliberately its own header), and a remote row with no
+ * local twin keeps its machine · project header.
+ *
+ * Returned as a map rather than a function of one workspace because the
+ * answer depends on which OTHER folders are open.
+ */
+export function resolveGroupKeys(workspaces: readonly Workspace[], identities: FolderIdentityMap): Map<string, string> {
+  const localByIdentity = new Map<string, string>()
+  const keys = new Map<string, string>()
+  for (const workspace of workspaces) {
+    const key = groupKeyOf(workspace)
+    keys.set(workspace.id, key)
+    const folder = workspace.folderPath?.trim()
+    if (!folder || workspace.remoteOrigin) continue
+    const identity = identities.get(folderIdentityKey(folder))
+    if (identity?.canonicalKey && !localByIdentity.has(identity.canonicalKey)) {
+      localByIdentity.set(identity.canonicalKey, key)
+    }
+  }
+  for (const workspace of workspaces) {
+    const repository = workspace.remoteOrigin?.repository
+    if (!repository?.canonicalKey) continue
+    const local = localByIdentity.get(repository.canonicalKey)
+    if (local) keys.set(workspace.id, local)
+  }
+  return keys
+}
+
+/** True when a remote-born row is filed under a LOCAL folder's header, and so must mark its machine itself. */
+function filedUnderLocalHeader(workspace: Workspace, groupKey: string): boolean {
+  return Boolean(workspace.remoteOrigin) && groupKey !== groupKeyOf(workspace)
+}
+
 // Folded (older/history) rows reveal in pages of this size — pressing the
 // "Show N older" row repeatedly pages through the remainder.
 const FOLD_PAGE_SIZE = 5
@@ -217,15 +259,19 @@ function remoteGroupDisplayName(workspace: Workspace): string {
   return fleetMachineNamesOf(workspace)[0] ?? 'No folder'
 }
 
-function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
+function buildFolderGroups(workspaces: Workspace[], keyOf: (workspace: Workspace) => string = groupKeyOf): FolderGroup[] {
   const groupOrder: string[] = []
   const groups = new Map<string, FolderGroup>()
 
   for (const workspace of workspaces) {
-    const key = groupKeyOf(workspace)
+    const key = keyOf(workspace)
     if (!groups.has(key)) {
       groupOrder.push(key)
-      const remote = remoteGroupOf(workspace)
+      // A remote row filed under a local folder never founds the group with
+      // its own machine header: the key it was given belongs to a local
+      // folder, whose row founds it (or, in the odd case that folder's rows
+      // are all hidden, the row keeps the machine header by the fallback below).
+      const remote = key === groupKeyOf(workspace) ? remoteGroupOf(workspace) : null
       groups.set(key, {
         key,
         displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(workspace.folderPath),
@@ -357,9 +403,10 @@ function reorderFolders(
   workspaces: Workspace[],
   draggedKey: string,
   targetKey: string,
-  position: 'before' | 'after'
+  position: 'before' | 'after',
+  keyOf: (workspace: Workspace) => string = groupKeyOf
 ): WorkspaceId[] {
-  const groups = buildFolderGroups(workspaces)
+  const groups = buildFolderGroups(workspaces, keyOf)
   const draggedGroup = groups.find((g) => g.key === draggedKey)
   if (!draggedGroup) return workspaces.map((w) => w.id)
   const remaining = groups.filter((g) => g.key !== draggedKey)
@@ -1234,7 +1281,18 @@ export default function WorkspaceSidebar({
     [workspaces]
   )
 
-  const groups = useMemo(() => buildFolderGroups(railWorkspaces), [railWorkspaces])
+  // Repository identity per open local folder (one-project-across-machines),
+  // read once per folder; the group keys apply it, so a paired machine's clone
+  // of an open repository files under that repository's local header.
+  const folderIdentities = useFolderRepositoryIdentities(
+    useMemo(() => railWorkspaces.map((workspace) => (workspace.remoteOrigin ? null : workspace.folderPath)), [railWorkspaces])
+  )
+  const groupKeyById = useMemo(() => resolveGroupKeys(workspaces, folderIdentities), [workspaces, folderIdentities])
+  const keyOf = useCallback(
+    (workspace: Workspace) => groupKeyById.get(workspace.id) ?? groupKeyOf(workspace),
+    [groupKeyById]
+  )
+  const groups = useMemo(() => buildFolderGroups(railWorkspaces, keyOf), [railWorkspaces, keyOf])
 
   // A workspace is "live" while it shows a status dot — working, failed, or
   // waiting on input. Live rows sort above idle ones in the activity ordering.
@@ -1407,7 +1465,7 @@ export default function WorkspaceSidebar({
     const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
     if (drag.id === targetWorkspace.id) return
 
-    const folderWorkspaces = workspaces.filter((w) => groupKeyOf(w) === fKey)
+    const folderWorkspaces = workspaces.filter((w) => keyOf(w) === fKey)
     const localOrderedIds = reorderWithinFolder(folderWorkspaces, drag.id, targetWorkspace.id, position)
 
     // Stitch: rebuild the global workspace order, replacing the contiguous block
@@ -1454,7 +1512,7 @@ export default function WorkspaceSidebar({
     if (drag.folderKey === fKey) return
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
-    const newOrder = reorderFolders(workspaces, drag.folderKey, fKey, position)
+    const newOrder = reorderFolders(workspaces, drag.folderKey, fKey, position, keyOf)
     reorderWorkspaces(newOrder)
   }
 
@@ -1927,6 +1985,19 @@ export default function WorkspaceSidebar({
           <span
             className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
           >
+            {/* A remote clone filed under its LOCAL repository's header
+                (one-project-across-machines) says where it lives itself:
+                the header names the project, not the machine. Only here —
+                under a machine · project header the header already says it,
+                and a local row is the unmarked default (decision 7). */}
+            {filedUnderLocalHeader(workspace, fKey) && workspace.remoteOrigin ? (
+              <Tooltip content={`On ${workspace.remoteOrigin.machineName}`}>
+                <span className="inline-flex shrink-0" data-remote-under-local="true">
+                  <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
+                  <span className="sr-only">On {workspace.remoteOrigin.machineName}</span>
+                </span>
+              </Tooltip>
+            ) : null}
             {starred ? (
               <StarGlyph
                 filled
@@ -2291,7 +2362,7 @@ export default function WorkspaceSidebar({
             <div id="ws-starred-body" hidden={starredCollapsed}>
               {!starredCollapsed
                 ? starredWorkspaces.map((workspace) =>
-                    renderWorkspaceRow(workspace, groupKeyOf(workspace), { keyPrefix: 'starred-' })
+                    renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' })
                   )
                 : null}
             </div>

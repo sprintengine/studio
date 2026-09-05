@@ -87,6 +87,7 @@ import type {
   TailnetScope,
 } from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
+import type { RepositoryIdentity } from './repository-identity'
 import type {
   FleetAttachResult,
   FleetBrowse,
@@ -3545,6 +3546,11 @@ export type ElectronApi = {
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
+  /**
+   * Which repository a folder is a clone of — its primary remote, normalised
+   * (one-project-across-machines). Null for a non-repo or a remote-less one.
+   */
+  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentity | null>
   getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflicts: (repoRoot: string) => Promise<GitConflictSnapshot>

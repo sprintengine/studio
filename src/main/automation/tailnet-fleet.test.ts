@@ -130,7 +130,17 @@ function remoteTools(): McpToolRegistration[] {
   })
   return [
     tool('workspace.list', {
-      workspaces: [{ id: 'ws-1', name: 'Atlas', mode: 'code', folderPath: '/repos/atlas' }],
+      workspaces: [
+        {
+          id: 'ws-1',
+          name: 'Atlas',
+          mode: 'code',
+          folderPath: '/repos/atlas',
+          repository: { canonicalKey: 'github.com/acme/atlas', remoteUrl: 'git@github.com:acme/atlas.git', name: 'atlas' },
+        },
+        // An older build, or a folder with no remote: no identity, still a workspace.
+        { id: 'ws-2', name: 'Scratch', mode: 'code', folderPath: '/repos/scratch' },
+      ],
     }),
     tool('terminal.list', {
       terminals: [
@@ -370,7 +380,7 @@ test('browsing a machine reads its workspaces and terminals', async () => {
     assert.equal(browse.terminalAccess, 'control')
     assert.deepEqual(
       browse.workspaces.map((workspace) => workspace.name),
-      ['Atlas']
+      ['Atlas', 'Scratch']
     )
     assert.equal(browse.terminals.length, 1)
     assert.equal(browse.terminals[0].sessionId, 'session_one')
@@ -381,6 +391,10 @@ test('browsing a machine reads its workspaces and terminals', async () => {
     const runs = await harness.fleet.listRuns(connectionId, 'ws-1')
     assert.ok(runs.ok)
     assert.deepEqual(runs.runs.map((run) => run.slug), ['nightly'])
+    // one-project-across-machines: the identity the remote served is kept,
+    // and its absence is kept as null rather than invented.
+    assert.equal(browse.workspaces.find((entry) => entry.id === 'ws-1')?.repository?.canonicalKey, 'github.com/acme/atlas')
+    assert.equal(browse.workspaces.find((entry) => entry.id === 'ws-2')?.repository, null)
   } finally {
     await harness.close()
   }

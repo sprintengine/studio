@@ -57,7 +57,7 @@ import { createAutomationTools } from './automation-tools'
 // real TCP socket on loopback — the transport, the auth, and the audit are the
 // thing under test, so a fake would prove nothing about any of them.
 
-const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'tailnet.offer_pairing'])
+const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
 
 function testTools(calls: string[] = []): McpToolRegistration[] {
   const tool = (name: string): McpToolRegistration => ({
@@ -75,8 +75,10 @@ function testTools(calls: string[] = []): McpToolRegistration[] {
     'backlog.list',
     'backlog.update',
     'workspace.list',
+    'workspace.checkout',
     'terminal.list',
     'terminal.create',
+    'agent.launch',
   ].map(tool)
 }
 
@@ -589,7 +591,7 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     const tools = (listed.body as { result: { tools: Array<{ name: string }>; ttlMs: number } }).result
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ['backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.list']
+      ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list']
     )
     assert.equal(tools.ttlMs, 300_000, 'the tailnet transport carries the same tools/list TTL as the socket')
 
@@ -737,6 +739,34 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     assert.equal(audited[0].tool, 'sprint.cancel')
     assert.equal(audited[0].outcome, 'failure')
     assert.equal(audited[0].errorCode, 'tailnet_scope_required')
+
+    // checkout-and-branch-on-remote-create: a worktree minted for a remote
+    // chat rides agent.launch, a mutation — so it lands in the audit with the
+    // device that asked, granted or refused. The read beside it does not.
+    const worktreeMaker = await pairDevice(harness, { scopes: ['workspace:operate', 'terminal:control'], name: 'air' })
+    const minted = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: worktreeMaker.deviceToken,
+      body: rpc(3, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: { baseRef: 'main' } } }),
+    })
+    assert.equal(minted.status, 200)
+    await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: worktreeMaker.deviceToken,
+      body: rpc(4, 'tools/call', { name: 'workspace.checkout', arguments: { workspaceId: 'w1' } }),
+    })
+    const terminalsOnly = await pairDevice(harness, { scopes: ['terminal:control'], name: 'kiosk' })
+    await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: terminalsOnly.deviceToken,
+      body: rpc(5, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: {} } }),
+    })
+    const worktreeAudit = harness.auditRecords().filter((record) => record.tool === 'agent.launch')
+    assert.equal(worktreeAudit.length, 2, 'the granted and the refused worktree create are both audited')
+    assert.equal(worktreeAudit[0].outcome, 'success')
+    assert.equal(worktreeAudit[0].connection.deviceId, worktreeMaker.deviceId, 'with the device that asked')
+    assert.equal(worktreeAudit[0].connection.deviceName, 'air')
+    assert.equal(worktreeAudit[1].outcome, 'failure')
+    assert.equal(worktreeAudit[1].errorCode, 'tailnet_scope_required')
+    assert.equal(worktreeAudit[1].connection.deviceId, terminalsOnly.deviceId)
+    assert.ok(!harness.auditRecords().some((record) => record.tool === 'workspace.checkout'), 'the checkout read is not a mutation and is not audited')
 
     // operate implies read within its family, and never across families.
     const operator = await pairDevice(harness, { scopes: ['sprint:operate'], name: 'operator' })
@@ -1638,7 +1668,7 @@ export async function testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine()
       const listed = byId.get(2) as { result: { tools: Array<{ name: string }> } }
       assert.deepEqual(
         listed.result.tools.map((tool) => tool.name).sort(),
-        ['backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.list'],
+        ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list'],
         'the remote client sees the same tool surface a local one does'
       )
       const read = byId.get(3) as { result: { structuredContent: { tool: string } } }

@@ -5,12 +5,15 @@ import type {
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
 import type {
+  FleetBrowse,
   FleetCheckoutRequest,
   FleetConnection,
   FleetWorkspace,
   FleetWorkspaceCheckout,
 } from '../../../../../shared/tailnet-fleet'
 import type { TailnetScope } from '../../../../../shared/tailnet'
+import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
+import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -169,6 +172,45 @@ export type RemoteNewChatLaunch = {
    * is minted there and comes back with the create instead.
    */
   branch: string | null
+  /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
+  remoteRepository: RepositoryIdentity | null
+}
+
+/**
+ * Whether a paired machine holds the project in hand (one-project-across-
+ * machines): the machine dropdown lists each machine with this, so picking
+ * one keeps the project instead of asking for it again. `unknown` before the
+ * machine has been asked; `none` when there is no project to match.
+ */
+export type MachineAvailability =
+  | { state: 'none' }
+  | { state: 'loading' }
+  | { state: 'has'; workspace: FleetWorkspace }
+  | { state: 'lacks'; reason: string }
+  | { state: 'unreachable'; reason: string }
+
+/** Which of a machine's workspaces is the repository in hand, if any. */
+export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity | null): FleetWorkspace | null {
+  if (!identity) return null
+  return browse.workspaces.find((workspace) => sameRepository(workspace.repository, identity)) ?? null
+}
+
+export function machineAvailabilityOf(
+  machine: FleetConnection,
+  browse: FleetBrowse | 'loading' | undefined,
+  identity: RepositoryIdentity | null
+): MachineAvailability {
+  if (!identity) return { state: 'none' }
+  if (browse === undefined || browse === 'loading') return { state: 'loading' }
+  if (!browse.reachable) {
+    return { state: 'unreachable', reason: browse.unreachableReason ?? `${machine.machineName} is not answering.` }
+  }
+  if (browse.unauthorized) return { state: 'unreachable', reason: `${machine.machineName} refused this pairing — re-pair from the Fleet.` }
+  const copy = machineCopyOf(browse, identity)
+  if (copy) return { state: 'has', workspace: copy }
+  const gap = browse.gaps.find((entry) => entry.part === 'workspaces')
+  if (gap) return { state: 'lacks', reason: gap.message }
+  return { state: 'lacks', reason: `No copy of ${identity.name} on ${machine.machineName}.` }
 }
 
 /** The checkout choice the scope line holds for a remote target. */
@@ -203,8 +245,24 @@ export function remoteWorktreeDisabledReason(target: {
     return `This pairing may not create worktrees on ${target.connection.machineName} — it needs the workspace:operate scope.`
   }
   if (target.checkoutError) return target.checkoutError
-  if (target.checkout && !target.checkout.git) return `That project is not a git repository on ${target.connection.machineName}.`
+  // Not yet read is not yet allowed: the base to fork from comes off this
+  // read, and a remote whose build predates `workspace.checkout` fails it —
+  // which is exactly the build whose agent.launch would ignore the base ref.
+  if (!target.checkout) return `Reading the checkout on ${target.connection.machineName}…`
+  if (!target.checkout.git) return `That project is not a git repository on ${target.connection.machineName}.`
+  if (!effectiveBaseRefOf(target.checkout, null)) return `No branch to fork from on ${target.connection.machineName}.`
   return null
+}
+
+/**
+ * The one base ref a worktree launch shows AND sends: the person's pick,
+ * else the checkout's own branch, else the trunk. Null when the remote has
+ * nothing to fork from (a detached checkout with no trunk), which is a
+ * disabled worktree row rather than a fork of an arbitrary commit.
+ */
+export function effectiveBaseRefOf(checkout: FleetWorkspaceCheckout | null, picked: string | null): string | null {
+  if (!checkout?.git) return null
+  return picked ?? checkout.branch ?? checkout.defaultBranch ?? null
 }
 
 // The greeting rotates per tab open. No exclamation marks and no "we" (the copy
@@ -321,6 +379,35 @@ export default function NewAgentPanel({
   // either resets the target rather than lying about where they would run.
   const [remoteMachines, setRemoteMachines] = React.useState<FleetConnection[]>([])
   const [remoteTarget, setRemoteTarget] = React.useState<RemoteTargetState | null>(null)
+  // What each paired machine holds, read once per machine per door open
+  // (one-project-across-machines): the machine dropdown says which machines
+  // have the project in hand, and a pick that keeps the project reads its
+  // workspace off this rather than asking the machine again.
+  const [machineBrowses, setMachineBrowses] = React.useState<Map<string, FleetBrowse | 'loading'>>(() => new Map())
+  const browseMachine = React.useCallback((connection: FleetConnection): Promise<FleetBrowse> => {
+    setMachineBrowses((current) => (current.has(connection.id) ? current : new Map(current).set(connection.id, 'loading')))
+    return window.api
+      .fleetBrowse(connection.id)
+      .then((browse) => {
+        setMachineBrowses((current) => new Map(current).set(connection.id, browse))
+        return browse
+      })
+      .catch((error: unknown) => {
+        const failed: FleetBrowse = {
+          connectionId: connection.id,
+          reachable: false,
+          unreachableReason: error instanceof Error ? error.message : String(error),
+          unauthorized: false,
+          scopes: connection.scopes,
+          terminalAccess: 'none',
+          workspaces: [],
+          terminals: [],
+          gaps: [],
+        }
+        setMachineBrowses((current) => new Map(current).set(connection.id, failed))
+        return failed
+      })
+  }, [])
   // One launch at a time: the remote create waits on a real CLI starting on
   // another machine, and a second Enter during that window must read as
   // "starting", never as a second agent.
@@ -366,9 +453,30 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (!remoteSelectable) setRemoteTarget(null)
   }, [remoteSelectable])
-  const pickRemoteMachine = (connection: FleetConnection | null): void => {
+  // The project in hand, as an identity the next machine can be searched for:
+  // the local folder's repository, or the remote project's as its machine
+  // served it. Null when nothing is chosen or the folder has no remote.
+  const localIdentities = useFolderRepositoryIdentities(
+    React.useMemo(
+      () => [workspaceRoot, ...(projectOptions ?? []).map((option) => option.path)],
+      [projectOptions, workspaceRoot]
+    )
+  )
+  const localIdentity = workspaceRoot ? localIdentities.get(folderIdentityKey(workspaceRoot)) ?? null : null
+  const activeIdentity: RepositoryIdentity | null = remoteTarget
+    ? remoteTarget.picked?.repository ?? null
+    : localIdentity
+  const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {
+      // Back to This Mac with a project in hand: keep it when a local clone
+      // of the same repository is open here (changing the machine keeps the
+      // project when it exists there); otherwise the line returns
+      // to the folder it was scoped to before, as it always did.
+      const twin = keep
+        ? (projectOptions ?? []).find((option) => sameRepository(localIdentities.get(folderIdentityKey(option.path)), keep))
+        : null
+      if (twin && onSelectProject && twin.path !== workspaceRoot) onSelectProject(twin.path)
       setRemoteTarget(null)
       return
     }
@@ -382,8 +490,7 @@ export default function NewAgentPanel({
       checkoutError: null,
       choice: { mode: 'current' },
     })
-    void window.api
-      .fleetBrowse(connection.id)
+    void browseMachine(connection)
       .then((browse) => {
         setRemoteTarget((current) => {
           if (current?.connection.id !== connection.id) return current
@@ -406,23 +513,19 @@ export default function NewAgentPanel({
             return { ...current, workspaces: [], error: workspaceGap.message }
           }
           // An explicit choice, not the first row: a project picked by list
-          // order is a launch into the wrong repo waiting to happen. The one
-          // exception is a machine with exactly one project, where there is
-          // nothing to choose.
+          // order is a launch into the wrong repo waiting to happen. Two
+          // exceptions: a machine with exactly one project, where there is
+          // nothing to choose, and the machine's copy of the project already
+          // in hand (one-project-across-machines) — switching the machine
+          // keeps the project.
+          const kept = machineCopyOf(browse, keep)
           return {
             ...current,
             scopes: browse.scopes,
             workspaces: browse.workspaces,
-            picked: browse.workspaces.length === 1 ? browse.workspaces[0]! : null,
+            picked: kept ?? (browse.workspaces.length === 1 ? browse.workspaces[0]! : null),
           }
         })
-      })
-      .catch((error: unknown) => {
-        setRemoteTarget((current) =>
-          current?.connection.id === connection.id
-            ? { ...current, workspaces: [], error: error instanceof Error ? error.message : String(error) }
-            : current
-        )
       })
   }
   const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
@@ -464,7 +567,15 @@ export default function NewAgentPanel({
         setRemoteTarget((current) => {
           if (current?.connection.id !== remoteConnectionId || current.picked?.id !== remotePickedId) return current
           if (!result.ok) return { ...current, checkout: null, checkoutError: result.message, choice: { mode: 'current' } }
-          return { ...current, checkout: result.checkout, checkoutError: null }
+          // A choice the facts no longer allow falls back here, so the line
+          // never says "New worktree" over a launch that would not make one.
+          const allowed = remoteWorktreeDisabledReason({ ...current, checkout: result.checkout, checkoutError: null }) === null
+          return {
+            ...current,
+            checkout: result.checkout,
+            checkoutError: null,
+            choice: allowed ? current.choice : { mode: 'current' },
+          }
         })
       })
       .catch((error: unknown) => {
@@ -734,9 +845,11 @@ export default function NewAgentPanel({
       // narrower, a project that turned out not to be a repo) never travels:
       // the pick falls back to the checkout it can have.
       const worktreeBlocked = remoteWorktreeDisabledReason(remoteTarget) !== null
+      const baseRef =
+        remoteTarget.choice.mode === 'worktree' ? effectiveBaseRefOf(remoteTarget.checkout, remoteTarget.choice.baseRef) : null
       const checkout: FleetCheckoutRequest =
-        remoteTarget.choice.mode === 'worktree' && !worktreeBlocked
-          ? { mode: 'worktree', ...(remoteTarget.choice.baseRef ? { baseRef: remoteTarget.choice.baseRef } : {}) }
+        remoteTarget.choice.mode === 'worktree' && !worktreeBlocked && baseRef
+          ? { mode: 'worktree', baseRef }
           : { mode: 'current' }
       setRemoteLaunching(true)
       onLaunchRemote({
@@ -751,6 +864,7 @@ export default function NewAgentPanel({
         permissionPreset,
         checkout,
         branch: checkout.mode === 'current' ? remoteTarget.checkout?.branch ?? null : null,
+        remoteRepository: remoteTarget.picked.repository,
       })
         .finally(() => setRemoteLaunching(false))
         // The host reports its own failures as toasts; a throw past its catch
@@ -887,7 +1001,19 @@ export default function NewAgentPanel({
               <MachineScopePicker
                 machines={remoteMachines}
                 selected={remoteTarget?.connection ?? null}
-                onSelect={pickRemoteMachine}
+                onSelect={(connection) => pickRemoteMachine(connection)}
+                availability={(machine) => machineAvailabilityOf(machine, machineBrowses.get(machine.id), activeIdentity)}
+                // With a project in hand, opening the list asks every machine
+                // not yet asked what it holds, so the rows can say which
+                // have it. Without one there is nothing to filter by, and
+                // the list is the plain machine list it always was.
+                onOpen={() => {
+                  if (!activeIdentity) return
+                  for (const machine of remoteMachines) {
+                    if (!machineBrowses.has(machine.id)) void browseMachine(machine)
+                  }
+                }}
+                projectName={activeIdentity?.name ?? null}
               />
             ) : null}
             {remoteTarget ? (
@@ -1372,12 +1498,25 @@ function MachineScopePicker({
   machines,
   selected,
   onSelect,
+  availability,
+  onOpen,
+  projectName,
 }: {
   machines: FleetConnection[]
   selected: FleetConnection | null
   onSelect: (connection: FleetConnection | null) => void
+  /** Whether each machine holds the project in hand (one-project-across-machines); `none` lists it plainly. */
+  availability?: (machine: FleetConnection) => MachineAvailability
+  onOpen?: () => void
+  /** The project in hand, named in the dimmed rows' reasons and the list's heading. */
+  projectName?: string | null
 }) {
   const [open, setOpen] = React.useState(false)
+  const availabilityOf = (machine: FleetConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
+  const chosen = (machine: FleetConnection): boolean => {
+    const state = availabilityOf(machine).state
+    return state !== 'lacks' && state !== 'unreachable'
+  }
   const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
   const focusChecked = React.useCallback((surface: HTMLElement) => {
@@ -1394,11 +1533,14 @@ function MachineScopePicker({
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) onOpen?.()
+      }}
       ariaLabel="Machine this chat runs on"
       popupRole="menu"
       placement="bottom-start"
-      surfaceClassName={`w-[240px] ${MENU_LIST_CLASS}`}
+      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
@@ -1434,26 +1576,59 @@ function MachineScopePicker({
         <span aria-hidden="true" className="icon-xs shrink-0" />
         <span className="min-w-0 flex-1 truncate text-left">This Mac</span>
       </button>
-      {machines.map((machine) => (
-        <button
-          key={machine.id}
-          type="button"
-          role="menuitemradio"
-          aria-checked={selected?.id === machine.id}
-          data-machine-option="true"
-          tabIndex={selected?.id === machine.id ? 0 : -1}
-          onKeyDown={(event) => rowKey(event, () => { onSelect(machine); setOpen(false) })}
-          onClick={() => {
-            onSelect(machine)
-            setOpen(false)
-          }}
-          className={`${MENU_ITEM_CLASS} ${selected?.id === machine.id ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
-        >
-          <RemoteMachineGlyph className="icon-xs shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left">{machine.machineName}</span>
-          <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
-        </button>
-      ))}
+      {machines.map((machine) => {
+        const state = availabilityOf(machine)
+        const pickable = chosen(machine)
+        const activate = () => {
+          if (!pickable) return
+          onSelect(machine)
+          setOpen(false)
+        }
+        // With a project in hand the row says whether the machine has it:
+        // a copy's name when it does, the reason when it does not (dimmed,
+        // kept in the list — the menu spec's rule for a row that cannot be
+        // chosen). With none, the row is the plain machine line it always was.
+        const hint =
+          state.state === 'has'
+            ? `Has ${projectName ?? 'the project'}${state.workspace.folderPath ? ` at ${state.workspace.folderPath}` : ''}`
+            : state.state === 'lacks' || state.state === 'unreachable'
+              ? state.reason
+              : state.state === 'loading'
+                ? 'Asking what it holds…'
+                : null
+        return (
+          <button
+            key={machine.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={selected?.id === machine.id}
+            disabled={!pickable}
+            data-machine-option="true"
+            data-machine-availability={state.state}
+            tabIndex={selected?.id === machine.id ? 0 : -1}
+            onKeyDown={(event) => rowKey(event, activate)}
+            onClick={activate}
+            className={`${hint ? MENU_ITEM_STACKED_CLASS : MENU_ITEM_CLASS} ${
+              !pickable
+                ? 'text-[color:var(--text-disabled)]'
+                : selected?.id === machine.id
+                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)]'
+            }`}
+          >
+            <RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />
+            <span className="min-w-0 flex-1 text-left">
+              <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.machineName}</span>
+              {hint ? (
+                <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
+              ) : null}
+            </span>
+            {hint ? null : (
+              <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
+            )}
+          </button>
+        )
+      })}
     </Popover>
   )
 }
@@ -1579,6 +1754,12 @@ function RemoteCheckoutPicker({
   const label = isWorktree ? 'New worktree' : 'Current checkout'
   const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
     menuRadioRowKeyDown(event, '[data-checkout-option="true"]', activate)
+  const focusChecked = React.useCallback((surface: HTMLElement) => {
+    const target =
+      surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"][aria-checked="true"]')
+      ?? surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"]')
+    target?.focus()
+  }, [])
   return (
     <Popover
       open={open}
@@ -1586,7 +1767,8 @@ function RemoteCheckoutPicker({
       ariaLabel={`Checkout on ${target.connection.machineName}`}
       popupRole="menu"
       placement="bottom-start"
-      surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
+      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -1623,26 +1805,23 @@ function RemoteCheckoutPicker({
           </span>
         </span>
       </button>
-      {/* `aria-disabled`, not `disabled`: a dimmed row stays in the walk so
-          the reason can be read (menu spec: disabled rows are listed, never
-          removed). Activation is refused in the handler. */}
+      {/* `disabled`, per the menu spec: the row stays listed and dimmed with
+          its reason, and the arrow walk skips it (the preset menu's idiom). */}
       <button
         type="button"
         role="menuitemradio"
         aria-checked={isWorktree}
-        aria-disabled={worktreeReason ? true : undefined}
+        disabled={worktreeReason !== null}
         data-checkout-option="true"
         tabIndex={isWorktree ? 0 : -1}
         onKeyDown={(event) =>
           rowKey(event, () => {
-            if (worktreeReason) return
-            onChoose({ mode: 'worktree', baseRef: target.checkout?.branch ?? null })
+            onChoose({ mode: 'worktree', baseRef: null })
             setOpen(false)
           })
         }
         onClick={() => {
-          if (worktreeReason) return
-          onChoose({ mode: 'worktree', baseRef: target.checkout?.branch ?? null })
+          onChoose({ mode: 'worktree', baseRef: null })
           setOpen(false)
         }}
         className={`${MENU_ITEM_STACKED_CLASS} ${
@@ -1695,9 +1874,11 @@ function RemoteBranchSegment({
       </span>
     )
   }
-  const baseRef = target.choice.baseRef ?? checkout?.defaultBranch ?? checkout?.branch ?? null
+  const baseRef = effectiveBaseRefOf(checkout, target.choice.baseRef)
   const needle = query.trim().toLowerCase()
   const branches = (checkout?.branches ?? []).filter((entry) => !needle || entry.name.toLowerCase().includes(needle))
+  const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
+    menuRadioRowKeyDown(event, '[data-branch-option="true"]', activate)
   return (
     <Popover
       open={open}
@@ -1735,6 +1916,17 @@ function RemoteBranchSegment({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search branches…"
               aria-label={`Search branches on ${target.connection.machineName}`}
+              // The list is walked from the box: ArrowDown steps onto the
+              // first branch, and the rows rove from there.
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown') return
+                const first = (event.currentTarget.closest('[role="menu"]') ?? event.currentTarget.parentElement?.parentElement)
+                  ?.querySelector<HTMLButtonElement>('[data-branch-option="true"]')
+                if (first) {
+                  event.preventDefault()
+                  first.focus()
+                }
+              }}
             />
           </div>
         ) : null}
@@ -1749,6 +1941,14 @@ function RemoteBranchSegment({
               type="button"
               role="menuitemradio"
               aria-checked={entry.name === baseRef}
+              data-branch-option="true"
+              tabIndex={entry.name === baseRef ? 0 : -1}
+              onKeyDown={(event) =>
+                rowKey(event, () => {
+                  onChooseBase(entry.name)
+                  setOpen(false)
+                })
+              }
               onClick={() => {
                 onChooseBase(entry.name)
                 setOpen(false)

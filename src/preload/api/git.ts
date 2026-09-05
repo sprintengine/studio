@@ -1,4 +1,5 @@
 import { ipcRenderer } from 'electron'
+import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type {
   ElectronApi,
   GitHubCloneInput,
@@ -59,6 +60,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-file-at-stage', repoRoot, filePath, stage),
   getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> =>
     ipcRenderer.invoke('git:get-branches', repoRoot),
+  getGitRepositoryIdentity: (folderPath: string): Promise<RepositoryIdentity | null> =>
+    ipcRenderer.invoke('git:get-repository-identity', folderPath),
   getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
     ipcRenderer.invoke('git:get-history', repoRoot, limit),
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions): Promise<GitGraphSnapshot> =>
@@ -157,6 +160,7 @@ export const gitApi = {
   | 'getGitFileBase'
   | 'getGitFileAtStage'
   | 'getGitBranches'
+  | 'getGitRepositoryIdentity'
   | 'getGitHistory'
   | 'getGitCommitGraph'
   | 'getGitConflicts'

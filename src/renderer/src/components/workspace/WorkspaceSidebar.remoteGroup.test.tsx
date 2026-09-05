@@ -46,11 +46,25 @@ anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
 const detected: string[] = []
+const identityReads: string[] = []
 domWindow.api = {
   platform: 'darwin',
+  // The Sprints nav entry subscribes to the run index on mount; a silent
+  // subscription keeps the sidebar's later renders (the identity reads
+  // resolving) from throwing inside a passive effect.
+  onSprintRunsChanged: () => () => {},
+  listSprintRuns: async () => [],
   detectProjectLogo: async (folderPath: string) => {
     detected.push(folderPath)
     return null
+  },
+  // one-project-across-machines: /projA is a clone of acme/multicode; the
+  // remote row Foxtrot below is that repository on the Air.
+  getGitRepositoryIdentity: async (folderPath: string) => {
+    identityReads.push(folderPath)
+    return folderPath === '/projA'
+      ? { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+      : null
   },
 }
 
@@ -97,6 +111,18 @@ async function main(): Promise<void> {
     workspace('w4', 'Delta', null, { remoteOrigin, layoutModel: { layout: { type: 'row', children: [] } } }),
     // A genuinely folderless local row keeps its old home.
     workspace('w5', 'Echo', null),
+    // Born on the Air in ITS clone of acme/multicode — the same repository
+    // as /projA (one-project-across-machines): files under projA's header.
+    workspace('w6', 'Foxtrot', null, {
+      remoteOrigin: {
+        ...remoteOrigin,
+        workspaceId: 'rw2',
+        workspaceName: 'multicode',
+        workspaceRoot: '/Users/air/multicode',
+        repository: { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' },
+      },
+      layoutModel: { layout: { type: 'row', children: [] } },
+    }),
   ] as SidebarProps['workspaces']
 
   const noop = () => {}
@@ -141,6 +167,14 @@ async function main(): Promise<void> {
   })
   for (let i = 0; i < 12; i += 1) await Promise.resolve()
   act(() => {})
+  // The identity reads resolve off the event loop and their setState lands
+  // through the scheduler, so the wait has to yield a macrotask inside act
+  // for the grouping to re-render on them.
+  for (let i = 0; i < 3; i += 1) {
+    await act(async () => {
+      await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+    })
+  }
 
   const headers = [...container.querySelectorAll('button[aria-expanded]')]
   const headerText = headers.map((header) => header.textContent?.trim() ?? '')
@@ -171,6 +205,21 @@ async function main(): Promise<void> {
     'a parked remote row carries no branch')
   assert.ok(remoteHeader.querySelector('svg'), 'the header carries the shared machine glyph')
   assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
+
+  // one-project-across-machines: the Air's clone of acme/multicode files under
+  // projA — the local clone — and marks its machine on the row, since the
+  // header no longer says it. Only local folders are asked for an identity.
+  assert.ok(identityReads.includes('/projA'), 'the local folder is asked which repository it is')
+  assert.ok(!identityReads.includes('/Users/air/multicode'), 'a remote root is never asked on this disk')
+  const localSection = headers[0]!.closest('section')!
+  const localRows = [...localSection.querySelectorAll('[role="treeitem"]')]
+  const foxtrot = localRows.find((row) => row.textContent?.includes('Foxtrot'))
+  assert.ok(foxtrot, 'the remote clone of an open repository files under that repository\'s local header')
+  assert.ok(foxtrot!.querySelector('[data-remote-under-local="true"]'), 'and wears the machine mark on its own line')
+  assert.ok(foxtrot!.textContent?.includes('On MacBook Air'), 'named for a reader who cannot see the glyph')
+  assert.ok(!localRows.find((row) => row.textContent?.includes('Alpha'))!.querySelector('[data-remote-under-local="true"]'),
+    'a local row under the same header stays unmarked')
+  assert.ok(!remoteRows.some((text) => text.includes('Foxtrot')), 'and is not also under the machine header')
 
   const noFolderSection = headers[2]!.closest('section')!
   const noFolderRows = [...noFolderSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')

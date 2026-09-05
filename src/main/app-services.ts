@@ -90,6 +90,7 @@ import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from 
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
 import { listGitWorktrees } from './git-worktree-list'
+import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
 import { createBrowserManager } from './browser/browser-manager'
@@ -949,6 +950,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
           return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
         },
+        readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
         // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
         // create): the same readers the sidebar rows and the Worktree manager
         // use, so a remote picker lists exactly what this machine's Git view
@@ -967,7 +969,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             git: true,
             branch,
             defaultBranch: trunk?.name ?? null,
-            branches: (snapshot?.branches ?? []).map((entry) => ({ name: entry.name, current: entry.current })),
+            // `git branch` prints a detached HEAD as a pseudo-entry,
+            // "(HEAD detached at abc)", marked current; it is not a ref
+            // anyone can fork from and is dropped.
+            branches: (snapshot?.branches ?? [])
+              .filter((entry) => !entry.name.startsWith('('))
+              .map((entry) => ({ name: entry.name, current: entry.current })),
             worktrees: worktrees?.ok
               ? worktrees.data.worktrees
                   .filter((entry) => !entry.bare)

@@ -981,6 +981,13 @@ export type WorkspaceRemoteOrigin = {
     branch: string | null
     worktreePath: string | null
   } | null
+  /**
+   * Which repository the remote workspace is a clone of, as its machine's
+   * `workspace.list` served it (one-project-across-machines). The sidebar
+   * files the row under a local clone of the same repository when one is
+   * open. Null when the remote had no identity to give.
+   */
+  repository?: import('../../../shared/repository-identity').RepositoryIdentity | null
 }
 
 export type Workspace = {

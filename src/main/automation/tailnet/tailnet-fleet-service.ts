@@ -806,12 +806,21 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     return entries.flatMap((entry) => {
       const record = asRecord(entry)
       if (!record || typeof record.id !== 'string') return []
+      const repository = asRecord(record.repository)
       return [
         {
           id: record.id,
           name: typeof record.name === 'string' ? record.name : record.id,
           mode: typeof record.mode === 'string' ? record.mode : null,
           folderPath: typeof record.folderPath === 'string' ? record.folderPath : null,
+          repository:
+            repository && typeof repository.canonicalKey === 'string' && repository.canonicalKey
+              ? {
+                  canonicalKey: repository.canonicalKey,
+                  remoteUrl: typeof repository.remoteUrl === 'string' ? repository.remoteUrl : '',
+                  name: typeof repository.name === 'string' ? repository.name : repository.canonicalKey,
+                }
+              : null,
         },
       ]
     })

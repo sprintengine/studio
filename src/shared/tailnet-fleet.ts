@@ -1,3 +1,4 @@
+import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetScope } from './tailnet'
 
 // The Fleet: another machine's Studio, mounted in this one (MC-2167).
@@ -53,6 +54,13 @@ export type FleetWorkspace = {
   name: string
   mode: string | null
   folderPath: string | null
+  /**
+   * Which repository the folder is a clone of, as the remote read it off its
+   * own `git remote` (one-project-across-machines). Null when the remote is
+   * an older build, the folder is not a repository, or it has no remote —
+   * three different facts with one consequence: no grouping across machines.
+   */
+  repository: RepositoryIdentity | null
 }
 
 /**
