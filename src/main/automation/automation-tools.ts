@@ -1,4 +1,5 @@
 import { isAbsolute } from 'path'
+import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
   SprintEngineArtifactCommandResult,
@@ -79,6 +80,7 @@ import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
+import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
@@ -242,6 +244,13 @@ export type AutomationBackends = {
    * worktrees the repository holds. Read-only; never throws for a non-repo
    * (that is the `git: false` answer).
    */
+  /**
+   * Which repository a folder is a clone of (one-project-across-machines):
+   * its primary remote, normalised. Null for a non-repo or a remote-less one.
+   * Served on `workspace.list` so a paired Studio can match this machine's
+   * copy of a repository to its own. Cached in main; never throws.
+   */
+  readRepositoryIdentity(folderPath: string): Promise<RepositoryIdentity | null>
   readWorkspaceCheckout(workspaceRoot: string): Promise<{
     git: boolean
     branch: string | null
@@ -651,8 +660,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const { state } = backends.getWorkspaceSyncSnapshot()
+      // The repository each folder is a clone of rides the listing
+      // (one-project-across-machines): it is how a paired Studio recognises
+      // its own project on this machine. Read per folder, cached in main.
+      const workspaces = await Promise.all(
+        state.workspaces.map(async (workspace) => ({
+          ...workspaceProjection(workspace),
+          repository: workspace.folderPath ? await backends.readRepositoryIdentity(workspace.folderPath) : null,
+        }))
+      )
       return success({
-        workspaces: state.workspaces.map(workspaceProjection),
+        workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
         primaryWindowId: state.primaryWorkspaceWindowId,
       })
@@ -1034,11 +1052,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('invalid_kind', 'The "kind" filter accepts "agent" or "terminal".')
       }
       const workspaceId = optionalString(args.workspaceId)
-      const sessions = backends
-        .listTerminalSessions()
-        .filter((session) => !workspaceId || session.workspaceId === workspaceId)
-        .filter((session) => !kind || session.kind === kind)
-        .map(terminalSessionProjection)
+      const sessions = await Promise.all(
+        backends
+          .listTerminalSessions()
+          .filter((session) => !workspaceId || session.workspaceId === workspaceId)
+          .filter((session) => !kind || session.kind === kind)
+          .map(async (session) => ({
+            ...terminalSessionProjection(session),
+            // The phone's thread row (multicode-mobile id 81) carries the same
+            // second line the sidebar does: the workspace's display name, and the
+            // checkout's branch and diff read through the sidebar's own summary
+            // share (one read per checkout per sweep, held 15s). Both are
+            // additive and null when unknown, so an older phone reads the row as
+            // before and a newer one never guesses.
+            workspaceName: (session.workspaceId ? findWorkspace(session.workspaceId)?.name : null) ?? null,
+            git: await terminalGitSummary(session),
+          }))
+      )
       return success({ terminals: sessions })
     },
   }
@@ -3337,6 +3367,32 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 // `processAlive` and `suspended` are separate on purpose: a paused agent is not
 // running (its pty was killed to reclaim memory) but is not gone either, and a
 // client that collapsed the two would offer to type into a frozen screen.
+/**
+ * The checkout a terminal works in, summarised the way the sidebar row is:
+ * branch, `+n −n`, and the scope that says whose changes they are (`worktree` —
+ * this chat's own; `branch` — the branch's, possibly shared; `folder` — only
+ * what is uncommitted). Null when the session has no directory or the read
+ * fails; never a confident zero for a span that was not measured.
+ */
+async function terminalGitSummary(
+  session: TerminalSessionSnapshot
+): Promise<{ branch: string | null; additions: number; deletions: number; changedFiles: number; scope: string } | null> {
+  const checkoutPath = session.worktreePath ?? session.cwd
+  if (!checkoutPath) return null
+  try {
+    const summary = await getWorkspaceChangeSummary({ checkoutPath })
+    return {
+      branch: summary.branch,
+      additions: summary.additions,
+      deletions: summary.deletions,
+      changedFiles: summary.changedFiles,
+      scope: summary.scope,
+    }
+  } catch {
+    return null
+  }
+}
+
 function terminalSessionProjection(session: TerminalSessionSnapshot): Record<string, unknown> {
   return {
     sessionId: session.sessionId,
