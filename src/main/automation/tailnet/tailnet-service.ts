@@ -153,11 +153,23 @@ export type TailnetRemoteServiceOptions = {
   onReverseGrant?: (input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }) => void
   /** Injected in tests. Production reads this machine's real interfaces. */
   resolveBindAddress?: () => string | null
+  /**
+   * How often to look for a Tailscale interface while the listener is enabled
+   * and waiting for one. Tests drive it down; nothing else sets it.
+   */
+  interfaceWatchMs?: number
   createPeerScanner?: () => TailnetPeerScanner
   createDeviceStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetDeviceStore
   createPeerResolver?: () => TailnetPeerResolver
   log?: (message: string) => void
 }
+
+/**
+ * How often to look for a Tailscale interface while the listener is enabled
+ * and waiting for one. Thirty seconds: Tailscale takes seconds to come up
+ * after login, and a person who just started it will not notice half a minute.
+ */
+const INTERFACE_WATCH_MS = 30_000
 
 export function createTailnetRemoteService(options: TailnetRemoteServiceOptions): TailnetRemoteService {
   const devices = (options.createDeviceStore ?? createTailnetDeviceStore)({
@@ -167,6 +179,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   const peers = (options.createPeerResolver ?? (() => createTailnetPeerResolver({ log: options.log })))()
   const peerScanner = (options.createPeerScanner ?? (() => createTailnetPeerScanner({ log: options.log })))()
   const resolveBindAddress = options.resolveBindAddress ?? (() => resolveTailnetInterface()?.address ?? null)
+  const interfaceWatchMs = options.interfaceWatchMs ?? INTERFACE_WATCH_MS
 
   let settings: TailnetSettings | null = null
   let lastError: string | null = null
@@ -177,6 +190,18 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   // not re-enumerate the machine's interfaces to report an address that
   // cannot have changed while the listener stayed bound to it.
   let boundAddress: string | null = null
+  /**
+   * Set while the listener is enabled but has no interface to bind to.
+   *
+   * Tailscale starting a few seconds AFTER the app is the ordinary case on a
+   * login-item launch, and without this the listener lost that race
+   * permanently: `startServer` recorded "no Tailscale interface was found" and
+   * nothing ever looked again, so the setting read `enabled: true` while
+   * nothing was listening and the only cure was toggling it by hand. Reported
+   * by the owner on 2026-09-05 after a phone sat on "the desktop did not
+   * answer" against a machine whose Studio was running the whole time.
+   */
+  let interfaceWatch: ReturnType<typeof setInterval> | null = null
 
   // ── live-connection accounting (remote-sessions-ux) ────────────────────────
   // Counts, not booleans: one device may hold several sockets (an RPC stream
@@ -425,12 +450,17 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     if (!bindAddress) {
       // Explicit refusal, not a fallback to another interface: the whole point
       // of this listener is that it is reachable ONLY over the tailnet.
+      //
+      // A refusal, not a verdict: the interface may simply not be up YET, so
+      // this also arms the watcher that binds the moment one appears.
       lastError =
-        'Tailnet remote control is enabled but no Tailscale interface was found on this machine. Start Tailscale, then re-enable it.'
+        'Tailnet remote control is enabled but no Tailscale interface was found on this machine. Waiting for Tailscale to come up.'
       options.log?.(lastError)
+      watchForInterface()
       emit({ kind: 'listener', running: false, error: lastError })
       return true
     }
+    stopWatchingForInterface()
     const next = createTailnetGatewayServer({
       bindAddress,
       port: current.port,
@@ -478,8 +508,40 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     return true
   }
 
+  /**
+   * Poll for a Tailscale interface and start the listener when one arrives.
+   *
+   * A poll rather than an OS interface event: `resolveTailnetInterface` reads
+   * `os.networkInterfaces()`, Node has no portable "interface appeared" signal,
+   * and the check is cheap against a thirty-second beat. It stops itself the
+   * moment it succeeds or the setting is turned off, so a machine that never
+   * runs Tailscale pays one enumeration every half minute and nothing else.
+   */
+  function watchForInterface(): void {
+    if (interfaceWatch) return
+    interfaceWatch = setInterval(() => {
+      // Re-read rather than trust the closure: the setting can be turned off,
+      // or another path can have started the listener, while this was waiting.
+      if (!loadSettings().enabled || server?.isRunning()) {
+        stopWatchingForInterface()
+        return
+      }
+      if (!resolveBindAddress()) return
+      void startServer()
+    }, interfaceWatchMs)
+    // Never hold the process open for a listener that has not started.
+    interfaceWatch.unref?.()
+  }
+
+  function stopWatchingForInterface(): void {
+    if (!interfaceWatch) return
+    clearInterval(interfaceWatch)
+    interfaceWatch = null
+  }
+
   /** Stop the listener. Resolves to whether a listener event was emitted. */
   async function stopServer(): Promise<boolean> {
+    stopWatchingForInterface()
     const current = server
     server = null
     boundAddress = null
@@ -670,6 +732,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       if (cancelled.length > 0) announcePairRequests({ ids: cancelled, phase: 'cancelled' })
       for (const [, entry] of announcedRequests) clearTimeout(entry.timer)
       announcedRequests.clear()
+      stopWatchingForInterface()
       await stopServer()
     },
   }

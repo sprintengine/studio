@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -563,6 +563,97 @@ export async function testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingE
     assert.equal(status.running, false)
     assert.equal(status.endpoint, null)
     assert.match(status.lastError ?? '', /no Tailscale interface was found/u)
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+export async function testTheListenerBindsWhenTailscaleComesUpAfterTheApp(): Promise<void> {
+  // The boot race the owner hit on 2026-09-05: Studio launched from a login
+  // item before Tailscale was up, the listener refused to bind, and nothing
+  // ever looked again — the setting read `enabled: true` for hours while the
+  // phone got "the desktop did not answer" from a machine that was running
+  // fine. The refusal must be a "not yet", not a verdict.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-late-'))
+  try {
+    // A port nothing else holds, and loopback as the "interface": the bind
+    // guard allows loopback, and a real 100.64/10 address cannot be bound on a
+    // machine that does not actually have it (EADDRNOTAVAIL). The setting file
+    // is written directly because the port must be free BEFORE the service
+    // reads it — `isUsablePort` refuses 0, so there is no ephemeral escape.
+    const port = await freePort()
+    writeFileSync(
+      join(userDataDir, 'tailnet-remote-settings.json'),
+      JSON.stringify({ enabled: false, port, notifications: true })
+    )
+
+    let tailscaleIsUp = false
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => (tailscaleIsUp ? '127.0.0.1' : null),
+      interfaceWatchMs: 5,
+    })
+
+    const refused = await service.setEnabled(true)
+    assert.equal(refused.running, false, 'nothing binds while there is no interface')
+    assert.match(refused.lastError ?? '', /no Tailscale interface was found/u)
+
+    tailscaleIsUp = true
+    await waitFor(() => service.getStatus().running, 'the listener to bind once an interface appears')
+    const bound = service.getStatus()
+    assert.equal(bound.running, true, 'the watcher binds once an interface appears')
+    assert.equal(bound.endpoint, `127.0.0.1:${port}`, 'bound somewhere unexpected')
+    assert.equal(bound.lastError, null, 'the stale refusal is cleared once it stops being true')
+
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+/** A port that is free right now, for a test that must really bind one. */
+async function freePort(): Promise<number> {
+  const net = await import('node:net')
+  return await new Promise<number>((resolve, reject) => {
+    const probe = net.createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      const value = typeof address === 'object' && address ? address.port : 0
+      probe.close(() => resolve(value))
+    })
+  })
+}
+
+export async function testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff(): Promise<void> {
+  // The watch must not outlive the setting: a machine that never runs
+  // Tailscale, with remote turned back off, should be enumerating nothing.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-watch-'))
+  try {
+    let looks = 0
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => {
+        looks += 1
+        return null
+      },
+      interfaceWatchMs: 5,
+    })
+    await service.setEnabled(true)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await service.setEnabled(false)
+    const afterOff = looks
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    assert.equal(looks, afterOff, 'the watch kept polling after remote control was turned off')
     await service.shutdown()
   } finally {
     rmSync(userDataDir, { recursive: true, force: true })
@@ -1777,6 +1868,8 @@ const tests = [
   testBindAddressAllowsOnlyTailnetOrLoopback,
   testDisabledMeansNoListeningTcpSocket,
   testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingElse,
+  testTheListenerBindsWhenTailscaleComesUpAfterTheApp,
+  testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff,
   testUnpairedClientsGet401AndPairedClientsDriveTheGateway,
   testBrowserOriginatedRequestsAreRefused,
   testOversizedAndMalformedBodiesAreRefusedExplicitly,
