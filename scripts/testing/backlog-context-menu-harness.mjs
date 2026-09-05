@@ -19,6 +19,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -127,7 +128,7 @@ async function main() {
   })
 
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     page.on('console', (m) => {
       if (m.type() === 'error') console.error(`[renderer] ${m.text()}`)
     })
@@ -141,35 +142,24 @@ async function main() {
     })
     await page.waitForTimeout(1500)
 
-    // --- Onboarding to a Standard workspace (same flow as the T3 harness) ---
-    await domClick(page, page.getByRole('button', { name: /Get started/i }))
-    await domClick(page, page.getByRole('button', { name: /Continue/i }))
-    await page.getByPlaceholder('my-workspace').fill('T5 Backlog Menu')
-    await domClick(page, page.locator('button').filter({ hasText: 'Browse existing folder' }))
-    await page.waitForFunction((dir) => document.body.innerText.includes(dir), workspaceDir, {
-      timeout: 10000,
-    })
-    await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-    await page.waitForFunction(() => document.body.innerText.includes('Standard'), null, { timeout: 10000 })
-    await domClick(page, page.locator('button').filter({ hasText: /^Standard/ }))
-    for (let i = 0; i < 12; i += 1) {
-      const hasRow = (await page.locator('[role="treeitem"]').count()) > 0
-      const overlayCount = await page.locator('div.fixed.inset-0.z-50').count()
-      if (hasRow && overlayCount === 0) break
+    // --- A workspace on the seeded folder, through New chat — the product's
+    // one door (MC-2436). Onboarding, when it shows, is stepped through first. ---
+    for (let i = 0; i < 8; i += 1) {
+      const advance = page.locator('button').filter({ hasText: /^(Get started|Continue|Skip for now|Done|Finish|Start)$/ })
+      if ((await advance.count()) === 0) break
+      await domClick(page, advance.last())
+    }
+    await createWorkspaceThroughNewChat(page, { folder: workspaceDir })
+    // Anything still layered over the sidebar (a tip, a first-run card) is
+    // dismissed before the menu pass measures it.
+    for (let i = 0; i < 6; i += 1) {
       const overlay = page.locator('div.fixed.inset-0.z-50')
+      if ((await overlay.count()) === 0) break
       const overlayClose = overlay.locator('button[aria-label*="lose"], button[aria-label*="ismiss"]')
-      const advance = page
-        .locator('button')
-        .filter({ hasText: /^(Continue|Create workspace|Create|Finish|Open workspace|Done|Skip|Get started)$/ })
-      if (hasRow && overlayCount > 0 && (await overlayClose.count()) > 0) {
-        await domClick(page, overlayClose)
-      } else if (!hasRow && (await advance.count()) > 0) {
-        await domClick(page, advance)
-      } else if (overlayCount > 0) {
+      if ((await overlayClose.count()) > 0) await domClick(page, overlayClose)
+      else {
         await page.keyboard.press('Escape')
         await page.waitForTimeout(400)
-      } else {
-        await page.waitForTimeout(800)
       }
     }
 

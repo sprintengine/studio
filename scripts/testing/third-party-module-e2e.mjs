@@ -15,6 +15,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -95,7 +96,7 @@ async function launchApp(electron, env) {
     cwd: root,
     env: { ...process.env, ...env },
   })
-  const page = await app.firstWindow()
+  const page = await resolveMainWindow(app)
   await page.waitForLoadState('domcontentloaded')
   return { app, page }
 }

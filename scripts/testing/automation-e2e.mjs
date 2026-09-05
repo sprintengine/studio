@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
@@ -47,7 +48,7 @@ async function launchApp(electron) {
       MULTICODE_ALLOW_MULTI_INSTANCE: '1',
     },
   })
-  const page = await app.firstWindow()
+  const page = await resolveMainWindow(app)
   await page.waitForLoadState('domcontentloaded')
   await page.waitForTimeout(2000)
   return { app, page }

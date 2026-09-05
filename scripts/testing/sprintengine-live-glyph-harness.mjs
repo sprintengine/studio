@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const yaml = require('js-yaml')
@@ -294,17 +295,14 @@ async function waitForBodyText(page, text, timeout = 10000) {
 async function createWorkspace(page) {
   await page.waitForLoadState('domcontentloaded')
   await page.waitForTimeout(1200)
-  await domClick(page, page.getByRole('button', { name: /Get started/i }))
-  await domClick(page, page.getByRole('button', { name: /Continue/i }))
-  await page.getByPlaceholder('my-workspace').fill('T13 Scratch Sprint Engine')
-  await domClick(page, page.locator('button').filter({ hasText: 'Browse existing folder' }))
-  await waitForBodyText(page, workspaceDir)
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Sprint Engine')
-  await domClick(page, page.locator('button').filter({ hasText: /^Sprint Engine/ }))
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
+  // The base workspace comes through New chat — the product's one door
+  // (MC-2436). The Sprint Engine mode wizard this harness then drove left
+  // with the hub; a sprint is started from the Sprints door's New sprint
+  // dialog, and the team steps below are the old wizard's and have not been
+  // re-verified against it (this harness was stale before the hub went).
+  await createWorkspaceThroughNewChat(page, { folder: workspaceDir })
+  await domClick(page, page.getByRole('button', { name: 'Sprints', exact: true }))
+  await domClick(page, page.getByRole('button', { name: /^New sprint/i }))
   await waitForBodyText(page, 'Load an existing team')
   await domClick(page, page.getByRole('radio', { name: /Load an existing team/i }))
   await selectComboboxOption(page, 'Team', teamName)
@@ -446,7 +444,7 @@ async function main() {
   })
 
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     page.on('console', (message) => {
       if (message.type() === 'error') console.error(`[renderer] ${message.text()}`)
     })

@@ -32,6 +32,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -241,7 +242,7 @@ async function main() {
 
   console.log('stage: electron launched')
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     console.log('stage: first window')
     page.on('console', (m) => {
       if (m.type() === 'error') console.error(`[renderer] ${m.text()}`)

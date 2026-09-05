@@ -26,6 +26,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { PANE_MEASURE, stampTheme } from './backlogDetailPaneMeasure.mjs'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire('/tmp/multicode-playwright/x.js')
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -449,7 +450,7 @@ async function main() {
     pane: { epicDark: null, epicLight: null, doorDark: null, doorLight: null },
   }
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     page.on('console', (m) => {
       if (m.type() === 'error') console.error(`[renderer] ${m.text()}`)
     })
@@ -463,15 +464,11 @@ async function main() {
     await finishOnboarding(page)
 
     console.log('\n=== creating the workspace on the scratch project ===')
-    await click(page, page.locator('button').filter({ hasText: /^New Workspace$/ }))
-    await page.waitForTimeout(1200)
-    await page.locator('input[placeholder="my-workspace"]').first().fill('Epic tab pass')
-    await page.locator('input[placeholder="/path/to/workspace"]').first().fill(workspaceDir)
-    await page.waitForTimeout(500)
-    const created =
-      (await click(page, page.locator('button').filter({ hasText: /^Skip the rest and create$/ }))) ||
-      (await click(page, page.locator('button').filter({ hasText: /^(Create workspace|Create)$/ }).last()))
-    await page.waitForTimeout(4500)
+    // Through New chat — the product's one door (MC-2436). The folder is
+    // adopted via Browse…, which MULTICODE_TEST_OPEN_DIR (set on the launch
+    // above) resolves without a native dialog.
+    const created = await createWorkspaceThroughNewChat(page, { folder: workspaceDir })
+    await page.waitForTimeout(1500)
     check('a workspace is open on the scratch project', created)
     await page.screenshot({ path: join(outDir, '00-workspace.png') })
 

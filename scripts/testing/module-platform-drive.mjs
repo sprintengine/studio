@@ -322,6 +322,7 @@ export function registerRenderer(host) {
 
 const PW_WIDGETS_RENDERER = `
 import React from 'react'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 const { createElement: h } = React
 
 export function registerRenderer(host) {
@@ -410,7 +411,7 @@ async function launch(electron, electronPath, { moduleRoot, testOpenDir }) {
   proc.stdout?.on('data', (chunk) => process.stdout.write(`[app] ${chunk}`))
   proc.stderr?.on('data', (chunk) => process.stderr.write(`[app] ${chunk}`))
   step('waiting for first window')
-  const page = await app.firstWindow()
+  const page = await resolveMainWindow(app)
   await page.waitForLoadState('domcontentloaded')
   page.on('console', (message) => {
     const text = message.text()
@@ -545,30 +546,15 @@ async function findWorkspaceId(page, mode) {
   }, mode)
 }
 
-// Reach the new-workspace hub page for a module type. When no workspaces
-// exist the hub is already open (auto-opens); otherwise go through the
-// sidebar's New… popover. Either way, the type is picked from the hub rail.
+// The base workspace comes through New chat — the product's one door
+// (MC-2436). The hub page this drive used to reach for a module type, with its
+// creation-step pane, left with the hub (retire-the-new-workspace-hub); the
+// module-type checkpoints below describe a creation flow the product no
+// longer has and are recorded as stale on the item.
 async function createWorkspaceOfType(page, { typeLabel, name, folder }) {
-  const nameInput = page.locator('input[placeholder="my-workspace"]')
-  if ((await nameInput.count()) === 0) {
-    await page.locator('[aria-label="New…"]').click()
-    const menuItem = page.locator(`text=New ${typeLabel.toLowerCase()}`).first()
-    await menuItem.waitFor({ state: 'visible', timeout: 10000 })
-    await menuItem.click()
-  }
-  await nameInput.waitFor({ state: 'visible', timeout: 10000 })
-  const railEntry = page.getByRole('button', { name: typeLabel }).first()
-  if ((await railEntry.count()) > 0) {
-    await railEntry.click()
-  } else {
-    await page.locator(`text=${typeLabel}`).first().click()
-  }
-  await page.waitForTimeout(400)
-  await nameInput.fill(name)
-  const folderInput = page.locator('input[placeholder="/path/to/workspace"]')
-  await folderInput.fill(folder)
-  await folderInput.blur()
-  await page.waitForTimeout(400)
+  void typeLabel
+  void name
+  await createWorkspaceThroughNewChat(page, { folder })
 }
 
 async function sessionDrive(electron, electronPath) {

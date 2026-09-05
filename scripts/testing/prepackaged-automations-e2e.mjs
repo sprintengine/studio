@@ -21,6 +21,7 @@ import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)))
@@ -182,7 +183,7 @@ async function main() {
       MULTICODE_ALLOW_MULTI_INSTANCE: '1',
     },
   })
-  const page = await app.firstWindow()
+  const page = await resolveMainWindow(app)
   await page.waitForLoadState('domcontentloaded')
   await page.waitForTimeout(4000)
 

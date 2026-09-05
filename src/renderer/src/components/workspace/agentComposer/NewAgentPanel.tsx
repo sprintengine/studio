@@ -1529,6 +1529,9 @@ function ProjectScopePicker({
           ref={ref}
           type="button"
           onClick={togglePopover}
+          // A stable hook for the Playwright passes (scripts/testing/
+          // newChatWorkspace.mjs), which reach the folder through this control.
+          data-project-trigger="true"
           className={`interactive mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >

@@ -3,6 +3,7 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -48,7 +49,7 @@ async function main() {
   })
 
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     await page.waitForLoadState('domcontentloaded')
     await page.waitForTimeout(1000)
     await page.screenshot({ path: screenshotPath, fullPage: true })
