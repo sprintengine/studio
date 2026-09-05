@@ -307,10 +307,31 @@ too, and it has exactly one band of chrome:
    and keeps its own band.
 
 **A heading must separate something from something else.** Do not label an
-ungrouped list ("Horizons" over a field that already reads "Search horizons…"),
+ungrouped list ("Rosters" over a field that already reads "Search rosters…"),
 and do not render a group heading when there is only one group — "Recent"
 spanning every row groups nothing. Headings appear when there are at least two
 groups to tell apart; the list's accessible name carries the label otherwise.
+
+**The app rail** (ruled 2026-09-05) — the window's far-left column of section
+glyphs, the app's and the editor's idiom — is chrome, not a rail in the
+context-rail sense. It names AREAS of the product (Home, Extensions), never
+things inside one; the sidebar column beside it lists the things, and a
+drilled-in surface still replaces that column's content rather than standing
+beside it. "One rail, ever" is unchanged: the app rail holds no list a person
+walks. Its anatomy:
+
+1. **A fixed set of glyph-and-caption buttons**, each on a `size.control.md`
+   square with the caption always visible beneath — a rail this narrow cannot
+   spend width on a label beside the glyph, and a tooltip-only label makes a
+   person hover every glyph to learn the product.
+2. **Selection is `bg.selected` on the square and an ink lift on the caption.**
+   Never the accent, never a bar on the window's edge. Exactly one glyph is
+   selected; there is no "nothing selected" state.
+3. **The account and Settings cluster pins to its foot.** They belong to the
+   window, not to whichever section the sidebar is showing.
+4. **Its top reserves the title strip's height** on every platform, so its
+   first glyph sits below the chrome row beside it; on macOS that reserve is
+   where the native traffic lights land, so no other strip insets for them.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.
