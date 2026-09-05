@@ -179,6 +179,7 @@ async function main(): Promise<void> {
     await assertMobileAgentSpawnSucceedsWithNoWindows(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
+    await assertObservedCheckoutFollowsHookCwd(runtimeModule)
     await assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule)
     await assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule)
     await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
@@ -327,6 +328,158 @@ async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeMod
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-wakeup')
+  }
+}
+
+// Observed checkout (MC-2440): the cwd a hook frame carries is where the
+// session IS, resolved through git into the checkout containing it, and it is
+// what the snapshot reports — not the launch cwd the agent may have left.
+async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-observed-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const worktreeRoot = join(workspaceRoot, '.multicode-worktrees', 'ws', 'feature')
+  const resolveCalls: string[] = []
+  let blockResolution: Promise<void> | null = null
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    resolveObservedCheckout: async (cwd) => {
+      resolveCalls.push(cwd)
+      if (blockResolution) await blockResolution
+      if (cwd === workspaceRoot || cwd.startsWith(workspaceRoot + '/src')) {
+        return { gitRoot: workspaceRoot, repoRoot: workspaceRoot, branch: 'main', isLinkedWorktree: false }
+      }
+      if (cwd === worktreeRoot) {
+        return { gitRoot: worktreeRoot, repoRoot: workspaceRoot, branch: 'agent/feature', isLinkedWorktree: true }
+      }
+      if (cwd === '/unanswerable') return null
+      return { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
+    },
+  })
+
+  const sessionId = 'session-observed'
+  const spawnResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+    sessionId,
+    cols: 120,
+    rows: 30,
+    cwd: workspaceRoot,
+    cli: 'claude-code',
+    kind: 'agent',
+    shellOnly: false,
+    workspaceId: 'ws-observed',
+    agentId: sessionId,
+    visible: false,
+    mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+  })
+  assert.equal(spawnResult.ok, true, JSON.stringify(spawnResult))
+
+  const snapshot = () => runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === sessionId)
+  const settle = async () => {
+    for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r))
+  }
+  const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
+    type: 'agent_state',
+    agentId: sessionId,
+    workspaceId: 'ws-observed',
+    sessionId: null,
+    event: 'PostToolUse',
+    ts: Date.now(),
+    ...overrides,
+  })
+
+  try {
+    assert.equal(snapshot()?.observedCheckout, undefined, 'nothing observed before the first hook frame')
+
+    // First frame: the session starts where it was launched — and git says so.
+    const t0 = Date.now()
+    runtime.ingestAgentStateFrame(frame({ event: 'SessionStart', ts: t0, cwd: workspaceRoot }))
+    assert.equal(snapshot()?.observedCheckout?.cwd, workspaceRoot, 'the cwd is observed synchronously')
+    assert.equal(snapshot()?.observedCheckout?.resolved, false, 'unresolved until git answers')
+    await settle()
+    const main = snapshot()?.observedCheckout
+    assert.equal(main?.resolved, true)
+    assert.equal(main?.gitRoot, workspaceRoot)
+    assert.equal(main?.branch, 'main')
+    assert.equal(main?.isLinkedWorktree, false)
+    assert.equal(main?.at, t0, '`at` is the frame that observed the cwd')
+
+    // Same cwd on the next frames: no re-observation, no re-resolution.
+    const callsBefore = resolveCalls.length
+    runtime.ingestAgentStateFrame(frame({ ts: t0 + 10, cwd: workspaceRoot }))
+    await settle()
+    assert.equal(resolveCalls.length, callsBefore, 'an unchanged cwd resolves nothing')
+    assert.equal(snapshot()?.observedCheckout?.at, t0, 'an unchanged cwd keeps its arrival time')
+
+    // The agent creates a worktree and moves into it (EnterWorktree, or a
+    // persisted cd): the PostToolUse that follows carries the new cwd.
+    const t1 = t0 + 1000
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: t1, cwd: worktreeRoot }))
+    assert.equal(snapshot()?.observedCheckout?.cwd, worktreeRoot)
+    assert.equal(snapshot()?.observedCheckout?.resolved, false)
+    assert.ok(
+      mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
+      'a cwd change broadcasts even though thinking↔tool_use churn does not'
+    )
+    await settle()
+    const wt = snapshot()?.observedCheckout
+    assert.equal(wt?.resolved, true)
+    assert.equal(wt?.isLinkedWorktree, true, 'git says it is a linked worktree')
+    assert.equal(wt?.branch, 'agent/feature')
+    assert.equal(wt?.repoRoot, workspaceRoot, 'the worktree points back at the primary checkout')
+    assert.equal(snapshot()?.cwd, workspaceRoot, 'launch intent is untouched')
+
+    // A frame older than the observation cannot roll the cwd backwards.
+    runtime.ingestAgentStateFrame(frame({ ts: t0 + 500, cwd: workspaceRoot }))
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.cwd, worktreeRoot, 'a stale frame does not move the cwd back')
+
+    // A frame the spec DROPS for phase (an informational Notification) still
+    // moves the cwd: the observation is applied before the phase drop.
+    const t2 = t1 + 1000
+    const insideSrc = join(workspaceRoot, 'src')
+    runtime.ingestAgentStateFrame(frame({ event: 'Notification', notificationType: 'idle_prompt', ts: t2, cwd: insideSrc }))
+    assert.equal(snapshot()?.observedCheckout?.cwd, insideSrc, 'a phase-dropped frame still observes the cwd')
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.gitRoot, workspaceRoot, 'a subdirectory resolves to its checkout')
+    assert.equal(snapshot()?.observedCheckout?.isLinkedWorktree, false)
+
+    // A turn end re-resolves the SAME cwd (the branch can move in place).
+    const callsBeforeStop = resolveCalls.length
+    runtime.ingestAgentStateFrame(frame({ event: 'Stop', ts: t2 + 10, cwd: insideSrc }))
+    await settle()
+    assert.equal(resolveCalls.length, callsBeforeStop + 1, 'a turn end re-asks git about the current cwd')
+    assert.equal(resolveCalls[resolveCalls.length - 1], insideSrc)
+
+    // A resolver that cannot answer leaves the observation unresolved (never
+    // "folder"), so consumers fall back to launch intent.
+    const t3 = t2 + 2000
+    runtime.ingestAgentStateFrame(frame({ event: 'UserPromptSubmit', ts: t3, cwd: '/unanswerable' }))
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.cwd, '/unanswerable')
+    assert.equal(snapshot()?.observedCheckout?.resolved, false, 'null from the resolver stays unresolved')
+
+    // A slow resolution that finishes after a newer cwd arrived is discarded.
+    let release: () => void = () => undefined
+    blockResolution = new Promise<void>((resolve) => { release = resolve })
+    const t4 = t3 + 1000
+    runtime.ingestAgentStateFrame(frame({ ts: t4, cwd: worktreeRoot }))
+    await settle()
+    blockResolution = null
+    const t5 = t4 + 1000
+    runtime.ingestAgentStateFrame(frame({ ts: t5, cwd: insideSrc }))
+    await settle()
+    release()
+    await settle()
+    assert.equal(snapshot()?.observedCheckout?.cwd, insideSrc)
+    assert.equal(snapshot()?.observedCheckout?.gitRoot, workspaceRoot, 'the newest cwd wins over a late resolution')
+    assert.equal(snapshot()?.observedCheckout?.isLinkedWorktree, false, 'the stale worktree answer was discarded')
+  } finally {
+    runtime.ipcHandlers.killTerminal(sessionId)
+    await rm(workspaceRoot, { recursive: true, force: true })
   }
 }
 

@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron'
+import type { ObservedCheckout } from '../shared/observed-checkout'
 import type * as pty from 'node-pty'
 import type {
   AgentCli,
@@ -133,6 +134,12 @@ export type TerminalSession = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  // Where the session's hooks last saw it (MC-2440): the reported cwd plus
+  // git's answer for it. Kept apart from `cwd`/`worktreePath` (launch intent).
+  observedCheckout?: ObservedCheckout
+  // Monotonic ticket for the async git resolution of `observedCheckout`, so a
+  // resolution that finishes after a newer cwd arrived is discarded.
+  observedCheckoutSeq?: number
   agentSession?: AgentSessionIdentity
   // The launch decisions the main-process AgentLaunchService made for this
   // session (MC-2159). Retained here so it lives exactly as long as the session
@@ -358,6 +365,7 @@ type SuspendedPlaceholderSessionInput = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  observedCheckout?: ObservedCheckout
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
   // built — seeds the replay buffer so reveal still paints something.
@@ -412,6 +420,7 @@ export function createSuspendedPlaceholderSession(
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
     worktreePath: input.worktreePath,
+    observedCheckout: input.observedCheckout,
     agentSession: undefined,
     visible: false,
     // The rehydration moment, NOT savedAt: getTerminalLastSeenAt feeds the 24h
@@ -492,6 +501,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
+    observedCheckout: session.observedCheckout,
     agentSession: session.agentSession,
     agentRecord: session.agentRecord,
     visible: session.visible,

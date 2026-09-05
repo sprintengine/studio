@@ -1,4 +1,5 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type { ObservedCheckout } from './observed-checkout'
 // Type-only both ways (agent-launch.ts imports this module's McpSettings /
 // permission-preset vocabulary), so the cycle erases at compile time and no
 // runtime import exists in either direction.
@@ -1403,6 +1404,13 @@ export type TerminalSessionSnapshot = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  // Where the session's own hooks last saw it, resolved through git into the
+  // checkout containing that cwd (MC-2440). Distinct from the launch-intent
+  // fields above (`cwd`, `worktreePath`): an agent that creates a worktree and
+  // moves into it, or is launched by hand into one the app did not make, is
+  // only describable here. Absent for plain terminals and for CLIs whose hooks
+  // carry no cwd; `resolved: false` until git has answered.
+  observedCheckout?: ObservedCheckout
   agentSession?: AgentSessionIdentity
   // Present only on sessions the main-process AgentLaunchService composed
   // (MC-2159): the launch decisions main made — name, CLI, model, permission

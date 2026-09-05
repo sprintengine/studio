@@ -54,6 +54,54 @@ export function isAbsoluteObservedPath(value: string): boolean {
   return false
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function optionalPath(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_OBSERVED_CWD_LENGTH ? value : null
+}
+
+/**
+ * Shape-check a persisted observation (the terminal snapshot sidecar survives
+ * an app restart, so it is read as untrusted). Null for anything that is not
+ * a well-formed observation; git-derived fields are re-read defensively so a
+ * hand-edited or older sidecar cannot smuggle in an inconsistent record.
+ */
+export function parseObservedCheckout(raw: unknown): ObservedCheckout | null {
+  if (!isRecord(raw)) return null
+  const cwd = optionalPath(raw.cwd)
+  if (!cwd || !isAbsoluteObservedPath(cwd)) return null
+  const at = typeof raw.at === 'number' && Number.isFinite(raw.at) ? raw.at : null
+  if (at === null) return null
+  const resolved = raw.resolved === true
+  if (!resolved) return unresolvedObservedCheckout(cwd, at)
+  const gitRoot = optionalPath(raw.gitRoot)
+  return {
+    cwd,
+    at,
+    resolved: true,
+    gitRoot,
+    repoRoot: gitRoot ? optionalPath(raw.repoRoot) : null,
+    branch: gitRoot && typeof raw.branch === 'string' && raw.branch.length > 0 && raw.branch.length <= 512 ? raw.branch : null,
+    isLinkedWorktree: Boolean(gitRoot) && raw.isLinkedWorktree === true,
+  }
+}
+
+/** Field-wise equality, so a re-resolution that changed nothing broadcasts nothing. */
+export function sameObservedCheckout(a: ObservedCheckout | null | undefined, b: ObservedCheckout | null | undefined): boolean {
+  if (!a || !b) return a === b || (!a && !b)
+  return (
+    a.cwd === b.cwd
+    && a.at === b.at
+    && a.resolved === b.resolved
+    && a.gitRoot === b.gitRoot
+    && a.repoRoot === b.repoRoot
+    && a.branch === b.branch
+    && a.isLinkedWorktree === b.isLinkedWorktree
+  )
+}
+
 /** An observation that carries only the cwd, before git has answered. */
 export function unresolvedObservedCheckout(cwd: string, at: number): ObservedCheckout {
   return { cwd, at, resolved: false, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
