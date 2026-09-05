@@ -5,19 +5,12 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 import { REVIEW_GUIDE_AGENT_ID_PREFIX } from '../review/door/reviewGuideTerminal'
+import { ReviewsGlyph } from '../components/workspace/modalSurfaceGlyphs'
 
-// The Reviews door (MC-1708 T6). Lazy — and deliberately not a top-level import —
-// because the nav entry reaches the workspace store; keeping it behind a dynamic
-// import leaves the eager module-registry graph store-free, matching the other
-// module doors.
-const ReviewsNavEntry = React.lazy(() =>
-  import('../review/door/ReviewsNavEntry').then((m) => ({ default: m.ReviewsNavEntry })),
-)
-
-// The Reviews full-page surface (global-surfaces epic 1704), mounted by
-// WorkspaceManager over the workspace card region when the door opens it. Lazy so
-// its bundle (the walkthrough tree — Monaco, guide chat) stays off the wire until
-// the door is opened, and never loads while the module is disabled.
+// The Reviews surface (global-surfaces epic 1704; a modal since 2026-09-05),
+// mounted by WorkspaceManager in the shell's modal shell. Lazy so its bundle
+// (the walkthrough tree — Monaco, guide chat) stays off the wire until it is
+// opened, and never loads while the module is disabled.
 const ReviewsGlobalSurface = React.lazy(
   () => import('../review/door/ReviewsGlobalSurface'),
 )
@@ -27,9 +20,17 @@ const ReviewsGlobalSurface = React.lazy(
 //
 // Reviews are instance-level objects (MC-1708): the `review` workspace TYPE
 // retired, so this module registers no creatable workspace type and no FlexLayout
-// panel. It contributes the Reviews sidebar door + full-page surface (which mount
-// the walkthrough keyed by review id) and runs the one-time retirement that lifts
-// any persisted `Workspace.reviewState` onto disk and drops the dead review rows.
+// panel. It contributes the Reviews modal surface (which mounts the walkthrough
+// keyed by review id) and runs the one-time retirement that lifts any persisted
+// `Workspace.reviewState` onto disk and drops the dead review rows.
+//
+// A modal, not a door (owner, 2026-09-05): a review is read beside the chat
+// that produced the change, and the workspace pane is where it is reached
+// from — the pane's launcher lists Reviews with Browser, Terminal, Files and
+// Diff. But a walkthrough is Monaco beside a guide transcript, and the pane
+// column is too narrow to read it in, so picking Reviews there floats the
+// surface at workbench width over the page instead of opening a pane tab. The
+// Extensions section of the sidebar lists it too, as it lists every modal.
 export const reviewRendererModule: RendererModule = {
   manifest: {
     id: 'review',
@@ -42,9 +43,15 @@ export const reviewRendererModule: RendererModule = {
     dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
-    // After Roadmap (order 40) in the top-nav cluster — mockup §4 sidebar order.
-    host.registerSidebarNavEntry({ id: 'reviews', order: 50, Component: ReviewsNavEntry })
-    host.registerGlobalSurface({ id: 'reviews', Component: ReviewsGlobalSurface })
+    // Order 25: after Sprints (20) and before Design (30) in the Extensions
+    // list, which interleaves doors and modals by this one number.
+    host.registerModalSurface({
+      id: 'reviews',
+      order: 25,
+      label: 'Reviews',
+      Icon: ReviewsGlyph,
+      Component: ReviewsGlobalSurface,
+    })
     // The guide runs as an ordinary agent terminal that main spawned without a
     // window's knowledge, so no workspace row claims it. Claiming the prefix is
     // what lets the shell label those sessions and adopt one when the reviewer

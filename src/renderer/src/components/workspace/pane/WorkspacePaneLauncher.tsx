@@ -1,8 +1,7 @@
 import React from 'react'
 
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
-import type { WorkspacePaneTabKind } from '../../../types/workspace'
-import type { PaneKindDefinition } from './paneKinds'
+import type { PaneKindDefinition, PaneLaunchKind } from './paneKinds'
 
 // The pane with no tabs: one compact card per kind, and nothing else. The cards
 // are the explanation (principles: the UI does not explain the UI). The same
@@ -10,7 +9,7 @@ import type { PaneKindDefinition } from './paneKinds'
 
 type WorkspacePaneLauncherProps = {
   kinds: readonly PaneKindDefinition[]
-  onPick: (kind: WorkspacePaneTabKind) => void
+  onPick: (kind: PaneLaunchKind) => void
 }
 
 export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherProps) {

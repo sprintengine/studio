@@ -1,11 +1,23 @@
 import type { WorkspacePaneTabKind } from '../../../types/workspace'
+import { ReviewsGlyph } from '../modalSurfaceGlyphs'
 
-// The tab kinds the workspace pane can open, in the order the "+" menu and the
+// The kinds the workspace pane can open, in the order the "+" menu and the
 // empty-state launcher list them. A kind whose module is disabled is absent
 // from both, not present-but-empty.
+//
+// Most kinds become a TAB of the pane. A kind with `modalSurfaceId` does not:
+// picking it floats that registered modal surface over the page at workbench
+// width instead (Reviews, 2026-09-05). The pane is still where the person
+// reaches for it — it sits in the same list as Browser and Diff, because it is
+// the same kind of thing, a view of this workspace's work — but the pane
+// column is too narrow to read a walkthrough in, so the pane hands it off.
+
+// What the launcher and the "+" menu can pick: every tab kind, plus the kinds
+// that open somewhere other than a tab.
+export type PaneLaunchKind = WorkspacePaneTabKind | 'reviews'
 
 export type PaneKindDefinition = {
-  kind: WorkspacePaneTabKind
+  kind: PaneLaunchKind
   label: string
   // The letter that opens the kind while the "+" menu or the launcher has
   // focus. Uppercase, as the hint column prints it.
@@ -13,6 +25,8 @@ export type PaneKindDefinition = {
   // Capability module the kind belongs to; undefined for core kinds.
   moduleId?: string
   Glyph: (props: { className?: string }) => JSX.Element
+  // Set when picking the kind opens a modal surface rather than a pane tab.
+  modalSurfaceId?: string
 }
 
 function TerminalGlyph({ className }: { className?: string }) {
@@ -88,9 +102,12 @@ export const PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
   { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
+  // Reviews opens as a modal, never as a tab (see PaneKindDefinition). R is
+  // free: no tab kind starts with it.
+  { kind: 'reviews', label: 'Reviews', letter: 'R', moduleId: 'review', Glyph: ReviewsGlyph, modalSurfaceId: 'reviews' },
 ]
 
-export function paneKindDefinition(kind: WorkspacePaneTabKind): PaneKindDefinition {
+export function paneKindDefinition(kind: PaneLaunchKind): PaneKindDefinition {
   return (
     PANE_KINDS.find((definition) => definition.kind === kind)
     ?? { kind, label: kind, letter: kind[0]?.toUpperCase() ?? '', Glyph: BrowserGlyph }

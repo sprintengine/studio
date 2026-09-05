@@ -283,7 +283,7 @@ async function main(): Promise<void> {
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. Three doors + three modal surfaces coexist on the real kernel ══════
+  // ═══ 1. Two doors + four modal surfaces coexist on the real kernel ══════
   // Registration is module-owned and eager, so this reads the SAME host the app
   // boots with — not a hand-built one. Doors→modals (2026-09-01): Automations,
   // Extensions (user-facing "Plugins") and Design left the top-nav door band
@@ -301,7 +301,6 @@ async function main(): Promise<void> {
       [
         ['sprints', 20],
         ['roadmap', 40],
-        ['reviews', 50],
       ],
       'the door registry holds only the true doors, in the mockup’s sidebar order',
     )
@@ -313,19 +312,20 @@ async function main(): Promise<void> {
     for (const [id] of doorOrder) {
       assert.ok(host.getGlobalSurface(id), `the ${id} door has a surface behind it`)
     }
-    // The modal-surface registry (doors→modals): trigger order Plugins,
-    // Automations, Design, with the user-facing labels the tooltips carry —
-    // the `extensions` id keeps its name (deep-link target), the label says
-    // Plugins.
+    // The modal-surface registry (doors→modals): order Plugins, Automations,
+    // Reviews (a modal opened from the workspace pane since 2026-09-05),
+    // Design, with the user-facing labels the rows carry — the `extensions`
+    // id keeps its name (deep-link target), the label says Plugins.
     const modalOrder = host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const)
     assert.deepEqual(
       modalOrder,
       [
         ['extensions', 'Plugins'],
         ['automations', 'Automations'],
+        ['reviews', 'Reviews'],
         ['design', 'Design'],
       ],
-      'the settings cluster’s modal surfaces, in trigger order, with user-facing labels',
+      'the modal surfaces, in registry order, with user-facing labels',
     )
     for (const [id] of modalOrder) {
       assert.ok(host.getModalSurface(id), `the ${id} modal surface resolves by id`)
@@ -351,7 +351,7 @@ async function main(): Promise<void> {
       !host.getModalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
       'the Design trigger leaves with the design module',
     )
-    console.log('ok - three doors + three modal surfaces, each backed and gated by its module')
+    console.log('ok - two doors + four modal surfaces, each backed and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════

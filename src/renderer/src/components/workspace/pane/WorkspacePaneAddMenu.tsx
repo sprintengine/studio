@@ -2,8 +2,7 @@ import React, { useCallback, useState } from 'react'
 
 import { IconButton, Popover, Tooltip } from '../../ui'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
-import type { WorkspacePaneTabKind } from '../../../types/workspace'
-import type { PaneKindDefinition } from './paneKinds'
+import type { PaneKindDefinition, PaneLaunchKind } from './paneKinds'
 
 // The strip's "+": a menu of the kinds this workspace can open, each row with
 // its glyph and the letter that opens it while the menu is showing. Rows are
@@ -20,7 +19,7 @@ function PlusGlyph({ className }: { className?: string }) {
 
 type WorkspacePaneAddMenuProps = {
   kinds: readonly PaneKindDefinition[]
-  onPick: (kind: WorkspacePaneTabKind) => void
+  onPick: (kind: PaneLaunchKind) => void
 }
 
 const MENU_ITEM_SELECTOR = '[role=menuitem]:not([disabled])'
@@ -29,7 +28,7 @@ export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProp
   const [open, setOpen] = useState(false)
 
   const pick = useCallback(
-    (kind: WorkspacePaneTabKind) => {
+    (kind: PaneLaunchKind) => {
       setOpen(false)
       onPick(kind)
     },

@@ -9,7 +9,7 @@ import type {
   WorkspacePaneTabKind,
 } from '../../../types/workspace'
 import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
-import { PANE_KINDS, paneKindDefinition } from './paneKinds'
+import { PANE_KINDS, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
@@ -67,6 +67,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
   const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? '')
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
+  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
   const setActivePaneTab = useWorkspaceStore((s) => s.setActivePaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
   const setMaximised = useWorkspaceStore((s) => s.setWorkspacePaneMaximised)
@@ -116,11 +117,18 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
     [closeTab, tabs],
   )
 
+  // A kind that names a modal surface floats it over the page instead of
+  // opening a tab (Reviews). Everything else is a tab of this pane.
   const openKind = useCallback(
-    (kind: WorkspacePaneTabKind) => {
-      openPaneTab(workspaceId, { kind })
+    (kind: PaneLaunchKind) => {
+      const definition = paneKindDefinition(kind)
+      if (definition.modalSurfaceId) {
+        openModalSurface(definition.modalSurfaceId)
+        return
+      }
+      openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
     },
-    [openPaneTab, workspaceId],
+    [openModalSurface, openPaneTab, workspaceId],
   )
 
   const items: TabItem[] = tabs.map((tab) => {
