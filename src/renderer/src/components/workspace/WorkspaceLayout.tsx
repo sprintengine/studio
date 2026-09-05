@@ -47,9 +47,10 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabCheckout, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
@@ -337,6 +338,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
     }
   }, [worktreeGitRoot])
   const terminalSessions = useTerminalSessions()
+  // Which terminals a paired phone is watching, for the tab's remote mark.
+  const remoteAttachedSessions = useRemoteAttachedSessions()
   const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -1325,6 +1328,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // Trailing status treatment, shared across the three content branches:
       // sprint agents show a run-lifecycle glyph, everyone else the activity dot
       // (+ recency while idle).
+      // A phone is looking at this agent's terminal right now (owner,
+      // 2026-09-05: "if there is a mobile device actively looking at a
+      // terminal, show the little remote connection icon … beside the name …
+      // green and pulsing while the terminal is open on the mobile").
+      //
+      // It leads the trailing cluster rather than the leading slot, which
+      // already carries the identity the tab is named for — the runtime or the
+      // role. This is a state, and states live with the dot.
+      const remoteViewing = agentSessionId ? remoteAttachedSessions.has(agentSessionId) : false
+      const remoteMark = remoteViewing ? (
+        <span
+          className="status-dot-pulse flex shrink-0 items-center text-[color:var(--tone-good)]"
+          role="img"
+          aria-label="A paired phone is watching this terminal"
+          title="A paired phone is watching this terminal"
+        >
+          <RemoteMachineGlyph className="icon-xs" />
+        </span>
+      ) : null
+
       const trailing = sprintEngineLifecycle ? (
         <LifecycleGlyph
           state={sprintEngineLifecycle.state}
@@ -1403,11 +1426,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       renderValues.content = (
         <AgentTabIdentityPopover identity={agentIdentity}>
           {tabNameSpan}
+          {remoteMark}
           {trailing}
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
