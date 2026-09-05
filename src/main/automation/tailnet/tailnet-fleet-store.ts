@@ -34,6 +34,7 @@ export type TailnetFleetStore = {
     deviceName: string
     deviceToken: string
     scopes: TailnetScope[]
+    pairedVia: FleetConnection['pairedVia']
   }): FleetConnection
   /** Record what the remote says our grants are now; they can narrow without us being told. */
   updateScopes(connectionId: string, scopes: TailnetScope[]): void
@@ -80,6 +81,7 @@ export function createTailnetFleetStore(options: {
         scopes: normalizeTailnetScopes(input.scopes),
         pairedAt: now().toISOString(),
         lastConnectedAt: null,
+        pairedVia: input.pairedVia,
         deviceToken: input.deviceToken,
       }
       // Pairing twice with the same machine issues a SECOND device over there,
@@ -139,6 +141,7 @@ function publicConnection(entry: StoredFleetConnection): FleetConnection {
     scopes: [...entry.scopes],
     pairedAt: entry.pairedAt,
     lastConnectedAt: entry.lastConnectedAt,
+    pairedVia: entry.pairedVia,
   }
 }
 
@@ -191,8 +194,16 @@ function normalize(value: StoredFleetConnection): StoredFleetConnection {
     scopes: normalizeTailnetScopes(value.scopes),
     pairedAt: value.pairedAt,
     lastConnectedAt: typeof value.lastConnectedAt === 'string' ? value.lastConnectedAt : null,
+    // A record from before this was kept says so rather than guessing a path.
+    pairedVia: readPairedVia(value.pairedVia),
     deviceToken: value.deviceToken,
   }
+}
+
+const PAIRED_VIA: ReadonlySet<string> = new Set(['link', 'request', 'reverse', 'unknown'])
+
+function readPairedVia(value: unknown): FleetConnection['pairedVia'] {
+  return typeof value === 'string' && PAIRED_VIA.has(value) ? (value as FleetConnection['pairedVia']) : 'unknown'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

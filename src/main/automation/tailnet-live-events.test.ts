@@ -205,7 +205,7 @@ check('a disabled service initializes silently: no listener, no events, nothing 
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-off-'))
   const port = await freePort()
   // enabled: false — every build's resting state.
-  writeTailnetSettings(userDataDir, { enabled: false, port })
+  writeTailnetSettings(userDataDir, { enabled: false, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -231,7 +231,7 @@ check('a disabled service initializes silently: no listener, no events, nothing 
 check('a terminal attach narrates drive begin and end, named by device and session', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-drive-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -299,7 +299,7 @@ check('a terminal attach narrates drive begin and end, named by device and sessi
 check('the push channel narrates listener, pairing, connection, and pair-request changes', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -419,7 +419,7 @@ check('the push channel narrates listener, pairing, connection, and pair-request
 check('approving a request announces the resolution and the device change', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-approve-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -438,7 +438,11 @@ check('approving a request announces the resolution and the device change', asyn
     assert.equal(asked.status, 200)
     await events.waitFor((p) => p.event.kind === 'pair-request' && p.event.phase === 'received', 'received')
 
-    const answer = service.approvePairRequest({ id: asked.body.requestId as string, scopes: ['workspace:read'] })
+    const answer = service.approvePairRequest({
+      id: asked.body.requestId as string,
+      scopes: ['workspace:read'],
+      code: asked.body.comparisonCode as string,
+    })
     assert.equal(answer.ok, true)
     const resolved = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'approved',
@@ -457,7 +461,7 @@ check('approving a request announces the resolution and the device change', asyn
 check('stopping the listener cancels a request still waiting, and says so', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-cancel-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -496,7 +500,7 @@ check('stopping the listener cancels a request still waiting, and says so', asyn
 check('a request nobody answers lapses on its own timer and is announced as expired', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-expire-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
@@ -541,7 +545,7 @@ check('a listener that cannot start at boot announces the error without waiting 
   const squatter = createServer()
   squatter.listen(port, '127.0.0.1')
   await once(squatter, 'listening')
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const events = eventCollector()
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,

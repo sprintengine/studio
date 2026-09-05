@@ -1,4 +1,4 @@
-import { app, BrowserWindow, powerSaveBlocker, shell } from 'electron'
+import { app, BrowserWindow, Notification, powerMonitor, powerSaveBlocker, shell } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { access, readdir, readFile, stat } from 'fs/promises'
@@ -7,8 +7,10 @@ import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
-import { TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
+import { createTailnetNotifier } from './tailnet-notifications'
+import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
@@ -675,6 +677,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // so the tool set cannot capture it at construction. Assigned immediately
   // below; until then those tools answer that they are not wired up yet.
   let tailnetToolsFrontDoor: TailnetToolsFrontDoor | null = null
+  // OS notifications for pairing and reachability (pair-from-the-scan-and-
+  // stay-paired, phase 3): only while no window is focused, only the events a
+  // person is waiting on, never the code. A click brings the app forward and
+  // opens the Remote popover in the first workspace window.
+  const shownNotices = new Map<string, Notification>()
+  const tailnetNotifier = createTailnetNotifier({
+    isAnyWindowFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+    isEnabled: () => automationService.getTailnetStatus().notifications,
+    openRemote: () => {
+      const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+      if (!window) return
+      revealMainWindow(window)
+      window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
+    },
+    show: (notice, onClick) => {
+      if (!Notification.isSupported()) return
+      // A later phase of the same request replaces the banner rather than
+      // stacking "waiting" under "paired".
+      shownNotices.get(notice.key)?.close()
+      const banner = new Notification({ title: notice.title, body: notice.body, silent: false })
+      banner.on('click', onClick)
+      banner.on('close', () => {
+        if (shownNotices.get(notice.key) === banner) shownNotices.delete(notice.key)
+      })
+      shownNotices.set(notice.key, banner)
+      banner.show()
+    },
+  })
   // The embedded browser's main half (browser-pane epic): adopts the guests the
   // pane's browser tabs attach, drives them, and finds the dev servers this
   // workspace's terminals are running. The control layer is the agents' hands
@@ -707,13 +737,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
         window.webContents.send(TAILNET_EVENT_CHANNEL, payload)
       }
+      tailnetNotifier.onTailnetEvent(payload)
     },
     onFleetEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
         window.webContents.send(FLEET_EVENT_CHANNEL, event)
       }
+      tailnetNotifier.onFleetEvent(event)
     },
+    hasWindow: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed()),
     // Terminal streaming for the tailnet listener (MC-2165): the runtime's own
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.
@@ -959,6 +992,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   tailnetToolsFrontDoor = automationService
+  // Staying paired across sleep (phase 4): waking re-checks every paired
+  // machine and re-dials waiting panes at once. `powerMonitor` needs the app
+  // ready; services are built before that, so the hook waits for it.
+  void app.whenReady().then(() => {
+    const wake = () => automationService.fleet().onWake()
+    powerMonitor.on('resume', wake)
+    powerMonitor.on('unlock-screen', wake)
+  })
 
   // Background mode (MC-2156): what the tray reports with no window open. Read
   // straight from the live main-process owners — the scheduler's own run map,

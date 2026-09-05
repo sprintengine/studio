@@ -3,6 +3,7 @@ import {
   TAILNET_SCOPES,
   TAILNET_STRUCTURED_SCOPES,
   type TailnetApprovePairRequestView,
+  type TailnetDeviceOrigin,
   type TailnetPairingOfferView,
   type TailnetRemoteStatus,
 } from '../../../shared/tailnet'
@@ -31,10 +32,11 @@ import { toolError, toolSuccess, type McpToolRegistration } from '../../../share
 export type TailnetToolsFrontDoor = {
   getTailnetStatus(): TailnetRemoteStatus
   setTailnetEnabled(enabled: boolean): Promise<TailnetRemoteStatus>
-  offerTailnetPairing(input?: { scopes?: unknown }): TailnetPairingOfferView
+  offerTailnetPairing(input?: { scopes?: unknown; origin?: TailnetDeviceOrigin }): TailnetPairingOfferView
   approveTailnetPairRequest(input: {
     id: string
     scopes?: unknown
+    code?: unknown
     via?: 'ipc' | 'tool'
   }): TailnetApprovePairRequestView
   denyTailnetPairRequest(id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus
@@ -136,7 +138,7 @@ export function createTailnetTools(options: {
       },
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const service = front()
       if (!service) return unavailable
       const scopes = args.scopes === undefined ? undefined : readScopes(args.scopes)
@@ -153,7 +155,20 @@ export function createTailnetTools(options: {
             : 'Tailnet remote control is off. Turn it on with tailnet.set_enabled first — a pairing code is a link to a listener.'
         )
       }
-      const offer = service.offerTailnetPairing(scopes ? { scopes } : undefined)
+      // The device that redeems this code records that an agent minted it,
+      // and which one — so a test grant left behind is recognisable as one
+      // in the device list rather than an unplaceable row.
+      const metadata = context?.metadata as Record<string, unknown> | undefined
+      const agentName =
+        typeof metadata?.agentName === 'string' && metadata.agentName
+          ? metadata.agentName
+          : typeof metadata?.agentId === 'string' && metadata.agentId
+            ? metadata.agentId
+            : null
+      const offer = service.offerTailnetPairing({
+        ...(scopes ? { scopes } : {}),
+        origin: { kind: 'agent', by: agentName },
+      })
       return toolSuccess({
         pairing: offer,
         // Stated rather than left to be inferred from the timestamp: this is the
@@ -206,12 +221,18 @@ export function createTailnetTools(options: {
     name: 'tailnet.approve_pair_request',
     description:
       'Approve a pairing request another machine has made (see tailnet.status for the waiting ones), granting exactly '
-      + 'the scopes named here. The requesting machine collects its device token on its next poll. The scopes are NOT '
-      + 'the ones the requester asked for — it cannot influence what approving it grants. Served only over the local socket.',
+      + 'the scopes named here. Requires the six-digit code shown on the ASKING machine\'s screen — ask the person for '
+      + 'it; it is not in tailnet.status. Three wrong codes decline the request. The requesting machine collects its '
+      + 'device token on its next poll. The scopes are NOT the ones the requester asked for — it cannot influence what '
+      + 'approving it grants. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: {
         requestId: { type: 'string', description: 'Request id from tailnet.status.' },
+        code: {
+          type: 'string',
+          description: 'The six digits shown on the asking machine\'s screen. Required; typed by the person, never guessed.',
+        },
         scopes: {
           type: 'array',
           items: { type: 'string', enum: [...TAILNET_SCOPES] },
@@ -220,7 +241,7 @@ export function createTailnetTools(options: {
             + 'machine and is only ever granted by naming it here.',
         },
       },
-      required: ['requestId'],
+      required: ['requestId', 'code'],
       additionalProperties: false,
     },
     handler: async (args) => {
@@ -228,6 +249,10 @@ export function createTailnetTools(options: {
       if (!service) return unavailable
       const requestId = typeof args.requestId === 'string' ? args.requestId.trim() : ''
       if (!requestId) return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
+      const code = typeof args.code === 'string' ? args.code.trim() : ''
+      if (!code) {
+        return toolError('code_required', '"code" must be the six digits shown on the asking machine\'s screen.')
+      }
       let scopes: string[] = [...TAILNET_STRUCTURED_SCOPES]
       if (args.scopes !== undefined) {
         const read = readScopes(args.scopes)
@@ -236,7 +261,7 @@ export function createTailnetTools(options: {
       }
       // `via: 'tool'` suppresses the service's own audit write: this call is
       // already an audited mutation by the time it reaches here.
-      const outcome = service.approveTailnetPairRequest({ id: requestId, scopes, via: 'tool' })
+      const outcome = service.approveTailnetPairRequest({ id: requestId, scopes, code, via: 'tool' })
       // Refused rather than absorbed, for the same reason revoke_device reports
       // an unknown id: "approved" for a request that had already lapsed would
       // read as a machine now being paired when nothing was granted.

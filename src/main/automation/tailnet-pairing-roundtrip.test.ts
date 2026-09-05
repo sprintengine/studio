@@ -142,7 +142,7 @@ async function startHarness(): Promise<Harness> {
   const port = await freePort()
   // The persisted setting is the only thing that turns the listener on, so the
   // test turns it on the way a person does rather than by reaching past it.
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
     serverName: 'sprintengine-studio',

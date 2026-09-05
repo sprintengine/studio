@@ -510,6 +510,7 @@ export async function testDisabledMeansNoListeningTcpSocket(): Promise<void> {
     assert.deepEqual(readTailnetSettings(userDataDir).settings, {
       enabled: false,
       port: DEFAULT_TAILNET_LISTENER_PORT,
+      notifications: true,
     })
 
     const service = createTailnetRemoteService({
@@ -811,6 +812,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
     port: 8787,
     tailnetAddress: null,
     lastError: null,
+    notifications: true,
     devices: [],
     pairing: null,
     pairRequests: [],
@@ -890,7 +892,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
 
   const ok = await run('tailnet.offer_pairing', { scopes: ['sprint:read'] })
   assert.notEqual(ok.isError, true)
-  assert.deepEqual(minted, [{ scopes: ['sprint:read'] }])
+  assert.deepEqual(minted, [{ scopes: ['sprint:read'], origin: { kind: 'agent', by: null } }])
   const pairing = (ok.structuredContent as { pairing: { token: string; pairingUrl: string } }).pairing
   assert.equal(pairing.token, 'mcpair_test')
   assert.match(pairing.pairingUrl, /^multicode-tailnet:\/\/pair\?/)

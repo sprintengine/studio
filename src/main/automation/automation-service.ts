@@ -5,7 +5,13 @@ import { join } from 'path'
 import type { AutomationServerStatus } from '../../shared/automation'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
-import type { TailnetLiveState, TailnetPairingOfferView, TailnetPushPayload, TailnetRemoteStatus } from '../../shared/tailnet'
+import type {
+  TailnetDeviceOrigin,
+  TailnetLiveState,
+  TailnetPairingOfferView,
+  TailnetPushPayload,
+  TailnetRemoteStatus,
+} from '../../shared/tailnet'
 import type { FleetEvent } from '../../shared/tailnet-fleet'
 import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
@@ -60,6 +66,8 @@ type AutomationServiceOptions = {
    * app shell; absent in tests and headless embeddings, where nothing listens.
    */
   onTailnetEvent?: (payload: TailnetPushPayload) => void
+  /** Whether a window is open: the fleet's reachability timer only runs while one is. */
+  hasWindow?: () => boolean
   onFleetEvent?: (event: FleetEvent) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
@@ -112,6 +120,10 @@ export function createAutomationService(options: AutomationServiceOptions) {
     // Opt-in and independent: a tailnet listener that cannot start reports why
     // in its own status and never blocks the socket gateway the app depends on.
     await tailnetService().initialize()
+    // Reachability (phase 4): every paired machine is checked once at start
+    // and on a timer from here on, so the chrome knows which machines answer
+    // without a pane having to be opened on one.
+    fleetService().start()
     return getStatus()
   }
 
@@ -152,6 +164,11 @@ export function createAutomationService(options: AutomationServiceOptions) {
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       onEvent: options.onTailnetEvent,
+      // The reverse half of a both-ways pairing lands in the fleet: the
+      // machine that just asked to drive this one can now be driven back.
+      onReverseGrant: (input) => {
+        fleetService().adoptReverseGrant(input)
+      },
       log: (text) => warn('Tailnet remote control', text),
     })
     return tailnet
@@ -161,6 +178,14 @@ export function createAutomationService(options: AutomationServiceOptions) {
     fleet ??= createTailnetFleetService({
       resolveUserDataDir: options.resolveUserDataDir,
       resolvePeerName: (address) => tailnetService().resolvePeerName(address),
+      // Both-ways pairing (phase 6): the device this machine grants the one
+      // it is asking to drive is minted on the listener's own store, so it is
+      // listed, revocable, and audited like every other device here.
+      mintReverseDevice: (input) => tailnetService().grantReverseDevice(input),
+      revokeReverseDevice: (deviceId) => {
+        tailnetService().revokeDevice(deviceId)
+      },
+      hasWindow: options.hasWindow,
       onEvent: options.onFleetEvent,
       log: (text) => warn('Tailnet fleet', text),
     })
@@ -241,12 +266,15 @@ export function createAutomationService(options: AutomationServiceOptions) {
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
     getTailnetLiveState: (): TailnetLiveState => tailnetService().getLiveState(),
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),
-    offerTailnetPairing: (input?: { scopes?: unknown }): TailnetPairingOfferView => tailnetService().offerPairing(input),
+    offerTailnetPairing: (input?: { scopes?: unknown; origin?: TailnetDeviceOrigin }): TailnetPairingOfferView =>
+      tailnetService().offerPairing(input),
+    setTailnetNotifications: (enabled: boolean): TailnetRemoteStatus => tailnetService().setNotifications(enabled),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
     revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
     approveTailnetPairRequest: (input: {
       id: string
       scopes?: unknown
+      code?: unknown
       via?: 'ipc' | 'tool'
     }): TailnetApprovePairRequestResult => tailnetService().approvePairRequest(input),
     denyTailnetPairRequest: (id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus =>

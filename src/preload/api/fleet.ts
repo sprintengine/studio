@@ -11,6 +11,7 @@ import {
   FLEET_LIST_CONNECTIONS_CHANNEL,
   FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
+  FLEET_CHECK_REACHABILITY_CHANNEL,
   FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
   FLEET_REQUEST_PAIRING_CHANNEL,
@@ -29,6 +30,7 @@ import {
   type FleetRun,
   type FleetTerminalEvent,
 } from '../../shared/tailnet-fleet'
+import type { TailnetScope } from '../../shared/tailnet'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // The Fleet's data path (MC-2167): the machines this Studio drives, what they
@@ -42,8 +44,16 @@ export const fleetApi = {
     ipcRenderer.invoke(FLEET_LIST_CONNECTIONS_CHANNEL) as Promise<FleetConnection[]>,
   fleetPair: (pairingUrl: string): Promise<FleetPairResult> =>
     ipcRenderer.invoke(FLEET_PAIR_CHANNEL, { pairingUrl }) as Promise<FleetPairResult>,
-  fleetRequestPairing: (endpoint: string): Promise<FleetRequestPairingResult> =>
-    ipcRenderer.invoke(FLEET_REQUEST_PAIRING_CHANNEL, { endpoint }) as Promise<FleetRequestPairingResult>,
+  fleetRequestPairing: (
+    endpoint: string,
+    options?: { reverseScopes?: TailnetScope[] }
+  ): Promise<FleetRequestPairingResult> =>
+    ipcRenderer.invoke(FLEET_REQUEST_PAIRING_CHANNEL, {
+      endpoint,
+      ...(options?.reverseScopes ? { reverseScopes: options.reverseScopes } : {}),
+    }) as Promise<FleetRequestPairingResult>,
+  fleetCheckReachability: (connectionId?: string): Promise<FleetLiveState> =>
+    ipcRenderer.invoke(FLEET_CHECK_REACHABILITY_CHANNEL, connectionId ?? null) as Promise<FleetLiveState>,
   fleetCollectPairing: (requestId: string): Promise<FleetCollectPairingResult> =>
     ipcRenderer.invoke(FLEET_COLLECT_PAIRING_CHANNEL, requestId) as Promise<FleetCollectPairingResult>,
   fleetCancelPairing: (requestId: string): Promise<void> =>
@@ -107,6 +117,7 @@ export const fleetApi = {
   | 'fleetRequestPairing'
   | 'fleetCollectPairing'
   | 'fleetCancelPairing'
+  | 'fleetCheckReachability'
   | 'fleetForget'
   | 'fleetBrowse'
   | 'fleetListRuns'

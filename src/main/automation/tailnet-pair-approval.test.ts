@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { request as httpRequest } from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -115,7 +115,7 @@ async function startListener(): Promise<{
 }> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-approve-'))
   const port = await freePort()
-  writeTailnetSettings(userDataDir, { enabled: true, port })
+  writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
   const service = createTailnetRemoteService({
     resolveUserDataDir: () => userDataDir,
     serverName: 'sprintengine-studio',
@@ -172,6 +172,8 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
     const approved = harness.service.approvePairRequest({
       id: requestId,
       scopes: ['workspace:read', 'terminal:control'],
+      // Typed from the asker's screen (phase 2): the digits the ask answered with.
+      code: asked.body.comparisonCode as string,
     })
     assert.equal(approved.ok, true, 'approving succeeds')
 
@@ -213,7 +215,7 @@ check('the token can only be collected by the machine that asked', async () => {
       body: { deviceName: 'Laptop', collectHash: credential.hash },
     })
     const requestId = asked.body.requestId as string
-    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'] })
+    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: asked.body.comparisonCode as string })
 
     // Someone who learned the id but not the secret is told exactly what a
     // caller with an invented id is told — so they cannot even confirm it is real.
@@ -246,7 +248,7 @@ check('the token is handed over exactly once', async () => {
       body: { deviceName: 'Laptop', collectHash: credential.hash },
     })
     const requestId = asked.body.requestId as string
-    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'] })
+    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: asked.body.comparisonCode as string })
 
     const first = await call(
       harness.port,
@@ -338,7 +340,7 @@ check('a request nobody answered lapses, and cannot be approved afterwards', asy
   clock += DEFAULT_PAIR_REQUEST_TTL_MS + 1000
 
   assert.equal(store.listPairRequests().length, 0, 'it is no longer in front of anyone')
-  const approved = store.approvePairRequest({ id: requestId, scopes: ['workspace:read'] })
+  const approved = store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: '000000' })
   assert.equal(approved.ok, false, 'and approving it does not mint a device')
   assert.equal(store.listDevices().length, 0, 'nothing was granted')
   assert.equal(store.collectPairRequest(requestId, 's').status, 'expired', 'the asker is told it lapsed')
@@ -354,9 +356,106 @@ check('the asker cannot influence what approving it grants', async () => {
     collectHash: hashSecret('s'),
   })
   const requestId = asked.ok ? asked.request.id : ''
-  const approved = store.approvePairRequest({ id: requestId, scopes: ['backlog:read'] })
+  const code = asked.ok ? asked.request.comparisonCode : ''
+  const approved = store.approvePairRequest({ id: requestId, scopes: ['backlog:read'], code })
   assert.equal(approved.ok, true)
   assert.deepEqual(approved.ok ? approved.device.scopes : [], ['backlog:read'], 'exactly what was ticked')
+  assert.deepEqual(
+    approved.ok ? approved.device.origin : null,
+    { kind: 'approval', by: '100.64.0.9' },
+    'the device records that a person here approved it, and from where'
+  )
+})
+
+// ── Confirm by typing the code (pair-from-the-scan-and-stay-paired, phase 2) ──
+
+check('approving needs the code from the asker’s screen, and three wrong codes decline the request', async () => {
+  const store = createTailnetDeviceStore({ resolveUserDataDir: () => mkdtempSync(join(tmpdir(), 'tnd-')) })
+  const asked = store.requestPairing({
+    deviceName: 'Laptop',
+    peerNode: 'laptop.example.ts.net',
+    peerAddress: '100.64.0.9',
+    collectHash: hashSecret('s'),
+  })
+  assert.equal(asked.ok, true)
+  const requestId = asked.ok ? asked.request.id : ''
+  const code = asked.ok ? asked.request.comparisonCode : ''
+
+  const blank = store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: '' })
+  assert.equal(blank.ok === false ? blank.code : '', 'code_required', 'no code is not an approval')
+  assert.equal(store.listDevices().length, 0, 'nothing was granted')
+
+  const wrong = (value: string) => store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: value })
+  const first = wrong(code === '000000' ? '000001' : '000000')
+  assert.equal(first.ok === false ? first.code : '', 'code_mismatch')
+  assert.equal(first.ok === false && first.code === 'code_mismatch' ? first.attemptsLeft : -1, 2, 'two tries left')
+  assert.equal(store.listPairRequests().length, 1, 'the request is still waiting after one typo')
+
+  // The right code, with a space the way a person reads it, still approves.
+  const spaced = `${code.slice(0, 3)} ${code.slice(3)}`
+  const approved = store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: spaced })
+  assert.equal(approved.ok, true, 'digits are what count; a space read off the screen is not a typo')
+  assert.equal(store.collectPairRequest(requestId, 's').status, 'approved', 'and the asker collects')
+})
+
+check('the third wrong code declines the request and starts the cooldown', async () => {
+  const store = createTailnetDeviceStore({ resolveUserDataDir: () => mkdtempSync(join(tmpdir(), 'tnd-')) })
+  const asked = store.requestPairing({
+    deviceName: 'Laptop',
+    peerNode: null,
+    peerAddress: '100.64.0.9',
+    collectHash: hashSecret('s'),
+  })
+  const requestId = asked.ok ? asked.request.id : ''
+  const code = asked.ok ? asked.request.comparisonCode : ''
+  const bad = code === '999999' ? '999998' : '999999'
+  const wrong = () => store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: bad })
+  wrong()
+  const second = wrong()
+  assert.equal(second.ok === false && second.code === 'code_mismatch' ? second.attemptsLeft : -1, 1)
+  const third = wrong()
+  assert.equal(third.ok === false && third.code === 'code_mismatch' ? third.declined : false, true, 'the third declines')
+  assert.equal(store.listPairRequests().length, 0, 'nothing is left waiting')
+  assert.equal(store.collectPairRequest(requestId, 's').status, 'denied', 'the asker is told it was declined')
+  assert.equal(store.listDevices().length, 0, 'and nothing was granted')
+  const again = store.requestPairing({
+    deviceName: 'Laptop',
+    peerNode: null,
+    peerAddress: '100.64.0.9',
+    collectHash: hashSecret('s'),
+  })
+  assert.equal(again.ok === false ? again.code : '', 'denied_recently', 'the same cooldown a pressed Decline gives')
+  // The right code, after the decline, is too late.
+  const late = store.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code })
+  assert.equal(late.ok === false ? late.code : '', 'request_not_found')
+})
+
+check('a device says where it came from: a code, an approval, an agent, or the reverse half of a pairing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tnd-'))
+  const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+  const byCode = store.offerPairing({ scopes: ['workspace:read'] })
+  const redeemed = store.redeemPairing({ token: byCode.token, deviceName: 'Phone' })
+  assert.deepEqual(redeemed.ok ? redeemed.device.origin : null, { kind: 'code', by: null })
+
+  const byAgent = store.offerPairing({ scopes: ['workspace:read'], origin: { kind: 'agent', by: 'Niamh Mann' } })
+  const agentDevice = store.redeemPairing({ token: byAgent.token, deviceName: 'claude-diagnostic' })
+  assert.deepEqual(agentDevice.ok ? agentDevice.device.origin : null, { kind: 'agent', by: 'Niamh Mann' })
+
+  const reverse = store.mintDevice({ name: 'Mac mini', scopes: ['sprint:read'], origin: { kind: 'reverse', by: 'Mac mini' } })
+  assert.deepEqual(reverse.device.origin, { kind: 'reverse', by: 'Mac mini' })
+  assert.ok(store.authenticate(reverse.deviceToken), 'a reverse device authenticates like any other')
+
+  // Persisted, and a record from before origins were kept reads as unknown.
+  const reread = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+  assert.deepEqual(
+    reread.listDevices().map((device) => device.origin.kind).sort(),
+    ['agent', 'code', 'reverse']
+  )
+  const legacy = JSON.parse(readFileSync(join(dir, 'tailnet-remote-devices.json'), 'utf8')) as { devices: Array<Record<string, unknown>> }
+  for (const device of legacy.devices) delete device.origin
+  writeFileSync(join(dir, 'tailnet-remote-devices.json'), JSON.stringify(legacy))
+  const older = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+  assert.ok(older.listDevices().every((device) => device.origin.kind === 'unknown'), 'no origin guessed for an older record')
 })
 
 void queue.then(() => {
