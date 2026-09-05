@@ -43,8 +43,10 @@ their own floor.
 - **Placement** — `bottom-start` (default), `bottom-end`, `top-start`,
   `top-end`. A placement is a preference, not a promise: the surface flips to
   the other vertical side when its preferred side has no room, and clamps `8px`
-  inside the viewport on both axes. The gap between trigger and surface is
-  `4px`.
+  inside the viewport on both axes. The clamp bounds height as well as
+  position: a surface taller than the viewport is capped to it and scrolls
+  its content, so the last rows of a long menu are never off-screen. The gap
+  between trigger and surface is `4px`.
 - `.ds-popover--pointer` — coordinate-anchored instead of trigger-anchored:
   opens at a viewport point (a right-click, a text caret, a drop location) and
   clamps inside the viewport. It sits at `z.menu`, one layer above the

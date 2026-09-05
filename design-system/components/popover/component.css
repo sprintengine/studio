@@ -22,6 +22,11 @@
   left: var(--ds-popover-left, auto);
   z-index: var(--sem-z-popover);
   box-sizing: border-box;
+  /* The vertical half of the 8px viewport clamp: a surface taller than the
+   * window is bounded to it and scrolls, never pinned to the top edge and
+   * run off the bottom. */
+  max-height: calc(100vh - 2 * var(--sem-space-sm));
+  overflow-y: auto;
   border: 1px solid var(--sem-color-border-strong);
   border-radius: var(--sem-radius-overlay);
   background: var(--sem-color-bg-surface-raised);

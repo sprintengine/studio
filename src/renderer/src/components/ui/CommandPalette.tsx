@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { orderSpecialistActions } from '../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -107,7 +106,6 @@ function dispatchPanelCommand(id: string) {
 
 interface Props {
   onClose: () => void
-  onNewWorkspace: () => void
   onNewChat: () => void
   onConnectRailway: () => void
   onSpawnSpecialist: (specialistId: SpecialistActionId) => void
@@ -129,7 +127,6 @@ interface Props {
 
 export default function CommandPalette({
   onClose,
-  onNewWorkspace,
   onNewChat,
   onConnectRailway,
   onSpawnSpecialist,
@@ -146,7 +143,7 @@ export default function CommandPalette({
   const [scope, setScope] = useState<PaletteScope>(initialScope)
   const inputRef = useRef<HTMLInputElement>(null)
   const selectedRowRef = useRef<HTMLDivElement>(null)
-  const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
+  const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
   const specialistOrder = useWorkspaceStore((state) => state.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
@@ -503,16 +500,6 @@ export default function CommandPalette({
           onClose()
         },
       },
-      ...LAYOUT_TEMPLATES.map((template): Command => ({
-        id: `new-${template.id}`,
-        label: `New Workspace: ${template.name}`,
-        description: template.description,
-        group: 'actions' as const,
-        run: () => {
-          addWorkspace(template, { windowId: workspaceWindowId })
-          onClose()
-        },
-      })),
       ...(activeWorkspace
         ? [
             ...specialistActions.map((action): Command => ({
@@ -573,18 +560,8 @@ export default function CommandPalette({
             },
           }))
         : []),
-      {
-        id: 'workspace.new',
-        label: 'New Workspace...',
-        shortcut: shortcutFor('workspace.new'),
-        group: 'actions' as const,
-        run: () => {
-          onNewWorkspace()
-          onClose()
-        },
-      },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
 
   // Disk results are already matched — ripgrep did the matching in the main
   // process — so they are assembled apart from `commands` and never run back

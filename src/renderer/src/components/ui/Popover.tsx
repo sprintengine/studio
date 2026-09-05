@@ -189,12 +189,18 @@ export function Popover({
         computeSurfacePosition(triggerRect, surface.offsetWidth, surface.offsetHeight, placement),
       )
     }
+    // The surface scrolls its own content when it is taller than the viewport;
+    // that scroll moves no trigger, so it is not a reason to re-measure.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && surfaceRef.current?.contains(event.target)) return
+      reposition()
+    }
     reposition()
     window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [open, placement])
 
@@ -266,6 +272,13 @@ export function Popover({
                 ['--popover-trigger-width' as string]: position ? `${position.triggerWidth}px` : undefined,
                 // Hidden until measured so the first paint never flashes at 0,0.
                 visibility: position ? 'visible' : 'hidden',
+                // The other half of "clamps 8px inside the viewport": a surface
+                // taller than the window is bounded to it and scrolls, rather
+                // than being pinned to the top edge and running off the bottom
+                // (the New chat project selector, with enough projects, lost
+                // its Browse… and Import rows exactly this way).
+                maxHeight: `calc(100vh - ${VIEWPORT_EDGE * 2}px)`,
+                overflowY: 'auto',
               }}
               className={[
                 // The chrome is the shared one, so the surface a pointer-summoned
