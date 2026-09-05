@@ -1,5 +1,5 @@
 // Pure helpers for the Sprint Engine saved-roster picker. Kept out of
-// NewWorkspacePanel so the divergence/prune rules can be unit-tested directly.
+// the roster editor so the divergence/prune rules can be unit-tested directly.
 import type {
   AgentCli,
   SprintEngineRoleCliDefaults,
@@ -62,7 +62,7 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
 // engine reads as a deliberate empty `configuredRoles` — distinct from a legacy
 // run that recorded none.
 //
-// Lives here rather than in NewWorkspacePanel so the wizard and the
+// Lives here rather than in the roster editor so the New sprint dialog and the
 // plan-sourced launch path (main's sprint-create-service) share one constant.
 export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = {}
 

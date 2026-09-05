@@ -47,12 +47,12 @@ export function subscribeNewSprintRequests(
 // ── The door's claim on the next sprint creation (items 1765 + 1811) ─────────
 // A run started at the door belongs to the door: creating it comes back to
 // Sprints rather than dropping the operator into the workspace it resides in. The
-// claim is made when the door asks for the wizard and spent when a workspace is
-// created — but the wizard can also go away without creating anything (cancel,
-// Cmd-W, switching workspace, opening New chat), and a claim that outlives its
-// wizard bounces the NEXT creation to the door from wherever it was started
+// claim is made when the door asks for the New sprint dialog and spent when a
+// run is created — but the dialog can also go away without creating anything
+// (cancel, Escape, Settings opening over it), and a claim that outlives its
+// dialog bounces the NEXT creation to the door from wherever it was started
 // (item 1811). Every one of those routes releases it, so the invariant is: the
-// claim is set only while the wizard the door opened is still on screen.
+// claim is set only while the dialog the door opened is still on screen.
 let sprintCreationClaimedByDoor = false
 
 export function claimSprintCreationForDoor(): void {

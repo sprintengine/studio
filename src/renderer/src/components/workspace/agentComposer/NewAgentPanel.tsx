@@ -8,7 +8,6 @@ import type { FleetConnection, FleetWorkspace } from '../../../../../shared/tail
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { ATTACHABLE_IMAGE_TYPES } from '../../../../../shared/conversation-attachments'
 import {
   dataTransferHasFiles,
@@ -53,6 +52,7 @@ import {
   REMOTE_PRESET_DISABLED_REASONS,
 } from './agentSpawnShared'
 import { ProjectSourceMenu, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
+import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
@@ -128,6 +128,16 @@ export type NewAgentPanelProps = {
    * still adopts the project; absent, the panel clones for itself.
    */
   onCloneProject?: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
+  /**
+   * Door-only (new-chat-survives-back-and-forward): the window's parked-draft
+   * key. Present, the surface seeds its prompt, images, engine row, skills and
+   * MCP picks from the draft parked under it and writes every change back, so
+   * stepping off the door and back (Back/Forward, a sidebar click) loses
+   * nothing. The HOST clears the draft when the chat starts or the panel is
+   * closed on purpose; this surface only ever writes. The tab-strip host
+   * passes none and keeps its per-tab state.
+   */
+  draftKey?: string
 }
 
 /** What a remote launch carries: the target, and the launch identity. */
@@ -205,12 +215,18 @@ export default function NewAgentPanel({
   showCloseButton = false,
   onLaunchRemote,
   onCloneProject,
+  draftKey,
 }: NewAgentPanelProps) {
+  // The parked draft, read once at mount: what the door held when the person
+  // last stepped off it. An explicit connector attachment leads the draft's
+  // own picks (a connector "New chat" over a parked draft adds, never doubles).
+  const [draft] = React.useState(() => (draftKey ? readNewChatDraft(draftKey) : null))
   const composer = useAgentComposer({
     showTerminal: true,
     conversationAvailable,
-    initialSelection,
-    initialMcpServers,
+    initialSelection: draft?.selection ?? initialSelection,
+    initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
+    initialSkills: draft?.skills,
   })
   const { selection } = composer
 
@@ -385,7 +401,7 @@ export default function NewAgentPanel({
   const displayName = useWorkspaceStore((s) => s.authState.user?.displayName ?? null)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
 
-  const [prompt, setPrompt] = React.useState('')
+  const [prompt, setPrompt] = React.useState(() => draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   const [accessOpen, setAccessOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
@@ -404,8 +420,21 @@ export default function NewAgentPanel({
   const [dropActive, setDropActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
-  const [images, setImages] = React.useState<PromptImage[]>([])
+  const [images, setImages] = React.useState<PromptImage[]>(() => draft?.images ?? [])
   const [attachingCount, setAttachingCount] = React.useState(0)
+
+  // Write-through to the parked draft: every change the person makes is safe
+  // the moment it is made, so an unmount from any direction loses nothing.
+  React.useEffect(() => {
+    if (!draftKey) return
+    writeNewChatDraft(draftKey, {
+      prompt,
+      images,
+      selection,
+      skills: composer.skills,
+      mcpServers: composer.mcpServers,
+    })
+  }, [draftKey, prompt, images, selection, composer.skills, composer.mcpServers])
 
   const insertPromptPath = (path: string) => {
     setPrompt((current) =>
@@ -642,9 +671,16 @@ export default function NewAgentPanel({
   // `defaultPrevented` guard is the topmost-surface contract: an open popover or
   // the skill type-ahead handles its own Escape first, and only when nothing
   // did does this close.
+  //
+  // Not while painted over: the door host parks this surface when a door
+  // opens, but a first-run auto-open can mount it UNDER a door that is already
+  // up, inert. An Escape meant for that door must not close this on purpose
+  // (and take its parked draft with it).
+  const rootRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (rootRef.current?.closest('[inert], [aria-hidden="true"]')) return
       event.preventDefault()
       onClose()
     }
@@ -708,7 +744,7 @@ export default function NewAgentPanel({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8">
+    <div ref={rootRef} className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8">
       {showCloseButton ? (
         <div className="absolute right-3 top-3">
           <CloseIconButton onClick={onClose} aria-label="Cancel" />
@@ -1679,7 +1715,7 @@ function MenuValueRow({
 // An image staged on the prompt: the chat composer's attachment shape (so the
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
-type PromptImage = ConversationImageAttachment & { path: string }
+type PromptImage = NewChatDraftImage
 
 // One key per folder whatever the separator or trailing slash, so an open
 // project and its recent-folders twin count once.

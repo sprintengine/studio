@@ -93,13 +93,17 @@ async function main(): Promise<void> {
     assert.match(markup, /old-repo/)
   })
 
-  await check('the sources sit under a separator: Browse… and Import from Git as menu items', () => {
+  await check('the sources lead: Browse… and Import from Git sit between the search field and the projects', () => {
     assert.match(markup, /role="separator"/)
     assert.match(markup, /Browse…/)
     assert.match(markup, /Import from Git/)
-    const separator = markup.indexOf('role="separator"')
+    const search = markup.indexOf('Search projects')
     const browse = markup.indexOf('Browse…')
-    assert.ok(separator < browse, 'sources are pinned under the projects')
+    const importGit = markup.indexOf('Import from Git')
+    const separator = markup.indexOf('role="separator"')
+    const firstProject = markup.indexOf('multicode')
+    assert.ok(search < browse && browse < importGit, 'Browse… then Import, directly under the search field')
+    assert.ok(importGit < separator && separator < firstProject, 'the separator parts the sources from the projects, which grow below it')
   })
 
   await check('a host without a folder dialog gets no Browse… row, and Import stays', () => {

@@ -4,10 +4,8 @@ import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
-import { buildModeModels } from './newWorkspace/modeModels'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { MicroChip } from '../ui/DefaultChip'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -24,7 +22,6 @@ import {
   AgentWorkingDots,
   MenuItem,
   MenuSwatchRow,
-  PointerPopover,
   StarGlyph,
   StatusDot,
   Tooltip,
@@ -114,13 +111,12 @@ type WorkspaceSidebarProps = {
   onCloseWorkspace: (id: WorkspaceId) => void
   onDeleteWorkspaceWithState: (id: WorkspaceId) => Promise<void> | void
   onForgetFolder: (folderPath: string) => void
-  onNewWorkspace: () => void
-  onNewWorkspaceInFolder: (folderPath: string) => void
   // Open the pre-creation New Chat panel scoped to the active workspace's
-  // folder — the split create control's primary click.
+  // folder — the create control. The one way in (owner, 2026-09-04): the split
+  // "New…" half and its create menu (Workspace / Sprint / Design Wizard /
+  // Switchboard) are gone with the New workspace hub; sprints start from the
+  // Sprints door.
   onNewChat: () => void
-  // Open the creation hub preselected on a type (the "+" menu rows).
-  onNewWorkspaceMode: (mode: Workspace['mode']) => void
   // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
   onNewChatInFolder: (folderPath: string) => void
@@ -2158,11 +2154,9 @@ export default function WorkspaceSidebar({
             → Roadmap (D4). A gated door drops out when its module is off without
             disturbing the order of the rest.
 
-            Create cluster: New chat is the primary click (the most common create),
-            and the attached "+" opens a menu of everything else; each menu row
-            opens the creation hub preselected on that type (the Linear "+" idiom).
-            The primary row keeps the tab-extract drop target; Ctrl+T still opens
-            the hub on Workspace. */}
+            Create: New chat, the one way in (owner, 2026-09-04). The split "+"
+            and its create menu went with the New workspace hub; sprints start
+            from the Sprints door. The row keeps the tab-extract drop target. */}
         {(
           [
             {
@@ -2177,7 +2171,7 @@ export default function WorkspaceSidebar({
                       onDragOver={handleTabDragOverNew}
                       onDragLeave={handleTabDragLeaveNew}
                       onDrop={handleTabDropOnNew}
-                      className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                      className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
                         tabDropTarget?.kind === 'new'
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -2187,22 +2181,6 @@ export default function WorkspaceSidebar({
                       <span className="min-w-0 flex-1 truncate">
                         {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
                       </span>
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="New… (Ctrl+T for workspace)" placement="right" wrapperClassName="flex">
-                    <button
-                      type="button"
-                      aria-label="New…"
-                      aria-haspopup="menu"
-                      onClick={(event) => {
-                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-                        setCreateMenu({ x: rect.right, y: rect.bottom })
-                      }}
-                      className={`flex h-control-sm w-control-xs shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
-                    >
-                      <svg viewBox="0 0 16 16" fill="none" className="icon-sm pointer-events-none shrink-0" aria-hidden="true">
-                        <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                      </svg>
                     </button>
                   </Tooltip>
                 </div>
@@ -2486,43 +2464,6 @@ export default function WorkspaceSidebar({
       />
       </div>
 
-      {/* The "+" create menu: one row per creatable type, mirroring the
-          creation hub rail's list and order (buildModeModels). Chat routes to
-          the dedicated New Chat panel; everything else opens the hub
-          preselected on that type. */}
-      {createMenu ? (
-        <PointerPopover
-          x={createMenu.x}
-          y={createMenu.y}
-          ariaLabel="Create"
-          onClose={() => setCreateMenu(null)}
-        >
-          <div className="min-w-[200px] max-w-[280px] py-1">
-            {createMenuModels.map((model) => {
-              const Icon = model.icon
-              return (
-                <button
-                  key={model.id}
-                  type="button"
-                  onClick={() => {
-                    setCreateMenu(null)
-                    if (model.id === 'chat') onNewChat()
-                    else if (model.id === 'standard') onNewWorkspace()
-                    else onNewWorkspaceMode(model.id)
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-heading text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-                >
-                  <Icon className="icon-xs pointer-events-none shrink-0 text-[color:var(--text-subtle)]" />
-                  <span className="min-w-0 flex-1 truncate">{`New ${model.label.toLowerCase()}`}</span>
-                  {model.id === 'standard' ? (
-                    <kbd className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">Ctrl+T</kbd>
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
-        </PointerPopover>
-      ) : null}
 
       {/* Context menu (workspace row) */}
       {contextMenu ? (
@@ -2550,11 +2491,6 @@ export default function WorkspaceSidebar({
             }
             if (action === 'new-chat' && workspace.folderPath && !workspace.folderMissing) {
               onNewChatInFolder(workspace.folderPath)
-              setContextMenu(null)
-              return
-            }
-            if (action === 'new-workspace' && workspace.folderPath && !workspace.folderMissing) {
-              onNewWorkspaceInFolder(workspace.folderPath)
               setContextMenu(null)
               return
             }
@@ -2623,9 +2559,6 @@ export default function WorkspaceSidebar({
             if (!group) return
             if (action === 'new-chat' && group.fullPath && !group.missing) {
               onNewChatInFolder(group.fullPath)
-            }
-            if (action === 'new-workspace' && group.fullPath && !group.missing) {
-              onNewWorkspaceInFolder(group.fullPath)
             }
             if (action === 'reveal' && group.fullPath) onRevealFolder(group.fullPath)
             if (action === 'forget' && group.fullPath) setConfirmForget(group.fullPath)
@@ -2817,7 +2750,6 @@ type ContextMenuAction =
   | 'open'
   | 'rename'
   | 'new-chat'
-  | 'new-workspace'
   | 'reveal'
   | 'move-to-new-window'
   | 'move-to-main-window'
@@ -2869,9 +2801,6 @@ function WorkspaceContextMenu({
       {folderPathExists ? (
         <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
       ) : null}
-      {folderPathExists ? (
-        <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
-      ) : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
       {isDetachedWindow ? (
         <MenuItem onClick={() => onSelect('move-to-main-window')}>Move to Main Window</MenuItem>
@@ -2914,7 +2843,7 @@ function WorkspaceContextMenu({
   )
 }
 
-type FolderMenuAction = 'new-chat' | 'new-workspace' | 'reveal' | 'forget'
+type FolderMenuAction = 'new-chat' | 'reveal' | 'forget'
 
 function FolderContextMenu({
   x,
@@ -2944,9 +2873,6 @@ function FolderContextMenu({
     >
       {canCreateWorkspace ? (
         <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
-      ) : null}
-      {canCreateWorkspace ? (
-        <MenuItem onClick={() => onSelect('new-workspace')}>New workspace in project</MenuItem>
       ) : null}
       {canReveal ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
       {canCreateWorkspace && canForget ? <MenuDivider /> : null}

@@ -1,4 +1,4 @@
-// The roster editor's state, lifted out of NewWorkspacePanel (MC-1879) so more
+// The roster editor's state, lifted out of the New workspace hub (MC-1879; the hub itself retired 2026-09-04) so more
 // than one surface can drive `SprintEngineRosterPanel`. The panel itself is
 // already fully controlled and presentational; everything behind it lived
 // inline in a ~3500-line component and was reachable from nowhere else.

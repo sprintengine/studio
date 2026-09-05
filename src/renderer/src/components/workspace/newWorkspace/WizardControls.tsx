@@ -1,5 +1,5 @@
 // Leaf controls used by the creation hub and the Guided Brief build handoff.
-// Extracted from NewWorkspacePanel.tsx so the hub orchestrator stays focused on
+// Extracted from the (since retired, 2026-09-04) New workspace hub so its orchestrator stayed focused on
 // step state and navigation; these row primitives are pure presentation and
 // have no closure ties to the hub.
 //

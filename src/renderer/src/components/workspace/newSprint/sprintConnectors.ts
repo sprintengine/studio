@@ -19,7 +19,7 @@
 //    toggle and `toggleCatalogServer` do), so a server with hand-entered env or
 //    headers survives being switched off for one sprint.
 //
-// The sync itself mirrors `persistAdvancedSetup` (`NewWorkspacePanel.tsx:526`)
+// The sync itself mirrors the retired New workspace hub's `persistAdvancedSetup`
 // exactly: it RETURNS the failure message instead of throwing, and it treats an
 // `ok: false` result, an `error`-level issue, and a thrown error alike.
 

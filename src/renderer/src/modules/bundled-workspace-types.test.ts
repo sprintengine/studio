@@ -13,7 +13,6 @@ import {
   subscribeAutomationRunNotifications,
   type AutomationRunEventSource,
 } from '../components/automations/runTarget'
-import { buildModeModels } from '../components/workspace/newWorkspace/modeModels'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { AutomationsRunEvent } from '../../../shared/automations/contracts'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
@@ -156,11 +155,6 @@ assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id
 // 1707). This is the picker analog of isHiddenFromRail — unlike review/roadmap,
 // which retired their types entirely.
 assert.equal(host.getWorkspaceType('automations-host')?.hiddenFromPicker, true, 'automations-host is hidden from the creation picker')
-assert.equal(
-  buildModeModels({}).some((model) => model.id === 'automations-host'),
-  false,
-  'the new-workspace picker no longer offers an Automations workspace (item 1707)',
-)
 
 assert.deepEqual(
   ['switchboard', 'sprintengine', 'automations-host', 'guided-brief'].map((id) => {

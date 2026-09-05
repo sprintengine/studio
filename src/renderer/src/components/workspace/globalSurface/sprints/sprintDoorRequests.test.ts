@@ -101,36 +101,36 @@ function shellRegion(startAnchor: string, endAnchor: string): string {
   return workspaceManager.slice(start, end)
 }
 
-const dismissal = shellRegion('const dismissNewWorkspacePanel = useCallback(', '}, [])')
-assert.match(dismissal, /setShowNewWorkspacePanel\(false\)/, 'dismissal hides the hub')
-assert.match(dismissal, /releaseSprintCreationDoorClaim\(\)/, 'dismissal releases the door claim')
+// The New sprint dialog is the one creation surface (the wizard hub retired
+// 2026-09-04), and every route out of it releases the claim.
+const dialogClose = shellRegion('const closeNewSprintDialog = useCallback(', '}, [])')
+assert.match(dialogClose, /releaseSprintCreationDoorClaim\(\)/, 'closing the dialog releases the door claim')
 
-assert.equal(
-  workspaceManager.split('setShowNewWorkspacePanel(false)').length - 1,
-  1,
-  'exactly one route hides the creation hub — every dismissal goes through dismissNewWorkspacePanel',
+const dialogOpen = shellRegion('const openNewSprintDialog = useCallback(', 'const openSettings = useCallback(')
+assert.match(dialogOpen, /releaseSprintCreationDoorClaim\(\)/, 'opening the dialog resets the claim to whoever opened this one')
+
+// The door asks, the dialog opens, THEN the door claims — so the claim always
+// belongs to the dialog the operator is looking at.
+const doorRequest = shellRegion('subscribeNewSprintRequests((source) => {', '}),')
+assert.ok(
+  doorRequest.indexOf('openNewSprintDialog()') < doorRequest.indexOf('claimSprintCreationForDoor()'),
+  'the door claims after the dialog it asked for has opened',
 )
 
-// The three routes item 1811 names, each of which used to hide the hub on its own.
-const closeTabCommand = shellRegion("if (commandId === 'layout.tab.close') {", "if (commandId === 'panel.")
-assert.match(closeTabCommand, /dismissNewWorkspacePanel\(\)/, 'layout.tab.close / Cmd-W dismisses')
-
-const sidebarSelect = shellRegion('onSelectWorkspace={(id) => {', '}}')
-assert.match(sidebarSelect, /dismissNewWorkspacePanel\(\)/, 'selecting a workspace in the sidebar dismisses')
-
-const newChatOpener = shellRegion('const openNewChatPanel = useCallback(', 'const closeNewChatPanel')
-assert.match(newChatOpener, /dismissNewWorkspacePanel\(\)/, 'opening the New Chat panel dismisses')
-
-// Creation reads the claim before dismissing, or dismissal would swallow it and
-// a sprint started at the door would never come back to it.
-const create = shellRegion('const cameFromSprintsDoor = consumeSprintCreationDoorClaim()', 'openGlobalSurface(')
+// Creation reads the claim before closing, or closing would swallow it and a
+// sprint started at the door would never come back to it.
+const newSprintDialog = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/newSprint/NewSprintDialog.tsx'),
+  'utf8',
+)
+const create = newSprintDialog.slice(newSprintDialog.indexOf('const cameFromSprintsDoor = consumeSprintCreationDoorClaim()'))
 assert.ok(
-  create.indexOf('consumeSprintCreationDoorClaim()') < create.indexOf('dismissNewWorkspacePanel()'),
-  'handleCreate consumes the claim before dismissing the wizard',
+  create.indexOf('consumeSprintCreationDoorClaim()') < create.indexOf('onClose()'),
+  'the dialog consumes the claim before closing',
 )
 assert.match(
   create,
-  /if \(cameFromSprintsDoor && mode === 'sprintengine'/,
+  /if \(cameFromSprintsDoor\) \{\s*noteSprintDoorSelection\(created\.statePath\)\s*openGlobalSurface\('sprints'\)/,
   'and the return to the door is gated on that claim — a sprint created from anywhere else stays where it was started',
 )
 

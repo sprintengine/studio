@@ -222,21 +222,12 @@ export function ProjectSourceMenu({
           aria-label="Search projects"
         />
       </div>
-      {visible.map(projectRow)}
-      {visibleRecent.length > 0 ? (
-        // Known but not open here: the hub's recent folders, under the spec's
-        // group label (never bolder than its rows).
-        <div role="group" aria-label="Recent">
-          <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Recent</div>
-          {visibleRecent.map(projectRow)}
-        </div>
-      ) : null}
-      {visible.length === 0 && visibleRecent.length === 0 ? (
-        <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No matching projects.</div>
-      ) : null}
-      <div className={MENU_DIVIDER_CLASS} role="separator" />
-      {/* The mockup's stacked source rows: glyph + name + what it does.
-          All-or-nothing leading slot, per the menu spec. */}
+      {/* The sources lead (owner, 2026-09-04): Browse… and Import from Git are
+          the two rows a person needs when the project they want is NOT in the
+          list, and at the foot of a long list they were the rows that ran off
+          the bottom of the window. Stacked glyph + name + what it does —
+          all-or-nothing leading slot, per the menu spec. The projects grow
+          below the separator; these two never move. */}
       {onBrowse ? (
         <button
           type="button"
@@ -274,6 +265,19 @@ export function ProjectSourceMenu({
         </span>
         <span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
       </button>
+      <div className={MENU_DIVIDER_CLASS} role="separator" />
+      {visible.map(projectRow)}
+      {visibleRecent.length > 0 ? (
+        // Known but not open here: the hub's recent folders, under the spec's
+        // group label (never bolder than its rows).
+        <div role="group" aria-label="Recent">
+          <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Recent</div>
+          {visibleRecent.map(projectRow)}
+        </div>
+      ) : null}
+      {visible.length === 0 && visibleRecent.length === 0 ? (
+        <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No matching projects.</div>
+      ) : null}
     </div>
   )
 }

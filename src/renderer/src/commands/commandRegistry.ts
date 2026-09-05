@@ -47,15 +47,8 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+Shift+F'],
     handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true, "files")' },
   }),
-  command({
-    id: 'workspace.new',
-    title: 'New Workspace',
-    category: 'workspace',
-    scopes: ['global'],
-    defaultKeybindings: ['Primary+T'],
-    handlerPath: { kind: 'workspace-manager', handler: 'openNewWorkspacePanel()' },
-  }),
-  // Opens the pre-creation New Chat panel. Global-scope like workspace.new:
+  // Opens the pre-creation New Chat panel — the one way to start (owner,
+  // 2026-09-04; the New workspace command and its hub are gone). Global-scope:
   // openNewChatPanel() resolves to the active workspace's folder when one exists
   // and to null otherwise, so it works with no active workspace.
   command({

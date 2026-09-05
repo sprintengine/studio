@@ -31,7 +31,7 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
   onOpenSearch: () => void
-  onNewAgent: () => void
+  onNewChat: () => void
   menuItems: readonly MenuItem[]
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
   // The active workspace's identity cluster (WorkspaceIdentity) and control
@@ -100,11 +100,11 @@ function LauncherSearchButton({ onOpen }: { onOpen: () => void }) {
 }
 
 // "New" + — the collapsed launcher's creation entry (Cursor keeps this when
-// the sidebar is hidden), opening the same creation hub as the sidebar cluster.
-function NewAgentButton({ onClick }: { onClick: () => void }) {
+// the sidebar is hidden), opening New chat exactly as the sidebar cluster does.
+function NewChatButton({ onClick }: { onClick: () => void }) {
   return (
-    <Tooltip content="New…" placement="bottom">
-      <IconButton onClick={onClick} aria-label="New…" className="app-no-drag">
+    <Tooltip content="New chat" placement="bottom">
+      <IconButton onClick={onClick} aria-label="New chat" className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
@@ -120,7 +120,7 @@ export function WorkspaceHeader<MenuItem extends string>({
   sidebarCollapsed,
   onToggleSidebar,
   onOpenSearch,
-  onNewAgent,
+  onNewChat,
   menuItems,
   onShowMenu,
   identitySlot,
@@ -149,7 +149,7 @@ export function WorkspaceHeader<MenuItem extends string>({
             {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
             <OpenSidebarButton onToggle={onToggleSidebar} />
             <LauncherSearchButton onOpen={onOpenSearch} />
-            <NewAgentButton onClick={onNewAgent} />
+            <NewChatButton onClick={onNewChat} />
           </div>
         ) : null}
         {/* Workspace-scoped left cluster — replaced by the door surface's own

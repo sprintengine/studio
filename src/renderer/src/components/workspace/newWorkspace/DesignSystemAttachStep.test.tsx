@@ -18,7 +18,7 @@ import {
 // not run here, so this is the pre-IPC state: library loading, no conflict).
 // The rows are aria-pressed toggle buttons in a labelled group — not
 // role="radio", which would promise arrow-key movement the Tab-navigated rows
-// don't have (T15; same pattern as GuidedChoiceCard in NewWorkspacePanel.tsx).
+// don't have (T15; the same pattern the retired New workspace hub's GuidedChoiceCard used).
 
 // AC (keyboard-navigable picker with visible focus): the choices are a labeled
 // group of native aria-pressed buttons with the shared focus-visible ring.
@@ -105,18 +105,9 @@ assert.match(
   /detail=\{entry\.summary\}/,
   'library rows take their detail from the entry summary alone — no trust-transfer copy',
 )
-// 2. The wizard resets the selection when the target folder changes, so a
-//    pick made for folder A never rides into folder B (the Advanced setup
-//    count drops with it, and create runs no attach).
-const panelSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
-  'utf8',
-)
-assert.match(
-  panelSource,
-  /useEffect\(\(\) => \{\s*setDsAttachSelection\(null\)\s*\}, \[folderPath\]\)/,
-  'wizard resets the attach selection when the target folder changes',
-)
+// 2. (Retired 2026-09-04 with the New workspace hub: the wizard that reset the
+//    selection on a folder change is gone; the step's only host is now the
+//    Design settings tab, which is scoped to one project.)
 
 // KG pointer note is composed from the shared launch-line contract so the
 // note and the injected prompt line can never drift.

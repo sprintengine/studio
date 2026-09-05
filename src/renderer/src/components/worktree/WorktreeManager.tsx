@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { EMPTY_CHAT_TEMPLATE } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
@@ -127,10 +127,11 @@ export default function WorktreeManager({
     [workspace?.worktreeState.entries]
   )
   const containerPath = workspace?.worktreeState.containerPath ?? worktreeContainerPath(repoRoot)
-  const template = useMemo(
-    () => LAYOUT_TEMPLATES.find((item) => item.id === 'solo-dev') ?? LAYOUT_TEMPLATES[0],
-    []
-  )
+  // Opening a worktree opens the New chat launch surface in it — the person
+  // picks the agent there, and opens the editor and panes as they need them.
+  // It used to mint the Solo Dev layout (Editor + one agent), the layout the
+  // owner retired with the New workspace hub (2026-09-04).
+  const template = EMPTY_CHAT_TEMPLATE
 
   useEffect(() => {
     if (!baseRef || baseRef === 'HEAD') setBaseRef(currentBranch ?? 'HEAD')

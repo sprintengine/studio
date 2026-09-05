@@ -721,7 +721,7 @@ function testPreChangeRunStoreStillWorks(root: string): void {
 //    Whether a live planner obeys the directive is not automatable here.
 //  - THE TWO SURFACES. The Epic tab and the task timeline render this data; T8
 //    owns their visual review.
-//  - THE DESKTOP LAUNCH WRITER. `NewWorkspacePanel` fans the child links out in
+//  - THE DESKTOP LAUNCH WRITER. The New sprint dialog fans the child links out in
 //    React; this test builds the same links through the shared builder both
 //    writers call. The main-process writer is covered by
 //    `src/main/mobile/sprintengine/command.test.ts`.

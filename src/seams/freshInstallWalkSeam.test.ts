@@ -195,7 +195,7 @@ type RendererSurfaces = {
   catalog: AgentCliCatalogOption[]
   launchableCli: AgentCli | null
   showsFirstRunCliCard: boolean
-  autoOpensCreationHub: boolean
+  autoOpensNewChat: boolean
 }
 
 // The renderer half, driven off the map main just produced: what the pickers
@@ -209,7 +209,7 @@ async function rendererSurfacesFor(input: {
   const { resolveLaunchableAgentCli, selectAgentCliCatalog } = await import(
     '../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
   )
-  const { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } = await import(
+  const { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } = await import(
     '../renderer/src/store/onboardingState'
   )
   const status = input.status ?? 'ready'
@@ -228,7 +228,7 @@ async function rendererSurfacesFor(input: {
     catalog,
     launchableCli: resolveLaunchableAgentCli('claude-code', catalog),
     showsFirstRunCliCard: shouldShowFirstRunCliCard(onboarding),
-    autoOpensCreationHub: shouldAutoOpenCreationHub({
+    autoOpensNewChat: shouldAutoOpenNewChat({
       ...onboarding,
       workspaceCount: input.workspaceCount ?? 0,
     }),
@@ -316,7 +316,7 @@ async function testFreshMacOffersNothingHoldsTheHubAndRefusesTheSpawn(): Promise
     'the first-run CLI surface must be reachable on the machine it exists for',
   )
   assert.equal(
-    surfaces.autoOpensCreationHub,
+    surfaces.autoOpensNewChat,
     false,
     'the creation hub must not take the first-run window from the CLI question',
   )
@@ -329,7 +329,7 @@ async function testFreshMacOffersNothingHoldsTheHubAndRefusesTheSpawn(): Promise
   for (const status of ['loading', 'error'] as const) {
     const pending = await rendererSurfacesFor({ availability, entries, status })
     assert.equal(pending.showsFirstRunCliCard, false, `no card on ${status}`)
-    assert.equal(pending.autoOpensCreationHub, false, `no hub on ${status}`)
+    assert.equal(pending.autoOpensNewChat, false, `no hub on ${status}`)
     assert.ok(pending.catalog.length > 0, `an unresolved probe must not empty the picker on ${status}`)
   }
 
@@ -365,10 +365,10 @@ async function testZshrcOnlyCliIsOfferedAndLaunchesThroughItsProbedPath(): Promi
   // The machine has a CLI, so the first-run question is answered and the hub
   // opens with no card and no nagging.
   assert.equal(surfaces.showsFirstRunCliCard, false)
-  assert.equal(surfaces.autoOpensCreationHub, true)
+  assert.equal(surfaces.autoOpensNewChat, true)
   // …and once a workspace exists, the hub stops auto-opening at all.
   const returning = await rendererSurfacesFor({ availability, entries, workspaceCount: 3 })
-  assert.equal(returning.autoOpensCreationHub, false)
+  assert.equal(returning.autoOpensNewChat, false)
 
   // The launch executes the probed absolute path. `claude` by name is what the
   // pre-fix launch ran, and this machine's login shell cannot resolve it — the

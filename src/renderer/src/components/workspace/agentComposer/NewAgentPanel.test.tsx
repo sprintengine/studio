@@ -1110,6 +1110,46 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // ── The parked draft (new-chat-survives-back-and-forward) ─────────────────
+  // The door's surface seeds from the draft parked under its key and writes
+  // every change back, so an unmount from any direction loses nothing; the
+  // host, not the surface, decides when the draft is forgotten.
+  await check('with a draft key the surface resumes the parked prompt and images, and writes changes through', async () => {
+    const { readNewChatDraft, writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+    resetNewChatDraftsForTests()
+    const shot = { id: 'img-1', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }
+    writeNewChatDraft('win-1', { prompt: 'review the auth flow', images: [shot], folderPath: '/w/app' })
+    const view = await render({ draftKey: 'win-1' })
+    const textarea = view.container.querySelector('textarea')
+    assert.equal(textarea?.value, 'review the auth flow', 'the parked words are back in the box')
+    assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'and so is the pasted screenshot')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(textarea, 'review the auth flow, then the session store')
+      textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.equal(readNewChatDraft('win-1')?.prompt, 'review the auth flow, then the session store', 'typing is parked as it happens')
+    assert.equal(readNewChatDraft('win-1')?.folderPath, '/w/app', 'the surface never touches the scope the host owns')
+    view.unmount()
+    assert.equal(readNewChatDraft('win-1')?.prompt, 'review the auth flow, then the session store', 'unmounting forgets nothing — forgetting is the host\'s call')
+    resetNewChatDraftsForTests()
+  })
+
+  await check('without a draft key the surface keeps its per-tab state and parks nothing', async () => {
+    const { readNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+    resetNewChatDraftsForTests()
+    const view = await render()
+    const textarea = view.container.querySelector('textarea')
+    assert.equal(textarea?.value, '')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(textarea, 'tab-local words')
+      textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.equal(readNewChatDraft('win-1'), null, 'the tab-strip host has no draft')
+    view.unmount()
+  })
+
   if (failures > 0) {
     console.error(`NewAgentPanel.test.tsx: ${failures} failing check(s)`)
     process.exit(1)

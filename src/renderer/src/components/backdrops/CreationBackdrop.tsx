@@ -1,5 +1,6 @@
 // CreationBackdrop — the per-theme editorial backplate behind a creation / empty
-// / first-run surface (NewWorkspacePanel, AgentChatView empty state). It is the
+// / first-run surface (AgentChatView empty state; the retired New workspace hub
+// was the other host). It is the
 // single place the fit + scrim + fade contract lives:
 //
 //   • fit    — `object-fit: cover` + center: always fills the panel at the

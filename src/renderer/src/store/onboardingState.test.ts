@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { AgentCli, AgentCliAvailabilityMap } from '../../../shared/electron-api'
-import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from './onboardingState'
+import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from './onboardingState'
 
 function availability(entries: Record<string, boolean>): AgentCliAvailabilityMap {
   const map: AgentCliAvailabilityMap = {}
@@ -95,7 +95,7 @@ function testAnUnofferedCliIsNotACli(): void {
     'a CLI no picker offers is not this machine having an agent CLI',
   )
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 0,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: false, 'generic-shell': true }),
@@ -146,7 +146,7 @@ function testFreshProfileWithNoCliGivesTheWindowToTheCard(): void {
     firstRunCliCardDismissed: false,
   }
   assert.equal(
-    shouldAutoOpenCreationHub({ workspaceCount: 0, ...machine }),
+    shouldAutoOpenNewChat({ workspaceCount: 0, ...machine }),
     false,
     'a fresh profile with no CLI must not auto-open the hub over the card',
   )
@@ -159,7 +159,7 @@ function testFreshProfileWithNoCliGivesTheWindowToTheCard(): void {
 
 function testFreshProfileWithACliGoesStraightToTheHub(): void {
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 0,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: false, 'claude-code': true }),
@@ -176,7 +176,7 @@ function testFreshProfileWithACliGoesStraightToTheHub(): void {
 function testUnresolvedProbeOpensNothing(): void {
   for (const cliAvailabilityStatus of ['loading', 'error'] as const) {
     assert.equal(
-      shouldAutoOpenCreationHub({
+      shouldAutoOpenNewChat({
         workspaceCount: 0,
         cliAvailabilityStatus,
         cliAvailability: {},
@@ -201,7 +201,7 @@ function testUnresolvedProbeOpensNothing(): void {
 // an empty stage, having closed the only thing on it.
 function testDismissalReleasesTheWindowToTheHub(): void {
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 0,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: false }),
@@ -212,7 +212,7 @@ function testDismissalReleasesTheWindowToTheHub(): void {
   // Dismissal outranks even an unresolved probe: the question is settled, so
   // nothing is waiting on the answer any more.
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 0,
       cliAvailabilityStatus: 'loading',
       cliAvailability: {},
@@ -226,7 +226,7 @@ function testDismissalReleasesTheWindowToTheHub(): void {
 // with workspaces is never interrupted, whatever the probe says.
 function testExistingWorkspacesNeverAutoOpenTheHub(): void {
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 1,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: false }),
@@ -235,7 +235,7 @@ function testExistingWorkspacesNeverAutoOpenTheHub(): void {
     false,
   )
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 2,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: true }),
@@ -250,7 +250,7 @@ function testExistingWorkspacesNeverAutoOpenTheHub(): void {
 // that has just told them everything is fine.
 function testInstallingACliHandsTheWindowToTheHub(): void {
   assert.equal(
-    shouldAutoOpenCreationHub({
+    shouldAutoOpenNewChat({
       workspaceCount: 0,
       cliAvailabilityStatus: 'ready',
       cliAvailability: availability({ codex: true, 'claude-code': false }),

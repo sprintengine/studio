@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
+  NEW_CHAT_NAV_ENTRY,
   WORKSPACE_NAVIGATION_HISTORY_CAP,
   recordNavigationVisit,
   stepNavigationHistory,
@@ -128,6 +129,31 @@ run('history is bounded by the cap, dropping the oldest visits', () => {
   assert.equal(history.entries.length, WORKSPACE_NAVIGATION_HISTORY_CAP)
   assert.deepEqual(history.entries[0], ws('ws-10'))
   assert.equal(history.index, WORKSPACE_NAVIGATION_HISTORY_CAP - 1)
+})
+
+run('New chat is a location: Back steps off it and Forward steps back onto it', () => {
+  // Open New chat over workspace a, then Back: the cursor lands on a and the
+  // New chat entry survives as the forward branch — so Forward returns to it.
+  let history = visits('a')
+  history = recordNavigationVisit(history, NEW_CHAT_NAV_ENTRY)
+  assert.deepEqual(history.entries, [ws('a'), NEW_CHAT_NAV_ENTRY])
+  const back = stepNavigationHistory(history, -1, (entry) => entry.kind !== 'new-chat')
+  assert.deepEqual(back?.entry, ws('a'))
+  const forward = stepNavigationHistory(back!.history, 1, (entry) => entry.kind === 'new-chat')
+  assert.deepEqual(forward?.entry, NEW_CHAT_NAV_ENTRY)
+  // Reopening is re-recording the entry at the cursor: no push, no duplicate.
+  assert.equal(recordNavigationVisit(forward!.history, NEW_CHAT_NAV_ENTRY), forward!.history)
+})
+
+run('reopening New chat from a sidebar click after parking it is a fresh visit', () => {
+  // a → New chat → sidebar to b (parks the panel) → New chat again: the
+  // second open is a new visit, so Back from it returns to b, not to a.
+  let history = visits('a')
+  history = recordNavigationVisit(history, NEW_CHAT_NAV_ENTRY)
+  history = recordNavigationVisit(history, ws('b'))
+  history = recordNavigationVisit(history, NEW_CHAT_NAV_ENTRY)
+  assert.deepEqual(history.entries, [ws('a'), NEW_CHAT_NAV_ENTRY, ws('b'), NEW_CHAT_NAV_ENTRY])
+  assert.deepEqual(stepNavigationHistory(history, -1, (entry) => entry.kind !== 'new-chat')?.entry, ws('b'))
 })
 
 console.log('workspaceNavigationHistory.test.ts: ok')

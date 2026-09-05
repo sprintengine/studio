@@ -4,13 +4,21 @@
 // only — it is transient shell state, never persisted, and each BrowserWindow's
 // WorkspaceManager owns its own instance.
 //
-// An entry is either a workspace card or a full-page "door" global surface
-// (Roadmap/Reviews/Automations). Both share the stack so Back returns to the
-// previously-visited door, not just the workspace underneath it.
+// An entry is a workspace card, a full-page "door" global surface
+// (Roadmap/Reviews/Automations), or the New chat door. All share the stack so
+// Back returns to the previously-visited door, not just the workspace
+// underneath it — and so New chat is a place Forward can come back to
+// (new-chat-survives-back-and-forward, 2026-09-04): before it was an entry,
+// Back stepped off the panel to the workspace before it and Forward had
+// nowhere to go, and the draft the panel held went with it.
 
 export type NavHistoryEntry =
   | { readonly kind: 'workspace'; readonly id: string }
   | { readonly kind: 'surface'; readonly id: string }
+  | { readonly kind: 'new-chat'; readonly id: 'new-chat' }
+
+/** The one New chat location: a window has at most one New chat door. */
+export const NEW_CHAT_NAV_ENTRY: NavHistoryEntry = { kind: 'new-chat', id: 'new-chat' }
 
 export interface WorkspaceNavigationHistory {
   readonly entries: readonly NavHistoryEntry[]

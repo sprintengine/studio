@@ -12,7 +12,7 @@ import { APP_THEMES, type ResolvedAppTheme } from "../../types/appTheme";
 
 // Which creation surface a plate frames. The two plates per theme share one
 // palette and differ only in medium: the workspace plate is structured
-// paper-craft (NewWorkspacePanel), the chat plate is organic botanical
+// paper-craft (the retired New workspace hub; kept for the next host), the chat plate is organic botanical
 // (AgentChatView empty state).
 export type BackdropSurface = "workspace" | "chat";
 
