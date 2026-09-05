@@ -702,6 +702,10 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   // plain read; the command envelope is classified a mutation, so a paired
   // phone needs workspace:operate to drive it and every dispatch is audited.
   assert.equal(requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')), 'workspace:read')
+  // checkout-and-branch-on-remote-create: the checkout facts are a plain
+  // read; minting the worktree stays agent.launch's, on workspace:operate.
+  assert.equal(requiredScopeForTool('workspace.checkout', isStudioGatewayMutation('workspace.checkout')), 'workspace:read')
+  assert.equal(requiredScopeForTool('agent.launch', isStudioGatewayMutation('agent.launch')), 'workspace:operate')
   assert.equal(
     requiredScopeForTool('workspace.mobile_command', isStudioGatewayMutation('workspace.mobile_command')),
     'workspace:operate'

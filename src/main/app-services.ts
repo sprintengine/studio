@@ -86,7 +86,10 @@ import {
 import { createSprintPullRequestMergePoller } from './sprintengine-pr-merge-poller'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
-import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
+import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
+import { readBranchName, resolveTrunk } from './git-branch-span'
+import { getGitBranches } from './git-read-models'
+import { listGitWorktrees } from './git-worktree-list'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
 import { createBrowserManager } from './browser/browser-manager'
@@ -930,7 +933,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // manager uses, then create through the shared git helper. Mirrors
         // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
         // the repo's worktree-include set into the isolated tree).
-        createAgentWorktree: async ({ workspaceRoot, name }) => {
+        createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
           const paths = agentWorktreePaths(workspaceRoot, name)
           if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
           const created = await createGitWorktree({
@@ -938,11 +941,40 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             containerPath: paths.containerPath,
             destinationPath: paths.destinationPath,
             branchName: paths.branchName,
-            baseRef: 'HEAD',
+            // A remote launch names the branch to fork from (its picker lists
+            // this checkout's branches); a local one forks HEAD as it always did.
+            baseRef: baseRef?.trim() || 'HEAD',
             copyIncludedFiles: true,
           })
           if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
           return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+        },
+        // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
+        // create): the same readers the sidebar rows and the Worktree manager
+        // use, so a remote picker lists exactly what this machine's Git view
+        // would. Not a repo is an answer, not an error.
+        readWorkspaceCheckout: async (workspaceRoot) => {
+          const empty = { git: false as const, branch: null, defaultBranch: null, branches: [], worktrees: [] }
+          const repoRoot = await getGitRepoRoot(workspaceRoot).catch(() => null)
+          if (!repoRoot) return empty
+          const [branch, snapshot, worktrees] = await Promise.all([
+            readBranchName(repoRoot),
+            getGitBranches(repoRoot).catch(() => null),
+            listGitWorktrees(repoRoot).catch(() => null),
+          ])
+          const trunk = await resolveTrunk(repoRoot, branch).catch(() => null)
+          return {
+            git: true,
+            branch,
+            defaultBranch: trunk?.name ?? null,
+            branches: (snapshot?.branches ?? []).map((entry) => ({ name: entry.name, current: entry.current })),
+            worktrees: worktrees?.ok
+              ? worktrees.data.worktrees
+                  .filter((entry) => !entry.bare)
+                  // `git worktree list` names the main worktree first, always.
+                  .map((entry, index) => ({ path: entry.path, branch: entry.branch, isMain: index === 0 }))
+              : [],
+          }
         },
         // module.*/marketplace.* (MC-2078). The registry snapshot is the
         // renderer's mirror — main's own module list omits every renderer-only

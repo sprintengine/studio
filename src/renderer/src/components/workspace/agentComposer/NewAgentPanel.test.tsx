@@ -75,11 +75,18 @@ let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () =>
   gaps: [],
 })
 
+// The picked remote project's checkout facts (checkout-and-branch-on-remote-create).
+let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (_c, workspaceId) => ({
+  ok: true,
+  checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
+})
+
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
   platform: 'darwin',
   getGitRepoRoot: async () => '/proj',
   fleetListConnections: async () => fleetConnections,
   fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
+  fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) => fleetCheckoutAnswer(connectionId, workspaceId),
   onFleetEvent: () => () => {},
   defaultWorkspaceParentDir: async () => '/w',
   getPathForFile: () => '/tmp/shot.png',
@@ -1082,6 +1089,137 @@ async function main(): Promise<void> {
     await key(rows[2]!, 'Home')
     assert.equal(dom.window.document.activeElement, rows[1], 'Home on the first enabled row')
     local.unmount()
+  })
+
+  await check('a picked remote project reads its checkout: the branch is a fact on the current checkout, a base to fork from on a new worktree, and the launch carries the choice', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false,
+      scopes: ['workspace:operate', 'terminal:control'],
+      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha', '/srv/alpha')], terminals: [], gaps: [],
+    })
+    const checkoutReads: string[] = []
+    fleetCheckoutAnswer = (_c, workspaceId) => {
+      checkoutReads.push(workspaceId)
+      return {
+        ok: true,
+        checkout: {
+          workspaceId, git: true, branch: 'main', defaultBranch: 'main',
+          branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
+          worktrees: [{ path: '/srv/alpha', branch: 'main', isMain: true }],
+        },
+      }
+    }
+    const remoteLaunches: Array<Record<string, unknown>> = []
+    const view = await remoteRender({
+      onLaunchRemote: async (launch: Record<string, unknown>) => {
+        remoteLaunches.push(launch)
+      },
+    })
+    await settle()
+    await pickMachine(view, 'Air')
+    await settle()
+    assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
+    const checkoutTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
+    assert.equal(checkoutTrigger()?.textContent?.trim(), 'Current checkout', 'the scope line opens on the current checkout')
+    const fact = view.container.querySelector('[data-branch-fact="true"]')
+    assert.ok(fact?.textContent?.includes('main'), `the branch is a fact beside it; got: ${fact?.textContent}`)
+    assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and not a picker — this machine never moves that checkout')
+
+    const textarea = view.container.querySelector('textarea')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+      setter.call(textarea, 'fix the build')
+      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    const enter = () =>
+      act(async () => {
+        textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+    await enter()
+    await settle()
+    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'current' }, 'the current checkout travels as such')
+    assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
+
+    // New worktree: the branch segment becomes the base to fork from.
+    await click(checkoutTrigger())
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')
+    assert.ok(menu, 'the checkout menu opens on the popover surface')
+    const rows = [...menu!.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
+    assert.deepEqual(rows.map((row) => row.getAttribute('aria-disabled')), [null, null], 'both choices are open to a workspace:operate pairing')
+    await click(buttonWithText(menu!, 'New worktree'))
+    await settle()
+    assert.equal(checkoutTrigger()?.textContent?.trim(), 'New worktree')
+    const branchTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-branch-trigger="true"]')
+    assert.equal(branchTrigger()?.textContent?.trim(), 'From main', 'the base defaults to the current branch')
+    await click(branchTrigger())
+    const branches = dom.window.document.querySelector('[role="menu"][aria-label="Branch to fork on Air"]')
+    assert.ok(branches, 'the branch list opens')
+    const names = [...branches!.querySelectorAll('[role="menuitemradio"]')].map((row) => row.querySelector('span')?.textContent?.trim())
+    assert.deepEqual(names, ['feat/x', 'main'], 'listing the remote’s own branches')
+    await click(buttonWithText(branches!, 'feat/x'))
+    await settle()
+    assert.equal(branchTrigger()?.textContent?.trim(), 'From feat/x')
+    await enter()
+    await settle()
+    assert.deepEqual(remoteLaunches[1]?.checkout, { mode: 'worktree', baseRef: 'feat/x' }, 'the worktree request names its base')
+    assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
+    view.unmount()
+  })
+
+  await check('a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim New worktree with the real reason', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = [machine('m1', 'Air')]
+    let scopes: string[] = ['terminal:control']
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes,
+      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
+    })
+    const reasonFor = async () => {
+      const view = await remoteRender()
+      await settle()
+      await pickMachine(view, 'Air')
+      await settle()
+      const trigger = view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
+      await click(trigger)
+      const menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
+      const row = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')][1]!
+      const hint = row.textContent ?? ''
+      const disabled = row.getAttribute('aria-disabled')
+      await click(row)
+      await settle()
+      const after = view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')?.textContent?.trim()
+      const fact = view.container.querySelector('[data-branch-fact="true"]')?.textContent?.trim() ?? ''
+      view.unmount()
+      return { hint, disabled, after, fact }
+    }
+    const scopeless = await reasonFor()
+    assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
+    assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
+    assert.equal(scopeless.after, 'Current checkout', 'and clicking it changes nothing')
+
+    scopes = ['workspace:operate', 'terminal:control']
+    fleetCheckoutAnswer = () => ({ ok: false, code: 'tailnet_scope_required', message: 'This device is not granted "workspace:read".' })
+    const unreadable = await reasonFor()
+    assert.equal(unreadable.disabled, 'true')
+    assert.ok(unreadable.hint.includes('not granted "workspace:read"'), 'an unreadable checkout carries the gateway’s words')
+    assert.equal(unreadable.fact, 'Branch unknown', 'and the branch says it is unknown rather than inventing one')
+
+    fleetCheckoutAnswer = (_c, workspaceId) => ({
+      ok: true,
+      checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
+    })
+    const plain = await reasonFor()
+    assert.equal(plain.disabled, 'true')
+    assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
+    assert.ok(plain.fact.includes('not a repository'), `the branch fact says the same; got: ${plain.fact}`)
+    fleetCheckoutAnswer = (_c, workspaceId) => ({
+      ok: true,
+      checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
+    })
   })
 
   await check('the local access menu walks with the arrows and selects on Enter', async () => {

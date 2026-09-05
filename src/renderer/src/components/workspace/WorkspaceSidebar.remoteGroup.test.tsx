@@ -87,8 +87,12 @@ async function main(): Promise<void> {
   const workspaces = [
     workspace('w1', 'Alpha', '/projA'),
     workspace('w2', 'Bravo', '/projA'),
-    // Born on the Air; its pane is open.
-    workspace('w3', 'Charlie', null, { remoteOrigin, layoutModel: fleetLayout }),
+    // Born on the Air; its pane is open — on a worktree the create minted
+    // there (checkout-and-branch-on-remote-create), so its branch is known.
+    workspace('w3', 'Charlie', null, {
+      remoteOrigin: { ...remoteOrigin, checkout: { mode: 'worktree', branch: 'agent/fix', worktreePath: '/Users/me/wt/fix' } },
+      layoutModel: fleetLayout,
+    }),
     // Born on the Air; its pane has since closed — the mark must survive.
     workspace('w4', 'Delta', null, { remoteOrigin, layoutModel: { layout: { type: 'row', children: [] } } }),
     // A genuinely folderless local row keeps its old home.
@@ -159,6 +163,12 @@ async function main(): Promise<void> {
     'the row with an open pane wears the provenance mark')
   assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('MacBook Air'),
     'the row whose pane closed has no second line — the header names its machine')
+  // The branch stamped at the create is the row's branch (no local checkout
+  // to poll); a parked row shows none, as with every other line-2 fact.
+  assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('agent/fix'),
+    'the live remote row names the branch its create landed on')
+  assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('agent/fix'),
+    'a parked remote row carries no branch')
   assert.ok(remoteHeader.querySelector('svg'), 'the header carries the shared machine glyph')
   assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
 

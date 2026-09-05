@@ -23,10 +23,12 @@ import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 // WebSocket. The thing under test IS the wire between two machines, so a fake
 // on either side would prove nothing about it.
 
-const MUTATIONS = new Set(['terminal.create'])
+const MUTATIONS = new Set(['terminal.create', 'agent.launch'])
 
 // What the remote's terminal.create actually received, per call.
 const terminalCreateArgs: Array<Record<string, unknown>> = []
+// And agent.launch — the worktree route (checkout-and-branch-on-remote-create).
+const agentLaunchArgs: Array<Record<string, unknown>> = []
 
 type Harness = {
   server: TailnetGatewayServer
@@ -146,6 +148,33 @@ function remoteTools(): McpToolRegistration[] {
       ],
     }),
     tool('sprint.list', { runs: [{ slug: 'nightly', statePath: '.multi-code/sprintengine/nightly/run.yaml' }] }),
+    tool('workspace.checkout', {
+      workspaceId: 'ws-1',
+      git: true,
+      branch: 'main',
+      defaultBranch: 'main',
+      branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
+      worktrees: [{ path: '/repos/atlas', branch: 'main', isMain: true }],
+    }),
+    {
+      name: 'agent.launch',
+      description: 'Test tool agent.launch',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async (args: Record<string, unknown>) => {
+        agentLaunchArgs.push(args)
+        return toolSuccess({
+          ok: true,
+          agent: {
+            workspaceId: 'ws-1',
+            agentId: 'agent-3',
+            name: 'Bishop',
+            terminal: { sessionId: 'session_three', processAlive: true },
+          },
+          worktreePath: '/repos/.multicode-worktrees/atlas/fix',
+          worktreeBranch: 'agent/fix',
+        })
+      },
+    },
     {
       name: 'terminal.create',
       description: 'Test tool terminal.create',
@@ -387,6 +416,84 @@ test('a revoked pairing is reported as revoked, not as an unreachable machine', 
     assert.equal(browse.reachable, false)
     assert.equal(browse.unauthorized, true)
     assert.match(browse.unreachableReason ?? '', /no longer accepts/u)
+  } finally {
+    await harness.close()
+  }
+})
+
+// checkout-and-branch-on-remote-create: the checkout facts behind the launch
+// panel's checkout · branch segments, read over the wire and parsed as the
+// panel consumes them; a pairing without workspace:read gets the refusal.
+test('a remote workspace\'s checkout is read over workspace.checkout, and refused without workspace:read', async () => {
+  const harness = await startHarness()
+  try {
+    const connectionId = await harness.pair(['workspace:read'])
+    const read = await harness.fleet.workspaceCheckout(connectionId, 'ws-1')
+    assert.ok(read.ok, read.ok ? '' : read.message)
+    assert.equal(read.checkout.branch, 'main')
+    assert.equal(read.checkout.defaultBranch, 'main')
+    assert.deepEqual(read.checkout.branches.map((entry) => entry.name), ['feat/x', 'main'])
+    assert.equal(read.checkout.worktrees[0]?.isMain, true)
+
+    const terminalsOnly = await harness.pair(['terminal:control'])
+    const refused = await harness.fleet.workspaceCheckout(terminalsOnly, 'ws-1')
+    assert.equal(refused.ok, false)
+    assert.equal(refused.ok ? '' : refused.code, 'tailnet_scope_required')
+    assert.match(refused.ok ? '' : refused.message, /workspace:read/u, 'the gateway names the missing scope, verbatim')
+
+    const nameless = await harness.fleet.workspaceCheckout(connectionId, '')
+    assert.equal(nameless.ok, false)
+  } finally {
+    await harness.close()
+  }
+})
+
+// The worktree route: a create on a fresh worktree is the remote's own
+// agent.launch (workspace:operate, the mutation that mints it), with the base
+// ref the panel picked; the current checkout stays terminal.create. A pairing
+// without workspace:operate is refused by the gateway in its own words —
+// which is what makes the panel's dimmed row honest.
+test('a create on a new worktree rides agent.launch with its base ref, and a terminals-only pairing is refused verbatim', async () => {
+  const harness = await startHarness()
+  try {
+    const connectionId = await harness.pair(['workspace:operate', 'terminal:control'])
+    const before = terminalCreateArgs.length
+    const created = await harness.fleet.createTerminal({
+      connectionId,
+      workspaceId: 'ws-1',
+      cli: 'claude-code',
+      prompt: 'Fix the relay snapshot race',
+      permissionPreset: 'auto',
+      checkout: { mode: 'worktree', name: 'fix', baseRef: 'feat/x' },
+    })
+    assert.ok(created.ok, created.ok ? '' : created.message)
+    assert.equal(created.sessionId, 'session_three', 'the session comes from the agent projection')
+    assert.equal(created.title, 'Bishop')
+    assert.deepEqual(created.checkout, { mode: 'worktree', branch: 'agent/fix', worktreePath: '/repos/.multicode-worktrees/atlas/fix' })
+    const wire = agentLaunchArgs[agentLaunchArgs.length - 1]
+    assert.deepEqual(wire?.worktree, { name: 'fix', baseRef: 'feat/x' })
+    assert.equal(wire?.cli, 'claude-code')
+    assert.equal(wire?.prompt, 'Fix the relay snapshot race')
+    assert.equal(wire?.permissionPreset, 'auto')
+    assert.equal(terminalCreateArgs.length, before, 'terminal.create was not asked')
+
+    // The current checkout is still terminal.create, and says so.
+    const current = await harness.fleet.createTerminal({ connectionId, workspaceId: 'ws-1', checkout: { mode: 'current' } })
+    assert.ok(current.ok, current.ok ? '' : current.message)
+    assert.deepEqual(current.checkout, { mode: 'current', branch: null, worktreePath: null })
+    assert.equal(terminalCreateArgs.length, before + 1)
+
+    const terminalsOnly = await harness.pair(['terminal:control'])
+    const launches = agentLaunchArgs.length
+    const refused = await harness.fleet.createTerminal({
+      connectionId: terminalsOnly,
+      workspaceId: 'ws-1',
+      checkout: { mode: 'worktree', baseRef: 'main' },
+    })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.ok ? '' : refused.code, 'tailnet_scope_required')
+    assert.match(refused.ok ? '' : refused.message, /workspace:operate/u)
+    assert.equal(agentLaunchArgs.length, launches, 'the refused handler never ran on the remote')
   } finally {
     await harness.close()
   }

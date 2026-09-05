@@ -1712,7 +1712,10 @@ export default function WorkspaceSidebar({
     const rowIsLive = rowSessions.length > 0
     const fleetMachines = rowIsLive ? provenanceMachinesOf(workspace) : []
     const gitSummary = rowIsLive ? gitSummaries[workspace.id] : undefined
-    const rowBranch = gitSummary?.branch ?? null
+    // A remote-born row's checkout is on another disk, so its branch is the
+    // one stamped at the create (checkout-and-branch-on-remote-create); the
+    // poll cannot read it and would otherwise leave the segment empty.
+    const rowBranch = gitSummary?.branch ?? (rowIsLive ? workspace.remoteOrigin?.checkout?.branch ?? null : null)
     const rowAdditions = gitSummary?.additions ?? 0
     const rowDeletions = gitSummary?.deletions ?? 0
     // How much the ±lines may claim (the-diff-an-agent-made): 'worktree' this

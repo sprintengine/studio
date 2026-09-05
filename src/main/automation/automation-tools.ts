@@ -232,7 +232,23 @@ export type AutomationBackends = {
   createAgentWorktree(input: {
     workspaceRoot: string
     name: string
+    /** The ref the worktree branches from; the checkout's HEAD when absent. */
+    baseRef?: string
   }): Promise<{ worktreePath: string; branch: string } | { error: string }>
+  /**
+   * The checkout facts a remote launch panel needs before choosing where a
+   * chat runs (checkout-and-branch-on-remote-create): whether the folder is
+   * a repository, its branch, the trunk, every local branch, and the
+   * worktrees the repository holds. Read-only; never throws for a non-repo
+   * (that is the `git: false` answer).
+   */
+  readWorkspaceCheckout(workspaceRoot: string): Promise<{
+    git: boolean
+    branch: string | null
+    defaultBranch: string | null
+    branches: Array<{ name: string; current: boolean }>
+    worktrees: Array<{ path: string; branch: string | null; isMain: boolean }>
+  }>
   /**
    * Loaded CLI plugin manifests (`getPluginRegistry().loaded()`). backlog.work
    * composes the target CLI's native skill invocation from the matching
@@ -491,11 +507,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // the resolved options or a failure McpToolResult.
   function resolveLaunchOptions(
     args: Record<string, unknown>
-  ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string } | McpToolResult {
+  ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string; worktreeBaseRef?: string } | McpToolResult {
     const preset = validatePermissionPreset(args)
     if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
     let worktreeName: string | undefined
+    let worktreeBaseRef: string | undefined
     if (args.worktree !== undefined) {
       if (typeof args.worktree !== 'object' || args.worktree === null || Array.isArray(args.worktree)) {
         return failure('invalid_arguments', '"worktree" must be an object with an optional "name".')
@@ -504,8 +521,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (rawName !== undefined && typeof rawName !== 'string') {
         return failure('invalid_arguments', '"worktree.name" must be a string when provided.')
       }
+      const rawBaseRef = (args.worktree as { baseRef?: unknown }).baseRef
+      if (rawBaseRef !== undefined && typeof rawBaseRef !== 'string') {
+        return failure('invalid_arguments', '"worktree.baseRef" must be a string when provided.')
+      }
       worktreeRequested = true
       worktreeName = optionalString(rawName)
+      worktreeBaseRef = optionalString(rawBaseRef)
     }
     return {
       // Always resolved, never forwarded as undefined: the renderer fills an
@@ -517,6 +539,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         ?? LAUNCH_PERMISSION_PRESETS[0],
       worktreeRequested,
       worktreeName,
+      worktreeBaseRef,
     }
   }
 
@@ -537,8 +560,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     connectorId?: string
     worktreeRequested: boolean
     worktreeName?: string
+    worktreeBaseRef?: string
   }): Promise<
-    | { workspace: Workspace; agentId: string; session: TerminalSessionSnapshot; worktreePath?: string }
+    | { workspace: Workspace; agentId: string; session: TerminalSessionSnapshot; worktreePath?: string; worktreeBranch?: string }
     | McpToolResult
   > {
     // A connector launch forces a worktree even when none was requested — the
@@ -546,11 +570,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     // creation runs in main before delegating, and a failure here is fatal: the
     // caller asked for isolation, so we never silently fall back.
     let worktreePath: string | undefined
+    let worktreeBranch: string | undefined
     if (plan.worktreeRequested || plan.connectorId) {
       const resolved = resolveWorkspaceRoot(plan.workspaceId)
       if (!('root' in resolved)) return resolved
       const derivedName = plan.worktreeName || plan.name || plan.connectorId || `agent-${now().toString(36)}`
-      const created = await backends.createAgentWorktree({ workspaceRoot: resolved.root, name: derivedName })
+      const created = await backends.createAgentWorktree({
+        workspaceRoot: resolved.root,
+        name: derivedName,
+        ...(plan.worktreeBaseRef ? { baseRef: plan.worktreeBaseRef } : {}),
+      })
       if ('error' in created) {
         return failure(
           'worktree_unavailable',
@@ -558,6 +587,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         )
       }
       worktreePath = created.worktreePath
+      worktreeBranch = created.branch
     }
 
     // Composed and spawned in main (MC-2159). Previously this delegated to the
@@ -603,7 +633,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     // `live` is the session the launch actually minted, carried out so a caller
     // that needs the session id (terminal.create, whose whole point is the
     // immediate attach) reads the confirmed one rather than re-searching for it.
-    return { workspace, agentId, session: live, ...(worktreePath ? { worktreePath } : {}) }
+    return {
+      workspace,
+      agentId,
+      session: live,
+      ...(worktreePath ? { worktreePath } : {}),
+      ...(worktreeBranch ? { worktreeBranch } : {}),
+    }
   }
 
   const workspaceList: McpToolRegistration = {
@@ -815,7 +851,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         },
         worktree: {
           type: 'object',
-          properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
+          properties: {
+            name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' },
+            baseRef: {
+              type: 'string',
+              description:
+                'The ref the new worktree branches from (a branch name from workspace.checkout, e.g. "main"). '
+                + "Defaults to the workspace checkout's HEAD.",
+            },
+          },
           additionalProperties: false,
           description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
         },
@@ -847,12 +891,41 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         connectorId: optionalString(args.connectorId),
         worktreeRequested: options.worktreeRequested,
         worktreeName: options.worktreeName,
+        worktreeBaseRef: options.worktreeBaseRef,
       })
       if (!('agentId' in launched)) return launched
       return success({
         agent: agentProjection(launched.workspace, launched.agentId),
         ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
+        ...(launched.worktreeBranch ? { worktreeBranch: launched.worktreeBranch } : {}),
       })
+    },
+  }
+
+  // The checkout facts behind a remote launch's checkout · branch segments
+  // (checkout-and-branch-on-remote-create). A read, on `workspace:read`, so a
+  // paired Studio can show where a chat would run before asking for it; the
+  // worktree itself is minted by `agent.launch` (workspace:operate), never
+  // here — scopes stay a function of the tool's NAME (tailnet-scopes.ts).
+  const workspaceCheckout: McpToolRegistration = {
+    name: 'workspace.checkout',
+    description:
+      "Read a workspace's git checkout: whether its folder is a repository, the branch it is on, the trunk, "
+      + 'every local branch, and the worktrees the repository holds. Pair it with agent.launch\'s '
+      + '"worktree.baseRef" to start an agent on a fresh worktree branched from one of the listed branches.',
+    inputSchema: {
+      type: 'object',
+      properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
+      required: ['workspaceId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const workspaceId = requireString(args, 'workspaceId')
+      if (typeof workspaceId !== 'string') return workspaceId
+      const resolved = resolveWorkspaceRoot(workspaceId)
+      if (!('root' in resolved)) return resolved
+      const checkout = await backends.readWorkspaceCheckout(resolved.root)
+      return success({ workspaceId, ...checkout })
     },
   }
 
@@ -3214,6 +3287,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     roadmapMerge,
     roadmapPause,
     roadmapResume,
+    workspaceCheckout,
     workspaceCreate,
     workspaceList,
     workspaceMobileCommand,

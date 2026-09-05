@@ -5,6 +5,7 @@ import {
   FLEET_ATTACH_TERMINAL_CHANNEL,
   FLEET_BROWSE_CHANNEL,
   FLEET_CREATE_TERMINAL_CHANNEL,
+  FLEET_WORKSPACE_CHECKOUT_CHANNEL,
   FLEET_DETACH_TERMINAL_CHANNEL,
   FLEET_FORGET_CHANNEL,
   FLEET_GET_LIVE_STATE_CHANNEL,
@@ -22,6 +23,8 @@ import {
   type FleetBrowse,
   type FleetConnection,
   type FleetCreateTerminalResult,
+  type FleetCheckoutRequest,
+  type FleetWorkspaceCheckoutResult,
   type FleetCollectPairingResult,
   type FleetEvent,
   type FleetLiveState,
@@ -77,8 +80,11 @@ export const fleetApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    checkout?: FleetCheckoutRequest
   }): Promise<FleetCreateTerminalResult> =>
     ipcRenderer.invoke(FLEET_CREATE_TERMINAL_CHANNEL, input) as Promise<FleetCreateTerminalResult>,
+  fleetWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<FleetWorkspaceCheckoutResult> =>
+    ipcRenderer.invoke(FLEET_WORKSPACE_CHECKOUT_CHANNEL, { connectionId, workspaceId }) as Promise<FleetWorkspaceCheckoutResult>,
   fleetAttachTerminal: (input: {
     attachId: string
     connectionId: string
@@ -122,6 +128,7 @@ export const fleetApi = {
   | 'fleetBrowse'
   | 'fleetListRuns'
   | 'fleetCreateTerminal'
+  | 'fleetWorkspaceCheckout'
   | 'fleetAttachTerminal'
   | 'fleetDetachTerminal'
   | 'fleetTerminalInput'

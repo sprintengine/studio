@@ -92,6 +92,8 @@ import type {
   FleetBrowse,
   FleetConnection,
   FleetCreateTerminalResult,
+  FleetCheckoutRequest,
+  FleetWorkspaceCheckoutResult,
   FleetEvent,
   FleetLiveState,
   FleetPairResult,
@@ -3292,7 +3294,15 @@ export type ElectronApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    /**
+     * Where the chat runs there (checkout-and-branch-on-remote-create): the
+     * workspace's current checkout, or a fresh worktree branched from
+     * `baseRef`. The current checkout when absent.
+     */
+    checkout?: FleetCheckoutRequest
   }) => Promise<FleetCreateTerminalResult>
+  /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
+  fleetWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<FleetWorkspaceCheckoutResult>
   /**
    * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`
    * on the same `attachId` FIRST — the replay is the first thing that arrives.

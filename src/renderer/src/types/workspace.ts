@@ -969,6 +969,18 @@ export type WorkspaceRemoteOrigin = {
   workspaceId: string
   workspaceName: string
   workspaceRoot: string | null
+  /**
+   * Where the chat runs there (checkout-and-branch-on-remote-create): the
+   * remote workspace's own checkout, or a worktree the create minted, and
+   * the branch either is on as of the create. The row's branch reads from
+   * here — the local git poll has no path on this disk to ask. Absent on
+   * rows born before the choice existed.
+   */
+  checkout?: {
+    mode: 'current' | 'worktree'
+    branch: string | null
+    worktreePath: string | null
+  } | null
 }
 
 export type Workspace = {
