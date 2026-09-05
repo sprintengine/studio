@@ -11,7 +11,6 @@ import type { WorkspaceSyncEvent, WorkspaceSyncSnapshot } from '../../../shared/
 // person's open Backlog would vanish instead of becoming a tab. The stripped
 // layout is written back to main once, so the heal converges.
 
-const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 
 const stored: Record<string, string> = {}
 stored['multicode.workspaceStorageLiveSync'] = '1'
