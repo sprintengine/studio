@@ -247,7 +247,7 @@ async function writeBundle(
       category: 'dev-tools',
       icon: 'icons/registry.svg',
       latest: signed.version,
-      source: `https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/${folder}`,
+      source: `https://github.com/sprintengine/studio-releases/tree/main/plugins/${folder}`,
       provides: Object.keys(components) as MarketplacePluginEntry['provides'],
       ...(options.unsigned ? {} : { signature }),
     },
@@ -256,7 +256,7 @@ async function writeBundle(
 
 function createGithubFetcher(folders: Map<string, Map<string, string>>): MarketplacePluginDownloadFetch {
   return async (url) => {
-    const github = url.match(/^https:\/\/api\.github\.com\/repos\/hotstacklabs\/sprintengine-marketplace\/contents\/plugins\/([^?]+)\?ref=main$/)
+    const github = url.match(/^https:\/\/api\.github\.com\/repos\/sprintengine\/studio-releases\/contents\/plugins\/([^?]+)\?ref=main$/)
     if (github) {
       const folder = github[1]!
       const files = folders.get(folder)
@@ -264,10 +264,10 @@ function createGithubFetcher(folders: Map<string, Map<string, string>>): Marketp
       return new Response(JSON.stringify(Array.from(files.keys()).map((path) => ({
         type: 'file',
         path: `plugins/${folder}/${path}`,
-        download_url: `https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/${folder}/${path}`,
+        download_url: `https://raw.githubusercontent.com/sprintengine/studio-releases/main/${folder}/${path}`,
       }))))
     }
-    const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/hotstacklabs\/sprintengine-marketplace\/main\/([^/]+)\/(.+)$/)
+    const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/sprintengine\/studio-releases\/main\/([^/]+)\/(.+)$/)
     if (raw) {
       const files = folders.get(raw[1]!)
       const body = files?.get(raw[2]!)

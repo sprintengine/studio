@@ -68,7 +68,7 @@ function validPlugin(overrides: Partial<MarketplaceIndex['plugins'][number]> = {
     category: 'dev-tools',
     icon: 'icons/dev-helper.svg',
     latest: 1,
-    source: 'https://github.com/hotstacklabs/sprintengine-marketplace/plugins/dev-helper',
+    source: 'https://github.com/sprintengine/studio-releases/plugins/dev-helper',
     provides: ['mcp', 'skills'],
     signature: VALID_SIGNATURE,
     ...overrides,
@@ -169,7 +169,7 @@ async function testFreshResponseWithoutEtagClearsCachedEtag(): Promise<void> {
         ...validPlugin(),
         id: 'second-helper',
         name: 'Second Helper',
-        source: 'https://github.com/hotstacklabs/sprintengine-marketplace/plugins/second-helper',
+        source: 'https://github.com/sprintengine/studio-releases/plugins/second-helper',
       },
     ])
     const responses = [
@@ -365,7 +365,7 @@ async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
       validPlugin({
         id: `seed-${id}`,
         name: `Seed ${id.toUpperCase()}`,
-        source: `https://github.com/hotstacklabs/sprintengine-marketplace/plugins/seed-${id}`,
+        source: `https://github.com/sprintengine/studio-releases/plugins/seed-${id}`,
       })
     )
     const seedPath = join(dir, 'seed', 'marketplace.json')
@@ -465,7 +465,7 @@ async function testBundledDefaultTracksEnvOverrideDetection(): Promise<void> {
 async function testEnvOverrideConfiguresRegistryUrl(): Promise<void> {
   assert.equal(
     DEFAULT_MARKETPLACE_REGISTRY_URL,
-    'https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/marketplace.json'
+    'https://raw.githubusercontent.com/sprintengine/studio-releases/main/marketplace.json'
   )
   assert.equal(configuredMarketplaceRegistryUrl({}), DEFAULT_MARKETPLACE_REGISTRY_URL)
   assert.equal(

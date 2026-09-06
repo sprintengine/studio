@@ -23,7 +23,7 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 }> = [
   {
     value: 'none',
-    label: 'CLI default',
+    label: 'None',
     summary: 'No flag — the CLI decides.',
     title: 'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans, so this is no longer the same as asking every time.',
   },
@@ -48,9 +48,10 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 ]
 
 // Chip-width labels for the preset row. Exhaustive over the union so a preset
-// added later fails the build here rather than rendering a blank chip.
-const PRESET_CHIP_LABEL: Record<SprintEngineCliPermissionPreset, string> = {
-  none: 'CLI default',
+// added later fails the build here rather than rendering a blank chip. Exported
+// because the model picker's permission footer wears the same short label.
+export const PRESET_CHIP_LABEL: Record<SprintEngineCliPermissionPreset, string> = {
+  none: 'None',
   manual: 'Manual',
   auto: 'Auto',
   bypass: 'Bypass',

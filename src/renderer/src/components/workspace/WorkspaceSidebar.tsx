@@ -72,7 +72,11 @@ import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
-import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
+import {
+  partitionWorkspacesByRecency,
+  sortWorkspacesByAttention,
+  type WorkspaceAttentionTier,
+} from '../../utils/workspaceRecency'
 import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -1166,6 +1170,57 @@ export default function WorkspaceSidebar({
       return next
     })
   }, [terminalRecencyByWorkspaceId, terminalSessions, activeWorkspaceId])
+
+  // Which band each row sorts into: blocked-on-you first, then finished-while-
+  // you-were-away, then running, then everything at rest. Reads the same two
+  // signals the row's own treatment does (`needsAttention` / `unseenDone` in
+  // renderWorkspaceRow), so what a row looks like and where it sits can never
+  // disagree.
+  const liveAttentionTierById = useMemo(() => {
+    const map: Record<string, WorkspaceAttentionTier> = {}
+    for (const workspace of workspaces) {
+      const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
+      map[workspace.id] =
+        activity === 'needs-input'
+          ? 'attention'
+          : unseenDoneIds.has(workspace.id)
+            ? 'done'
+            : activity === 'working'
+              ? 'running'
+              : 'resting'
+    }
+    return map
+  }, [workspaces, activityByWorkspaceId, unseenDoneIds])
+
+  // The seat the selected row holds. Selecting a row is what clears its green
+  // mark, so without this the row would drop out from under the cursor that
+  // just clicked it — the reflow ruled against in `workspace-row-move-on-click`
+  // (id 88). Instead the row keeps the band it was in when you selected it and
+  // settles into its recency seat once you select something else. The ref
+  // carries the tiers from the render the click landed on, which is the one
+  // still holding the mark: the effect that clears it has not run yet.
+  const liveAttentionTierRef = useRef(liveAttentionTierById)
+  liveAttentionTierRef.current = liveAttentionTierById
+  const [heldSeat, setHeldSeat] = useState<{ id: string; tier: WorkspaceAttentionTier } | null>(null)
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setHeldSeat(null)
+      return
+    }
+    const tier = liveAttentionTierRef.current[activeWorkspaceId] ?? 'resting'
+    setHeldSeat((previous) =>
+      previous?.id === activeWorkspaceId && previous.tier === tier ? previous : { id: activeWorkspaceId, tier }
+    )
+  }, [activeWorkspaceId])
+
+  const attentionTierOf = useCallback(
+    (workspace: Workspace): WorkspaceAttentionTier =>
+      heldSeat?.id === workspace.id
+        ? heldSeat.tier
+        : liveAttentionTierById[workspace.id] ?? 'resting',
+    [heldSeat, liveAttentionTierById]
+  )
+
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
   // the selection instead, so the sidebar shows exactly one selected thing. This
@@ -1468,17 +1523,17 @@ export default function WorkspaceSidebar({
     [remoteGroups, remoteListening, railWorkspaces]
   )
 
-  // A workspace is "live" while it shows a status dot — working, failed, or
-  // waiting on input. Live rows sort above idle ones in the activity ordering.
-  // Starred workspaces surface in most-recently-worked order — by how long ago
-  // each was worked on, not by live status, so opening one never bumps it. This
-  // supersedes manual drag position within the Starred section.
+  // Starred workspaces band the same way the folders do — blocked, then just
+  // finished, then running, then at rest — and inside each band by how long ago
+  // each was worked on. This supersedes manual drag position within the Starred
+  // section.
   const starredWorkspaces = useMemo(
     () =>
-      sortWorkspacesByActivity(
-        railWorkspaces.filter((workspace) => isStarred(workspace.highlight))
+      sortWorkspacesByAttention(
+        railWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
+        attentionTierOf
       ),
-    [railWorkspaces]
+    [railWorkspaces, attentionTierOf]
   )
 
   const workspaceById = useMemo(() => {
@@ -1490,14 +1545,18 @@ export default function WorkspaceSidebar({
   // A workspace stays out of the per-folder "Show older" fold while it is the
   // active one, starred, or busy — a workspace waiting on input or running a
   // live agent must never hide itself, even if its last terminal output was
-  // days ago.
+  // days ago. A row that just finished is the same case: it is idle by then, so
+  // only its unseen-done mark keeps it out of the fold. Without this, a long
+  // run that started days after you last typed would land its green row
+  // straight into the disclosure nobody opens.
   const isWorkspacePinned = useCallback(
     (workspace: Workspace) => {
       if (workspace.id === activeWorkspaceId) return true
       if (isStarred(workspace.highlight)) return true
+      if (unseenDoneIds.has(workspace.id)) return true
       return (activityByWorkspaceId[workspace.id] ?? 'idle') !== 'idle'
     },
-    [activeWorkspaceId, activityByWorkspaceId]
+    [activeWorkspaceId, activityByWorkspaceId, unseenDoneIds]
   )
 
   // Seed / repair the single tab stop. When no row owns it (first paint) or the
@@ -2634,12 +2693,14 @@ export default function WorkspaceSidebar({
         ) : null}
         {groups.map((group) => {
           const collapsed = collapsedFolders[group.key] === true
-          // Each folder's rows are ordered by how recently each was worked on,
-          // same as the Starred section — not by live status, so opening a row
-          // never moves it. The stale-fold below still partitions by the 5-day
-          // threshold; this only sets the order within the recent and folded
-          // groups.
-          const visibleWorkspaces = sortWorkspacesByActivity(group.workspaces)
+          // Each folder's rows band by what wants you — blocked on input, then
+          // finished-while-you-were-away, then running, then at rest — and
+          // inside each band by how recently each was worked on, same as the
+          // Starred section. The selected row holds the band it was in when you
+          // picked it, so nothing reflows under the cursor. The stale-fold below
+          // still partitions by the 2-day threshold; this only sets the order
+          // within the recent and folded groups.
+          const visibleWorkspaces = sortWorkspacesByAttention(group.workspaces, attentionTierOf)
           const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
           const dropMark =
             dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key

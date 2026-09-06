@@ -14,6 +14,7 @@ import { setFileDropData } from '../../utils/terminalDrop'
 import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
 import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
 import { IconButton, OutlineButton, PrimaryButton } from '../ui/Buttons'
+import { FileTypeGlyph, FolderGlyph } from '../ui/FileTypeGlyph'
 import { EmptyState } from '../ui/EmptyState'
 import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -190,56 +191,18 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   return rows
 }
 
-// File-type chip — language identity carried by a mono label on a neutral chip.
-// It used to carry sixteen hard-coded hex hues written into `style` (a palette
-// no theme could reach, doubled hairline, `rounded-[4px]`, weight 900). Ruled
-// 2026-09-02: the chip is a label species — `--bg-active` ground, one
-// `--border-subtle` hairline, chip radius, muted mono ink — and category colour
-// is not a status channel (principles.md → Tokens or nothing).
-function fileTypeLabel(name: string): string {
-  if (name === 'package.json') return '{}'
-  const ext = name.split('.').pop()?.toLowerCase()
-  switch (ext) {
-    case 'ts':
-    case 'tsx':
-      return 'TS'
-    case 'js':
-    case 'jsx':
-      return 'JS'
-    case 'java':
-      return 'JV'
-    case 'py':
-      return 'PY'
-    case 'rs':
-      return 'RS'
-    case 'go':
-      return 'GO'
-    case 'json':
-      return '{}'
-    case 'yaml':
-    case 'yml':
-      return 'YML'
-    case 'md':
-      return 'MD'
-    case 'txt':
-      return 'TXT'
-    case 'html':
-      return '<>'
-    case 'css':
-    case 'scss':
-      return '#'
-    case 'sh':
-    case 'bash':
-      return 'SH'
-    default:
-      return '.'
-  }
-}
-
+// The file mark is the kit's `FileTypeGlyph` (owner 2026-09-05): one shape per kind, `currentColor`, in the 16px leading
+// slot every tree row reserves. It replaces the mono letter chip that lived
+// here — a 24×18 label box that sat off the icon ramp and read as a badge, not
+// an identity mark. The 2026-09-02 ruling that category colour is not a status
+// channel still holds: the glyph takes the row's ink — the same three-tier ink
+// the folder glyph below takes, so the two kinds of row read at one weight in
+// one column — and the status tint on the filename stays the one colour in the
+// row. The wrapper therefore declares no ink of its own.
 function FileIcon({ name }: { name: string }) {
   return (
-    <span className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] font-mono text-micro font-semibold leading-none text-[color:var(--text-muted)]">
-      {fileTypeLabel(name)}
+    <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
+      <FileTypeGlyph name={name} />
     </span>
   )
 }
@@ -252,11 +215,11 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       onClick={onClick}
       // 24x24 box on a 12x16 flow advance: the negative margins give back the
       // padding, so the chevron draws exactly where it did while the box a
-      // pointer has to hit clears the hit-target floor. The 16px advance has to
-      // stay under FolderIcon's 20px — that glyph, not this one, is what sets a
-      // folder row's height (28px, measured unchanged either side of this
-      // change); drop the negative margins and the row jumps to 32px. The
-      // sibling spacer on file rows is still w-3, so the columns line up.
+      // pointer has to hit clears the hit-target floor. The 16px advance sits
+      // level with the 16px folder and file glyphs beside it, so the row's
+      // `min-h-[26px]` — not this box — is what sets its height; drop the
+      // negative margins and the row jumps to 32px. The sibling spacer on file
+      // rows is still w-3, so the columns line up.
       className="-mx-1.5 -my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
       aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
     >
@@ -272,26 +235,17 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
   )
 }
 
-// The folder mark draws in `currentColor` at two strengths — the back flap held
-// back, the body full — so it reads as a folder by shape on every theme and
-// takes its ink from the row (default at rest, strong on hover and when
-// selected) rather than from a private yellow palette (ruled 2026-09-02).
-// The wrapper therefore declares no ink of its own: a `text-*` here would pin
-// the glyph to one tier and the row's three-tier ink would never reach it,
-// which is the whole of what "takes its ink from the row" means.
-function FolderIcon({ expanded }: { expanded: boolean }) {
+// The folder mark is the kit's outlined `FolderGlyph` (owner 2026-09-05), in the same 16px slot as the file glyph so
+// every row's name starts at one x. It takes its ink from the row (default at
+// rest, strong on hover and when selected) rather than from a private palette
+// (ruled 2026-09-02); the wrapper declares no ink of its own, because a
+// `text-*` here would pin the glyph to one tier and the row's three-tier ink
+// would never reach it. The chevron carries expanded state, so the folder reads
+// the same open or closed, the way IDEs draw it.
+function FolderIcon() {
   return (
-    <span className="inline-flex h-[20px] w-[22px] shrink-0 items-center justify-center">
-      <svg viewBox="0 0 24 20" aria-hidden="true" className="h-5 w-6" fill="currentColor">
-        <path
-          d="M2.5 5.8c0-1.1.9-2 2-2h5.1l1.9 2.1h8c1.1 0 2 .9 2 2v.95h-19V5.8Z"
-          fillOpacity={expanded ? 0.55 : 0.45}
-        />
-        <path
-          d="M2.25 8.4h19.5l-1.45 7.25c-.22 1.06-1.15 1.85-2.23 1.85H5.93c-1.08 0-2.01-.79-2.23-1.85L2.25 8.4Z"
-          fillOpacity={expanded ? 0.95 : 0.8}
-        />
-      </svg>
+    <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
+      <FolderGlyph />
     </span>
   )
 }
@@ -2155,7 +2109,7 @@ function ExplorerTree({
               if (!isSearching) setRootCollapsed((current) => !current)
             }}
           />
-          <FolderIcon expanded={isSearching || !rootCollapsed} />
+          <FolderIcon />
           <span className="shrink-0 font-medium text-[color:var(--text-strong)]">{rootName}</span>
           <span className="min-w-0 truncate text-micro text-[color:var(--text-muted)]">{rootPath}</span>
         </div>
@@ -2233,7 +2187,7 @@ function ExplorerTree({
                       if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
                     }}
                   />
-                  <FolderIcon expanded={isExpanded} />
+                  <FolderIcon />
                   {isRenaming ? (
                     renderRenameInput('font-medium')
                   ) : (

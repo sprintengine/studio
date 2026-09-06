@@ -48,6 +48,9 @@ const TOTAL_DEADLINE_MS = 2000
 // src/main/agent-state.ts, which truncates again on receipt — this reporter is
 // untrusted input, so the cap here is a courtesy, not the enforcement.
 const MAX_PROMPT_LENGTH = 2000
+// Send-side cap on the forwarded cwd (MC-2440). Mirrors MAX_OBSERVED_CWD_LENGTH
+// in src/shared/observed-checkout.ts; the reader re-validates (absolute, capped).
+const MAX_CWD_LENGTH = 4096
 
 function readStdin() {
   return new Promise((res) => {
@@ -219,6 +222,40 @@ async function main() {
         frame.wakeup = { delaySeconds: input.delaySeconds }
       }
     }
+  }
+
+  // Where the session IS (MC-2440): Claude Code, Codex and Grok put the
+  // session's working directory on every hook payload. Forwarded verbatim (the
+  // reader shape-checks it) so the app can resolve the checkout the agent is
+  // actually working in — a worktree it created mid-run, or one it was
+  // launched into by hand — instead of assuming the launch cwd forever. A cwd
+  // only changes through a tool call, so the PostToolUse that follows carries
+  // the new one; Claude's CwdChanged event (`new_cwd`) is read too in case a
+  // registration for it ever fires, but the app registers no such event.
+  // Absent on CLIs whose payloads carry no cwd (Cursor): the app then keeps
+  // its launch intent.
+  //
+  // NOT forwarded from a subagent's hooks: Claude Code stamps `agent_id` on
+  // every payload that fires from within a subagent (its own docs: "use this
+  // field, not agent_type, to distinguish subagent calls from main-thread
+  // calls"), and a subagent may run in an isolated worktree of its own — its
+  // cwd is not where the session is, and forwarding it would bounce the tab
+  // between the two per tool call. Codex names the same marker `agent_id`.
+  //
+  // Cursor is the exception: its base payload carries `workspace_roots`
+  // (the directory cursor-agent was launched in) and its Shell tool adds a
+  // per-command `cwd` — the `workingDirectory` of ONE command, not where the
+  // session lives. Cursor has no persisted cd, so the launch root is the
+  // honest session cwd (the same semantics as OpenCode's `directory`) and the
+  // per-command value is ignored.
+  const subagentId = str(payload?.agent_id) ?? str(payload?.agentId)
+  const workspaceRoots = Array.isArray(payload?.workspace_roots) ? payload.workspace_roots : null
+  const cwd = workspaceRoots
+    ? str(workspaceRoots[0])
+    : str(payload?.new_cwd) ?? str(payload?.newCwd) ?? str(payload?.cwd)
+  if (cwd && !subagentId) {
+    const trimmed = cwd.trim()
+    if (trimmed && trimmed.length <= MAX_CWD_LENGTH) frame.cwd = trimmed
   }
 
   await writeFrame(socketPath, frame)

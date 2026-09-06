@@ -26,7 +26,7 @@ function registryEntry(id: string, latest: number): MarketplacePluginEntry {
     icon: `icons/${id}.svg`,
     latest,
     provides: ['module'],
-    source: `https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/${id}`,
+    source: `https://github.com/sprintengine/studio-releases/tree/main/plugins/${id}`,
   }
 }
 

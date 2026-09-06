@@ -146,7 +146,18 @@ expectIncludes(presetMenu, "event.key === 'Enter' || event.key === ' '", 'Enter 
 expectIncludes(presetMenu, 'export function focusActivePresetRow', 'one shared open-focus helper for every host')
 const launchPanel = read('src/renderer/src/components/workspace/agentComposer/NewAgentPanel.tsx')
 const chatView = read('src/renderer/src/components/panels/AgentChatView.tsx')
-expectIncludes(launchPanel, 'onOpenAutoFocus={focusActivePresetRow}', 'the launch panel lands focus on the checked preset on open')
+// Every spawn surface reaches the preset rows through ONE control now: the
+// permission dropdown on the model picker's trailing row (owner, 2026-09-05).
+// The launch panel used to open them from a chip of its own, so the open-focus
+// contract moved with the control rather than being restated per host.
+const spawnFooter = read('src/renderer/src/components/workspace/agentComposer/spawnFooter.tsx')
+expectIncludes(spawnFooter, 'onOpenAutoFocus={focusActivePresetRow}', 'the picker dropdown lands focus on the checked preset on open')
+expectIncludes(spawnFooter, '<PermissionPresetMenuRows', 'and opens the shared rows, not a second rendering of them')
+assert.equal(
+  launchPanel.includes('<PermissionPresetMenuRows'),
+  false,
+  'the launch panel opens the preset rows through that dropdown, never its own copy',
+)
 expectIncludes(chatView, 'onOpenAutoFocus={focusActivePresetRow}', 'the chat pill lands focus on the checked preset on open')
 assert.equal(
   (launchPanel.match(/ role="menu"/g) ?? []).length,

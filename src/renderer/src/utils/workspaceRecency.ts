@@ -99,3 +99,45 @@ export function sortWorkspacesByActivity(
   // (stored) order.
   return [...workspaces].sort((a, b) => compareWorkspacesByActivity(a, b, now))
 }
+
+// The bands a folder's rows fall into, top to bottom. Recency alone answers
+// "what did I touch last"; it never answers "what wants me". These four tiers
+// put the rows that want you above the rows that don't, and leave recency to
+// order each band internally.
+//
+//  - `attention`: an agent is blocked on you (permission prompt, a question).
+//  - `done`: an agent finished while you were away and you have not looked yet
+//    — the green row. Gold outranks green, exactly as the row treatment does.
+//  - `running`: an agent is working right now. Below the two bands that want
+//    you: a running agent is a thing to watch, not a thing to answer.
+//  - `resting`: everything else, in the recency order it has always had.
+export type WorkspaceAttentionTier = 'attention' | 'done' | 'running' | 'resting'
+
+const ATTENTION_TIER_RANK: Record<WorkspaceAttentionTier, number> = {
+  attention: 0,
+  done: 1,
+  running: 2,
+  resting: 3,
+}
+
+export function attentionTierRank(tier: WorkspaceAttentionTier): number {
+  return ATTENTION_TIER_RANK[tier]
+}
+
+// Orders workspaces by attention tier first, then — within a tier — by the
+// same last-worked recency key the list has always used. Live status finally
+// gets a say in position, but only through `tierOf`, which the sidebar
+// deliberately freezes for the row you have selected: a tier that changed
+// under your cursor would reflow the list you are reading, which is the bug
+// this ordering must not reintroduce (`workspace-row-move-on-click`, id 88).
+export function sortWorkspacesByAttention(
+  workspaces: Workspace[],
+  tierOf: (workspace: Workspace) => WorkspaceAttentionTier,
+  now: number = Date.now()
+): Workspace[] {
+  return [...workspaces].sort((a, b) => {
+    const byTier = ATTENTION_TIER_RANK[tierOf(a)] - ATTENTION_TIER_RANK[tierOf(b)]
+    if (byTier !== 0) return byTier
+    return compareWorkspacesByActivity(a, b, now)
+  })
+}

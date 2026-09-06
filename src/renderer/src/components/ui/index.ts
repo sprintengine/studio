@@ -14,6 +14,8 @@ export { Spinner } from './Spinner'
 export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './LifecycleGlyph'
 export { GhostButton, PrimaryButton, OutlineButton, DangerButton, IconButton, CloseIconButton } from './Buttons'
 export { RefreshIcon } from './RefreshIcon'
+export { FileTypeGlyph, FolderGlyph, FILE_TYPE_LABEL, fileTypeKind } from './FileTypeGlyph'
+export type { FileTypeKind } from './FileTypeGlyph'
 export { ConfirmDialog, ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export type { ConfirmDialogOptions, ConfirmDialogProps, PromptDialogOptions } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface, buildModelRows, meaningfulModelId } from './CliModelPicker'
@@ -28,6 +30,12 @@ export {
 } from './cliRuntimeCatalog'
 export type { CliModelFamily, CliRuntimeOption, ModelWindowVariant } from './cliRuntimeCatalog'
 export { modelFavouriteKey, parseModelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
+export {
+  resolveModelPermissionPreset,
+  setModelPermissionPreset,
+  storedModelPermissionPreset,
+  useModelPermissionPreset,
+} from './modelPermissionPresets'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

@@ -36,6 +36,7 @@ import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
+import { canHandBacklogItemToAgent } from '../../utils/backlogHandoff'
 import { consumePendingBacklogReveal, subscribeBacklogReveal } from '../../utils/backlogReveal'
 import { findDuplicateBacklogIds } from '../../../../shared/backlog/item-id'
 import {
@@ -61,6 +62,7 @@ import {
   sprintEngineRunLinkForItem,
 } from '../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
+import { BacklogHandToAgentButton } from '../backlog/BacklogHandToAgentButton'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
@@ -2514,6 +2516,11 @@ export function BacklogDetail({
   const parentEpicColor = parentEpic && selected.epic ? epicMetaBySlug.get(selected.epic)?.color ?? null : null
   const epicChildren = isEpic ? childrenOfEpic(items, epicSlug(selected)) : []
   const currentEpicColor = isEpic ? epicMetaBySlug.get(epicSlug(selected))?.color ?? null : null
+  // Whether this item can be handed to a fresh agent from the action band. The
+  // predicate is shared with the button itself, so the band's layout decision
+  // and the control's own gate can never disagree about an item.
+  const canHandToAgent = canHandBacklogItemToAgent(selected)
+
   // Full timestamp for the relative-time tooltip ("2h ago" → the actual date).
   const modifiedAbsolute =
     typeof selected.modifiedAt === 'number' && Number.isFinite(selected.modifiedAt)
@@ -2829,8 +2836,12 @@ export function BacklogDetail({
 
         {/* Earned, not standing (MC-2067): a host with no external action to
             offer gets no action band at all, because the overflow menu that used
-            to be stranded on it now sits inline with the title it acts on. */}
-        {externalActions.length > 0 ? (
+            to be stranded on it now sits inline with the title it acts on.
+            "Hand to agent" earns the band on its own terms: it is the second
+            way to execute an item (one agent rather than a sprint), it is the
+            detail pane's own control rather than a module's, and it is always
+            last — a Sprint is the louder offer where both stand. */}
+        {externalActions.length > 0 || canHandToAgent ? (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {externalActions.map(({ action, disabled, run }, index) => {
               const Button = index === 0 ? PrimaryButton : GhostButton
@@ -2840,6 +2851,9 @@ export function BacklogDetail({
                 </Button>
               )
             })}
+            {canHandToAgent ? (
+              <BacklogHandToAgentButton item={selected} workspaceRoot={folderPath} />
+            ) : null}
           </div>
         ) : null}
       </header>

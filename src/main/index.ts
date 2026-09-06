@@ -272,6 +272,7 @@ registerAppLifecycle({
   sprintRuntime: services.sprintRuntime,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
+  checkPluginSourceUpdates: () => services.skillsService.checkSourceUpdates(),
   backgroundMode: {
     isEnabled: () => services.backgroundModeStore.isEnabled(),
     readStatus: () => services.readBackgroundStatus(),

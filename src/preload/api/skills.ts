@@ -1,10 +1,18 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   ElectronApi,
   SkillAddSourceInput,
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillInstalledPluginsInput,
+  SkillInstalledPluginsOutcome,
+  SkillPluginInstallInput,
+  SkillPluginInstallOutcome,
+  SkillPluginScanLinkedInput,
+  SkillPluginScanLinkedOutcome,
+  SkillPluginUninstallInput,
+  SkillPluginUninstallOutcome,
   SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
@@ -14,6 +22,7 @@ import type {
   SkillScanOutcome,
   SkillSearchInput,
   SkillSearchOutcome,
+  SkillSourceUpdateCheck,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -41,6 +50,21 @@ export const skillsApi = {
     ipcRenderer.invoke('skills:search', input),
   skillsListPopularRepos: (): Promise<SkillPopularReposOutcome> =>
     ipcRenderer.invoke('skills:list-popular-repos'),
+  skillsScanLinkedPlugin: (input: SkillPluginScanLinkedInput): Promise<SkillPluginScanLinkedOutcome> =>
+    ipcRenderer.invoke('skills:scan-linked-plugin', input),
+  skillsInstallPlugin: (input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome> =>
+    ipcRenderer.invoke('skills:install-plugin', input),
+  skillsUninstallPlugin: (input: SkillPluginUninstallInput): Promise<SkillPluginUninstallOutcome> =>
+    ipcRenderer.invoke('skills:uninstall-plugin', input),
+  skillsListInstalledPlugins: (input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome> =>
+    ipcRenderer.invoke('skills:list-installed-plugins', input),
+  skillsCheckSourceUpdates: (): Promise<SkillSourceUpdateCheck> => ipcRenderer.invoke('skills:check-source-updates'),
+  onSkillSourcesUpdated: (cb: (check: SkillSourceUpdateCheck) => void): (() => void) => {
+    const channel = 'skills:sources-updated'
+    const handler = (_: IpcRendererEvent, check: SkillSourceUpdateCheck): void => cb(check)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'skillsListSources'
@@ -53,4 +77,10 @@ export const skillsApi = {
   | 'skillsSyncSource'
   | 'skillsSearch'
   | 'skillsListPopularRepos'
+  | 'skillsScanLinkedPlugin'
+  | 'skillsInstallPlugin'
+  | 'skillsUninstallPlugin'
+  | 'skillsListInstalledPlugins'
+  | 'skillsCheckSourceUpdates'
+  | 'onSkillSourcesUpdated'
 >

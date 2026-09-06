@@ -1,0 +1,229 @@
+import assert from 'node:assert/strict'
+
+import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
+import {
+  emptyPluginComponents,
+  type ScanResult,
+  type ScannedPlugin,
+  type ScannedSkill,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
+import {
+  derivePluginInstallAvailability,
+  derivePluginInstallState,
+  derivePluginRows,
+  derivePluginsKindStateLine,
+  describeInstallPlan,
+  pluginCountLine,
+  pluginExternalUrl,
+  summarizePluginInstall,
+} from './pluginsSurfaceModel'
+
+function run(name: string, body: () => void): void {
+  try {
+    body()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    console.error(`not ok - ${name}`)
+    throw error
+  }
+}
+
+const SOURCE: SkillSource = {
+  id: 'github:anthropics/claude-plugins-official',
+  kind: 'github',
+  name: 'claude-plugins-official',
+  repo: 'anthropics/claude-plugins-official',
+  monogram: 'AC',
+  blurb: '',
+  commitSha: '85cce0381e7860082641b59d961a2b8c368b8b79',
+  scannedAt: '2026-09-05T09:00:00Z',
+}
+
+function skill(id: string): ScannedSkill {
+  return { id, name: id.split('/').pop() ?? id, description: '', group: '', files: [], allowedTools: [], hasExecutables: false }
+}
+
+function plugin(id: string, over: Partial<ScannedPlugin> = {}): ScannedPlugin {
+  return {
+    id,
+    name: id,
+    description: `${id} does a thing`,
+    version: '',
+    category: '',
+    author: 'Anthropic',
+    homepage: '',
+    origin: { kind: 'in-tree', path: `plugins/${id}` },
+    componentsKnown: true,
+    components: emptyPluginComponents(),
+    ...over,
+  }
+}
+
+function scanOf(plugins: ScannedPlugin[], over: Partial<ScanResult> = {}): ScanResult {
+  return {
+    skills: [],
+    groups: [],
+    groupingSignal: 'none',
+    fileCount: 0,
+    commitSha: SOURCE.commitSha,
+    shape: 'claude-marketplace',
+    marketplaceName: 'claude-plugins-official',
+    plugins,
+    mcpServers: [],
+    ...over,
+  }
+}
+
+function record(over: Partial<InstalledPluginRecord> = {}): InstalledPluginRecord {
+  return {
+    workspaceRoot: '/ws',
+    sourceId: SOURCE.id,
+    pluginId: 'code-review',
+    pluginName: 'code-review',
+    marketplaceName: 'claude-plugins-official',
+    claudePluginKey: 'code-review@claude-plugins-official',
+    skillDirNames: [],
+    mcpServerIds: [],
+    commitSha: SOURCE.commitSha,
+    installedAt: '2026-09-05T09:30:00Z',
+    ...over,
+  }
+}
+
+run('a source never states zero plugins while loading or unreadable', () => {
+  assert.equal(pluginCountLine(undefined), 'Loading…')
+  assert.equal(pluginCountLine({ status: 'loading' }), 'Loading…')
+  assert.equal(pluginCountLine({ status: 'error', message: 'x' }), 'Count unavailable')
+  assert.equal(pluginCountLine({ status: 'ready', scan: scanOf([]) }), 'No plugins here')
+  assert.equal(pluginCountLine({ status: 'ready', scan: scanOf([plugin('a')]) }), '1 plugin')
+  // A scan cached before plugins existed has no plugins field at all.
+  const legacy = scanOf([])
+  delete legacy.plugins
+  assert.equal(pluginCountLine({ status: 'ready', scan: legacy }), 'No plugins here')
+})
+
+run('the kind line speaks a total only once every source answered', () => {
+  const other: SkillSource = { ...SOURCE, id: 'github:o/r', repo: 'o/r' }
+  assert.equal(derivePluginsKindStateLine({ status: 'loading' }, [], {}), 'Loading…')
+  assert.equal(derivePluginsKindStateLine({ status: 'error', message: 'x' }, [], {}), 'Sources unavailable')
+  assert.equal(
+    derivePluginsKindStateLine({ status: 'ready' }, [SOURCE, other], { [SOURCE.id]: { status: 'ready', scan: scanOf([plugin('a')]) } }),
+    '2 sources',
+  )
+  assert.equal(
+    derivePluginsKindStateLine({ status: 'ready' }, [SOURCE, other], {
+      [SOURCE.id]: { status: 'ready', scan: scanOf([plugin('a'), plugin('b')]) },
+      [other.id]: { status: 'ready', scan: scanOf([plugin('c')]) },
+    }),
+    '2 sources · 3 plugins',
+  )
+})
+
+run('rows say what a plugin ships, and unread linked plugins say so', () => {
+  const rows = derivePluginRows({
+    source: SOURCE,
+    scan: scanOf([
+      plugin('frontend-design', { components: { ...emptyPluginComponents(), skills: [skill('plugins/frontend-design/skills/frontend-design')] } }),
+      plugin('security-guidance', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+      plugin('42crunch', { origin: { kind: 'linked', repo: '42Crunch-AI/claude-plugins', ref: 'v1', sha: 'abc', path: 'plugins/x', url: 'https://github.com/42Crunch-AI/claude-plugins.git' }, componentsKnown: false }),
+    ]),
+    installed: [],
+    query: '',
+  })
+  assert.deepEqual(rows.map((row) => row.components), ['1 skill', '1 hook', 'Read when opened'])
+  assert.deepEqual(rows.map((row) => row.hasHooks), [false, true, false])
+  assert.deepEqual(rows.map((row) => row.linked), [false, false, true])
+  assert.ok(rows.every((row) => row.install.kind === 'not-installed'))
+
+  const filtered = derivePluginRows({ source: SOURCE, scan: scanOf([plugin('alpha'), plugin('beta')]), installed: [], query: 'BET' })
+  assert.deepEqual(filtered.map((row) => row.pluginId), ['beta'])
+})
+
+run('installed state comes from our receipt, or from a hand-enabled Claude key', () => {
+  const p = plugin('code-review')
+  assert.equal(derivePluginInstallState([], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'not-installed')
+  assert.equal(derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'installed')
+  // The source moved on since the install: an update, from our own receipt only.
+  assert.equal(derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', 'ffffff').kind, 'update-available')
+  // Enabled by hand in .claude/settings.json: installed, never "update available".
+  const foreign = record({ sourceId: '', commitSha: '', installedAt: '' })
+  assert.equal(derivePluginInstallState([foreign], SOURCE.id, p, 'claude-plugins-official', 'ffffff').kind, 'installed')
+  // A receipt from another source for a same-named plugin is not this one.
+  const elsewhere = record({ sourceId: 'github:o/r', claudePluginKey: 'code-review@other' })
+  assert.equal(derivePluginInstallState([elsewhere], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'not-installed')
+})
+
+run('the install plan says per harness what will land, before it does', () => {
+  const p = plugin('security-guidance', {
+    components: {
+      ...emptyPluginComponents(),
+      skills: [skill('plugins/security-guidance/skills/review')],
+      hooks: [{ event: 'Stop', matcher: '', command: 'x' }],
+      mcpServers: [],
+    },
+  })
+  const plan = describeInstallPlan({
+    plugin: p,
+    marketplaceName: 'claude-plugins-official',
+    marketplaceRepo: SOURCE.repo,
+    harnesses: ['claude', 'codex', 'agents'],
+  })
+  assert.equal(plan.length, 3)
+  assert.match(plan[0].line, /Enabled as security-guidance@claude-plugins-official/)
+  assert.match(plan[1].line, /1 skill copied into \.codex\/skills/)
+  assert.match(plan[1].line, /hooks have no equivalent here/)
+  assert.equal(plan[2].label, 'Shared agents directory')
+
+  // No marketplace: Claude gets the copy too. Hooks only: nothing, and why.
+  const noMarket = describeInstallPlan({ plugin: p, marketplaceName: '', marketplaceRepo: SOURCE.repo, harnesses: ['claude'] })
+  assert.match(noMarket[0].line, /copied into \.claude\/skills/)
+  const hooksOnly = describeInstallPlan({
+    plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+    marketplaceName: '',
+    marketplaceRepo: '',
+    harnesses: ['codex'],
+  })
+  assert.match(hooksOnly[0].line, /Nothing to install\. Its hooks are Claude Code-format/)
+  const unread = describeInstallPlan({ plugin: plugin('u', { componentsKnown: false }), marketplaceName: 'm', marketplaceRepo: 'o/r', harnesses: ['claude'] })
+  assert.match(unread[0].line, /Known once the plugin has been read/)
+})
+
+run('install availability states its reason instead of doing nothing', () => {
+  const hooked = plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } })
+  assert.match(derivePluginInstallAvailability(null, hooked, ['claude'], false).reason ?? '', /Open a workspace/)
+  assert.match(derivePluginInstallAvailability('/ws', hooked, [], false).reason ?? '', /No agent CLI/)
+  assert.match(derivePluginInstallAvailability('/ws', hooked, ['claude'], false).reason ?? '', /Review the hook commands/)
+  assert.equal(derivePluginInstallAvailability('/ws', hooked, ['claude'], true).enabled, true)
+  assert.equal(derivePluginInstallAvailability('/ws', plugin('p'), ['claude'], false).enabled, true)
+})
+
+run('what an install did is one line in the installer’s words', () => {
+  assert.equal(
+    summarizePluginInstall({
+      harnesses: [
+        { harness: 'claude', mode: 'native', skillDirNames: [] },
+        { harness: 'codex', mode: 'skills', skillDirNames: ['review', 'audit'] },
+        { harness: 'agents', mode: 'skills', skillDirNames: ['review', 'audit'] },
+      ],
+      mcpServers: [{}],
+      warnings: [],
+    }),
+    'Installed: enabled in Claude Code; 2 skills copied for Codex, Shared agents directory; 1 MCP server added.',
+  )
+  assert.equal(summarizePluginInstall({ harnesses: [], mcpServers: [], warnings: ['x failed'] }), 'Installed. x failed')
+})
+
+run('a plugin opens where a person can read it', () => {
+  assert.equal(pluginExternalUrl(plugin('a', { homepage: 'https://example.com' }), SOURCE), 'https://example.com')
+  assert.equal(
+    pluginExternalUrl(plugin('a'), SOURCE),
+    `https://github.com/anthropics/claude-plugins-official/tree/${SOURCE.commitSha}/plugins/a`,
+  )
+  assert.equal(
+    pluginExternalUrl(plugin('a', { origin: { kind: 'linked', repo: 'o/r', ref: '', sha: '', path: '', url: 'https://github.com/o/r.git' } }), SOURCE),
+    'https://github.com/o/r.git',
+  )
+})
+
+console.log('plugins surface model: ok')

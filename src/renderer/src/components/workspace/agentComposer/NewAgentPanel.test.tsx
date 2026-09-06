@@ -145,6 +145,9 @@ async function main(): Promise<void> {
   const { resetRememberedMachineForTests, sortMachines } = await import('./NewAgentPanel')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { useToastStore } = await import('../../../store/toastStore')
+  const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } = await import(
+    '../../ui/modelPermissionPresets'
+  )
 
   let failures = 0
   // Every mounted harness, so a check that throws before its own unmount
@@ -165,6 +168,9 @@ async function main(): Promise<void> {
   }
 
   const seedStore = (options: { plugins?: unknown[] } = {}): void => {
+    // Permissions are remembered against a MODEL ROW now, in a module-level
+    // store that would otherwise carry a preset from one check into the next.
+    __resetModelPermissionPresetsForTest()
     const plugins = options.plugins ?? [
       {
         id: 'claude-code',
@@ -223,7 +229,6 @@ async function main(): Promise<void> {
           conversationAvailable: false,
           initialSelection: { kind: 'general' },
           permissionPreset: 'auto',
-          onChangePermissionPreset: () => {},
           debugMode: false,
           onChangeDebugMode: () => {},
           onLaunch: (launch: Record<string, unknown>) => launches.push(launch),
@@ -269,7 +274,17 @@ async function main(): Promise<void> {
     // agent runs. The fixture names them differently on purpose.
     assert.ok(text.includes('proj'), 'the scope line names the folder the agent will run in')
     assert.ok(!text.includes('multicode'), 'and not the workspace’s own name')
-    assert.ok(text.includes('Auto'), 'access carries its own value on the chip — here, the seeded preset')
+    // Permissions used to stand beside the engine as their own chip. They are a
+    // property of the runtime the row names, so they moved INSIDE the model
+    // picker (owner, 2026-09-05) and are remembered against that row — the row
+    // itself no longer carries the value.
+    assert.ok(!text.includes('Auto'), 'access is not a second chip on the row')
+    assert.ok(
+      [...view.container.querySelectorAll('button')].some((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+      ),
+      'the engine chip is the one control the row spends on the runtime',
+    )
     assert.ok(text.includes('Skills & MCPs'), 'the one picker for skills and MCP servers is offered')
     assert.ok(text.includes('⋯'), 'the overflow is there')
 
@@ -314,13 +329,45 @@ async function main(): Promise<void> {
     // Bypass is the value that removes a safeguard, so it is the one that also
     // changes colour rather than only its text.
     const bypassed = await render({ permissionPreset: 'bypass' })
-    assert.ok(bypassed.text().includes('Bypass'), 'the chip reads Bypass when that is the preset')
-    const chip = [...bypassed.container.querySelectorAll('button')].find((button) =>
-      (button.textContent ?? '').includes('Bypass'),
+    // The presets are an inline strip on the picker's one trailing row now, so
+    // opening the engine is what reveals them — all four, no menu to open.
+    const engine = [...bypassed.container.querySelectorAll('button')].find((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
     )
+    await act(async () => {
+      engine!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const chip = [...dom.window.document.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Permissions: Bypass permissions',
+    )
+    assert.ok(chip, 'the permission chip is named for the preset it carries')
+    assert.ok((chip?.textContent ?? '').includes('Bypass'), 'and reads Bypass when that is the preset')
+    // Bypass is the value that removes a safeguard, so it is the one that also
+    // changes colour rather than only its text.
     assert.ok(
       (chip?.className ?? '').includes('tone-warn'),
       'and wears the warn tone, not the ordinary accent',
+    )
+    // The two settings about the row above are the same kind of control, on the
+    // same line: effort first, permissions to its right (owner, 2026-09-05).
+    const trailing = [...dom.window.document.querySelectorAll('button')].filter((button) => {
+      const name = button.getAttribute('aria-label') ?? ''
+      return name.startsWith('Permissions: ') || name.startsWith('Reasoning effort: ')
+    })
+    assert.deepEqual(
+      trailing.map((button) => (button.getAttribute('aria-label') ?? '').split(':')[0]),
+      ['Reasoning effort', 'Permissions'],
+      'effort on the left, permissions on the right, in one row',
+    )
+    // Each chip is a Popover trigger, so it sits inside that Popover's own
+    // wrapper; the row is the grandparent. Compared as a BOOLEAN, never as the
+    // nodes themselves — a failed assert on two DOM elements makes Node
+    // serialise both trees for its diff, which exhausts memory and kills the
+    // runner instead of printing a failure.
+    const rowOf = (button: Element | undefined) => button?.parentElement?.parentElement
+    assert.ok(
+      trailing.length === 2 && rowOf(trailing[0]) !== undefined && rowOf(trailing[0]) === rowOf(trailing[1]),
+      'and they share one row, rather than sitting on two stacked bands',
     )
     bypassed.unmount()
   })
@@ -402,9 +449,16 @@ async function main(): Promise<void> {
     })
 
     const text = view.text()
-    // The fixture seeds auto, so the access chip would read "Auto".
-    assert.ok(!text.includes('Auto'), 'a shell has no permission preset')
-    assert.ok(!text.includes('Opus'), 'and no model')
+    // A shell launches nothing that reads a permission flag or a model, so it
+    // shows neither — and the engine chip that opens the picker holding both
+    // is gone with them.
+    assert.ok(!text.includes('Opus'), 'no model')
+    assert.ok(
+      ![...view.container.querySelectorAll('button')].some((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+      ),
+      'and no engine chip, so no way to a permission preset a shell would ignore',
+    )
 
     const start = [...view.container.querySelectorAll('button')].find(
       (button) => button.getAttribute('aria-label') === 'Start agent',
@@ -449,8 +503,13 @@ async function main(): Promise<void> {
     await act(async () => {
       agentRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
+    assert.ok(
+      [...view.container.querySelectorAll('button')].some((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+      ),
+      'picking Agent brings the engine chip — and the permission control inside it — back',
+    )
     const back = view.text()
-    assert.ok(back.includes('Auto'), 'picking Agent brings the permission control back')
     assert.equal(
       view.container.querySelector('textarea')?.disabled,
       false,
@@ -863,6 +922,25 @@ async function main(): Promise<void> {
   }
   const buttonWithText = (root: ParentNode, text: string) =>
     [...root.querySelectorAll('button')].find((button) => (button.textContent ?? '').trim().startsWith(text))
+  // Permissions moved inside the model picker (owner, 2026-09-05), onto the one
+  // trailing row beside the effort control, so reaching the rows is two clicks:
+  // the engine chip on the panel, then the permission chip in the picker. The
+  // picker is portaled, so both live on the document rather than in the panel's
+  // own container.
+  const engineChip = (view: Harness) =>
+    [...view.container.querySelectorAll('button')].find((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+    )
+  const openPermissionsMenu = async (view: Harness, label: string): Promise<Element> => {
+    await click(engineChip(view))
+    const trigger = [...dom.window.document.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === `Permissions: ${label}`,
+    )
+    await click(trigger)
+    const menu = dom.window.document.querySelector(`[role="menu"][aria-label="Permissions: ${label}"]`)
+    assert.ok(menu, `the permission menu opens inside the model picker; wanted "Permissions: ${label}"`)
+    return menu!
+  }
   const machineTrigger = (view: Harness) =>
     view.container.querySelector<HTMLButtonElement>('[data-machine-trigger="true"]') ?? undefined
   const openMachineMenu = async (view: Harness) => {
@@ -1056,27 +1134,27 @@ async function main(): Promise<void> {
       connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes: [],
       terminalAccess: 'full', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
     })
-    const changes: string[] = []
-    const view = await remoteRender({
-      permissionPreset: 'bypass',
-      onChangePermissionPreset: (preset: string) => changes.push(preset),
-    })
+    const view = await remoteRender({ permissionPreset: 'bypass' })
     await settle()
     await pickMachine(view, 'Air')
-    assert.deepEqual(changes, ['auto'], 'Bypass moves to the nearest supported preset, Auto')
+    // The move is written against the ROW the machine refused it for, not into
+    // an app-wide value, so a local model picked afterwards is untouched by it.
+    assert.equal(
+      storedModelPermissionPreset('claude-code', null),
+      'auto',
+      'Bypass moves to the nearest supported preset, Auto, on the row it was refused for',
+    )
     assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
     view.unmount()
 
     const local = await remoteRender({ permissionPreset: 'auto' })
     await settle()
     await pickMachine(local, 'Air')
-    await click(buttonWithText(local.container, 'Auto'))
-    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Permissions: Auto"]')
-    assert.ok(menu, 'the access menu opens on the surface')
-    assert.equal(menu!.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
-    const rows = [...menu!.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-    assert.deepEqual(rows.map((row) => row.disabled), [true, false, false, true], 'CLI default and Bypass are disabled for a remote')
-    assert.equal((menu!.textContent ?? '').match(/Not available on a remote machine/g)?.length, 2, 'each with the one-line reason')
+    const menu = await openPermissionsMenu(local, 'Auto')
+    assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
+    const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+    assert.deepEqual(rows.map((row) => row.disabled), [true, false, false, true], 'None and Bypass are disabled for a remote')
+    assert.equal((menu.textContent ?? '').match(/Not available on a remote machine/g)?.length, 2, 'each with the one-line reason')
     // Roving skips the disabled rows and wraps.
     const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
     assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
@@ -1086,7 +1164,7 @@ async function main(): Promise<void> {
         el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
       })
     await key(checked, 'ArrowDown')
-    assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown from Auto wraps past Bypass and CLI default to Manual')
+    assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown from Auto wraps past Bypass and None to Manual')
     await key(rows[1]!, 'End')
     assert.equal(dom.window.document.activeElement, rows[2], 'End lands on the last enabled row')
     await key(rows[2]!, 'Home')
@@ -1386,13 +1464,12 @@ async function main(): Promise<void> {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = []
-    const changes: string[] = []
-    const view = await render({ permissionPreset: 'manual', onChangePermissionPreset: (p: string) => changes.push(p) })
-    await click(buttonWithText(view.container, 'Manual'))
-    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Permissions: Manual"]')!
+    const view = await render({ permissionPreset: 'manual' })
+    const menu = await openPermissionsMenu(view, 'Manual')
     const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
     assert.equal(rows.length, 4)
-    assert.ok(menu.textContent?.includes('Default'), 'the CLI-default row wears the Default chip')
+    assert.ok(rows[0]?.textContent?.includes('None'), 'the no-flag row says None, not "CLI default"')
+    assert.ok(menu.textContent?.includes('Default'), 'and still wears the Default chip')
     assert.ok(menu.querySelector('.rounded-xs'), 'on the token chip radius')
     assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
     const key = (el: Element, k: string) =>
@@ -1404,7 +1481,11 @@ async function main(): Promise<void> {
     await key(rows[0]!, 'ArrowUp')
     assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
     await key(rows[3]!, 'Enter')
-    assert.deepEqual(changes, ['bypass'], 'Enter selects the focused row')
+    assert.equal(
+      storedModelPermissionPreset('claude-code', null),
+      'bypass',
+      'Enter selects the focused row, and the pick is remembered against the model row it was made on',
+    )
     view.unmount()
   })
 

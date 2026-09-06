@@ -16,7 +16,14 @@
 
 import React, { useEffect, useState } from 'react'
 
-import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
+import {
+  SOURCE_SHAPE_LABEL,
+  scanMcpServers,
+  scanPlugins,
+  scanShape,
+  type ScanResult,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Input, PrimaryButton, Spinner } from '../../../../ui'
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../../../ui/Modal'
 import { pluralSkills } from './skillsSurfaceModel'
@@ -95,7 +102,7 @@ export function AddSkillSourceModal({
     <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" size="standard">
       <ModalHeader
         titleId="add-skill-source-title"
-        title="Add a skill source from GitHub"
+        title="Add a source from GitHub"
         onClose={onClose}
       />
       <ModalBody className="flex flex-col gap-4">
@@ -163,13 +170,34 @@ export function AddSkillSourceModal({
 // open in — all stored, none of it shown. A person adding a repository is
 // asking "did it work?", not reading an inventory.
 function ScanSummary({ scan }: { scan: ScanResult }): JSX.Element {
+  const plugins = scanPlugins(scan)
+  const linked = plugins.filter((plugin) => plugin.origin.kind === 'linked').length
+  const servers = scanMcpServers(scan).length
+  const skills =
+    scan.groups.length > 0 && scan.groupingSignal !== 'manifest'
+      ? `${pluralSkills(scan.skills.length)} in ${scan.groups.length} categories`
+      : pluralSkills(scan.skills.length)
   return (
-    <p className="text-body leading-5 text-[color:var(--text-strong)]">
-      {scan.groups.length > 0
-        ? `${pluralSkills(scan.skills.length)} in ${scan.groups.length} ${
-            scan.groupingSignal === 'manifest' ? 'plugins' : 'categories'
-          }.`
-        : `${pluralSkills(scan.skills.length)}.`}
-    </p>
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-meta">
+      <dt className="text-[color:var(--text-muted)]">Found</dt>
+      <dd className="text-[color:var(--text-strong)]">{SOURCE_SHAPE_LABEL[scanShape(scan)]}</dd>
+      {plugins.length > 0 ? (
+        <>
+          <dt className="text-[color:var(--text-muted)]">Plugins</dt>
+          <dd className="text-[color:var(--text-strong)]">
+            {plugins.length}
+            {linked > 0 ? ` · ${linked} of them link to other repositories, read when opened` : ''}
+          </dd>
+        </>
+      ) : null}
+      <dt className="text-[color:var(--text-muted)]">Skills</dt>
+      <dd className="text-[color:var(--text-strong)]">{skills}</dd>
+      {servers > 0 ? (
+        <>
+          <dt className="text-[color:var(--text-muted)]">MCP servers</dt>
+          <dd className="text-[color:var(--text-strong)]">{servers}</dd>
+        </>
+      ) : null}
+    </dl>
   )
 }

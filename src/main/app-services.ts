@@ -54,6 +54,7 @@ import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
+import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
   createAgentCapabilityService,
   createFsSkillDirectoryReader,
@@ -667,6 +668,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // directory would be.
   const skillsService = createSkillsService(app.getPath('userData'), {
     resolveToken: () => githubTokenStore.resolveToken(),
+    broadcastSourceUpdates: (check) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send(SKILL_SOURCES_UPDATED_CHANNEL, check)
+      }
+    },
     listWorkspaceRoots: () =>
       workspaceSyncService
         .getSnapshot()

@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
 import type { SkillScanLoad, SkillSourcesLoad } from './skillsSurfaceModel'
 
@@ -25,6 +26,9 @@ export type SkillSourcesState = {
   scans: Record<string, SkillScanLoad>
   installedDirNames: Set<string>
   installedRead: InstalledSkillsRead
+  /** Plugins installed in the active workspace — receipts plus what Claude's settings enable. */
+  installedPlugins: InstalledPluginRecord[]
+  installedPluginsRead: InstalledSkillsRead
   /** Re-read the source list and any scan it does not already hold. */
   refreshSources: () => void
   /** Re-read one source's scan (after Sync, or to retry a failed read). */
@@ -41,6 +45,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
   const [scans, setScans] = useState<Record<string, SkillScanLoad>>({})
   const [installedDirNames, setInstalledDirNames] = useState<Set<string>>(new Set())
   const [installedRead, setInstalledRead] = useState<InstalledSkillsRead>({ status: 'loading' })
+  const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
+  const [installedPluginsRead, setInstalledPluginsRead] = useState<InstalledSkillsRead>({ status: 'loading' })
   const [sourcesNonce, setSourcesNonce] = useState(0)
   const [installedNonce, setInstalledNonce] = useState(0)
 
@@ -105,6 +111,40 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
     }
   }, [loadScan, sourcesNonce])
 
+  // The installed plugins, on the same trigger as the installed skills: both
+  // are what the workspace holds, and both reload after an install.
+  useEffect(() => {
+    if (!workspaceRoot) {
+      setInstalledPlugins([])
+      setInstalledPluginsRead({ status: 'unavailable' })
+      return
+    }
+    if (typeof window.api.skillsListInstalledPlugins !== 'function') {
+      setInstalledPluginsRead({ status: 'error', message: MISSING_API_MESSAGE })
+      return
+    }
+    let cancelled = false
+    setInstalledPluginsRead({ status: 'loading' })
+    void window.api
+      .skillsListInstalledPlugins({ workspaceRoot })
+      .then((result) => {
+        if (cancelled) return
+        if (!result.ok) {
+          setInstalledPluginsRead({ status: 'error', message: result.message })
+          return
+        }
+        setInstalledPlugins(result.plugins)
+        setInstalledPluginsRead({ status: 'ready' })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setInstalledPluginsRead({ status: 'error', message: describe(error) })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceRoot, installedNonce])
+
   useEffect(() => {
     if (!workspaceRoot) {
       setInstalledDirNames(new Set())
@@ -144,6 +184,25 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
     setSourcesNonce((value) => value + 1)
   }, [])
 
+  // An update check writes the head it resolved onto each source; the list is
+  // re-read so the rail's "Update available" mark is the store's, not a copy.
+  // The scans it already holds are kept (requestedScans), so this never blanks
+  // a canvas to arrive at bytes already in hand.
+  useEffect(() => {
+    if (typeof window.api.onSkillSourcesUpdated !== 'function') return
+    return window.api.onSkillSourcesUpdated((check) => {
+      if (!mounted.current || check.sources.length === 0) return
+      if (typeof window.api.skillsListSources !== 'function') return
+      void window.api
+        .skillsListSources()
+        .then((result) => {
+          if (!mounted.current || !result.ok) return
+          setSources(result.sources)
+        })
+        .catch(() => undefined)
+    })
+  }, [])
+
   const refreshScan = useCallback(
     (sourceId: string) => {
       loadScan(sourceId)
@@ -173,6 +232,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       scans,
       installedDirNames,
       installedRead,
+      installedPlugins,
+      installedPluginsRead,
       refreshSources,
       refreshScan,
       refreshInstalled,
@@ -184,6 +245,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       scans,
       installedDirNames,
       installedRead,
+      installedPlugins,
+      installedPluginsRead,
       refreshSources,
       refreshScan,
       refreshInstalled,

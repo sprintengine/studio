@@ -126,7 +126,6 @@ async function main(): Promise<void> {
           conversationRows={CONVERSATION_ROWS}
           onSpawn={(confirm) => spawns.push(confirm as unknown as Confirm)}
           permissionPreset="manual"
-          onChangePermissionPreset={() => {}}
           debugMode={false}
           onChangeDebugMode={() => {}}
           onClose={() => {
@@ -146,7 +145,15 @@ async function main(): Promise<void> {
         element!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
       })
     }
-    const rails = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[role="radio"]')]
+    // Scoped to the PROVIDER radiogroup rather than sweeping every
+    // `[role="radio"]` in the surface: the rail is one radiogroup among
+    // several a picker can carry, and a bare sweep collects whatever else
+    // arrives on the trailing row.
+    const rails = (): HTMLElement[] => [
+      ...(container.querySelector('[role="radiogroup"][aria-label="Provider"]')?.querySelectorAll<HTMLElement>(
+        '[role="radio"]',
+      ) ?? []),
+    ]
     const rows = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-model-row="true"]')]
     return {
       rails,
@@ -168,9 +175,14 @@ async function main(): Promise<void> {
         return star!
       },
       footerButton: (label) =>
-        [...container.querySelectorAll<HTMLElement>('button')].find(
-          (button) => button.getAttribute('aria-label') === label,
-        ) ?? null,
+        [...container.querySelectorAll<HTMLElement>('button')].find((button) => {
+          const name = button.getAttribute('aria-label') ?? ''
+          // The permissions chip names its own value ("Permissions: Bypass
+          // permissions") now that the preset is stored against the model row,
+          // so it is matched by prefix; every other footer control has a fixed
+          // name.
+          return name === label || (label.endsWith(':') && name.startsWith(label))
+        }) ?? null,
       menuItem: (text) => {
         // Menus are portaled out of the picker's own container.
         const found = [...dom.window.document.querySelectorAll<HTMLElement>('[data-menu-item="true"]')].find(
@@ -230,7 +242,7 @@ async function main(): Promise<void> {
       ['Terminal', 'Chats'],
       'both sit after the providers, at the end of the rail',
     )
-    assert.ok(view.footerButton('Permissions for the next spawn'), 'the model filters carry the footer')
+    assert.ok(view.footerButton('Permissions:'), 'the model filters carry the trailing row')
 
     await view.click(view.rail('Terminal'))
     assert.equal(
@@ -239,16 +251,16 @@ async function main(): Promise<void> {
       'the terminal filter shows one row, named for the login shell — never "Plain terminal"',
     )
     assert.equal(
-      view.footerButton('Permissions for the next spawn'),
+      view.footerButton('Permissions:'),
       null,
-      'nothing the footer configures applies to a shell, so no footer is shown',
+      'nothing the trailing row configures applies to a shell, so no row is shown',
     )
     assert.equal(view.footerButton('Role for the next spawn'), null, 'including the Role control')
     await view.click(view.row('zsh'))
     assert.deepEqual(view.spawns(), [{ kind: 'terminal' }], 'the shell row spawns a terminal')
 
     await view.click(view.rail('Chats'))
-    assert.equal(view.footerButton('Permissions for the next spawn'), null, 'nor on the conversation filter')
+    assert.equal(view.footerButton('Permissions:'), null, 'nor on the conversation filter')
     await view.click(view.row('Claude'))
     assert.deepEqual(
       view.spawns()[1],

@@ -12,7 +12,7 @@
       "category": "Documentation",
       "icon": "icons/api-reference.svg",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/api-reference-mcp",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/api-reference-mcp",
       "provides": [
         "mcp"
       ],
@@ -33,7 +33,7 @@
       "category": "Testing",
       "icon": "icons/browser-automation.svg",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/browser-automation-mcp",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/browser-automation-mcp",
       "provides": [
         "mcp"
       ],
@@ -54,7 +54,7 @@
       "category": "Documentation",
       "icon": "icons/current-docs.svg",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/current-docs-mcp",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/current-docs-mcp",
       "provides": [
         "mcp"
       ],
@@ -75,7 +75,7 @@
       "category": "Code Hosting",
       "icon": "icons/repository-workflows.svg",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/repository-workflows-mcp",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/repository-workflows-mcp",
       "provides": [
         "mcp"
       ],
@@ -96,7 +96,7 @@
       "category": "Code Quality",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNiAxNikgc2NhbGUoNikiIGZpbGw9Im5vbmUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHBhdGggZD0iTTQuNSA0LjVsLjYgOC41aDUuOGwuNi04LjUiIHN0cm9rZT0iI2Q3ZWZlNyIvPgogICAgPHBhdGggZD0iTTMgNC41aDEwTTYuNSA0LjVWM2gzdjEuNSIgc3Ryb2tlPSIjNGZjM2ExIi8+CiAgPC9nPgo8L3N2Zz4K",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/dead-code-sweep-automation",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/dead-code-sweep-automation",
       "provides": [
         "automation"
       ]
@@ -112,7 +112,7 @@
       "category": "Code Quality",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNiAxNikgc2NhbGUoNikiIGZpbGw9Im5vbmUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHJlY3QgeD0iMi41IiB5PSIyLjUiIHdpZHRoPSI4IiBoZWlnaHQ9IjgiIHJ4PSIxLjUiIHN0cm9rZT0iI2Q3ZWZlNyIvPgogICAgPHBhdGggZD0iTTUuNSAxMy41aDhWNS41IiBzdHJva2U9IiM0ZmMzYTEiLz4KICA8L2c+Cjwvc3ZnPgo=",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/duplication-review-automation",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/duplication-review-automation",
       "provides": [
         "automation"
       ]
@@ -128,7 +128,7 @@
       "category": "Testing",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNiAxNikgc2NhbGUoNikiIGZpbGw9Im5vbmUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHBhdGggZD0iTTEzLjUgOHY1LjVIMi41di0xMUgxMCIgc3Ryb2tlPSIjZDdlZmU3Ii8+CiAgICA8cGF0aCBkPSJNMyA4LjUgNiAxMS41bDctNyIgc3Ryb2tlPSIjNGZjM2ExIi8+CiAgPC9nPgo8L3N2Zz4K",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/unit-test-coverage-automation",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/unit-test-coverage-automation",
       "provides": [
         "automation"
       ]
@@ -144,7 +144,7 @@
       "category": "Design",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNiAxNikgc2NhbGUoNikiIGZpbGw9Im5vbmUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHJlY3QgeD0iMi41IiB5PSIzIiB3aWR0aD0iMTEiIGhlaWdodD0iMTAiIHJ4PSIxLjUiIHN0cm9rZT0iI2Q3ZWZlNyIvPgogICAgPHBhdGggZD0iTTIuNSA2LjVoMTEiIHN0cm9rZT0iI2Q3ZWZlNyIvPgogICAgPHBhdGggZD0iTTYgNi41VjEzIiBzdHJva2U9IiM0ZmMzYTEiLz4KICA8L2c+Cjwvc3ZnPgo=",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/ui-ux-review-automation",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/ui-ux-review-automation",
       "provides": [
         "automation"
       ]
@@ -160,7 +160,7 @@
       "category": "Code Review",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNiAxNikgc2NhbGUoNikiIGZpbGw9Im5vbmUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHBhdGggZD0iTTQgMi41djVhMiAyIDAgMCAwIDIgMmg0IiBzdHJva2U9IiNkN2VmZTciLz4KICAgIDxwYXRoIGQ9Ik0xMiAyLjV2MTEiIHN0cm9rZT0iI2Q3ZWZlNyIvPgogICAgPGNpcmNsZSBjeD0iNCIgY3k9IjIuNSIgcj0iMS40IiBzdHJva2U9IiM0ZmMzYTEiLz4KICAgIDxjaXJjbGUgY3g9IjEyIiBjeT0iMi41IiByPSIxLjQiIHN0cm9rZT0iIzRmYzNhMSIvPgogICAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxMy41IiByPSIxLjQiIHN0cm9rZT0iIzRmYzNhMSIvPgogIDwvZz4KPC9zdmc+Cg==",
       "latest": 1,
-      "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/merged-pr-seam-review-automation",
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/merged-pr-seam-review-automation",
       "provides": [
         "automation"
       ]

@@ -67,6 +67,8 @@ type RegisterAppLifecycleOptions = {
     isEnabled(): boolean
     readStatus(): BackgroundStatus
   }
+  /** The plugin-source update check (skills service); rides the hourly feed leg. */
+  checkPluginSourceUpdates?: () => Promise<unknown>
 }
 
 export function registerAppLifecycle({
@@ -82,6 +84,7 @@ export function registerAppLifecycle({
   updateService,
   handleAuthCallback,
   backgroundMode,
+  checkPluginSourceUpdates,
 }: RegisterAppLifecycleOptions): void {
   // Background mode (MC-2156): the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
@@ -211,7 +214,12 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      refreshFeed: () => readHostedModelFeed(),
+      // The plugin-source update check rides the feed leg: same hour, same
+      // jitter, one fewer timer (backlog/2026-09-05-plugin-sources.md).
+      refreshFeed: async () => {
+        await readHostedModelFeed()
+        await checkPluginSourceUpdates?.().catch(() => undefined)
+      },
       refreshVersions: () => readCliVersionAdvisories(),
       isOnline: () => net.isOnline(),
     })

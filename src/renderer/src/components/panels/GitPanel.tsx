@@ -13,7 +13,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, EmptyState, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
+import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -107,10 +107,13 @@ const GIT_GRAPH_PAGE_SIZE = 200
 const STANDARD_BASE_BRANCHES = ['main', 'master', 'develop', 'trunk']
 
 // Incoming (down = pull) / outgoing (up = push) arrow, matching the IDE sync
-// idiom. Pairs with the count + accessible label on its button.
+// idiom. The button it sits in is glyph + count, no word (owner 2026-09-05,
+// each control is a mark with a tooltip) — so the arrow is
+// the control's whole face and draws at the strip's 16px step, with the verb,
+// the count and the remote riding the tooltip and the accessible name.
 function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-xs" fill="none">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
         d={direction === 'down' ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5' : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'}
         stroke="currentColor"
@@ -127,15 +130,20 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
 // sync affordances beside it read as one set of marks rather than two families
 // sharing a band. Each answers "which view is this" and nothing else; the name
 // and the count ride the tooltip.
+//
+// Three of the five were redrawn on 2026-09-05 (owner) to the shapes IDEs
+// has taught a decade of developers to read — the first set (a plus-and-slash
+// for Changes, a wiring diagram for Worktrees, two bullet lines for Log) had to
+// be learned from the tooltip. Changes uses a commit node on a
+// line; Worktrees is a folder holding that node — a checkout in its own
+// directory; Log is the history clock. Stashes (the drawer) and Terminal were
+// already legible and stay. Mirrored framework-neutral in design-system/glyphs
+// as commit.svg, worktree.svg and history.svg.
 function ChangesViewGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <path
-        d="M4.25 2.5v4.75M1.875 4.875h4.75M1.875 11.5h4.75M9.5 13.5l4.25-11"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
+      <circle cx="8" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.75 8h3.65M10.6 8h3.65" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -143,15 +151,14 @@ function ChangesViewGlyph({ className }: { className?: string }) {
 function WorktreesViewGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <circle cx="3.75" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="9" y="1.9" width="5.25" height="4" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="9" y="10.1" width="5.25" height="4" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
       <path
-        d="M3.75 5.1v6.9c0 .1.1.2.2.2H9M3.75 5.1V3.9h5.25"
+        d="M1.75 4.75c0-.83.67-1.5 1.5-1.5h3.1l1.5 1.5h5.4c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5z"
         stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
       />
+      <circle cx="8" cy="9.6" r="1.25" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M4.25 9.6h2.5M9.25 9.6h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -159,10 +166,9 @@ function WorktreesViewGlyph({ className }: { className?: string }) {
 function LogViewGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <path d="M4 2.4v11.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <circle cx="4" cy="4.25" r="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="4" cy="11.75" r="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M7.25 4.25h6.5M7.25 11.75h6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2.75 8a5.25 5.25 0 1 0 1.55-3.72" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2.6 2.5v2.95h2.95" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 5.1V8.2l2.2 1.35" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -1701,17 +1707,29 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <div className="flex shrink-0 items-center gap-1">
             {behind > 0 ? (
               <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
-                <GhostButton size="xs" onClick={() => void handlePull()} disabled={Boolean(busy)} className="tabular-nums">
+                <GhostButton
+                  size="xs"
+                  onClick={() => void handlePull()}
+                  disabled={Boolean(busy)}
+                  className="tabular-nums"
+                  aria-label={`Pull ${behind} commit${behind === 1 ? '' : 's'}`}
+                >
                   <SyncArrowIcon direction="down" />
-                  Pull {behind}
+                  {behind}
                 </GhostButton>
               </Tooltip>
             ) : null}
             {ahead > 0 ? (
               <Tooltip content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`} placement="bottom">
-                <GhostButton size="xs" onClick={() => void handlePush()} disabled={Boolean(busy)} className="tabular-nums">
+                <GhostButton
+                  size="xs"
+                  onClick={() => void handlePush()}
+                  disabled={Boolean(busy)}
+                  className="tabular-nums"
+                  aria-label={`Push ${ahead} commit${ahead === 1 ? '' : 's'}`}
+                >
                   <SyncArrowIcon direction="up" />
-                  Push {ahead}
+                  {ahead}
                 </GhostButton>
               </Tooltip>
             ) : null}
@@ -2046,24 +2064,23 @@ function ConflictGroup({
         {entries.map((entry) => {
           const appearance = getGitStatusAppearance(entry.status)
           const pathParts = splitGitPath(entry.relativePath)
+          // Same anatomy as the change rows below: file-type glyph leading,
+          // name first, directory after in muted ink.
           const title = (
-            <span className="flex min-w-0 items-baseline font-mono">
-              {pathParts.directory ? (
-                <>
-                  <span className="min-w-0 shrink truncate text-[color:var(--text-muted)] [direction:rtl]">
-                    {pathParts.directory}
-                  </span>
-                  <span className="shrink-0 text-[color:var(--text-muted)]">/</span>
-                </>
-              ) : null}
+            <span className="flex min-w-0 items-baseline gap-2 font-mono">
               <span className={`min-w-0 max-w-full shrink-0 truncate font-semibold ${appearance.textClass}`}>{pathParts.filename}</span>
+              {pathParts.directory ? (
+                <span className="min-w-0 shrink truncate text-micro font-normal text-[color:var(--text-muted)]">
+                  {pathParts.directory}
+                </span>
+              ) : null}
             </span>
           )
           return (
             <div key={`conflict:${entry.path}`} className="flex items-center gap-1">
               <div className="min-w-0 flex-1">
                 <InboxRow
-                  hideDot
+                  leading={<FileTypeGlyph name={pathParts.filename} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />}
                   title={title}
                   trailing={<span className="font-mono text-micro font-semibold opacity-80">!</span>}
                   onSelect={() => void onOpenFile(entry)}
@@ -2246,22 +2263,24 @@ function ChangeGroup({
               const statusWord = gitStatusWord(entry.status)
               // Status reads from the colour-coded filename (green added / amber
               // modified / red + strikethrough deleted) rather than a leading
-              // dot, so the row stays a single status idiom.
+              // dot, so the row stays a single status idiom. The leading slot
+              // is the file-type glyph — identity, not status — and the name
+              // comes first with its directory after it in muted ink (the editor's
+              // Commit list, owner 2026-09-05): the eye lands on the thing that
+              // changed, and the path is there to disambiguate, not to lead.
               const title = (
-                <span className="flex min-w-0 items-baseline font-mono">
-                  {pathParts.directory ? (
-                    <>
-                      <span className="min-w-0 shrink truncate text-[color:var(--text-muted)] [direction:rtl]">
-                        {pathParts.directory}
-                      </span>
-                      <span className="shrink-0 text-[color:var(--text-muted)]">/</span>
-                    </>
-                  ) : null}
+                <span className="flex min-w-0 items-baseline gap-2 font-mono">
                   <span className={`min-w-0 max-w-full shrink-0 truncate ${appearance.textClass}`}>
                     {pathParts.filename}
                   </span>
+                  {pathParts.directory ? (
+                    <span className="min-w-0 shrink truncate text-micro font-normal text-[color:var(--text-muted)]">
+                      {pathParts.directory}
+                    </span>
+                  ) : null}
                 </span>
               )
+              const leading = <FileTypeGlyph name={pathParts.filename} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
               const trailing = appearance.badge ? (
                 <span className="font-mono text-micro font-semibold opacity-80">{appearance.badge}</span>
               ) : null
@@ -2289,7 +2308,7 @@ function ChangeGroup({
                   }}
                 >
                   <InboxRow
-                    hideDot
+                    leading={leading}
                     title={title}
                     trailing={trailing}
                     selected={rowSelected}
