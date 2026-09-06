@@ -1,9 +1,10 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The six SVGs in
-`glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine)
-are the framework-neutral assets; the shipped vocabulary lives in React —
+line work, sized only by the `--sem-icon-size-*` ramp. The twelve SVGs in
+`glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
+commit, worktree, history, folder, file-typescript, file-generic) are the
+framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
 and color a glyph without reading the React source.
@@ -22,7 +23,7 @@ Two drawing grids, each with its own stroke discipline:
 | Grid | Primary stroke | Drawn by |
 |---|---|---|
 | 24 × 24 | `1.7` (the `iconStroke` constant) | `AppIcons.tsx` — every action, identity, status, and settings icon; `CliIcon.tsx` tile marks (1.7 frame, 1.9 letterform) |
-| 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4) — and the assets in `glyphs/` |
+| 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4), `FileTypeGlyph` (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in `glyphs/` |
 
 The 24-grid stroke flexes deliberately and narrowly: secondary strokes step
 *down* by 0.1–0.3 (`iconStroke - 0.3` on the Switchboard dividers), and a
@@ -167,6 +168,59 @@ SVGs are bundled; both Kimi runtimes share one mark so they read as one
 provider), with `terminal` as the fallback. Tile marks keep the 24-grid
 discipline: 1.7 frame, 1.9 letterform.
 
+### File type (16-grid — `ui/FileTypeGlyph.tsx`)
+
+*Which kind of file is this row about*, answered by shape alone. One drawing
+per kind, `currentColor`, in the 16 px leading slot every tree and list row
+reserves — the File Explorer and the Git changes list wear the same mark for
+the same file, so a `.ts` reads as a `.ts` on both (owner 2026-09-05, the
+IDE Project-view idiom). `fileTypeKind(name)` is the pure resolver;
+`FILE_TYPE_LABEL` names each kind for a tooltip or `aria-label`.
+
+| Kind | Shape |
+|---|---|
+| `typescript` · `javascript` · `python` · `rust` · `go` | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the `CliIcon` placeholder tile |
+| `typescript-test` · `javascript-test` | The same tile with its bottom-right corner notched for a tick — `*.test.*` and `*.spec.*` |
+| `react` | The atom — `.tsx` / `.jsx` |
+| `json` | Braces `{ }` |
+| `markdown` | M with a down arrow |
+| `yaml` | Indented list lines |
+| `html` | Angle brackets `< >` |
+| `css` | Hash `#` |
+| `shell` | Prompt `>_` |
+| `java` | Cup |
+| `image` | Framed landscape |
+| `lock` | Padlock — lockfiles (`package-lock.json`, `yarn.lock`, `Cargo.lock` …) |
+| `config` | Gear — dotfiles, `.env*`, `Dockerfile`, `.toml` / `.ini` / `.xml` |
+| `text` | Document with lines — `.txt`, `.csv`, `LICENSE`, `README` |
+| `generic` | Plain document — anything unrecognised |
+
+The family is deliberately monochrome. The 2026-09-02 ruling that retired the
+explorer's sixteen hard-coded hues stands: category colour is not a status
+channel ("Restraint"), so the glyph takes the row's ink and the status tint on
+the filename stays the one colour in the row. `glyphs/file-typescript.svg` and
+`glyphs/file-generic.svg` are the framework-neutral samples of the tile and
+document idioms.
+
+`FolderGlyph(open)` is the family's folder: the outlined folder in the same
+16 px slot, so a folder row's name starts at the same x as a file row's. The
+chevron beside it carries expanded state, so a tree may leave `open` off and
+let the folder read the same either way. `glyphs/folder.svg`.
+
+### Git views (16-grid — `panels/GitPanel.tsx`)
+
+The Git panel's glyph-only view strip. Three of the five were redrawn on
+2026-09-05 to the shapes IDEs have taught a decade of developers to read;
+the first set had to be learned from the tooltip.
+
+| View | Shape | Asset |
+|---|---|---|
+| Changes | A commit node on a line identifies changes | `glyphs/commit.svg` |
+| Worktrees | A folder holding that node: a checkout in its own directory | `glyphs/worktree.svg` |
+| Log | The history clock | `glyphs/history.svg` |
+| Stashes | The drawer | — |
+| Terminal | The prompt in a frame | — |
+
 ### Utility marks (16-grid)
 
 | Export | Meaning |
@@ -285,7 +339,8 @@ Cite these rather than matching the code you happen to be nearest.
    inconsistency, resolved by consuming the shared exports (item 3).
 5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
    convention is `Glyph`. Rename when it next moves.
-6. **The `glyphs/` folder holds six assets** against a shipped vocabulary of
-   roughly forty. This entry closes the documentation gap; extracting
+6. **The `glyphs/` folder holds twelve assets** against a shipped vocabulary of
+   roughly sixty. This entry closes the documentation gap; extracting
    framework-neutral SVGs for the core-action set into `glyphs/` (and
-   registering them in `design-system.json`) remains open.
+   registering them in `design-system.json`) remains open. *2026-09-05:* the
+   Git view marks, the folder and two file-type samples joined the folder.
