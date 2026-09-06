@@ -8,8 +8,22 @@ Use this checklist for every preview or stable desktop release.
 - Confirm `npm run test:main:mobile-sprintengine-command` passes.
 - Confirm `npm run build` passes.
 - Update `package.json` version.
+- Run `npm run sync:model-feed`, and commit the result if it moved. This pulls
+  the live `model-feed.json` from `studio-releases` into
+  `resources/model-feed.json`, the seed a fresh install boots with. Do it
+  BEFORE tagging, never in CI: a workflow that rewrites a committed file makes
+  the shipped build differ from the tag it claims to be. A stale seed is not
+  fatal (the live feed wins by `updatedAt` within the hour) but a fresh install
+  shows an old list until its first fetch.
+- Confirm `RELEASES_TOKEN` exists under Settings -> Secrets and variables ->
+  Actions. Releases go to the PUBLIC `sprintengine/studio-releases`, and the
+  workflow's own `GITHUB_TOKEN` cannot write to another repo. Without it the
+  `validate` job now stops the release before anything is built.
 - Draft release notes with user-visible changes, fixes, known issues, and rollback guidance.
-- Confirm `.github/workflows/release.yml` can write GitHub Releases in repository settings.
+- Update `lib/releaseNotes.ts` in `sprintengine-website` to the version being
+  released. The download page only renders What's New when its `version` equals
+  the version it is serving, so notes left on the previous version do not go
+  stale on screen -- they vanish from the page entirely.
 - Confirm signing credentials are configured for any stable release.
 
 ## Retirements To State In Release Notes
@@ -43,11 +57,17 @@ of the first release that ships it, then delete the line.
 
 ## Tag And Build
 
-- Create a tag matching `package.json`, for example `v0.2.0` or `v0.2.0-preview.1`.
+- Create a tag matching `package.json`, for example `v0.4.0` or `v0.4.0-preview.1`.
 - Push the tag to GitHub.
 - Wait for `.github/workflows/release.yml`.
-- Confirm release assets were published to `conal-smith/multicode` GitHub Releases.
+- Confirm release assets were published to the PUBLIC
+  `sprintengine/studio-releases` GitHub Releases -- NOT to `sprintengine/studio`,
+  which is private and which neither the updater nor the website can read. The
+  `verify-published` job checks this now; v0.3.0 shipped to the private repo
+  and reported success because nothing did.
 - Confirm release assets include installers plus updater metadata such as `latest.yml`, `latest-mac.yml`, or Linux metadata when produced by `electron-builder`.
+- Write the release body by hand in `studio-releases`. Never use GitHub's
+  "generate release notes" there: it would list private commit messages.
 
 ## Smoke Test
 
