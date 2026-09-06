@@ -2098,7 +2098,12 @@ function ProjectScopePicker({
           // A stable hook for the Playwright passes (scripts/testing/
           // newChatWorkspace.mjs), which reach the folder through this control.
           data-project-trigger="true"
-          className={`interactive mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+          // Exactly the machine trigger's box: the scope line is one row of
+          // sibling chips, so a `mt-1` left over from when this was the only
+          // control on its own line pushed it half a step below the machine
+          // dropdown, and a bare `rounded` was an untokenized radius next to
+          // its siblings' control radius.
+          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >
           {label}
