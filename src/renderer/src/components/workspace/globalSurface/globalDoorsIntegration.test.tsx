@@ -325,7 +325,17 @@ async function main(): Promise<void> {
       [['reviews', 'Reviews']],
       'the modal registry holds only Reviews (Settings and the Diff popout are core, never registered)',
     )
-    assert.ok(host.getModalSurface('reviews')?.Icon, 'the reviews surface carries a glyph')
+    // And it carries no glyph, because nothing draws one for a modal surface.
+    // The doors→modals ruling (2026-09-01) put a trigger per modal in the
+    // sidebar footer's settings cluster; the Extensions drawer ruling took the
+    // cluster back four days later, and Reviews is opened from the workspace
+    // pane strip, whose launcher holds its own glyph (paneKinds.tsx). A second
+    // copy in the registry would be a field nothing reads posing as the source.
+    assert.equal(
+      host.getModalSurface('reviews')?.Icon,
+      undefined,
+      'the reviews surface declares no glyph — the pane launcher that opens it carries the one glyph there is',
+    )
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
     const withoutSprintEngine = (moduleId: string): boolean => moduleId !== 'sprint-engine'

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- **A door surface names and places itself** (Extensions drawer ruling,
+  2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host
+  grew five presentation fields around it, so an SDK module could register a
+  door and then have no way to say what it is CALLED — the shell's chrome fell
+  back to a capitalised id. All five are mirrored now, all optional, and a door
+  that draws its own row through `registerSidebarNavEntry` may still omit every
+  one: `label` (the drawer row's name, the bar's fallback title, the "not
+  installed" explainer's heading), `Icon` (the glyph any chrome that names the
+  surface draws), `onOpen` (runs just before a PLAIN open — a rail glyph, a
+  drawer row, a history step — for discarding stale deep-link latches),
+  `views` (several drawer rows for one surface that is several destinations to
+  the person, each with its own label, glyph and `open()`), and `railPlacement`
+  (`'sidebar'`, the default, replaces the app sidebar's column for the length of
+  the visit; `'inline'` renders your rail beside your own canvas and leaves the
+  column alone — right when the column already holds the navigation that reached
+  you). New mirrored types: `SurfaceIconComponent`, `SurfaceViewDefinition`,
+  `SurfaceRailPlacement`.
+
+- **`roadmap` leaves `BUNDLED_MODULE_IDS`.** The app retired the module when
+  Horizon did and the SDK's copy of the reserved list did not follow, so the
+  SDK went on telling third parties that an id nothing ships was unclaimable.
+  Caught only now because the drift guard's type pins were failing first and
+  the runtime assertion below them never ran.
+
+- **Modal surfaces no longer get a trigger, and the docs stop promising one**
+  (Extensions drawer ruling, 2026-09-05). The 2026-09-01 entry below says the
+  shell renders your trigger as a glyph button in the sidebar footer's settings
+  cluster. It does not: that ruling was reversed four days later — every
+  destination the shell's own chrome offers is a DOOR again, and the cluster
+  went with it. A modal surface is now reached from inside the content it floats
+  over (a pane launcher, a row action, a notification's Open), which is the
+  shape a modal is actually for; contribute that trigger yourself and call
+  `openModalSurface(id)`. `order` and `Icon` are the fields the retired cluster
+  read and are **optional** as of this change — nothing renders them — kept so a
+  module that already declares them still compiles.
+
 - **Modal surfaces** (doors→modals, 2026-09-01). A new contribution kind beside
   the door pair: `registerModalSurface({ id, order, label, Icon, onOpen?,
   Component })` mounts your zero-prop body in the shell's modal shell (workbench

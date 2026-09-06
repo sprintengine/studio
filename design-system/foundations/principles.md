@@ -329,10 +329,24 @@ than from the chrome:
   too narrow to read it in, so picking it there floats the surface instead of
   opening a pane tab.
 
-Three tests, all of which a modal must pass: it is opened from inside the
-content rather than from the chrome; the thing underneath is still the subject;
-and no navigation control (a rail glyph, a drawer row, history back) leads to
-it. A destination that fails any of them is a door.
+Three tests, all of which a modal must pass. A destination that fails any of
+them is a door.
+
+1. **The thing underneath is still the subject.** The workspace being
+   configured, the layout the diff is a bigger view of, the change being
+   reviewed. If the surface replaces the subject rather than acting on it, it
+   wants the region, not a scrim.
+2. **Nothing that names a PLACE leads to it.** No section glyph, no drawer row,
+   no history entry — a destination reached by navigation has to be somewhere
+   the region can go, or back and forward step to a page that mounts invisibly
+   behind the scrim. Note the test is about naming a place, not about being
+   chrome: Settings is opened from the rail's FOOT, and the foot is deliberately
+   not navigation — the account and the gear belong to the window rather than to
+   any section of the product, so they route nothing and no history entry
+   records them.
+3. **It is a task with an end.** Opened, done, dismissed. A surface a person
+   navigates around inside, or comes back to and expects to find as they left
+   it, is a place, and places are doors.
 
 **A heading must separate something from something else.** Do not label an
 ungrouped list ("Rosters" over a field that already reads "Search rosters…"),

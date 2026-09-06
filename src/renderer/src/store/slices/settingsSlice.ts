@@ -1370,6 +1370,27 @@ function clearSettingsRequest(state: SettingsSliceCarrier): void {
 }
 
 export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
+  // Hoisted out of the object literal so the named conveniences below can CALL
+  // it rather than restate it. `openRoadmapSurface` restated it and drifted:
+  // it kept the unconditional section flip the drawer ruling removed from here.
+  const openGlobalSurface = (surfaceId: string) =>
+    set((state) => {
+      state.activeGlobalSurface = surfaceId
+      // A door open closes any modal (doors→modals, 2026-09-01): the door
+      // routes the card region, and leaving it under the modal's scrim made
+      // history back/forward look dead — the destination mounted invisibly.
+      state.activeModalSurface = null
+      // Only a door that BELONGS to the Extensions drawer moves the section
+      // (Extensions drawer ruling, 2026-09-05). This used to flip
+      // unconditionally, on the reasoning that every door lived under the
+      // Extensions glyph — but Automations stands on the RAIL now, and
+      // opening it swapped the sidebar into a drawer the person had not asked
+      // for and left the Extensions glyph reading current for a surface that
+      // is not one of its five rows. A drawer door still flips, so leaving it
+      // lands back on the drawer it was opened from rather than on the
+      // workspaces tree.
+      if (isExtensionsDrawerSurface(surfaceId)) state.sidebarSection = 'extensions'
+    })
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null },
@@ -1497,31 +1518,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     // door-routed full-page surface (global-surfaces epic 1704). A named
     // convenience over openGlobalSurface('roadmap') so every caller opens the same
     // surface; the legacy centered overlay + its store flag are retired (T2).
-    openRoadmapSurface: () =>
-      set((state) => {
-        state.activeGlobalSurface = 'roadmap'
-        state.activeModalSurface = null
-        state.sidebarSection = 'extensions'
-      }),
+    //
+    // It CALLS that action rather than restating it. Written out, it kept the
+    // unconditional `sidebarSection = 'extensions'` that the drawer ruling
+    // removed from the generic opener (2026-09-05) — so the same door left the
+    // sidebar in one state when opened from a command and another when opened
+    // by id, which is exactly the drift a named convenience is supposed to
+    // prevent. Roadmap is not one of the drawer's five rows, so under the one
+    // implementation it no longer drags the column into a section it does not
+    // belong to.
+    openRoadmapSurface: () => openGlobalSurface('roadmap'),
 
-    openGlobalSurface: (surfaceId) =>
-      set((state) => {
-        state.activeGlobalSurface = surfaceId
-        // A door open closes any modal (doors→modals, 2026-09-01): the door
-        // routes the card region, and leaving it under the modal's scrim made
-        // history back/forward look dead — the destination mounted invisibly.
-        state.activeModalSurface = null
-        // Only a door that BELONGS to the Extensions drawer moves the section
-        // (Extensions drawer ruling, 2026-09-05). This used to flip
-        // unconditionally, on the reasoning that every door lived under the
-        // Extensions glyph — but Automations stands on the RAIL now, and
-        // opening it swapped the sidebar into a drawer the person had not asked
-        // for and left the Extensions glyph reading current for a surface that
-        // is not one of its five rows. A drawer door still flips, so leaving it
-        // lands back on the drawer it was opened from rather than on the
-        // workspaces tree.
-        if (isExtensionsDrawerSurface(surfaceId)) state.sidebarSection = 'extensions'
-      }),
+    openGlobalSurface,
 
     closeGlobalSurface: () =>
       set((state) => {

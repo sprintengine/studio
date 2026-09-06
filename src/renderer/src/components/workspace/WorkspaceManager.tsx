@@ -3305,6 +3305,12 @@ export default function WorkspaceManager() {
             // Don't re-navigate to the door already showing; require its module
             // to still be enabled and the surface registered (mirrors the mount).
             if (activeGlobalSurface === entry.id) return false
+            // "Mirrors the mount" has to mean the mount's OWN resolution, not
+            // the registry alone: the Extensions home is core and resolves from
+            // the app (CORE_EXTENSIONS_HOME_SURFACE), so a registry-only
+            // predicate found nothing and Back/Forward stepped straight past
+            // the one door the rail's own glyph opens.
+            if (entry.id === EXTENSIONS_HOME_SURFACE_ID) return true
             const surface = getRendererHost().getGlobalSurface(entry.id)
             return surface !== undefined && selectModuleEnabled(moduleEnablement, surface.moduleId)
           }
@@ -3341,6 +3347,12 @@ export default function WorkspaceManager() {
       // open door as a side effect.
       setNewChatPanelState(null)
       if (step.entry.kind === 'surface') {
+        // A history step is a PLAIN open — it means "the room I was in", not
+        // "the row I clicked" — so it discards stale deep-link latches the way
+        // a rail glyph or a drawer row does. Without this a latch left by a
+        // dispatch that never mounted could reroute Back to a different view of
+        // the surface than the one the entry names.
+        getRendererHost().getGlobalSurface(step.entry.id)?.onOpen?.()
         openGlobalSurface(step.entry.id)
       } else {
         setActiveWorkspaceForWindow(workspaceWindowId, step.entry.id)

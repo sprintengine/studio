@@ -528,15 +528,26 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
 export type ModalSurfaceDefinition = {
   /** Matches the id opened via `openModalSurface`. Non-empty; unique. */
   id: string
-  /** Sort key among modal surfaces; lower first, ties break on id. */
-  order: number
+  /**
+   * Sort key among modal surfaces; lower first, ties break on id.
+   *
+   * Optional, because nothing renders a LIST of modal surfaces any more. It
+   * ordered the trigger glyphs in the sidebar footer's settings cluster
+   * (doors→modals, 2026-09-01); the Extensions drawer ruling (2026-09-05) sent
+   * every destination the shell's chrome offers back to being a door and
+   * retired the cluster, so a modal surface is now opened from inside the
+   * content it floats over and orders nothing. Kept rather than deleted so a
+   * module that declares it still compiles, and so the field is there if a
+   * future surface lists these again.
+   */
+  order?: number
   /**
    * The surface's user-facing name — the dialog's accessible name and its bar
    * title, decoupled from the id. Non-empty; sentence case.
    */
   label: string
-  /** The surface's glyph, for whatever chrome offers it; the shell sizes it via className. */
-  Icon: SurfaceIconComponent
+  /** A glyph for chrome that names this surface. Optional for the same reason `order` is: the pane launcher that opens Reviews carries its own. */
+  Icon?: SurfaceIconComponent
   /**
    * Called just before the shell opens this modal from a plain opener. Discard
    * stale deep-link latches here, exactly as a door's `onOpen` does.
@@ -1249,7 +1260,13 @@ export function createRendererHost(): RendererKernel {
           topBarItems.set(definition.id, { ...definition, moduleId })
         },
         registerGlobalSurface(definition) {
-          if (definition.id.trim().length === 0) {
+          // Normalised, not merely validated. A padded id passed the old check
+          // and was then stored untrimmed, so every lookup that keyed on the
+          // clean string missed — a surface that mounts nowhere, with nothing
+          // to explain why. That was fixed for a surface's VIEW ids in Stage 2;
+          // the surface's own id had the same hole.
+          const id = definition.id.trim()
+          if (id.length === 0) {
             throw new Error('Global surface id must be a non-empty string.')
           }
           // The Extensions home is core (the app rail's Extensions glyph,
@@ -1257,20 +1274,35 @@ export function createRendererHost(): RendererKernel {
           // parts are offered, so no module may gate it — the same reservation
           // `settings` and `diff` carry on the modal side, and the one the
           // retired `marketplace` modal carried before this.
-          if (definition.id === 'extensions-home') {
+          if (id === 'extensions-home') {
             throw new Error('Global surface id "extensions-home" is reserved for the app\'s own Extensions home.')
           }
           if (definition.label !== undefined && definition.label.trim().length === 0) {
-            throw new Error(`Global surface "${definition.id}" has an empty label; omit it instead.`)
+            throw new Error(`Global surface "${id}" has an empty label; omit it instead.`)
           }
-          const views = normalizeSurfaceViews('Global surface', definition.id, definition.views)
-          const existing = globalSurfaces.get(definition.id)
-          if (existing) {
+          // `railPlacement` decides whether the door TAKES the sidebar column.
+          // A typo fell through to the `sidebar` default, which is the more
+          // destructive of the two: a drawer row that meant `inline` would have
+          // deleted the very drawer that opened it, and nothing would have said
+          // so. TypeScript catches this for a module compiled against the SDK;
+          // a third-party bundle loaded at runtime is not.
+          if (
+            definition.railPlacement !== undefined &&
+            definition.railPlacement !== 'sidebar' &&
+            definition.railPlacement !== 'inline'
+          ) {
             throw new Error(
-              `Global surface "${definition.id}" is already registered by module "${existing.moduleId}".`
+              `Global surface "${id}" declares an unknown railPlacement "${String(definition.railPlacement)}"; use "sidebar" or "inline".`
             )
           }
-          globalSurfaces.set(definition.id, { ...definition, ...(views ? { views } : {}), moduleId })
+          const views = normalizeSurfaceViews('Global surface', id, definition.views)
+          const existing = globalSurfaces.get(id)
+          if (existing) {
+            throw new Error(
+              `Global surface "${id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          globalSurfaces.set(id, { ...definition, id, ...(views ? { views } : {}), moduleId })
         },
         registerModalSurface(definition) {
           if (definition.id.trim().length === 0) {
@@ -1520,7 +1552,9 @@ export function createRendererHost(): RendererKernel {
       return [...sidebarNavEntries.values()]
         .filter((entry) => !moduleEnabled || moduleEnabled(entry.moduleId))
         .sort((a, b) => {
-          const order = a.order - b.order
+          // `order` is optional now that nothing lists these (see the type); an
+          // omitted one sorts as 0, so a declared order still leads.
+          const order = (a.order ?? 0) - (b.order ?? 0)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
     },
@@ -1528,7 +1562,9 @@ export function createRendererHost(): RendererKernel {
       return [...topBarItems.values()]
         .filter((item) => !moduleEnabled || moduleEnabled(item.moduleId))
         .sort((a, b) => {
-          const order = a.order - b.order
+          // `order` is optional now that nothing lists these (see the type); an
+          // omitted one sorts as 0, so a declared order still leads.
+          const order = (a.order ?? 0) - (b.order ?? 0)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
     },
@@ -1547,7 +1583,9 @@ export function createRendererHost(): RendererKernel {
       return [...modalSurfaces.values()]
         .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
         .sort((a, b) => {
-          const order = a.order - b.order
+          // `order` is optional now that nothing lists these (see the type); an
+          // omitted one sorts as 0, so a declared order still leads.
+          const order = (a.order ?? 0) - (b.order ?? 0)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
     },

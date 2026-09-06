@@ -4,6 +4,7 @@ import { createRendererHost, type WorkspaceTypeDefinition } from './renderer-hos
 import type { NotificationActionContext } from './renderer-host'
 import { voiceDictationRendererModule } from './voice-dictation-module'
 import type { AppNotification, LayoutTemplate } from '../types/workspace'
+import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 
 const template: LayoutTemplate = {
   id: 'workspace-type-test',
@@ -142,10 +143,19 @@ assert.throws(
   /Module command "demo-module\.hello" is already registered/,
   'duplicate command-id registration is an explicit error',
 )
+// `workspace.close`, not the `workspace.new` this named until the shell retired
+// that command. A test that names a command nothing registers any more asserts
+// nothing — and this one threw, which killed the whole file: every assertion
+// below it, the surface contracts included, stopped running the day the shell's
+// command list moved. Pinned against the registry so it says so next time.
+assert.ok(
+  COMMAND_REGISTRY.some((command) => command.id === 'workspace.close'),
+  'the shadowing test has to name a command the shell actually registers, or it proves nothing',
+)
 assert.throws(
   () => commandHost.hostFor('workspace').registerCommand({
-    id: 'new',
-    title: 'Shadow New Workspace',
+    id: 'close',
+    title: 'Shadow Close Workspace',
     category: 'Shadow',
     scopes: ['global'],
     run() {},
@@ -544,6 +554,29 @@ assert.deepEqual(
     ['near'],
     'a view id is stored normalised, so the registry and the drawer agree character for character',
   )
+  // The SURFACE's own id is normalised for the same reason its views' are: a
+  // padded id passed the check, was stored padded, and then matched nothing —
+  // not the drawer's lookup, not `activeGlobalSurface`, not the door that opens
+  // it. The mount would simply never happen.
+  doorHost.hostFor('acme.compass').registerGlobalSurface({
+    id: '  padded-surface  ', Component: surfaceComponent,
+  })
+  assert.equal(
+    doorHost.getGlobalSurface('padded-surface')?.id,
+    'padded-surface',
+    'a surface id is stored normalised, so the door that opens it and the registry agree',
+  )
+  // `railPlacement` decides whether the door TAKES the sidebar column, and an
+  // unknown value fell through to the more destructive default: a drawer row
+  // that meant `inline` would have deleted the drawer that opened it, silently.
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'bad-placement', Component: surfaceComponent,
+      railPlacement: 'floating' as never,
+    }),
+    /unknown railPlacement/,
+    'an unrecognised railPlacement is rejected rather than defaulting to taking the column',
+  )
   assert.throws(
     () => doorHost.hostFor('acme.compass').registerGlobalSurface({
       id: 'extensions-home', Component: surfaceComponent,
@@ -559,7 +592,10 @@ console.log('renderer host global surface tests passed')
 
 // A first-party modal surface and a third-party module's register through the
 // same contract — the seam that lets an SDK module contribute a modal surface
-// (body + settings-cluster trigger glyph) without editing the shell.
+// without editing the shell. The body is all of it now: the settings-cluster
+// trigger glyph the doors→modals ruling put beside each one went with that
+// ruling (Extensions drawer, 2026-09-05), so a modal surface is opened from
+// inside the content it floats over and `order`/`Icon` are optional leftovers.
 const modalHost = createRendererHost()
 const modalComponent = () => {
   throw new Error('modal surface component should not be evaluated during registration')

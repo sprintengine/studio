@@ -248,13 +248,18 @@ export function GlobalSurfaceShell({
         {rail && !liftRail ? (
           <aside
             aria-label={`${ariaLabel} list`}
-            // ONE rail width in the product: the app sidebar's own column, which
-            // this surface's rail renders inside whenever the host replaces it
-            // (item 1993). This inline aside is the fallback for a host that does
-            // not — it adopts the same width from the same constant rather than
-            // keeping the second number (`w-[224px]`) that made a door two rails
-            // wide. It scrolls and insets nothing: the rail owns both, so its
-            // create/search head can sit outside the scrollport and paint no
+            // The sidebar's DEFAULT width, deliberately — not the person's
+            // current one. When the host lifts a surface's rail into the app
+            // sidebar (item 1993) the rail IS that column and wears whatever
+            // width it was dragged to. This aside is the other case: a second
+            // column, inside the card region, standing BESIDE the sidebar
+            // rather than replacing it (`railPlacement: 'inline'`). Tying it to
+            // the live `sidebarWidth` would make a door's own rail jump every
+            // time the unrelated column next to it was dragged. So it takes the
+            // scale's number from the same constant — which is still what
+            // retired the second, unrelated `w-[224px]` that made a door two
+            // rails wide. It scrolls and insets nothing: the rail owns both, so
+            // its create/search head can sit outside the scrollport and paint no
             // ground of its own (see `SurfaceRailHeader`).
             // In a modal the rail yields before the canvas does: the shell is
             // capped at 95vw, so on a narrow window a fixed rail would eat the

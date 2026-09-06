@@ -84,7 +84,6 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'sprint-engine',
   'review',
   'automations',
-  'roadmap',
   'mobile-relay',
   'voice-dictation',
 ]
@@ -1435,6 +1434,49 @@ export type GlobalSurfaceComponent =
   | ComponentType
   | LazyExoticComponent<ComponentType>
 
+/** The glyph the shell's chrome draws when it names your surface. */
+export type SurfaceIconComponent = ComponentType<{ className?: string }>
+
+/**
+ * Where your door's own rail goes while the door is open.
+ *
+ *   `sidebar` (the default) — your rail REPLACES the app sidebar's column for
+ *   the length of the visit. Right when the rail is a list the person walks
+ *   and is the navigation while your surface is open.
+ *
+ *   `inline` — your rail renders inside the card region beside your canvas and
+ *   the sidebar column keeps whatever it was showing. Right when the column
+ *   ALREADY holds the navigation that reached you: taking it would delete the
+ *   very list the person is navigating with.
+ */
+export type SurfaceRailPlacement = 'sidebar' | 'inline'
+
+/**
+ * One row of the shell's Extensions drawer, for a surface that is several
+ * destinations to the person rather than one. A surface with no `views` (the
+ * common case) contributes a single row named by its own `label` and `Icon`.
+ * You own each row's name, glyph and how the surface lands on it; the shell
+ * owns only where the rows sit.
+ */
+export type SurfaceViewDefinition = {
+  /**
+   * Unique within your surface. Publish this id while the surface is showing
+   * this view, so exactly one of your rows reads selected.
+   */
+  id: string
+  /** The row's label and accessible name. Non-empty; sentence case. */
+  label: string
+  /** The row's glyph; the shell sizes it via className. */
+  Icon: SurfaceIconComponent
+  /**
+   * Land the surface on this view. Runs BEFORE the shell opens the surface, so
+   * a deep-link latch set here is drained by your surface as it mounts. This
+   * replaces `onOpen` for a view row: a view IS a target, so there is no stale
+   * latch to discard.
+   */
+  open: () => void
+}
+
 /**
  * The full-page surface behind a top-level door. A global surface is a
  * first-class extension point: it is instance-global, needs no workspace
@@ -1445,10 +1487,35 @@ export type GlobalSurfaceComponent =
  * eager or `React.lazy()`. While your module is uninstalled or disabled, the
  * shell renders an explicit "not installed" door in its place and keeps the
  * user's spot; re-enabling restores the surface without a reload.
+ *
+ * Everything but `id` and `Component` is optional, and every optional field is
+ * about PRESENTATION — how the shell's own chrome names and places your
+ * surface (Extensions drawer ruling, 2026-09-05). A door that draws its own
+ * row through `registerSidebarNavEntry` can omit them all, as it always could.
  */
 export type GlobalSurfaceDefinition = {
   /** Matches the id the door opens. Non-empty; unique across all modules. */
   id: string
+  /**
+   * Your surface's user-facing name — the drawer row's label, the door bar's
+   * fallback title, and the "not installed" explainer's heading. Decoupled
+   * from the id. Non-empty when given; omit it if your own nav-entry component
+   * names the surface instead.
+   */
+  label?: string
+  /** The glyph for chrome that names your surface. Optional for the same reason `label` is. */
+  Icon?: SurfaceIconComponent
+  /**
+   * Called just before the shell opens your surface from a PLAIN opener — a
+   * rail glyph, a drawer row, a history step — one landing on your default
+   * view. Discard stale deep-link latches here. Deep-link openers dispatch
+   * their own state and bypass this.
+   */
+  onOpen?: () => void
+  /** The drawer rows your one surface offers, when it is more than one destination. */
+  views?: readonly SurfaceViewDefinition[]
+  /** Where your door's rail goes. Defaults to `sidebar`. */
+  railPlacement?: SurfaceRailPlacement
   Component: GlobalSurfaceComponent
 }
 
@@ -1457,30 +1524,41 @@ export type GlobalSurfaceDefinition = {
 export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
 
 /**
- * A modal surface your module contributes — the modal counterpart to a door's
- * nav-entry + global-surface pair. The shell mounts your body inside its own
- * modal shell over whatever the window is showing, and renders your trigger as
- * a glyph button in the sidebar footer's settings cluster, tooltip and
- * accessible name from `label`. The shell owns the modal chrome (width step,
- * flat scrim — never a backdrop blur — focus trap, Escape/scrim close); your
- * component owns only the body, zero-prop, eager or `React.lazy()`. While your
- * module is disabled the trigger disappears and an open modal closes;
- * re-enabling restores the trigger without a reload.
+ * A modal surface your module contributes — a pick-and-close task floated over
+ * work that stays put. The shell mounts your body inside its own modal shell
+ * over whatever the window is showing: it owns the modal chrome (width step,
+ * flat scrim — never a backdrop blur — focus trap, Escape/scrim close, and a
+ * title bar carrying `label` and the one close), and your component owns only
+ * the body, zero-prop, eager or `React.lazy()`. While your module is disabled
+ * an open modal closes; re-enabling restores it without a reload.
+ *
+ * **You open it.** The shell renders no trigger for a modal surface. It used to
+ * put a glyph button for each one in the sidebar footer's settings cluster
+ * (doors→modals, 2026-09-01); the Extensions-drawer ruling of 2026-09-05 sent
+ * every destination the shell's own chrome offers back to being a DOOR, and
+ * took the cluster with it — a modal is now reached from inside the content it
+ * floats over (a pane launcher, a row action, a notification's Open), which is
+ * the shape a modal is for. Contribute the trigger yourself from wherever that
+ * is, and call `openModalSurface(id)`.
+ *
+ * `order` and `Icon` are what the retired cluster read, and they are optional
+ * for that reason: nothing renders them today. They are kept rather than
+ * deleted so a module that already declares them still compiles, and so a
+ * future trigger surface has the fields it would need.
  */
 export type ModalSurfaceDefinition = {
   /** Non-empty; unique across all modules. */
   id: string
-  /** Sort key among trigger glyphs in the settings cluster; lower renders first, ties break on id. */
-  order: number
-  /** Trigger tooltip + accessible name, and the dialog's accessible name. Non-empty; sentence case. */
+  /** Sort key among registered modal surfaces; lower first, ties break on id. Nothing renders this today. */
+  order?: number
+  /** The dialog's accessible name and its bar title. Non-empty; sentence case. */
   label: string
-  /** The trigger glyph; the shell sizes it via className. */
-  Icon: ModalSurfaceIconComponent
+  /** A glyph for chrome that names this surface. Nothing renders this today. */
+  Icon?: ModalSurfaceIconComponent
   /**
-   * Called just before the shell opens this modal from its trigger glyph — a
-   * PLAIN open, landing on the surface's default view. Discard stale
-   * deep-link latches here. Deep-link openers dispatch their own state and
-   * bypass this.
+   * Called just before the shell opens this modal from a plain opener — one
+   * landing on the surface's default view. Discard stale deep-link latches
+   * here. Deep-link openers dispatch their own state and bypass this.
    */
   onOpen?: () => void
   /** The modal body. */

@@ -8,9 +8,15 @@ import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './acc
 // The account + Settings cluster lives at the sidebar bottom (Cursor-parity
 // layout), relocated from WorkspaceTopBar. The account menu, its trigger, and
 // the Settings gear keep their original handlers — only the mount point moved.
-// The settings cluster also hosts the modal-surface trigger glyphs
-// (doors→modals, 2026-09-01): Plugins, Automations and Design left the top-nav
-// door band and open as modals from here, beside the gear.
+//
+// TWO controls, and no more. For four days it also hosted a trigger glyph per
+// registered modal surface (doors→modals, 2026-09-01): Plugins, Automations and
+// Design left the top-nav door band and opened as modals from beside the gear.
+// The Extensions drawer ruling (2026-09-05) sent all three back to being doors
+// — a destination the shell's own chrome offers routes the card region — so the
+// cluster is the account and Settings again, and nothing renders a modal
+// trigger anywhere. Settings stays here because it belongs to the WINDOW rather
+// than to whichever section the sidebar is showing.
 
 // Tier drives the colour of the account glyph: gold for an active Pro plan,
 // green otherwise (free, trial, or entitlements not yet resolved). Presentation

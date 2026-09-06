@@ -5,7 +5,6 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 import { REVIEW_GUIDE_AGENT_ID_PREFIX } from '../review/door/reviewGuideTerminal'
-import { ReviewsGlyph } from '../components/workspace/surfaceGlyphs'
 
 // The Reviews surface (global-surfaces epic 1704; a modal since 2026-09-05),
 // mounted by WorkspaceManager in the shell's modal shell. Lazy so its bundle
@@ -45,11 +44,14 @@ export const reviewRendererModule: RendererModule = {
   registerRenderer(host) {
     // Order 25: after Sprints (20) and before Design (30) in the Extensions
     // list, which interleaves doors and modals by this one number.
+    // No `order` and no `Icon`: nothing lists modal surfaces or draws a trigger
+    // for one since the Extensions drawer ruling (2026-09-05) retired the
+    // settings cluster. Reviews is opened from the workspace pane strip, whose
+    // launcher carries the glyph itself (paneKinds.tsx), so declaring a second
+    // copy here would be a field nothing reads pretending to be the source.
     host.registerModalSurface({
       id: 'reviews',
-      order: 25,
       label: 'Reviews',
-      Icon: ReviewsGlyph,
       Component: ReviewsGlobalSurface,
     })
     // The guide runs as an ordinary agent terminal that main spawned without a
