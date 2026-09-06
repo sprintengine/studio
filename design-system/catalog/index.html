@@ -2330,9 +2330,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 /* List row — the pick-an-item worklist row, and the most repeated surface in
  * the product: rails, sources, inboxes, categories, search results.
  *
- * Family contract: neutral selection (never the accent), two selection tiers
- * so a multi-pane surface has one focused selection, background-only hover,
- * and trailing actions that stay hidden until pointed at or focused. */
+ * Family contract: a neutral selection FILL plus an accent EDGE on the pane
+ * being driven, two selection tiers so a multi-pane surface has one such row,
+ * background-only hover, and trailing actions that stay hidden until pointed
+ * at or focused. */
 
 .ds-list-row {
   /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
@@ -2378,11 +2379,29 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 /* ── Selection ───────────────────────────────────────────────────────────
  * Two tiers. `--selected` is the pane the user is driving; `--resting` is
- * every other pane's remembered choice. Selection is neutral in both: the
- * accent is reserved for the primary action, so a chosen row never outranks
- * the one thing worth clicking. */
+ * every other pane's remembered choice.
+ *
+ * `--selected` is a neutral fill PLUS a 2px inset accent edge (owner ruling
+ * 2026-09-05). The fill alone lost: one step of neutral grey is the quietest
+ * mark on the surface, and any row wearing a status tint — which is a hue,
+ * a whole-row wash and an ink change — read as the chosen one instead. The
+ * person could not find the row their keyboard was driving.
+ *
+ * The edge, not the fill: an accent FILL would still be wrong, because the
+ * accent's other job is "this is the action worth clicking" and a filled row
+ * outranks the button beside it. An edge marks the row without claiming that
+ * weight. It is also the same 2px accent border the focused terminal wears
+ * (`terminal-focus-ring`), so the row in the rail and the surface it drives
+ * carry one mark between them — which is the question this treatment exists
+ * to answer.
+ *
+ * `--resting` takes the fill and NOT the edge. That is the whole two-tier
+ * rule made visible: exactly one edge on screen, on the pane with focus.
+ *
+ * Still ruled out, unchanged: an accent fill, a left bar, a glow. */
 .ds-list-row--selected {
   background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
   color: var(--sem-color-text-primary);
 }
 
@@ -2586,30 +2605,35 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* ── Attention ───────────────────────────────────────────────────────────
- * The two things a row can say that outrank selection: an agent on it is
- * waiting for the person (`--needs-input`), or it finished while they were
- * looking elsewhere and they have not opened it since (`--finished`). Each
- * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
- * the title in the tone's ink — because a dot or a chip beside an otherwise
- * quiet row is the weakest possible carrier for the one state that actually
- * wants the person to look (owner ruling 2026-09-04, twice: first the
- * needs-input dot, then the "Done" chip).
+ * The two things a row can say on its own: an agent on it is waiting for the
+ * person (`--needs-input`), or it finished while they were looking elsewhere
+ * and they have not opened it since (`--finished`). Each takes the WHOLE row
+ * — a tinted fill and the title in the tone's ink — because a dot or a chip
+ * beside an otherwise quiet row is the weakest possible carrier for the one
+ * state that actually wants the person to look (owner ruling 2026-09-04,
+ * twice: first the needs-input dot, then the "Done" chip).
  *
- * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
- * in this system (the leading gutter belongs to the cursor and to identity),
- * and `box-shadow` inset draws it without shifting the row's geometry.
+ * A FILL, and only a fill. The edge is selection's channel and status may not
+ * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).
+ * A green ring around a finished row is indistinguishable from the accent
+ * edge on the row being driven — and because the ring is the louder of the
+ * two marks, a row saying "I finished while you were out" was read as "this
+ * is the one you are in". The two questions are answered by two channels:
+ * status is the wash, selection is the edge, and a row can wear both at once
+ * without either being mistaken for the other.
+ *
+ * A left bar remains a ruled rejection for both: the leading gutter belongs
+ * to the cursor and to identity.
  *
  * `--finished` is one notch under `--needs-input` by construction: it asks
  * for a look, not an answer, so its fill is `status.good-faint` rather than
- * `-soft` and its ring is `status.good-edge` rather than the full tone.
- * When a row is both, needs-input wins.
+ * `-soft`. When a row is both, needs-input wins.
  *
  * Both hold until the person opens the row — a finished row clears the moment
  * it becomes the selected one — and both are colour PLUS words: the trailing
  * slot or a visually-hidden clause says "needs input" / "finished" in text. */
 .ds-list-row--needs-input {
   background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
   color: var(--sem-color-status-warn);
 }
 
@@ -2619,7 +2643,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 .ds-list-row--finished {
   background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
   color: var(--sem-color-status-good);
 }
 
@@ -2627,19 +2650,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   background: var(--sem-color-status-good-faint);
 }
 
-/* Selection reads underneath: the pane's one selected row keeps a heavier
- * edge, so it stays findable without inventing a second gold or green. */
-.ds-list-row--needs-input.ds-list-row--selected {
-  background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
-  color: var(--sem-color-status-warn);
-}
-
-.ds-list-row--finished.ds-list-row--selected {
-  background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
-  color: var(--sem-color-status-good);
-}
+/* Nothing to restate for the selected case: these rules declare no
+ * `box-shadow`, so the accent edge set by `--selected` survives underneath a
+ * status wash untouched. That composition IS the contract — the tint says
+ * what happened, the edge says where you are. */
 
 .ds-list-row--needs-input .ds-list-row-supporting,
 .ds-list-row--finished .ds-list-row-supporting,
@@ -7426,6 +7440,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 .ds-embed-pattern-selection .pat-wrong .ds-list-row--selected {
     background: var(--sem-color-accent-soft);
+    
+    box-shadow: none;
     border-left: 3px solid var(--sem-color-accent-primary);
     border-radius: var(--sem-radius-control);
     padding-left: var(--sem-space-sm);
@@ -14519,17 +14535,18 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — | | Flash | <code>.ds-list-row-flash</code> | only as a row enters an attention state — a one-shot overlay, <code>aria-hidden</code> |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
-<p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving.</p>
-<p>Selection is never the accent colour, and never carries a left bar, a border box, or a glow. See <code>patterns/selection</code>.</p>
+<ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, a 2px inset <code>accent.primary</code> edge, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, <strong>no edge</strong>, title stays at <code>text.default</code>.</li></ul>
+<p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving. The edge is what makes that legible: one accent edge on screen, on the pane with focus.</p>
+<p>The accent appears as an <strong>edge, never a fill</strong> (owner ruling 2026-09-05). A neutral fill on its own lost to every row wearing a status tint, so the person could not find the row they were driving; an accent *fill* would have fixed that by making a chosen row outrank the primary button beside it, which is the accent's other job. Selection still never carries a left bar or a glow. See <code>patterns/selection</code>.</p>
 <h5>Attention</h5>
-<p>Two states outrank selection, and each takes the <strong>whole row</strong> — a tinted fill, a 1px inset ring all the way round, and the title in the tone's ink:</p>
-<ul><li><strong><code>--needs-input</code></strong> — an agent on this row is waiting for the person. <code>status.warn-soft</code> fill, <code>status.warn</code> ring and ink. The loudest thing a row can say.</li><li><strong><code>--finished</code></strong> — a turn on this row finished while the person was looking elsewhere, and they have not opened it since. <code>status.good-faint</code> fill, <code>status.good-edge</code> ring, <code>status.good</code> ink. One notch under needs-input by construction: it asks for a look, not an answer.</li></ul>
-<p>When a row is both, needs-input wins. Both hold until the person opens the row and clear the moment it becomes the selected one; a selected attention row keeps a 2px edge so the pane's one selection stays findable.</p>
+<p>Two states a row can say on its own, each taking the <strong>whole row</strong> — a tinted fill and the title in the tone's ink:</p>
+<ul><li><strong><code>--needs-input</code></strong> — an agent on this row is waiting for the person. <code>status.warn-soft</code> fill, <code>status.warn</code> ink. The loudest thing a row can say.</li><li><strong><code>--finished</code></strong> — a turn on this row finished while the person was looking elsewhere, and they have not opened it since. <code>status.good-faint</code> fill, <code>status.good</code> ink. One notch under needs-input by construction: it asks for a look, not an answer.</li></ul>
+<p><strong>Status is the fill; selection is the edge.</strong> Neither attention state draws a ring (owner ruling 2026-09-05, removing the one they used to carry). A green ring around a finished row is the same mark as the accent edge on the row being driven, and it was the louder of the two — so &quot;I finished while you were out&quot; was read as &quot;this is the one you are in&quot;. Two questions, two channels: a row can wear a status wash and the selection edge at once, and neither is mistaken for the other.</p>
+<p>When a row is both attention states, needs-input wins. Both hold until the person opens the row and clear the moment it becomes the selected one.</p>
 <p>Both are colour <strong>plus words</strong>: the trailing slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. Never a dot or a chip beside an otherwise quiet row — that was ruled out twice (2026-09-04): the one state that wants the person to look must not be the quietest thing on the row.</p>
 <p>A row <strong>entering</strong> either state plays <code>.ds-list-row-flash</code> once: the &quot;just changed&quot; mark from [liveness](../liveness/component.md), in the tone the row is already wearing. It never loops — what keeps a waiting row loud is ink, not motion.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Needs input | <code>--needs-input</code>: <code>status.warn-soft</code> fill, 1px inset <code>status.warn</code> ring, <code>status.warn</code> ink; 2px ring when also selected. One-shot flash on entry | | Finished, unseen | <code>--finished</code>: <code>status.good-faint</code> fill, 1px inset <code>status.good-edge</code> ring, <code>status.good</code> ink; 2px ring when also selected. One-shot flash on entry. Clears on open | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> fill + 2px inset <code>accent.primary</code> edge + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> fill, no edge, + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Needs input | <code>--needs-input</code>: <code>status.warn-soft</code> fill, <code>status.warn</code> ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry | | Finished, unseen | <code>--finished</code>: <code>status.good-faint</code> fill, <code>status.good</code> ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry. Clears on open | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
 <p><strong>The cursor is a third channel, not a third selection.</strong> A list that walks with <code>aria-activedescendant</code> keeps DOM focus on one element, so it has a row the keyboard is *on* that is neither the row a person picked nor the element they are typing in. It cannot borrow either treatment: it must stay visible on a row that is already selected and stay distinct from one that is merely hovered. A gutter mark composes over both fills, which neither fill can do over the other.</p>
 <p>It takes <code>text.primary</code>, not the accent: <code>border.focus</code> and <code>accent.primary</code> are the same value in all but one theme, so an accent bar in the gutter reads as a focus ring that has slipped. And a list that *does* move real DOM focus with its cursor renders no mark at all — there the focus ring is already the answer, and one idiom beats two.</p>
 <p>Added 2026-09-02, after a conformance sweep replaced two lists' private cursor outlines with <code>bg.hover</code> and made the cursor invisible on every row a person had already picked.</p>
@@ -14548,9 +14565,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <details class="catalog-source"><summary>components/list-row/component.css</summary><pre><code>/* List row — the pick-an-item worklist row, and the most repeated surface in
  * the product: rails, sources, inboxes, categories, search results.
  *
- * Family contract: neutral selection (never the accent), two selection tiers
- * so a multi-pane surface has one focused selection, background-only hover,
- * and trailing actions that stay hidden until pointed at or focused. */
+ * Family contract: a neutral selection FILL plus an accent EDGE on the pane
+ * being driven, two selection tiers so a multi-pane surface has one such row,
+ * background-only hover, and trailing actions that stay hidden until pointed
+ * at or focused. */
 
 .ds-list-row {
   /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
@@ -14596,11 +14614,29 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
 /* ── Selection ───────────────────────────────────────────────────────────
  * Two tiers. `--selected` is the pane the user is driving; `--resting` is
- * every other pane's remembered choice. Selection is neutral in both: the
- * accent is reserved for the primary action, so a chosen row never outranks
- * the one thing worth clicking. */
+ * every other pane's remembered choice.
+ *
+ * `--selected` is a neutral fill PLUS a 2px inset accent edge (owner ruling
+ * 2026-09-05). The fill alone lost: one step of neutral grey is the quietest
+ * mark on the surface, and any row wearing a status tint — which is a hue,
+ * a whole-row wash and an ink change — read as the chosen one instead. The
+ * person could not find the row their keyboard was driving.
+ *
+ * The edge, not the fill: an accent FILL would still be wrong, because the
+ * accent's other job is &quot;this is the action worth clicking&quot; and a filled row
+ * outranks the button beside it. An edge marks the row without claiming that
+ * weight. It is also the same 2px accent border the focused terminal wears
+ * (`terminal-focus-ring`), so the row in the rail and the surface it drives
+ * carry one mark between them — which is the question this treatment exists
+ * to answer.
+ *
+ * `--resting` takes the fill and NOT the edge. That is the whole two-tier
+ * rule made visible: exactly one edge on screen, on the pane with focus.
+ *
+ * Still ruled out, unchanged: an accent fill, a left bar, a glow. */
 .ds-list-row--selected {
   background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
   color: var(--sem-color-text-primary);
 }
 
@@ -14804,30 +14840,35 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 }
 
 /* ── Attention ───────────────────────────────────────────────────────────
- * The two things a row can say that outrank selection: an agent on it is
- * waiting for the person (`--needs-input`), or it finished while they were
- * looking elsewhere and they have not opened it since (`--finished`). Each
- * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
- * the title in the tone's ink — because a dot or a chip beside an otherwise
- * quiet row is the weakest possible carrier for the one state that actually
- * wants the person to look (owner ruling 2026-09-04, twice: first the
- * needs-input dot, then the &quot;Done&quot; chip).
+ * The two things a row can say on its own: an agent on it is waiting for the
+ * person (`--needs-input`), or it finished while they were looking elsewhere
+ * and they have not opened it since (`--finished`). Each takes the WHOLE row
+ * — a tinted fill and the title in the tone's ink — because a dot or a chip
+ * beside an otherwise quiet row is the weakest possible carrier for the one
+ * state that actually wants the person to look (owner ruling 2026-09-04,
+ * twice: first the needs-input dot, then the &quot;Done&quot; chip).
  *
- * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
- * in this system (the leading gutter belongs to the cursor and to identity),
- * and `box-shadow` inset draws it without shifting the row's geometry.
+ * A FILL, and only a fill. The edge is selection's channel and status may not
+ * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).
+ * A green ring around a finished row is indistinguishable from the accent
+ * edge on the row being driven — and because the ring is the louder of the
+ * two marks, a row saying &quot;I finished while you were out&quot; was read as &quot;this
+ * is the one you are in&quot;. The two questions are answered by two channels:
+ * status is the wash, selection is the edge, and a row can wear both at once
+ * without either being mistaken for the other.
+ *
+ * A left bar remains a ruled rejection for both: the leading gutter belongs
+ * to the cursor and to identity.
  *
  * `--finished` is one notch under `--needs-input` by construction: it asks
  * for a look, not an answer, so its fill is `status.good-faint` rather than
- * `-soft` and its ring is `status.good-edge` rather than the full tone.
- * When a row is both, needs-input wins.
+ * `-soft`. When a row is both, needs-input wins.
  *
  * Both hold until the person opens the row — a finished row clears the moment
  * it becomes the selected one — and both are colour PLUS words: the trailing
  * slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. */
 .ds-list-row--needs-input {
   background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
   color: var(--sem-color-status-warn);
 }
 
@@ -14837,7 +14878,6 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
 .ds-list-row--finished {
   background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
   color: var(--sem-color-status-good);
 }
 
@@ -14845,19 +14885,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   background: var(--sem-color-status-good-faint);
 }
 
-/* Selection reads underneath: the pane's one selected row keeps a heavier
- * edge, so it stays findable without inventing a second gold or green. */
-.ds-list-row--needs-input.ds-list-row--selected {
-  background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
-  color: var(--sem-color-status-warn);
-}
-
-.ds-list-row--finished.ds-list-row--selected {
-  background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
-  color: var(--sem-color-status-good);
-}
+/* Nothing to restate for the selected case: these rules declare no
+ * `box-shadow`, so the accent edge set by `--selected` survives underneath a
+ * status wash untouched. That composition IS the contract — the tint says
+ * what happened, the edge says where you are. */
 
 .ds-list-row--needs-input .ds-list-row-supporting,
 .ds-list-row--finished .ds-list-row-supporting,
@@ -25884,8 +25915,16 @@ measureAll()
   <p class="pat-lede">
     Selection answers “what did I pick?”. Focus answers “where am I typing?”.
     They are different questions and never share a treatment. Selection is a
-    neutral fill in two tiers — the accent is reserved for the primary action,
+    neutral fill in two tiers, and the tier with focus adds a 2px accent
+    <em>edge</em> — the accent’s fill is still reserved for the primary action,
     so a chosen row never outranks the one thing worth clicking.
+  </p>
+  <p class="pat-lede">
+    The edge is also the channel status may not borrow: a tinted row says
+    <em>what happened here</em>, the edge says <em>where you are</em>. A row
+    can wear both at once, which is the point — before the split, a green
+    “finished while you were away” ring outshouted the neutral fill on the row
+    the person was actually driving.
   </p>
 
   <p class="pat-heading">The rule: one focused selection per surface</p>
@@ -25932,9 +25971,56 @@ measureAll()
     </div>
   </div>
   <p class="pat-caption">
-    One pane has focus and shows <code>--selected</code>. The other two show
-    <code>--resting</code>: they remember the choice without competing, so the
-    eye lands on the list the keyboard is driving.
+    One pane has focus and shows <code>--selected</code> — the neutral fill
+    plus the accent edge. The other two show <code>--resting</code>: the fill
+    alone, no edge. They remember the choice without competing, so the eye
+    lands on the list the keyboard is driving.
+  </p>
+
+  <p class="pat-heading">Status and selection compose</p>
+  <p class="pat-verdict">DO</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Left: two rows are tinted and a third carries the edge — the tints say
+    what happened, the edge says which one you are in. Right: the row you are
+    in is also the one waiting on you, so it wears the gold wash and the edge
+    together. Neither reading is ambiguous, because no status state draws an
+    edge of its own.
   </p>
 
   <p class="pat-heading">The failure this prevents</p>
@@ -25981,10 +26067,11 @@ measureAll()
     </div>
   </div>
   <p class="pat-caption">
-    Three panes shouting at once, each with an accent fill and a left bar.
-    Nothing says which list has focus, three signals carry one state, and the
-    accent no longer means “this is the action”. Selection never uses the
-    accent, and never carries a left bar.
+    Three panes shouting at once, each with an accent <em>fill</em> and a left
+    bar. Nothing says which list has focus, three signals carry one state, and
+    the accent no longer means “this is the action”. Selection takes the
+    accent as an edge on one pane only, never as a fill, and never as a left
+    bar.
   </p>
 
   <p class="pat-heading">Where a left bar is still correct</p>
@@ -25996,7 +26083,7 @@ measureAll()
 
 <div class="pat-stage" data-mode="light">
   <p class="pat-title">Selection — light</p>
-  <p class="pat-lede">The same two tiers, from the same tokens.</p>
+  <p class="pat-lede">The same two tiers and the same edge, from the same tokens.</p>
   <div class="pat-panes">
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
@@ -26126,6 +26213,9 @@ measureAll()
      Never copy these rules into a component. */
   .pat-wrong .ds-list-row--selected {
     background: var(--sem-color-accent-soft);
+    /* The edge is cancelled here on purpose: the anti-pattern is the accent
+       arriving as a fill and a left bar instead. */
+    box-shadow: none;
     border-left: 3px solid var(--sem-color-accent-primary);
     border-radius: var(--sem-radius-control);
     padding-left: var(--sem-space-sm);
@@ -26140,8 +26230,16 @@ measureAll()
   &lt;p class=&quot;pat-lede&quot;&gt;
     Selection answers “what did I pick?”. Focus answers “where am I typing?”.
     They are different questions and never share a treatment. Selection is a
-    neutral fill in two tiers — the accent is reserved for the primary action,
+    neutral fill in two tiers, and the tier with focus adds a 2px accent
+    &lt;em&gt;edge&lt;/em&gt; — the accent’s fill is still reserved for the primary action,
     so a chosen row never outranks the one thing worth clicking.
+  &lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;
+    The edge is also the channel status may not borrow: a tinted row says
+    &lt;em&gt;what happened here&lt;/em&gt;, the edge says &lt;em&gt;where you are&lt;/em&gt;. A row
+    can wear both at once, which is the point — before the split, a green
+    “finished while you were away” ring outshouted the neutral fill on the row
+    the person was actually driving.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The rule: one focused selection per surface&lt;/p&gt;
@@ -26188,9 +26286,56 @@ measureAll()
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    One pane has focus and shows &lt;code&gt;--selected&lt;/code&gt;. The other two show
-    &lt;code&gt;--resting&lt;/code&gt;: they remember the choice without competing, so the
-    eye lands on the list the keyboard is driving.
+    One pane has focus and shows &lt;code&gt;--selected&lt;/code&gt; — the neutral fill
+    plus the accent edge. The other two show &lt;code&gt;--resting&lt;/code&gt;: the fill
+    alone, no edge. They remember the choice without competing, so the eye
+    lands on the list the keyboard is driving.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-heading&quot;&gt;Status and selection compose&lt;/p&gt;
+  &lt;p class=&quot;pat-verdict&quot;&gt;DO&lt;/p&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Workspaces&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;auth rewrite&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;model updates&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;popover touchups&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;remote chats&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Workspaces&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;auth rewrite&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;model updates&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;popover touchups&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;remote chats&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    Left: two rows are tinted and a third carries the edge — the tints say
+    what happened, the edge says which one you are in. Right: the row you are
+    in is also the one waiting on you, so it wears the gold wash and the edge
+    together. Neither reading is ambiguous, because no status state draws an
+    edge of its own.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The failure this prevents&lt;/p&gt;
@@ -26237,10 +26382,11 @@ measureAll()
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    Three panes shouting at once, each with an accent fill and a left bar.
-    Nothing says which list has focus, three signals carry one state, and the
-    accent no longer means “this is the action”. Selection never uses the
-    accent, and never carries a left bar.
+    Three panes shouting at once, each with an accent &lt;em&gt;fill&lt;/em&gt; and a left
+    bar. Nothing says which list has focus, three signals carry one state, and
+    the accent no longer means “this is the action”. Selection takes the
+    accent as an edge on one pane only, never as a fill, and never as a left
+    bar.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;Where a left bar is still correct&lt;/p&gt;
@@ -26252,7 +26398,7 @@ measureAll()
 
 &lt;div class=&quot;pat-stage&quot; data-mode=&quot;light&quot;&gt;
   &lt;p class=&quot;pat-title&quot;&gt;Selection — light&lt;/p&gt;
-  &lt;p class=&quot;pat-lede&quot;&gt;The same two tiers, from the same tokens.&lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;The same two tiers and the same edge, from the same tokens.&lt;/p&gt;
   &lt;div class=&quot;pat-panes&quot;&gt;
     &lt;div class=&quot;pat-pane&quot;&gt;
       &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Marketplace&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;

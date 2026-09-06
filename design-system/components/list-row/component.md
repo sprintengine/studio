@@ -31,33 +31,46 @@ work that belongs in the detail pane.
 
 - **Default** — no modifier. The resting, unselected row.
 - **`--selected`** — the selected row of the pane that currently has focus.
-  Neutral `bg.selected` fill, title lifts to `text.primary`.
+  Neutral `bg.selected` fill, a 2px inset `accent.primary` edge, title lifts
+  to `text.primary`.
 - **`--resting`** — the selected row of a pane that does not have focus.
-  Quieter `bg.selected-resting` fill, title stays at `text.default`.
+  Quieter `bg.selected-resting` fill, **no edge**, title stays at
+  `text.default`.
 
 A surface has **exactly one `--selected` row on screen**. In a rail → list →
 detail layout the other two panes use `--resting`, so the person can always see
-which list their keyboard is driving.
+which list their keyboard is driving. The edge is what makes that legible: one
+accent edge on screen, on the pane with focus.
 
-Selection is never the accent colour, and never carries a left bar, a border
-box, or a glow. See `patterns/selection`.
+The accent appears as an **edge, never a fill** (owner ruling 2026-09-05). A
+neutral fill on its own lost to every row wearing a status tint, so the person
+could not find the row they were driving; an accent *fill* would have fixed
+that by making a chosen row outrank the primary button beside it, which is the
+accent's other job. Selection still never carries a left bar or a glow. See
+`patterns/selection`.
 
 ### Attention
 
-Two states outrank selection, and each takes the **whole row** — a tinted
-fill, a 1px inset ring all the way round, and the title in the tone's ink:
+Two states a row can say on its own, each taking the **whole row** — a tinted
+fill and the title in the tone's ink:
 
 - **`--needs-input`** — an agent on this row is waiting for the person.
-  `status.warn-soft` fill, `status.warn` ring and ink. The loudest thing a
-  row can say.
+  `status.warn-soft` fill, `status.warn` ink. The loudest thing a row can say.
 - **`--finished`** — a turn on this row finished while the person was looking
   elsewhere, and they have not opened it since. `status.good-faint` fill,
-  `status.good-edge` ring, `status.good` ink. One notch under needs-input by
-  construction: it asks for a look, not an answer.
+  `status.good` ink. One notch under needs-input by construction: it asks for
+  a look, not an answer.
 
-When a row is both, needs-input wins. Both hold until the person opens the row
-and clear the moment it becomes the selected one; a selected attention row
-keeps a 2px edge so the pane's one selection stays findable.
+**Status is the fill; selection is the edge.** Neither attention state draws a
+ring (owner ruling 2026-09-05, removing the one they used to carry). A green
+ring around a finished row is the same mark as the accent edge on the row
+being driven, and it was the louder of the two — so "I finished while you were
+out" was read as "this is the one you are in". Two questions, two channels: a
+row can wear a status wash and the selection edge at once, and neither is
+mistaken for the other.
+
+When a row is both attention states, needs-input wins. Both hold until the
+person opens the row and clear the moment it becomes the selected one.
 
 Both are colour **plus words**: the trailing slot or a visually-hidden clause
 says "needs input" / "finished" in text. Never a dot or a chip beside an
@@ -76,11 +89,11 @@ not motion.
 | Rest | Transparent background, `text.muted` |
 | Hover | `bg.hover`, ink lifts to `text.default`. Background only — no shadow, scale, glow, or border that shifts geometry |
 | Focus-visible | `focus.ring`, `outline: none`. Never on `:focus` — a mouse click must not draw a ring |
-| Selected (focused pane) | `bg.selected` + `text.primary` |
-| Selected (resting pane) | `bg.selected-resting` + `text.default` |
+| Selected (focused pane) | `bg.selected` fill + 2px inset `accent.primary` edge + `text.primary` |
+| Selected (resting pane) | `bg.selected-resting` fill, no edge, + `text.default` |
 | Cursored | `.ds-list-row-cursor` — a 2px `text.primary` mark in the leading gutter. Only for a list that is one tab stop and walks with `aria-activedescendant` |
-| Needs input | `--needs-input`: `status.warn-soft` fill, 1px inset `status.warn` ring, `status.warn` ink; 2px ring when also selected. One-shot flash on entry |
-| Finished, unseen | `--finished`: `status.good-faint` fill, 1px inset `status.good-edge` ring, `status.good` ink; 2px ring when also selected. One-shot flash on entry. Clears on open |
+| Needs input | `--needs-input`: `status.warn-soft` fill, `status.warn` ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry |
+| Finished, unseen | `--finished`: `status.good-faint` fill, `status.good` ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry. Clears on open |
 | Disabled | `opacity: 0.5`, `cursor: not-allowed`. Stays in layout and stays readable |
 
 **The cursor is a third channel, not a third selection.** A list that walks

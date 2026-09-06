@@ -21,11 +21,12 @@ type InboxRowProps = {
    *  because the row itself renders as a `<button>` and nested interactives are
    *  invalid HTML. */
   trailing?: React.ReactNode
-  /** Visual selection. A neutral --bg-selected fill plus an ink lift on the
-   *  title — never the accent, and never a left bar
-   *  (`design-system/patterns/selection.html`). On a multi-pane surface, mark
-   *  each list with `data-selection-pane` and the row drops to the resting
-   *  tier whenever its pane is not the one holding focus. */
+  /** Visual selection. A neutral --bg-selected fill, an ink lift on the title,
+   *  and the 2px accent EDGE (`--selection-edge`) — never an accent fill, and
+   *  never a left bar (`design-system/patterns/selection.html`). On a
+   *  multi-pane surface, mark each list with `data-selection-pane` and the row
+   *  drops to the resting tier — fill and ink down a rung, edge to transparent
+   *  — whenever its pane is not the one holding focus. */
   selected?: boolean
   /** Row is interactive (renders as button). Default true when onSelect is set.
    *  Receives the click event so callers can read modifier keys (shift/meta) for
@@ -91,10 +92,14 @@ export function InboxRow({
 
   const className = [
     'group flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
-    // Selection is the neutral fill plus the title's ink lift, and nothing
-    // else. The state is carried to AT by aria-current below — which is also
-    // what the resting tier keys off.
-    selected ? 'bg-[color:var(--bg-selected)]' : '',
+    // Selection is the neutral fill, the title's ink lift, and the accent edge
+    // (owner ruling 2026-09-05 — the fill alone lost to any row wearing a
+    // status tint, so the row a person was driving was not the one they saw).
+    // The edge reads `--selection-edge` rather than the accent directly so the
+    // resting tier can drop it to transparent along with the other two. The
+    // state is carried to AT by aria-current below — which is also what the
+    // resting tier keys off.
+    selected ? 'bg-[color:var(--bg-selected)] ring-2 ring-inset ring-[color:var(--selection-edge)]' : '',
     interactive ? 'cursor-pointer' : '',
     // Hover is skipped on the selected row: --bg-hover sits below --bg-selected,
     // so letting it win would dim the row the pointer is over.

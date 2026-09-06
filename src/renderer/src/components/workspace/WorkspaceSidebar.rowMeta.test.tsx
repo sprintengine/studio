@@ -314,14 +314,27 @@ run('the green row marks a hook-reported turn that finished while the row was no
   assert.equal(isHookSettledSession({ processAlive: true, agentState: { phase: 'idle', source: 'lifecycle' } }), false)
   assert.equal(isHookSettledSession({ processAlive: false, agentState: { phase: 'idle', source: 'hook' } }), false)
 
-  // The mark is the row's whole surface in the good tone — fill, ring and
-  // title ink, the needs-input treatment in green — not a chip on line 2.
+  // The mark is the row's whole surface in the good tone — a fill and title
+  // ink, the needs-input treatment in green — not a chip on line 2.
   const resting = doneRowClass(false)
   assert.match(resting, /--tone-good-faint/, 'the 10% wash, one notch under the gold row\'s soft fill')
   assert.doesNotMatch(resting, /--tone-good-soft/, 'never the chip-strength fill on a whole row')
-  assert.match(resting, /ring-1 ring-inset ring-\[color:var\(--tone-good-edge\)\]/, 'ring at edge strength, not full tone')
   assert.match(resting, /--tone-good-on-tint/, 'title in good ink that clears AA over the fill')
-  assert.match(doneRowClass(true), /ring-2 ring-inset/, 'the selected row keeps the heavier edge')
+  // Status is the fill; the edge is selection's alone (owner ruling
+  // 2026-09-05). A green ring around a finished row is the same mark the
+  // focused terminal wears, so the row that finished while you were away was
+  // the one row on screen that looked like the one you were typing into.
+  assert.doesNotMatch(resting, /ring-/, 'a finished row draws no edge of its own')
+  assert.doesNotMatch(resting, /--tone-good-edge/, 'and so has no use for the edge-strength green')
+  // Active is the ONLY thing that adds an edge, and it is the accent one every
+  // selected row wears — not a second, greener spelling of selection.
+  const selected = doneRowClass(true)
+  assert.match(
+    selected,
+    /ring-2 ring-inset ring-\[color:var\(--selection-edge\)\]/,
+    'a finished row that is also the selected one wears selection\'s accent edge',
+  )
+  assert.doesNotMatch(selected, /ring-\[color:var\(--tone-/, 'never a tone-coloured edge')
   assert.doesNotMatch(meta({}), />Done</, 'line 2 no longer carries a chip')
 })
 

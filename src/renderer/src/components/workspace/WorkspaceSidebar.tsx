@@ -332,13 +332,35 @@ function buildFolderGroups(
   return groupOrder.map((key) => groups.get(key)!)
 }
 
-// No `shadow` member: the active row used to wear a 1px border box drawn as an
-// inset shadow on top of its fill, and `patterns/selection` is the fill and the
-// ink lift, nothing else (audit, sidebar-selected-row-wears-a-border-box).
+// No `shadow` member: the row's edge is not an accent's to carry. Selection's
+// 2px accent edge is drawn once by `SELECTION_EDGE_CLASS` below, on top of
+// whatever fill the row has — a neutral one, a highlight hue, or a status wash
+// — so no accent needs to ship an edge of its own.
 type RowAccent = {
   bg: string
   text: string
 }
+
+// Selection's edge: the 2px accent border the row of the pane you are driving
+// wears (owner ruling 2026-09-05; design-system/patterns/selection.html and
+// components/list-row).
+//
+// The complaint it answers, verbatim: "I'm finding it a little bit difficult to
+// really see which terminal I'm in control of." The selected row was a neutral
+// fill and an ink lift, which is one step of grey; the rows around it wearing
+// `needs-input` gold or `unseen-done` green were a hue, a whole-row wash AND a
+// ring. The loudest row on the rail was reliably not the one the person was in,
+// and the green ring in particular read as "you are here" because it is the
+// same mark the FOCUSED TERMINAL wears (`terminal-focus-ring`, a 2px
+// --border-focus border). So the two vocabularies are now split down the
+// middle: a tint says what happened on a row, an edge says which row you are
+// in, and the rail and the terminal it drives wear that edge together.
+//
+// `--selection-edge` rather than `--accent-primary` directly: the resting-tier
+// rules in assets/index.css rebind it to `transparent` on a pane that is not
+// holding focus, the same way they rebind the fill and the ink lift. Naming the
+// accent here would opt the sidebar out of tiering.
+const SELECTION_EDGE_CLASS = 'ring-2 ring-inset ring-[color:var(--selection-edge)]'
 
 // No `glyph` member either, and no per-mode entry left to hold one: the row
 // carries no icon since 2026-09-02 (the logo moved to the folder header, the
@@ -384,12 +406,13 @@ function highlightRailClass(workspace: Workspace): string {
   return `border-l-[4px] ${getHighlightSwatch(workspace.highlight!.color!).border}`
 }
 
-// The selected row is its fill and its ink lift — no left bar of its own. The
-// base row keeps `border-l-[4px] border-l-transparent`, so a highlight rail
-// appears and disappears without shifting the row's content sideways.
+// The selected row is its fill, its ink lift and the selection edge — no left
+// bar of its own. The base row keeps `border-l-[4px] border-l-transparent`, so
+// a highlight rail appears and disappears without shifting the row's content
+// sideways, and the edge is a ring so it never moves the row either.
 function activeRowClass(workspace: Workspace): string {
   const accent = rowAccent(workspace)
-  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text}`
+  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text} ${SELECTION_EDGE_CLASS}`
 }
 
 // Class fragment applied to inactive rows that have a highlight color set, so
@@ -699,39 +722,43 @@ export function isHookSettledSession(session: { processAlive: boolean; agentStat
   return state.phase === 'idle' || state.phase === 'awaiting_input'
 }
 
-// Needs-input is the loudest thing a row can say, so it now takes the row's
-// whole surface rather than a 6px dot in its corner (owner ruling 2026-09-04):
-// a gold tint, a gold edge all the way round, and the title in warn ink. The
-// dot is gone with it — status-dot's own spec calls a dot beside a surface
-// already saying the same thing a reject-on-sight, and a dot is the weakest
-// possible carrier for the one state that actually wants you to look.
+// Needs-input is the loudest thing a row can say, so it takes the row's whole
+// surface rather than a 6px dot in its corner (owner ruling 2026-09-04): a gold
+// tint and the title in warn ink. The dot is gone with it — status-dot's own
+// spec calls a dot beside a surface already saying the same thing a
+// reject-on-sight, and a dot is the weakest possible carrier for the one state
+// that actually wants you to look.
 //
-// The edge is a RING, not a left rail. A tone-coloured left bar is a ruled
-// rejection in this system (designSystemAxes' LEFT_TONE_BAR), and the 4px left
-// slot already belongs to a different vocabulary here — the user's highlight
-// colour, which is identity rather than severity. The base row's transparent
-// 4px border is left untouched so nothing shifts sideways.
+// The gold RING that used to close the tint is gone too (owner ruling
+// 2026-09-05). The edge belongs to selection now, and a status state may not
+// borrow it: while both drew edges, the loudest row on the rail was whichever
+// one had a status, never the one the person was actually in. A tint says what
+// happened here; the edge says where you are. A row that is both wears the wash
+// and, from `activeRowClass`, the accent edge — two marks answering two
+// questions instead of two spellings of one.
 //
-// Selection still reads underneath: an attention row that is also the active
-// one carries the heavier edge, so the pane's one selected row stays findable
-// without inventing a second gold.
+// A left rail was never on the table for either: a tone-coloured left bar is a
+// ruled rejection in this system (designSystemAxes' LEFT_TONE_BAR), and the 4px
+// left slot already belongs to a different vocabulary here — the user's
+// highlight colour, which is identity rather than severity.
 function attentionRowClass(active: boolean): string {
   return [
     'bg-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn-soft)]',
-    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
-    'ring-[color:var(--tone-warn)]',
+    // The wash is the same either way: what changes when the row is the active
+    // one is the accent edge, and that is selection's to add, not status's.
+    active ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-warn-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 // The unseen-done row is the same treatment in the good tone (owner ruling
-// 2026-09-04, replacing the bordered "Done" micro chip): a green fill, a green
-// ring all the way round, the title in good ink, and the same one-shot flash
-// on arrival — list-row's `--finished`. One notch under the gold by
-// construction (owner, same day: the first cut at full strength read heavy):
-// the fill is the 10% wash rather than the 18% soft, and the ring is the tone
-// at edge strength rather than full — a hairline at full emerald around a
-// whole row reads as a wire. It holds until the row is opened — `deriveUnseenCompletions`
+// 2026-09-04, replacing the bordered "Done" micro chip): a green fill, the
+// title in good ink, and the same one-shot flash on arrival — list-row's
+// `--finished`. One notch under the gold by construction (owner, same day: the
+// first cut at full strength read heavy): the fill is the 10% wash rather than
+// the 18% soft. It holds until the row is opened — `deriveUnseenCompletions`
 // clears the mark the moment the workspace becomes the active one — so the
 // surface, not a word in the corner, is what says "finished while you were
 // away". A chip was the wrong carrier for the same reason the dot was for
@@ -739,14 +766,21 @@ function attentionRowClass(active: boolean): string {
 // thing on the row. Needs-input still outranks it — a row that is both draws
 // gold, because that one needs an answer rather than a look.
 //
-// Exported for the row-meta suite, which pins the three good-tone channels.
+// The green ring this used to close with is gone (owner ruling 2026-09-05).
+// It was the single worst offender in the whole rail: a 2px green border around
+// a row is EXACTLY the mark the focused terminal wears, so the row that had
+// finished while you were away was the one row on screen that looked like the
+// one you were typing into. The wash stays; the edge went to selection.
+//
+// Exported for the row-meta suite, which pins the good-tone channels.
 export function doneRowClass(active: boolean): string {
   return [
     'bg-[color:var(--tone-good-faint)] hover:bg-[color:var(--tone-good-faint)]',
-    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
-    'ring-[color:var(--tone-good-edge)]',
+    active ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-good-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**

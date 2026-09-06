@@ -84,6 +84,9 @@
      Never copy these rules into a component. */
   .pat-wrong .ds-list-row--selected {
     background: var(--sem-color-accent-soft);
+    /* The edge is cancelled here on purpose: the anti-pattern is the accent
+       arriving as a fill and a left bar instead. */
+    box-shadow: none;
     border-left: 3px solid var(--sem-color-accent-primary);
     border-radius: var(--sem-radius-control);
     padding-left: var(--sem-space-sm);
@@ -98,8 +101,16 @@
   <p class="pat-lede">
     Selection answers “what did I pick?”. Focus answers “where am I typing?”.
     They are different questions and never share a treatment. Selection is a
-    neutral fill in two tiers — the accent is reserved for the primary action,
+    neutral fill in two tiers, and the tier with focus adds a 2px accent
+    <em>edge</em> — the accent’s fill is still reserved for the primary action,
     so a chosen row never outranks the one thing worth clicking.
+  </p>
+  <p class="pat-lede">
+    The edge is also the channel status may not borrow: a tinted row says
+    <em>what happened here</em>, the edge says <em>where you are</em>. A row
+    can wear both at once, which is the point — before the split, a green
+    “finished while you were away” ring outshouted the neutral fill on the row
+    the person was actually driving.
   </p>
 
   <p class="pat-heading">The rule: one focused selection per surface</p>
@@ -146,9 +157,56 @@
     </div>
   </div>
   <p class="pat-caption">
-    One pane has focus and shows <code>--selected</code>. The other two show
-    <code>--resting</code>: they remember the choice without competing, so the
-    eye lands on the list the keyboard is driving.
+    One pane has focus and shows <code>--selected</code> — the neutral fill
+    plus the accent edge. The other two show <code>--resting</code>: the fill
+    alone, no edge. They remember the choice without competing, so the eye
+    lands on the list the keyboard is driving.
+  </p>
+
+  <p class="pat-heading">Status and selection compose</p>
+  <p class="pat-verdict">DO</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Left: two rows are tinted and a third carries the edge — the tints say
+    what happened, the edge says which one you are in. Right: the row you are
+    in is also the one waiting on you, so it wears the gold wash and the edge
+    together. Neither reading is ambiguous, because no status state draws an
+    edge of its own.
   </p>
 
   <p class="pat-heading">The failure this prevents</p>
@@ -195,10 +253,11 @@
     </div>
   </div>
   <p class="pat-caption">
-    Three panes shouting at once, each with an accent fill and a left bar.
-    Nothing says which list has focus, three signals carry one state, and the
-    accent no longer means “this is the action”. Selection never uses the
-    accent, and never carries a left bar.
+    Three panes shouting at once, each with an accent <em>fill</em> and a left
+    bar. Nothing says which list has focus, three signals carry one state, and
+    the accent no longer means “this is the action”. Selection takes the
+    accent as an edge on one pane only, never as a fill, and never as a left
+    bar.
   </p>
 
   <p class="pat-heading">Where a left bar is still correct</p>
@@ -210,7 +269,7 @@
 
 <div class="pat-stage" data-mode="light">
   <p class="pat-title">Selection — light</p>
-  <p class="pat-lede">The same two tiers, from the same tokens.</p>
+  <p class="pat-lede">The same two tiers and the same edge, from the same tokens.</p>
   <div class="pat-panes">
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
