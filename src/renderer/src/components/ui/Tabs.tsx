@@ -20,6 +20,11 @@ export type TabItem<T extends string = string> = {
    *  an icon-only tab draws no `count`, so anything the number has to say has
    *  to be said here. */
   tooltip?: string
+  /** The tab's accessible name, when the words on it are not the whole of what
+   *  it says. A labelled tab that also draws a state glyph is the case: the
+   *  glyph is `aria-hidden`, so without this the state exists for the eye and
+   *  for nobody else ("anthropics/skills — update available"). */
+  ariaLabel?: string
 }
 
 type TabsProps<T extends string = string> = {
@@ -167,8 +172,9 @@ export function Tabs<T extends string = string>({
             aria-selected={selected}
             aria-controls={panelId}
             // The glyph carries no words, so the name comes from the label the
-            // tooltip is also showing — one name, two renderings.
-            aria-label={iconOnly ? item.label : undefined}
+            // tooltip is also showing — one name, two renderings. A labelled tab
+            // names itself, unless it draws something the label does not say.
+            aria-label={item.ariaLabel ?? (iconOnly ? item.label : undefined)}
             disabled={item.disabled}
             tabIndex={selected ? 0 : -1}
             onClick={() => {

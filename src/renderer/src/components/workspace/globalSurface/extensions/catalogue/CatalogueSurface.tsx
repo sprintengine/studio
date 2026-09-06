@@ -124,6 +124,12 @@ export function CatalogueSurface<T>({
     // A count that is not known is absent, never zero: a scan still reading,
     // or one that failed, must not render as an empty source.
     count: tab.count ?? undefined,
+    // The hourly check saw this source's repository move past the commit its
+    // scan was taken at. The mark rides the tab so it is visible without
+    // opening the source, and the glyph is decorative — the tab's name carries
+    // the words, and Sync on the head line is where it is acted on.
+    icon: tab.updateAvailable ? <UpdateMark /> : undefined,
+    ariaLabel: tab.updateAvailable ? `${tab.label} — update available` : undefined,
   }))
 
   const bar = {
@@ -216,6 +222,16 @@ export function CatalogueSurface<T>({
         </div>
       </div>
     </GlobalSurfaceShell>
+  )
+}
+
+/** An upward step: this source has moved on since it was last read. */
+function UpdateMark(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M8 10.6V5.4M5.8 7.4 8 5.2l2.2 2.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

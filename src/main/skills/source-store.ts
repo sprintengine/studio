@@ -157,10 +157,15 @@ export function parseSkillSourceState(raw: string): PersistedState {
   const sources = Array.isArray(record.sources)
     ? record.sources.filter(isPersistableSource).filter((source) => isRemovableSkillSource(source.id))
     : []
+  // A scan is only ever a cache of a source in the list beside it, so a key
+  // naming a source this read dropped is dead weight that the next write would
+  // persist again — a scan of a repository nobody can open, growing by one
+  // every time a malformed source is filtered out.
+  const known = new Set(sources.map((source) => source.id))
   const scans: Record<string, ScanResult> = {}
   if (record.scans && typeof record.scans === 'object' && !Array.isArray(record.scans)) {
     for (const [id, scan] of Object.entries(record.scans as Record<string, unknown>)) {
-      if (isPersistableScan(scan)) scans[id] = scan
+      if (known.has(id) && isPersistableScan(scan)) scans[id] = scan
     }
   }
   return { sources, scans, adoptedLegacyPacks: record.adoptedLegacyPacks === true }
@@ -170,16 +175,25 @@ function emptyState(): PersistedState {
   return { sources: [], scans: {}, adoptedLegacyPacks: false }
 }
 
+/**
+ * What a stored source has to be to survive a read. The two bundled sources
+ * never appear here (they are always-present and filtered out by id), so this
+ * covers the kinds a person can ADD: a repository, and — since the source-tabs
+ * ruling (2026-09-05) — a folder on this machine, which is identified by its
+ * path rather than by a repository and so must carry one.
+ *
+ * The kind check is not decoration: a source that fails it is dropped on the
+ * very next read, which is how a folder added successfully vanished before it
+ * could be opened.
+ */
 function isPersistableSource(value: unknown): value is SkillSource {
   if (!value || typeof value !== 'object') return false
   const source = value as Record<string, unknown>
-  return (
-    typeof source.id === 'string'
-    && source.id.length > 0
-    && source.kind === 'github'
-    && typeof source.repo === 'string'
-    && typeof source.name === 'string'
-  )
+  if (typeof source.id !== 'string' || source.id.length === 0) return false
+  if (typeof source.name !== 'string') return false
+  if (source.kind === 'github') return typeof source.repo === 'string'
+  if (source.kind === 'local') return typeof source.path === 'string' && source.path.length > 0
+  return false
 }
 
 function isPersistableScan(value: unknown): value is ScanResult {

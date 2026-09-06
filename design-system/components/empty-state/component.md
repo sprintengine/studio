@@ -6,7 +6,7 @@ What a surface shows when it has nothing to show: a glyph, a title, an
 optional body line, and at most one call-to-action — never a dead end on a
 first-run surface. Five local `EmptyState` components re-declare this idea
 today (`workspace/WorkspaceManager.tsx`, `AutomationsPanel.tsx`,
-`AutomationsList.tsx`, `SkillsDiscover.tsx`, `SkillSourceCanvas.tsx`), and
+`AutomationsList.tsx`, `SkillsDiscover.tsx`), and
 the `icon.size.lg` token already names "empty-state glyphs" as a use with no
 component to consume it. The likely base is `SurfaceCanvasState` in
 `workspace/globalSurface/surfaceSubstrate.tsx` — the six-door unification

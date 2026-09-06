@@ -5,7 +5,7 @@
 // registration, so `register-core-ipc.ts` and `preload/index.ts` are wired once
 // and left alone.
 
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -156,7 +156,8 @@ export function createSkillsService(
       if (cached) return cached
       const root = localRootFor(sourceId)
       if (!root || !existsSync(root)) return null
-      const scanned = await scanLocalSkillSource(root)
+      // Bundled, so uncapped: see scanLocalSkillSource.
+      const scanned = await scanLocalSkillSource(root, { maxEntries: Number.POSITIVE_INFINITY })
       localScans.set(sourceId, scanned)
       return scanned
     }
@@ -211,10 +212,21 @@ export function createSkillsService(
     async addLocalSource(input) {
       const path = input.path?.trim() ?? ''
       if (!path) return { ok: false, message: 'Choose a folder to add as a source.' }
-      if (!existsSync(path)) return { ok: false, message: `${path} does not exist.` }
+      // A file passes existsSync and then scans as a folder holding nothing, so
+      // the honest answer to "this is not a folder" would have been "No skills
+      // here" — a source that reads as empty rather than as refused.
+      let entry
+      try {
+        entry = statSync(path)
+      } catch {
+        return { ok: false, message: `${path} does not exist.` }
+      }
+      if (!entry.isDirectory()) return { ok: false, message: 'That is a file, not a folder.' }
       const id = `${LOCAL_SKILL_SOURCE_ID_PREFIX}${path}`
-      const existing = await store.getSource(id)
-      if (existing && input.replace !== true) {
+      // Re-adding a folder already in the list re-scans it, which is what
+      // someone who picks it twice means; `replace: false` is the caller that
+      // wants to be told instead.
+      if (input.replace !== true && (await store.getSource(id))) {
         return { ok: false, message: `${path} is already one of your sources.` }
       }
       try {
@@ -267,9 +279,15 @@ export function createSkillsService(
         if (!root || !existsSync(root)) {
           return { ok: false, message: `${source.path ?? source.name} is no longer on this machine.` }
         }
-        const rescanned = await scanLocalSkillSource(root)
-        await store.putSource(source, rescanned)
-        return { ok: true, source, scan: rescanned }
+        try {
+          const rescanned = await scanLocalSkillSource(root)
+          await store.putSource(source, rescanned)
+          return { ok: true, source, scan: rescanned }
+        } catch (error) {
+          // A folder that outgrew the walk's cap since it was added: the reason
+          // is the reader's to see, not a rejected IPC call.
+          return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        }
       }
       if (source.kind !== 'github') {
         return { ok: false, message: `${source.name} is not available in this build.` }
@@ -451,7 +469,14 @@ export function createSkillsService(
       return { ok: false, message: `${source.path ?? source.name} is no longer on this machine.` }
     }
     const previous = await store.getScan(source.id)
-    const scan = await scanLocalSkillSource(root)
+    let scan: ScanResult
+    try {
+      scan = await scanLocalSkillSource(root)
+    } catch (error) {
+      // A failed sync leaves the list exactly as it was and says why, the same
+      // rule the repository path follows.
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
     const synced: SkillSource = { ...source, scannedAt: new Date().toISOString() }
     await store.putSource(synced, scan)
     const changes = diffScannedSkills(previous, scan)

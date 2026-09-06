@@ -10,8 +10,24 @@ import { join, relative, sep } from 'node:path'
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE, type ScanResult } from '../../shared/skills'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH, type SkillTreeEntry } from './scan'
 
-// Bounded so a mis-pointed root cannot walk a whole disk.
+// Bounded so a mis-pointed root cannot walk a whole disk. Depth alone is not
+// the bound that matters: a home directory is wide long before it is deep, and
+// the walk runs on the main process — someone who picks `/` from the folder
+// dialog would stat every file on the machine while the app sits still. The
+// entry cap is the real stop, and hitting it is reported rather than silently
+// truncating the listing into a source that says it holds fewer skills than it
+// does.
 const MAX_LOCAL_DEPTH = 12
+const MAX_LOCAL_ENTRIES = 20_000
+
+export class LocalSourceTooLargeError extends Error {
+  constructor(root: string) {
+    super(
+      `${root} holds more than ${MAX_LOCAL_ENTRIES.toLocaleString('en-US')} files. Pick the folder that holds the skills rather than the tree that contains it.`,
+    )
+    this.name = 'LocalSourceTooLargeError'
+  }
+}
 const IGNORED_DIR_NAMES = new Set(['.git', 'node_modules'])
 const ENTRY_READ_CONCURRENCY = 16
 
@@ -20,10 +36,14 @@ const ENTRY_READ_CONCURRENCY = 16
  * git blob identity, so `blobSha` stays empty rather than carrying an invented
  * digest — nothing downstream compares a local skill by blob.
  */
-export async function listLocalTree(root: string): Promise<SkillTreeEntry[]> {
+export async function listLocalTree(
+  root: string,
+  maxEntries: number = MAX_LOCAL_ENTRIES,
+): Promise<SkillTreeEntry[]> {
   const entries: SkillTreeEntry[] = []
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > MAX_LOCAL_DEPTH) return
+    if (entries.length >= maxEntries) throw new LocalSourceTooLargeError(root)
     let dirents
     try {
       dirents = await readdir(dir, { withFileTypes: true })
@@ -50,6 +70,7 @@ export async function listLocalTree(root: string): Promise<SkillTreeEntry[]> {
         sha: '',
         size,
       })
+      if (entries.length >= maxEntries) throw new LocalSourceTooLargeError(root)
     }
   }
   await walk(root, 0)
@@ -60,9 +81,17 @@ export async function listLocalTree(root: string): Promise<SkillTreeEntry[]> {
  * Scan a directory of skills, reading each entry's frontmatter for the name and
  * description the surface lists. Local reads are cheap enough to do inline;
  * a repository defers the same enrichment behind the network.
+ *
+ * `maxEntries` is the walk's breadth cap, on by default. The two bundled roots
+ * pass `Infinity` deliberately: their size is a release decision the app made
+ * and can measure, not a folder someone picked by mistake — the connector
+ * catalogue alone is over ten thousand files today.
  */
-export async function scanLocalSkillSource(root: string): Promise<ScanResult> {
-  const entries = await listLocalTree(root)
+export async function scanLocalSkillSource(
+  root: string,
+  options: { maxEntries?: number } = {},
+): Promise<ScanResult> {
+  const entries = await listLocalTree(root, options.maxEntries ?? MAX_LOCAL_ENTRIES)
   const manifest = entries.some((entry) => entry.path === SKILL_MARKETPLACE_MANIFEST_PATH)
     ? await readFile(join(root, ...SKILL_MARKETPLACE_MANIFEST_PATH.split('/')), 'utf8').catch(
         () => null

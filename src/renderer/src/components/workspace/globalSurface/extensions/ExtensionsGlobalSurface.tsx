@@ -21,7 +21,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
-import type { SkillHarness, SkillSource } from '../../../../../../shared/skills'
+import { LOCAL_SKILL_SOURCE_ID_PREFIX, type SkillHarness, type SkillSource } from '../../../../../../shared/skills'
 import { SKILL_PACK_HARNESSES } from '../../../../../../shared/skill-harnesses'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
@@ -191,13 +191,23 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     }
     const path = await window.api.openDir()
     if (!path) return
-    const result = await window.api.skillsAddLocalSource({ path, replace: true })
+    // No `replace`: a folder already in the list is not an error to report but
+    // a tab to open — "you have this one, here it is" — and Sync on its head
+    // line is what re-reads it. The id is the prefix plus the path, which is
+    // the whole of a folder source's identity.
+    const result = await window.api.skillsAddLocalSource({ path })
     if (!result.ok) {
+      const id = `${LOCAL_SKILL_SOURCE_ID_PREFIX}${path}`
+      if (sources.sources.some((source) => source.id === id)) {
+        setTabId(id)
+        setQuery('')
+        return
+      }
       setAddError(result.message)
       return
     }
     openAddedSource(result.source)
-  }, [openAddedSource])
+  }, [openAddedSource, sources.sources])
 
   const add = useMemo(
     () => ({ onAddFromFile: () => void addFromFile(), onAddFromGitHub: () => setAddRepo('') }),
