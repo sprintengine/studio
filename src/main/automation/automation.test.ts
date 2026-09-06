@@ -484,14 +484,28 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
       activity: { kind: 'idle', since: 30 },
     },
   ] as unknown as TerminalSessionSnapshot[]
-  const tools = createAutomationTools(backendsOf({ sessions }))
+  const base = backendsOf({ sessions, workspaces: [testWorkspace('ws-1')] })
+  // The workspace-name lookup must read the sync snapshot ONCE per call, never
+  // once per session: on a registry of hundreds of workspaces a per-row read
+  // was a whole-registry clone per row (the 30-second stall of 2026-09-05).
+  let snapshotReads = 0
+  const tools = createAutomationTools({
+    ...base,
+    getWorkspaceSyncSnapshot: () => {
+      snapshotReads += 1
+      return base.getWorkspaceSyncSnapshot()
+    },
+  })
 
   const all = await tool(tools, 'terminal.list').handler({})
   assert.equal(all.isError, undefined, JSON.stringify(all.structuredContent))
   const listed = (all.structuredContent as {
-    terminals: Array<{ sessionId: string; processAlive: boolean; suspended: boolean; agentState: unknown }>
+    terminals: Array<{ sessionId: string; processAlive: boolean; suspended: boolean; agentState: unknown; workspaceName: string | null }>
   }).terminals
   assert.deepEqual(listed.map((entry) => entry.sessionId), ['session-live', 'session-paused', 'session-shell'])
+  assert.equal(snapshotReads, 1, 'one snapshot read serves every row of a terminal.list')
+  assert.equal(listed[0].workspaceName, testWorkspace('ws-1').name, 'a known workspace names its row')
+  assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
   assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
   // Paused is its own answer: not running, not gone.
   assert.equal(listed[1].processAlive, false)

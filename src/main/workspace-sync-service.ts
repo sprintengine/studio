@@ -67,8 +67,26 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     return registry.getState()
   }
 
+  // One clone per registry mutation, not one per read. `getSnapshot` is read
+  // from fifteen places in main — every remote `terminal.list` used to take it
+  // once PER SESSION for a workspace-name lookup — and each read deep-cloned
+  // the whole state (462 workspaces on the owner's machine: ~9 ms a clone, and
+  // the 30-second beachball of 2026-09-05 was seconds of them back to back).
+  // The registry replaces its state object and bumps its revision on every
+  // accepted mutation, so those two together are the cache key; an unchanged
+  // registry hands back the same snapshot object. Readers treat it as
+  // read-only — the clone still protects the registry, just once.
+  let cachedSnapshot: { state: WorkspaceSyncState; revision: number; snapshot: WorkspaceSyncSnapshot } | null = null
+
   function getSnapshot(): WorkspaceSyncSnapshot {
-    return stateToSnapshot(state())
+    const current = state()
+    const revision = registry.getRevision()
+    if (cachedSnapshot && cachedSnapshot.state === current && cachedSnapshot.revision === revision) {
+      return cachedSnapshot.snapshot
+    }
+    const snapshot = stateToSnapshot(current)
+    cachedSnapshot = { state: current, revision, snapshot }
+    return snapshot
   }
 
   function getEventsAfter(sequence: unknown): WorkspaceSyncEvent[] {
