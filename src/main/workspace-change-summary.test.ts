@@ -11,6 +11,7 @@ import {
   summaryFromSpan,
 } from './workspace-change-summary'
 import type { BranchSpan } from './git-branch-span'
+import type { WorkspaceChangeSummary } from '../shared/electron-api'
 
 // The row's honest number (the-diff-an-agent-made / branch-scoped-row-diff):
 // what this checkout's branch has produced, and a scope that says how much the
@@ -404,6 +405,36 @@ void (async () => {
     clock += 1000
     await counted.read('/a')
     assert.equal(reads, 2)
+  })
+
+  await run('at most `concurrency` reads are in flight, across every caller', async () => {
+    let inFlight = 0
+    let peak = 0
+    const release: Array<() => void> = []
+    const share = createCheckoutSummaryShare(
+      () =>
+        new Promise<WorkspaceChangeSummary>((resolve) => {
+          inFlight += 1
+          peak = Math.max(peak, inFlight)
+          release.push(() => {
+            inFlight -= 1
+            resolve(summaryFromSpan(span('feat')))
+          })
+        }),
+      { concurrency: 2 }
+    )
+    // Six distinct checkouts asked at once — a remote terminal.list's fan-out.
+    const all = Promise.all(['/a', '/b', '/c', '/d', '/e', '/f'].map((path) => share.read(path)))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(peak, 2, 'only two chains started; the rest wait for a slot')
+    // A queued checkout asked for again is still ONE read.
+    void share.read('/f')
+    while (release.length > 0) {
+      release.shift()!()
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    await all
+    assert.equal(peak, 2, 'the queue never let a third read run alongside two')
   })
 
   await run('a rejected read is forgotten immediately, not pinned for the hold', async () => {

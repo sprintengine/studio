@@ -3384,6 +3384,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 async function terminalGitSummary(
   session: TerminalSessionSnapshot
 ): Promise<{ branch: string | null; additions: number; deletions: number; changedFiles: number; scope: string } | null> {
+  // Only a running session is asked about — the sidebar's own rule (owner
+  // ruling 2026-09-04, the-diff-an-agent-made decision 9): a parked or exited
+  // chat's numbers would be the checkout's present state, not anything the
+  // chat did. It is also what keeps a network read from fanning git out to
+  // every checkout the runtime has ever held a session in.
+  if (!session.processAlive) return null
   const checkoutPath = session.worktreePath ?? session.cwd
   if (!checkoutPath) return null
   try {
