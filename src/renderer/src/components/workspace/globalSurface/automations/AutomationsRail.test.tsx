@@ -5,6 +5,7 @@ import type {
   AutomationDefinition,
   AutomationsInstanceEntry,
 } from '../../../../../../shared/automations/contracts'
+import { BUILTIN_AUTOMATIONS } from '../../../../../../shared/automations/builtin'
 import { AutomationsRail } from './AutomationsRail'
 
 function run(name: string, body: () => void): void {
@@ -54,6 +55,8 @@ function render(over: Partial<Parameters<typeof AutomationsRail>[0]> = {}): stri
   return renderToStaticMarkup(
     <AutomationsRail
       entries={entries}
+      builtins={[]}
+      addedBuiltinIds={new Set<string>()}
       selectedId="a"
       now={NOW}
       onSelect={() => {}}
@@ -105,19 +108,52 @@ run('the rail carries the search field and the filter glyph', () => {
   assert.ok(html.includes('aria-label="Filter automations"'), 'so does the filter control')
 })
 
-// MC-2035 — the rail carries ONE group: what this project actually runs. The
-// starter-editor prototype had a second "Starters" group from when this door was
-// a discovery alternative; discovery is ruled to the Extensions shelf, so that
-// group would duplicate it. Its absence is a decision, so it is asserted.
-run('the rail is the single "In this project" list, with no Starters group', () => {
+// With nothing shipped to show beside them, the project's automations are the
+// whole rail — one group, and the substrate withholds a heading over a lone one,
+// so the column reads as a list rather than a "Yours" header spanning every row.
+// (MC-2035 kept a single group here for a different reason: the starter-editor
+// prototype's second "Starters" group was discovery, which is ruled to the
+// Extensions shelf. What arrives beside Yours now is not discovery — it is the
+// five that ship inside the app, Extensions drawer ruling 2026-09-05.)
+run('with no built-ins to list, the rail is the one "Yours" list', () => {
   const html = render()
   assert.ok(
-    html.includes('aria-label="Automations: In this project"'),
+    html.includes('aria-label="Automations: Yours"'),
     'the list is named for the one group it carries',
   )
   assert.ok(!/Starters/i.test(html), 'no Starters group — discovery lives on the Extensions shelf')
   // One list, not one per notional group.
   assert.equal((html.match(/role="list"/g) ?? []).length, 1, 'exactly one list in the rail')
+})
+
+// Extensions drawer ruling, 2026-09-05, frame 4: what you have, then what ships.
+run('the built-ins are a second group, after Yours, and say when they run', () => {
+  const html = render({ builtins: BUILTIN_AUTOMATIONS })
+  assert.ok(
+    html.indexOf('aria-label="Automations: Yours"') < html.indexOf('aria-label="Automations: Built in"'),
+    'Yours leads; Built in follows it',
+  )
+  assert.ok(html.includes('Dead code sweep'), 'the shipped five are listed')
+  assert.ok(html.includes('Nightly 02:00'), 'each with its schedule in words')
+  assert.equal((html.match(/role="list"/g) ?? []).length, 2, 'two lists, one per group')
+})
+
+// A built-in the project already holds cannot be added again, and the rail is
+// where that is first legible — before the card, before the control.
+run('a built-in the project already has says so, and keeps its schedule', () => {
+  const html = render({
+    builtins: BUILTIN_AUTOMATIONS,
+    addedBuiltinIds: new Set(['dead-code-sweep-automation']),
+  })
+  assert.ok(html.includes('Added · Nightly 02:00'), 'Added leads the line, the schedule follows')
+})
+
+// An empty group would read as "this app ships none", which is a different and
+// false statement about a failed read.
+run('a built-in read that could not answer says so rather than showing nothing', () => {
+  const html = render({ builtins: [], builtinNotice: 'Loading…' })
+  assert.ok(html.includes('Built in'), 'the group still names itself')
+  assert.ok(html.includes('Loading…'), 'and says why it has no rows')
 })
 
 console.log('all automations rail render tests passed')

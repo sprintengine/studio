@@ -5,7 +5,10 @@ import { revealAgentTerminalTab } from '../../../../utils/agentTabReveal'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
+import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
+import { selectAgentCliCatalog } from '../../newWorkspace/cliRuntimeOptions'
 import {
+  Badge,
   ContextMenu,
   EmptyState,
   GhostButton,
@@ -29,6 +32,16 @@ import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { AutomationsRail } from './AutomationsRail'
 import { AutomationSurfaceCanvas } from './AutomationSurfaceCanvas'
+import { BuiltinAutomationCanvas } from './BuiltinAutomationCanvas'
+import {
+  addedBuiltinIds as readAddedBuiltinIds,
+  builtinAddTarget,
+  builtinIdFromRowId,
+  matchesBuiltinQuery,
+  useAddBuiltinAutomation,
+  useBuiltinAutomations,
+} from './builtinAutomations'
+import { resolveAutomationRuntimeCli } from '../../../panels/AutomationsPanel/AutomationEditor'
 import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, projectLabel } from './railState'
 import {
   consumePendingAutomationSurfaceTarget,
@@ -49,6 +62,10 @@ import {
 // project sentinel from colliding with a real absolute root.
 const ALL_PROJECTS = ' all'
 const ALL_STATES = 'all'
+
+// A stable empty list so a still-loading (or failed) built-in read does not hand
+// the rail a fresh array identity on every render.
+const EMPTY_BUILTINS: never[] = []
 
 export default function AutomationsGlobalSurface(): JSX.Element {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -86,6 +103,12 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // Bumped each time a target is applied so re-opening the same run's
   // notification re-triggers the scroll even though the run id is unchanged.
   const [focusNonce, setFocusNonce] = useState(0)
+
+  // The five that ship inside the app (Extensions drawer ruling, 2026-09-05,
+  // frame 4). Read from main rather than imported, so what the rail lists is
+  // what this build actually ships.
+  const builtinState = useBuiltinAutomations()
+  const builtins = builtinState.status === 'ready' ? builtinState.entries : EMPTY_BUILTINS
 
   // A slow clock so relative run times stay honest without churning the rail.
   useEffect(() => {
@@ -133,6 +156,16 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     })
   }, [orderedEntries, railSearch, railProject, railState, now])
 
+  // The lenses narrow YOURS. A built-in belongs to no project and has no run
+  // state, so "Project: demo-repo" and "State: running" exclude the whole group
+  // rather than leaving five rows standing under a filter that cannot describe
+  // them. The search box does apply — it is a name lookup, and looking one up is
+  // exactly how you find the built-in you came for.
+  const visibleBuiltins = useMemo(() => {
+    if (railProject !== ALL_PROJECTS || railState !== ALL_STATES) return EMPTY_BUILTINS as BuiltinAutomation[]
+    return builtins.filter((entry) => matchesBuiltinQuery(entry, railSearch))
+  }, [builtins, railProject, railState, railSearch])
+
   // One filter group per axis. Projects are offered only when there is a second
   // one to choose between — a lone option beside "All projects" filters nothing.
   const railFilterGroups = useMemo(() => {
@@ -174,15 +207,57 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     [entries, selectedId],
   )
 
+  const selectedBuiltin = useMemo(() => {
+    const builtinId = builtinIdFromRowId(selectedId)
+    return builtinId ? builtins.find((entry) => entry.id === builtinId) ?? null : null
+  }, [builtins, selectedId])
+
   // Keep the selection valid, and default to the first automation once the index
   // loads so the surface opens on content (mockup §3) rather than a blank canvas.
+  // A built-in selection is a valid selection: it addresses a row the rail is
+  // showing, so the default must not reclaim it the moment the index resolves.
   useEffect(() => {
     if (editorTarget) return
+    if (builtinIdFromRowId(selectedId)) return
     if (selectedId && entries.some((entry) => entry.definition.id === selectedId)) return
     setSelectedId(orderedEntries[0]?.definition.id ?? null)
   }, [entries, orderedEntries, selectedId, editorTarget])
 
   const projectFolders = useMemo(() => listAutomationProjectFolders(workspaces), [workspaces])
+
+  // Where "Add to <project>" writes. The active workspace's own project, because
+  // that is the project the window is looking at — never a picker, because there
+  // is one obvious answer and a chooser in front of it would be ceremony.
+  const activeFolderPath = useWorkspaceStore(
+    (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
+  )
+  const addTarget = useMemo(
+    () => builtinAddTarget(activeFolderPath, projectFolders),
+    [activeFolderPath, projectFolders],
+  )
+  const addedIds = useMemo(
+    () => readAddedBuiltinIds(entries, addTarget?.folderPath ?? null),
+    [entries, addTarget],
+  )
+
+  // What an added copy would actually launch on. The built-in payload names no
+  // CLI, so the run falls back to the app's last-selected one — the same order
+  // `resolveAutomationRuntimeCli` pins for the editor, read here so the card can
+  // never show a runtime the run would not use.
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
+  const cliLabel = useMemo(() => {
+    const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
+    const resolved = resolveAutomationRuntimeCli(undefined, lastSelectedCli, catalog)
+    return catalog.find((option) => option.value === resolved)?.label ?? resolved
+  }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, lastSelectedCli])
+
+  // Adding re-reads the index rather than patching it: the definition main wrote
+  // is the one the rail must list, and `load()` is the read that produced every
+  // other row in it.
+  const adder = useAddBuiltinAutomation(useCallback(() => { void load() }, [load]))
 
   // Deep-link: drain the latch on mount and subscribe live, then apply once the
   // named automation is present in the loaded index.
@@ -295,6 +370,40 @@ export default function AutomationsGlobalSurface(): JSX.Element {
         actions: <span ref={setEditorActionsEl} className="flex items-center gap-1.5" />,
       }
     }
+    if (selectedBuiltin) {
+      const added = addedIds.has(selectedBuiltin.id)
+      const adding = adder.state.status === 'adding' && adder.state.builtinId === selectedBuiltin.id
+      // The tag first, then the one call to action — the bar's own anatomy, and
+      // the mockup's. "Built in" is the fact that explains why there is no Run
+      // now, no Edit and no overflow here: nothing has been written yet, so
+      // there is nothing on this record to run, edit or pause.
+      return {
+        title: selectedBuiltin.name,
+        actions: (
+          <>
+            <Badge tone="neutral">Built in</Badge>
+            <PrimaryButton
+              size="xs"
+              // Already added is not a failure and not an error to recover from:
+              // the control states the outcome and stops offering the write,
+              // which is what makes adding twice a no-op rather than a duplicate.
+              disabled={!addTarget || added || adding}
+              onClick={() => {
+                if (addTarget) void adder.add(selectedBuiltin, addTarget.folderPath)
+              }}
+            >
+              {added
+                ? `Added to ${addTarget?.displayName ?? 'this project'}`
+                : adding
+                  ? 'Adding…'
+                  : addTarget
+                    ? `Add to ${addTarget.displayName}`
+                    : 'Open a project to add it'}
+            </PrimaryButton>
+          </>
+        ),
+      }
+    }
     if (selectedEntry) {
       const def = selectedEntry.definition
       const busy = busyId === def.id
@@ -325,7 +434,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       }
     }
     return { title: 'Automations' }
-  }, [editorTarget, selectedEntry, busyId, handleRunNow, startEdit, toggleStatus, handleDelete])
+  }, [editorTarget, selectedBuiltin, selectedEntry, addedIds, addTarget, adder, busyId, handleRunNow, startEdit, toggleStatus, handleDelete])
 
   // ── Attention strip: non-blocking degraded signals ──────────────────────────
   const attention = useMemo(() => {
@@ -351,6 +460,8 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const rail = (
     <AutomationsRail
       entries={visibleEntries}
+      builtins={visibleBuiltins}
+      addedBuiltinIds={addedIds}
       selectedId={editorTarget ? null : selectedId}
       now={now}
       onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
@@ -364,7 +475,21 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       filter={{ ariaLabel: 'Filter automations', groups: railFilterGroups }}
       // The lens is narrower than the automations behind it. Say so, rather
       // than letting an empty rail read as "you have no automations".
-      emptyNotice={entries.length > 0 ? 'No automations match.' : undefined}
+      emptyNotice={entries.length > 0 || builtins.length > 0 ? 'No automations match.' : undefined}
+      // The built-in read has its own outcome, and an empty group would say
+      // something false about it. Only shown while the lens has not deliberately
+      // excluded the group — a filtered-out group is not a broken one.
+      builtinNotice={
+        visibleBuiltins.length === 0 && railProject === ALL_PROJECTS && railState === ALL_STATES
+          ? builtinState.status === 'loading'
+            ? 'Loading…'
+            : builtinState.status === 'error'
+              ? builtinState.message
+              : railSearch.trim()
+                ? undefined
+                : 'This build ships none.'
+          : undefined
+      }
     />
   )
 
@@ -398,6 +523,10 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             loadError={loadError}
             onRetry={() => void load()}
             hasEntries={entries.length > 0}
+            selectedBuiltin={selectedBuiltin}
+            builtinCliLabel={cliLabel}
+            builtinAddedIn={selectedBuiltin && addedIds.has(selectedBuiltin.id) ? addTarget?.displayName ?? null : null}
+            builtinAddError={adder.state.status === 'error' ? adder.state.message : null}
             editorTarget={editorTarget}
             editorActionsSlot={{ el: editorActionsEl }}
             providers={providers}
@@ -459,12 +588,17 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 // stays readable.
 function SurfaceBody({
   loadState, loadError, onRetry, hasEntries, editorTarget, editorActionsSlot, providers, onEditorCancel, onEditorSaved,
-  selectedEntry, now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
+  selectedEntry, selectedBuiltin, builtinCliLabel, builtinAddedIn, builtinAddError,
+  now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
 }: {
   loadState: string
   loadError: string | null
   onRetry: () => void
   hasEntries: boolean
+  selectedBuiltin: BuiltinAutomation | null
+  builtinCliLabel: string
+  builtinAddedIn: string | null
+  builtinAddError: string | null
   editorTarget: { editor: EditorState; workspaceRoot: string } | null
   editorActionsSlot: Parameters<typeof AutomationEditor>[0]['actionsSlot']
   providers: Parameters<typeof AutomationEditor>[0]['providers']
@@ -493,6 +627,20 @@ function SurfaceBody({
       </div>
     )
   }
+  // Before the load states, because a built-in is not read from the index: it
+  // ships with the app, so it renders whether or not this window could read a
+  // project's automations — and a spinner over content that is already in hand
+  // would be a lie about where it came from.
+  if (selectedBuiltin) {
+    return (
+      <BuiltinAutomationCanvas
+        entry={selectedBuiltin}
+        cliLabel={builtinCliLabel}
+        addedIn={builtinAddedIn}
+        addError={builtinAddError}
+      />
+    )
+  }
   if (loadState === 'loading' || loadState === 'idle') {
     return <SurfaceCanvasState kind="loading" label="Loading automations…" />
   }
@@ -514,7 +662,7 @@ function SurfaceBody({
         firstRun
         glyph={<AutomationsGlyph />}
         title="No automations yet"
-        body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while the app is open."
+        body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while the app is open. Five ship with the app: pick one under Built in, or write your own."
         action={
           <PrimaryButton
             onClick={(event) => {

@@ -104,6 +104,9 @@ import type {
   FleetRequestPairingResult,
 } from './tailnet-fleet'
 import type {
+  AutomationsBuiltinInstallInput,
+  AutomationsBuiltinInstallResult,
+  AutomationsBuiltinListResult,
   AutomationsCreateInput,
   AutomationsDefinitionInput,
   AutomationsDefinitionResult,
@@ -3390,6 +3393,18 @@ export type ElectronApi = {
    * full-page Automations surface reads this instead of one host folder's list.
    */
   listInstanceAutomations: () => Promise<AutomationsInstanceListResult>
+  /**
+   * The five automations that ship inside the app (Extensions drawer ruling,
+   * 2026-09-05). Read, never imported: main decides what is built in, so the
+   * Automations surface's "Built in" group asks rather than holding its own copy.
+   */
+  listBuiltinAutomations: () => Promise<AutomationsBuiltinListResult>
+  /**
+   * Writes a built-in's definition into a project — the same catalogue write the
+   * marketplace shelf's Get used, keyed on the built-in's stable id, so adding
+   * one twice reports the copy the project already has instead of duplicating it.
+   */
+  addBuiltinAutomation: (input: AutomationsBuiltinInstallInput) => Promise<AutomationsBuiltinInstallResult>
   getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
   createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
   updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>

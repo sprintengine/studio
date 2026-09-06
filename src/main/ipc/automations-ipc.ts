@@ -1,6 +1,8 @@
 import type {
   AutomationActionProvider,
   AutomationDefinition,
+  AutomationsBuiltinListResult,
+  AutomationsBuiltinInstallResult,
   AutomationDefinitionDraft,
   AutomationTriggerProvider,
   AutomationsCreateInput,
@@ -20,8 +22,15 @@ import type {
   AutomationsRunsListResult,
   AutomationsUpdateInput,
 } from '../../shared/automations/contracts'
+import {
+  BUILTIN_AUTOMATIONS,
+  builtinAutomationById,
+  builtinAutomationPayload,
+} from '../../shared/automations/builtin'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import {
+  AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
+  AUTOMATIONS_BUILTIN_LIST_CHANNEL,
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
@@ -263,6 +272,35 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
       mapDefinition: definitionForRenderer,
     })
     return ok(index)
+  })
+
+  // The five automations that ship inside the app (Extensions drawer ruling,
+  // 2026-09-05, frame 4). Main answers rather than the renderer importing the
+  // module directly, because main is where "what ships" is decided: when a build
+  // one day reads them from disk or from a signed pack, only this handler moves.
+  host.registerIpc(AUTOMATIONS_BUILTIN_LIST_CHANNEL, async (): Promise<AutomationsBuiltinListResult> => {
+    return ok([...BUILTIN_AUTOMATIONS])
+  })
+
+  // "Add to <project>" — the SAME write the marketplace shelf's Get performed,
+  // reached by naming a built-in instead of carrying a payload: the renderer
+  // never hands over a definition, so nothing it could tamper with decides what
+  // is written. `installFromCatalogue` keys on the built-in's stable id, so a
+  // project that already has this one (including a copy the old Plugins shelf
+  // added, which recorded the same id) is reported as already added rather than
+  // gaining a duplicate.
+  host.registerIpc(AUTOMATIONS_BUILTIN_INSTALL_CHANNEL, async (_event, input: unknown): Promise<AutomationsBuiltinInstallResult> => {
+    if (!isRecord(input) || typeof input.builtinId !== 'string') {
+      return fail('invalid_input', 'builtinId is required.')
+    }
+    const builtin = builtinAutomationById(input.builtinId.trim())
+    if (!builtin) return fail('not_found', 'That automation does not ship with this version of the app.')
+    return installCatalogueDefinition({
+      workspaceRoot: input.workspaceRoot,
+      definition: builtinAutomationPayload(builtin),
+      sourceCatalogueId: builtin.id,
+      sourcePublisher: builtin.publisher,
+    })
   })
 
   host.registerIpc(AUTOMATIONS_ENGINE_STATUS_CHANNEL, async (): Promise<AutomationsEngineStatusResult> => {

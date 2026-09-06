@@ -1,6 +1,9 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { ElectronApi } from '../../shared/electron-api'
 import type {
+  AutomationsBuiltinInstallInput,
+  AutomationsBuiltinInstallResult,
+  AutomationsBuiltinListResult,
   AutomationsCreateInput,
   AutomationsDefinitionInput,
   AutomationsDefinitionResult,
@@ -20,6 +23,8 @@ import type {
   AutomationsWorkspaceInput,
 } from '../../shared/automations/contracts'
 import {
+  AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
+  AUTOMATIONS_BUILTIN_LIST_CHANNEL,
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
@@ -48,6 +53,8 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   ElectronApi,
   | 'listAutomations'
   | 'listInstanceAutomations'
+  | 'listBuiltinAutomations'
+  | 'addBuiltinAutomation'
   | 'getAutomation'
   | 'createAutomation'
   | 'updateAutomation'
@@ -65,6 +72,10 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       renderer.invoke(AUTOMATIONS_LIST_CHANNEL, input) as Promise<AutomationsListResult>,
     listInstanceAutomations: (): Promise<AutomationsInstanceListResult> =>
       renderer.invoke(AUTOMATIONS_INSTANCE_LIST_CHANNEL) as Promise<AutomationsInstanceListResult>,
+    listBuiltinAutomations: (): Promise<AutomationsBuiltinListResult> =>
+      renderer.invoke(AUTOMATIONS_BUILTIN_LIST_CHANNEL) as Promise<AutomationsBuiltinListResult>,
+    addBuiltinAutomation: (input: AutomationsBuiltinInstallInput): Promise<AutomationsBuiltinInstallResult> =>
+      renderer.invoke(AUTOMATIONS_BUILTIN_INSTALL_CHANNEL, input) as Promise<AutomationsBuiltinInstallResult>,
     getAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDefinitionResult> =>
       renderer.invoke(AUTOMATIONS_GET_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
     createAutomation: (input: AutomationsCreateInput): Promise<AutomationsDefinitionResult> =>

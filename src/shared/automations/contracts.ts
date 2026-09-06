@@ -1,4 +1,7 @@
 import type { SwitchboardImportProvider } from '../switchboard'
+// Type-only, so the cycle back to this module (builtin.ts imports the kinds and
+// the schedule type from here) is erased at build time.
+import type { BuiltinAutomation } from './builtin'
 
 export type JsonSchema = Record<string, unknown>
 
@@ -30,6 +33,12 @@ export const AUTOMATIONS_ENGINE_STATUS_CHANNEL = 'automations:engine-status'
 export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
 export const AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL = 'automations:definitions-changed'
 export const AUTOMATIONS_INSTANCE_LIST_CHANNEL = 'automations:instance:list'
+// The five automations that ship inside the app (Extensions drawer ruling,
+// 2026-09-05): main is the authority on what is built in and on writing one into
+// a project, so the renderer reads the list rather than importing it — the same
+// discipline every other automations read follows.
+export const AUTOMATIONS_BUILTIN_LIST_CHANNEL = 'automations:list-builtin'
+export const AUTOMATIONS_BUILTIN_INSTALL_CHANNEL = 'automations:install-builtin'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
@@ -596,3 +605,17 @@ export type AutomationsRunFinalizeResult = AutomationsResult<AutomationRun>
 export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>
 export type AutomationsEngineStatusResult = AutomationsResult<AutomationsEngineStatus>
 export type AutomationsInstanceListResult = AutomationsResult<AutomationsInstanceIndex>
+export type AutomationsBuiltinListResult = AutomationsResult<BuiltinAutomation[]>
+
+/** Which project a built-in was added to, and whether this call is what added it. */
+export type AutomationsBuiltinInstallInput = {
+  workspaceRoot: string
+  builtinId: string
+}
+export type AutomationsBuiltinInstallResult = AutomationsResult<{
+  definition: AutomationDefinition
+  /** The project already had this built-in: nothing was written, and the surface
+   *  says "Added to <project>" either way. */
+  alreadyAdded: boolean
+  workspaceRoot: string
+}>
