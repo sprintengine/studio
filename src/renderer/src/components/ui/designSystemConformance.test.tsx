@@ -1126,10 +1126,12 @@ async function main(): Promise<void> {
       'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CLASS/,
       // Migrated onto Modal outright — no shell of their own left to check.
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
-      'components/backlog/RosterManagerModal.tsx': /<Modal\b/,
+      // RosterManagerModal left with Horizon (2026-09-05); nothing replaced it.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
-      // The modal-surface host (doors→modals, 2026-09-01): Settings, Plugins,
-      // Automations and Design all mount through this one Modal.
+      // The modal-surface host: Settings and the Diff popout mount through this
+      // one Modal. Plugins, Automations and Design were modals here from
+      // 2026-09-01 until the Extensions drawer ruling (2026-09-05) made them
+      // card-region surfaces again.
       'components/workspace/WorkspaceManager.tsx': /<Modal\b/,
     }
     for (const [file, pattern] of Object.entries(shells)) {
