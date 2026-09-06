@@ -872,15 +872,18 @@ export function WorkingElapsed({ since }: { since: number }) {
 
 /**
  * One terminal's line under a row's title (sidebar-lists-every-terminal):
- * mark · name · branch · ±lines · seat. The row shows one per live terminal
- * in place of the head pile and the single row-level branch it used to
- * carry: the lines are the count, and each says where IT is — an agent in a
+ * mark · branch · ±lines · seat. The row shows one per live terminal in
+ * place of the head pile and the single row-level branch it used to carry:
+ * the lines are the count, and each says where IT is — an agent in a
  * worktree of its own reads at full strength, with the path on hover.
  *
- * Truncation is an ordered give-way, not a fixed cap: the name yields first
- * (weight 4 — it is also the tab's title), the branch second (weight 3) down
- * to its floor; the mark, the diff and the seat never shrink. The line
- * clips at the row's gutter rather than spilling past it.
+ * The terminal's NAME is not row text: it is the mark's tooltip and
+ * accessible name, so the line spends its width on where the terminal is and
+ * what it changed rather than on a name the row's title already implies.
+ *
+ * Truncation is an ordered give-way, not a fixed cap: the branch yields
+ * (weight 3) down to its floor; the mark, the diff and the seat never
+ * shrink. The line clips at the row's gutter rather than spilling past it.
  *
  * `seatOverlay` is the row's hover-revealed actions, handed to the first
  * line only; the seat's own content steps aside for it on hover, as the
@@ -898,37 +901,41 @@ export function TerminalLineView({
   /** More than one line on the row: a waiting line wears the warn dot so the gold surface says WHICH. */
   disambiguate?: boolean
 }) {
-  const markLabel = line.cli
+  const runtimeLabel = line.cli
     ? labelForCliRuntime(line.cli as AgentCli)
     : line.kind === 'remote'
       ? 'Remote terminal'
       : 'Terminal'
+  // The mark carries the terminal's name (owner ruling 2026-09-05), the way
+  // the machine glyph below carries its machine's: the name is worth a hover,
+  // not a column of row text spending the line's width on a word the row's
+  // title already implies. A shell, whose name IS its runtime, says it once.
+  const markLabel = line.name && line.name !== runtimeLabel ? `${line.name} · ${runtimeLabel}` : runtimeLabel
   const hasDiff = line.additions > 0 || line.deletions > 0
   const idleText = line.idleSince !== null ? formatRelativeMs(line.idleSince, now) : ''
   return (
     <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
-      <span
-        role="img"
-        aria-label={markLabel}
-        // The provider mark in the tab strip's vocabulary; a plain shell wears
-        // the prompt mark, drawn, not typed, so it never needs type below the
-        // 11px floor; a remote pane with no CLI wears the machine glyph.
-        className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
-      >
-        {line.cli ? (
-          <CliIcon cli={line.cli} className="icon-xs" />
-        ) : line.kind === 'remote' ? (
-          <RemoteMachineGlyph className="icon-xs text-[color:var(--text-muted)]" />
-        ) : (
-          <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
-            <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-        )}
-      </span>
-      {line.name ? (
-        <TruncatedText as="span" text={line.name} className="min-w-[3ch] shrink-[4] text-[color:var(--text-muted)]" />
-      ) : null}
+      <Tooltip content={markLabel} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+        <span
+          role="img"
+          aria-label={markLabel}
+          // The provider mark in the tab strip's vocabulary; a plain shell wears
+          // the prompt mark, drawn, not typed, so it never needs type below the
+          // 11px floor; a remote pane with no CLI wears the machine glyph.
+          className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
+        >
+          {line.cli ? (
+            <CliIcon cli={line.cli} className="icon-xs" />
+          ) : line.kind === 'remote' ? (
+            <RemoteMachineGlyph className="icon-xs text-[color:var(--text-muted)]" />
+          ) : (
+            <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
+              <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          )}
+        </span>
+      </Tooltip>
       {line.machineName ? (
         // The glyph alone (owner ruling 2026-09-05): the machine's full name
         // is the tooltip's, not the line's.
