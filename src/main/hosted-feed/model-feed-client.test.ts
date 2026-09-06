@@ -140,6 +140,28 @@ async function main(): Promise<void> {
     assert.equal(failed.ok ? '' : failed.state, 'offline')
   })
 
+  // The first live fetch on a machine with a seed and no cache reports
+  // `changed` even when the body is the seed byte for byte: the cache went from
+  // nothing to something, and the renderer that booted on the seed needs the
+  // read to learn the live copy is in hand (otherwise its next real change is
+  // mistaken for seed -> live and swallowed).
+  await withDir(async (dir) => {
+    const seedPath = join(dir, 'seed.json')
+    const body = feed('2026-09-01T00:00:00Z', ['seeded'])
+    await writeFile(seedPath, JSON.stringify(body))
+    const { fetcher, calls } = fetcherFor(() => json(body, { headers: { etag: '"seed"' } }))
+    const client = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const first = await client.read()
+    assert.ok(first.ok)
+    assert.equal(first.source, 'network')
+    assert.equal(first.changed, true, 'seed -> first live copy writes the cache and says so')
+    assert.equal(calls.length, 1)
+    // The same body again, forced, is not a change: the cache already holds it.
+    const again = await client.read({ forceRefresh: true })
+    assert.ok(again.ok)
+    assert.equal(again.changed, false)
+  })
+
   // cachedOnly never touches the network and prefers the cache over the seed.
   await withDir(async (dir) => {
     const seedPath = join(dir, 'seed.json')

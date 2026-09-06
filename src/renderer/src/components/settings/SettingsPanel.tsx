@@ -16,6 +16,7 @@ import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
+import { hostedFeedLine } from './hostedFeedLine'
 import {
   buildSprintEngineRoleRegistry,
   getSprintEngineRoleLabel,
@@ -955,6 +956,34 @@ function CompoundSwitchRow({
         className="mt-0.5"
       />
     </div>
+  )
+}
+
+// The feed line (backlog/2026-09-04-hosted-update-and-model-feed.md, S6): what
+// the hosted model list is showing and where it came from, with the one manual
+// trigger. The words come from hostedFeedLine; the clock is the band's, so the
+// minute ages with "Checked 2 minutes ago" above it. Check now forces the fetch
+// past the hourly TTL; main pushes the change to every window, so the pickers
+// and the new-models notice follow without this row doing anything more.
+function HostedFeedRow({ now }: { now: number }) {
+  const result = useWorkspaceStore((s) => s.hostedModelFeed)
+  const refreshHostedModelFeed = useWorkspaceStore((s) => s.refreshHostedModelFeed)
+  const [checking, setChecking] = useState(false)
+  const line = hostedFeedLine(result, now)
+  return (
+    <SettingsRow label={line.primary} help={line.meta}>
+      <OutlineButton
+        size="xs"
+        disabled={checking}
+        onClick={() => {
+          setChecking(true)
+          void refreshHostedModelFeed({ force: true }).finally(() => setChecking(false))
+        }}
+      >
+        {checking ? <Spinner className="icon-sm" /> : null}
+        Check now
+      </OutlineButton>
+    </SettingsRow>
   )
 }
 
@@ -2231,12 +2260,15 @@ export default function SettingsPanel({
               if (checkCliVersions) void refreshCliVersionAdvisories({ force: true, cliRuntimes })
             }}
           />
-          <CompoundSwitchRow
-            label="Check for CLI updates"
-            description="Asks each CLI's package registry for its newest version once an hour and offers Update when yours is behind."
-            checked={checkCliVersions}
-            onChange={setCheckCliVersions}
-          />
+          <div className="divide-y divide-[color:var(--border-subtle)]">
+            <CompoundSwitchRow
+              label="Check for CLI updates"
+              description="Asks each CLI's package registry for its newest version once an hour and offers Update when yours is behind."
+              checked={checkCliVersions}
+              onChange={setCheckCliVersions}
+            />
+            <HostedFeedRow now={agentsFreshnessNow} />
+          </div>
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the

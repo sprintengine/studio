@@ -711,8 +711,9 @@ export type HostedModelFeedReadResult =
       fetchedAt: string
       etag?: string
       notModified?: boolean
-      // True when this read replaced the previous copy with a different one —
-      // what fires `hostedModelFeed:changed` and the new-models notice.
+      // True when this read wrote a different copy to the disk cache (the first
+      // live copy after install counts, even if it equals the bundled seed).
+      // Fires `hostedModelFeed:changed`; the renderer decides whether it is news.
       changed: boolean
       feed: HostedModelFeed
       message?: string
