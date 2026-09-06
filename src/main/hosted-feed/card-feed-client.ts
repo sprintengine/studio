@@ -4,7 +4,9 @@
 // honest source/state reporting. Deliberately a sibling and not a shared
 // abstraction — the two feeds have different schemas and must be free to drift,
 // which is the rule the model-feed client already states about itself. The
-// rules are restated here rather than imported for the same reason.
+// rules are restated here rather than imported for the same reason, and two of
+// them are honoured DIFFERENTLY here on purpose; both divergences are marked
+// below and say why the card feed cannot afford the model feed's version.
 //
 // The five rules, as this file honours them
 // (backlog/2026-09-06-the-card-feed-is-a-hosted-file.md, item 2465):
@@ -13,7 +15,8 @@
 //     `updatedAt` is newer than the cache wins, so a release can correct or
 //     retire a card before the next successful fetch. That comparison is on
 //     `updatedAt` and never on a file's mtime, which says only when the
-//     installer wrote it;
+//     installer wrote it. A seed that wins is ADOPTED into the cache rather
+//     than merely preferred — see `readLocal`;
 //   - a fetch is attempted at most once per TTL, and after a failure not again
 //     for the retry gap, so an offline machine never pays a timeout on every
 //     read — and every failure path re-arms the gap, so a machine that cannot
@@ -21,9 +24,11 @@
 //   - a body that fails the schema gate is never written to cache. The last
 //     good copy stays and the result says why. A body that parses with some
 //     rows dropped is a success: one bad card never blanks the home page
-//     (epic ruling R6 — the page does not apologise for its own network);
-//   - the result says where the copy came from, so nothing downstream has to
-//     guess whether it is looking at the network, the cache or the installer.
+//     (epic ruling R6 — the page does not apologise for its own network). What
+//     is CACHED is the raw body, not the parsed feed — see `CacheFile`;
+//   - the result says where the copy came from and what it lost on the way, so
+//     nothing downstream has to guess whether it is looking at the network, the
+//     cache or the installer, or why a card it expected is not there.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
@@ -64,9 +69,12 @@ export type HostedCardFeedReadResult =
       // live copy after install counts, even if it equals the bundled seed).
       changed: boolean
       feed: HostedCardFeed
-      // Rows the schema gate refused inside an otherwise good body. Reported,
-      // never fatal.
+      // Rows the schema gate refused inside an otherwise good body, and what
+      // was wrong with each. Reported, never fatal — and reported for a cached
+      // or seeded copy too, because a build that cannot read a card the feed
+      // carries should say so wherever it read it from.
       dropped?: number
+      dropReasons?: string[]
       message?: string
     }
   | {
@@ -124,12 +132,41 @@ export type HostedCardFeedClientOptions = {
   retryMs?: number
 }
 
+// What is on disk. `body` is the feed EXACTLY as it was received, and never the
+// parsed feed — the second divergence from the model feed, and the one that
+// matters most over time.
+//
+// Caching the parsed feed loses a row permanently. `parseHostedCardFeed` drops
+// a card whose verb THIS build does not know; if the drop happened before the
+// write, the cache would hold the truncated feed, and the very next 304 rewrites
+// that truncated feed back with its ETag preserved — so the server, correctly,
+// never sends the row again, and the card is gone from that install until
+// something else changes the file. An older build downgrading a newer feed is
+// exactly the case the drop-and-count rule exists for, and it would have been
+// the case that made it permanent. Storing the body and re-parsing on every read
+// means dropping a card affects what is SERVED and never what is STORED: install
+// the build that knows the verb and the card comes back.
 type CacheFile = {
   schemaVersion: 1
   feedUrl: string
   etag?: string
   fetchedAt: string
+  body: string
+}
+
+// A stored body plus what this build makes of it right now.
+type LocalCopy = {
+  file: CacheFile
   feed: HostedCardFeed
+  dropped: number
+  dropReasons: string[]
+}
+
+type SeedCopy = {
+  body: string
+  feed: HostedCardFeed
+  dropped: number
+  dropReasons: string[]
 }
 
 export class HostedCardFeedClient {
@@ -155,14 +192,36 @@ export class HostedCardFeedClient {
     this.retryMs = options.retryMs ?? CARD_FEED_RETRY_MS
   }
 
-  // Never overlaps: a manual refresh during a scheduled tick joins the tick.
+  // Two network reads never overlap: a manual refresh during a scheduled tick
+  // joins the tick.
+  //
+  // A `cachedOnly` read is not one of them, and gets its own path — the first
+  // divergence from the model feed. The in-flight guard hands back whatever
+  // promise is running regardless of what was asked for, so a `cachedOnly` read
+  // issued while a fetch is in flight used to wait out the whole 10s timeout
+  // for an answer that was sitting on disk. The model feed can live with that
+  // because a background poller reads it and nothing draws on the result; the
+  // home page draws on this one, and a page that opens on a spinner because
+  // something else was talking to GitHub is the failure this input exists to
+  // prevent.
   read(input: HostedCardFeedReadInput = {}): Promise<HostedCardFeedReadResult> {
+    if (input.cachedOnly === true) return this.readLocalOnly()
     if (this.inFlight) return this.inFlight
     const run = this.readOnce(input).finally(() => {
       if (this.inFlight === run) this.inFlight = null
     })
     this.inFlight = run
     return run
+  }
+
+  private async readLocalOnly(): Promise<HostedCardFeedReadResult> {
+    const feedUrl = this.feedUrl
+    const parsedUrl = parseHttpsUrl(feedUrl)
+    if (!parsedUrl.ok) {
+      return { ok: false, state: 'fetch-error', feedUrl, message: parsedUrl.message }
+    }
+    const local = await this.readLocal(feedUrl)
+    return this.serveLocal(feedUrl, local, undefined)
   }
 
   private async readOnce(input: HostedCardFeedReadInput): Promise<HostedCardFeedReadResult> {
@@ -172,21 +231,16 @@ export class HostedCardFeedClient {
       return { ok: false, state: 'fetch-error', feedUrl, message: parsedUrl.message }
     }
 
-    const seed = await this.readSeed()
-    let cache = await this.readCache(feedUrl)
-    // The bundled seed is the release's own data. A cache written before that
-    // release carries older edits, and must not outrank it. Compared on
-    // `updatedAt` — when the file was edited — never on when it landed on disk.
-    if (cache && seed && hostedCardFeedUpdatedAtMs(seed) > hostedCardFeedUpdatedAtMs(cache.feed)) cache = null
+    const local = await this.readLocal(feedUrl)
+    const { cache } = local
 
     const nowMs = this.now().getTime()
     const force = input.forceRefresh === true
-    if (input.cachedOnly === true) return this.serveLocal(feedUrl, cache, seed, undefined)
-    if (!force && cache && nowMs - Date.parse(cache.fetchedAt) < this.ttlMs) {
-      return this.serveLocal(feedUrl, cache, seed, undefined)
+    if (!force && cache && nowMs - Date.parse(cache.file.fetchedAt) < this.ttlMs) {
+      return this.serveLocal(feedUrl, local, undefined)
     }
     if (!force && this.lastFailureAtMs !== null && nowMs - this.lastFailureAtMs < this.retryMs) {
-      return this.serveLocal(feedUrl, cache, seed, 'Waiting before trying GitHub again.')
+      return this.serveLocal(feedUrl, local, 'Waiting before trying GitHub again.')
     }
 
     let response: Response
@@ -194,7 +248,7 @@ export class HostedCardFeedClient {
       response = await this.fetchWithTimeout(parsedUrl.url, cache, force)
     } catch (error) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `Couldn't reach GitHub. ${formatError(error)}`, 'offline')
+      return this.serveLocal(feedUrl, local, `Couldn't reach GitHub. ${formatError(error)}`, 'offline')
     }
 
     if (response.status === 304) {
@@ -202,7 +256,7 @@ export class HostedCardFeedClient {
         this.lastFailureAtMs = nowMs
         return { ok: false, state: 'fetch-error', feedUrl, statusCode: 304, message: 'GitHub answered 304 Not Modified, but there is no cached copy.' }
       }
-      const touched: CacheFile = { ...cache, fetchedAt: this.now().toISOString() }
+      const touched: CacheFile = { ...cache.file, fetchedAt: this.now().toISOString() }
       await this.writeCache(touched)
       this.lastFailureAtMs = null
       return {
@@ -214,13 +268,14 @@ export class HostedCardFeedClient {
         ...(touched.etag ? { etag: touched.etag } : {}),
         notModified: true,
         changed: false,
-        feed: touched.feed,
+        feed: cache.feed,
+        ...(cache.dropped > 0 ? { dropped: cache.dropped, dropReasons: cache.dropReasons } : {}),
       }
     }
 
     if (!response.ok) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `GitHub answered HTTP ${response.status}.`, 'fetch-error', response.status)
+      return this.serveLocal(feedUrl, local, `GitHub answered HTTP ${response.status}.`, 'fetch-error', response.status)
     }
 
     let body: string
@@ -228,26 +283,29 @@ export class HostedCardFeedClient {
       body = await response.text()
     } catch (error) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `The card feed could not be read. ${formatError(error)}`, 'offline')
+      return this.serveLocal(feedUrl, local, `The card feed could not be read. ${formatError(error)}`, 'offline')
     }
 
     const parsed = parseHostedCardFeed(body)
     if (!parsed.ok) {
       // Never cached. The last good copy stands and the line says why.
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, parsed.message, 'invalid-schema')
+      return this.serveLocal(feedUrl, local, parsed.message, 'invalid-schema')
     }
 
     const etag = response.headers.get('etag') ?? undefined
     const fetchedAt = this.now().toISOString()
-    // `changed` is "the cache on disk is now different", measured against the
-    // cache alone. The first live fetch after install (no cache yet) counts even
-    // when its body matches the bundled seed: the page opened on the seed, and
-    // this is the read that tells it the live copy is in hand.
+    // `changed` is "the cards on screen are now different", measured against
+    // what the cache held. The first live fetch after install (no cache yet)
+    // counts even when its body matches the bundled seed: the page opened on
+    // the seed, and this is the read that tells it the live copy is in hand.
+    // Compared on the PARSED feeds, so a reformatting of the hosted file that
+    // changes no card is not news even though the stored body changed.
     const changed = !cache || JSON.stringify(cache.feed) !== JSON.stringify(parsed.feed)
-    // What is cached is the parsed feed, not the body: the dropped rows are
-    // dropped once, here, and never revive from disk on the next read.
-    await this.writeCache({ schemaVersion: 1, feedUrl, ...(etag ? { etag } : {}), fetchedAt, feed: parsed.feed })
+    // The body as received, which passed the gate a line above. The rows this
+    // build dropped are dropped for this read only; the next build to read this
+    // file gets them back.
+    await this.writeCache({ schemaVersion: 1, feedUrl, ...(etag ? { etag } : {}), fetchedAt, body })
     this.lastFailureAtMs = null
     return {
       ok: true,
@@ -257,31 +315,79 @@ export class HostedCardFeedClient {
       fetchedAt,
       ...(etag ? { etag } : {}),
       changed,
-      ...(parsed.dropped > 0 ? { dropped: parsed.dropped } : {}),
+      ...(parsed.dropped > 0 ? { dropped: parsed.dropped, dropReasons: parsed.dropReasons } : {}),
       feed: parsed.feed,
     }
+  }
+
+  // Everything on this machine: the bundled seed, the disk cache, and which of
+  // the two the cache now holds.
+  //
+  // A seed whose `updatedAt` leads the cache is ADOPTED into the cache, not
+  // merely preferred for this read. Preferring it alone meant setting `cache`
+  // to null, and `cache` is how the TTL gate is spelled (`!force && cache &&
+  // …`) — so every read went to the network, ignored the TTL entirely, and
+  // reported `changed: true` every time, because `!cache` is the first term of
+  // that comparison too. A card seed is authored by hand ahead of publication,
+  // so a fresh release is in exactly that state from the day it is cut: the
+  // shipped seed leads the hosted file until someone updates the hosted file.
+  // Writing the seed through makes the next comparison equal and the TTL apply
+  // again. `fetchedAt` is carried over from the cache being replaced — it
+  // records when this machine last spoke to GitHub, and adopting a file the
+  // installer put there does not change that — and the ETag is dropped, because
+  // it identified the body that is no longer stored.
+  //
+  // The model feed has the same shape and is deliberately NOT changed: its seed
+  // is regenerated by `npm run sync:model-feed` from the same hosted file it
+  // fetches, so its `updatedAt` never leads the remote, and it is read by a
+  // background poller that can afford a wasted round trip. This one is read
+  // every time the home page opens.
+  private async readLocal(feedUrl: string): Promise<{ cache: LocalCopy | null; seed: SeedCopy | null; fromSeed: boolean }> {
+    const seed = await this.readSeed()
+    const cache = await this.readCache(feedUrl)
+    if (cache && seed && hostedCardFeedUpdatedAtMs(seed.feed) > hostedCardFeedUpdatedAtMs(cache.feed)) {
+      return { cache: await this.adoptSeed(feedUrl, seed, cache.file.fetchedAt), seed, fromSeed: true }
+    }
+    return { cache, seed, fromSeed: false }
+  }
+
+  private async adoptSeed(feedUrl: string, seed: SeedCopy, fetchedAt: string): Promise<LocalCopy> {
+    const file: CacheFile = { schemaVersion: 1, feedUrl, fetchedAt, body: seed.body }
+    // A cache this machine cannot write is not a reason to fall back to the
+    // stale copy the seed just outranked: the read goes on with the seed in
+    // hand, and the next read tries the write again.
+    try {
+      await this.writeCache(file)
+    } catch {
+      // Nothing to say. `serveLocal` reports the copy, not the disk.
+    }
+    return { file, feed: seed.feed, dropped: seed.dropped, dropReasons: seed.dropReasons }
   }
 
   // What to show when the network did not answer with a fresh body: the cache,
   // else the seed, else an explicit failure.
   private serveLocal(
     feedUrl: string,
-    cache: CacheFile | null,
-    seed: HostedCardFeed | null,
+    local: { cache: LocalCopy | null; seed: SeedCopy | null; fromSeed: boolean },
     message: string | undefined,
     failureState: 'offline' | 'fetch-error' | 'invalid-schema' = 'offline',
     statusCode?: number,
   ): HostedCardFeedReadResult {
+    const { cache, seed, fromSeed } = local
     if (cache) {
       return {
         ok: true,
         state: message ? 'degraded' : 'ok',
         feedUrl,
-        source: 'cache',
-        fetchedAt: cache.fetchedAt,
-        ...(cache.etag ? { etag: cache.etag } : {}),
+        // An adopted seed is on the cache file by now, but what the person is
+        // looking at is the copy the installer shipped, and saying 'cache'
+        // would hide that.
+        source: fromSeed ? 'seed' : 'cache',
+        fetchedAt: cache.file.fetchedAt,
+        ...(cache.file.etag ? { etag: cache.file.etag } : {}),
         changed: false,
         feed: cache.feed,
+        ...(cache.dropped > 0 ? { dropped: cache.dropped, dropReasons: cache.dropReasons } : {}),
         ...(message ? { message } : {}),
       }
     }
@@ -291,38 +397,42 @@ export class HostedCardFeedClient {
         state: message ? 'degraded' : 'ok',
         feedUrl,
         source: 'seed',
-        fetchedAt: seed.updatedAt,
+        fetchedAt: seed.feed.updatedAt,
         changed: false,
-        feed: seed,
+        feed: seed.feed,
+        ...(seed.dropped > 0 ? { dropped: seed.dropped, dropReasons: seed.dropReasons } : {}),
         ...(message ? { message } : {}),
       }
     }
     return { ok: false, state: failureState, feedUrl, ...(statusCode ? { statusCode } : {}), message: message ?? 'No card feed is available.' }
   }
 
-  private async fetchWithTimeout(url: URL, cache: CacheFile | null, forceRefresh: boolean): Promise<Response> {
+  private async fetchWithTimeout(url: URL, cache: LocalCopy | null, forceRefresh: boolean): Promise<Response> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
     const headers: Record<string, string> = { accept: 'application/json' }
-    if (!forceRefresh && cache?.etag) headers['if-none-match'] = cache.etag
+    if (!forceRefresh && cache?.file.etag) headers['if-none-match'] = cache.file.etag
     return this.fetcher(url.toString(), { method: 'GET', headers, signal: controller.signal }).finally(() => clearTimeout(timeout))
   }
 
-  private async readCache(feedUrl: string): Promise<CacheFile | null> {
+  // Re-parsed on every read, never on the way in: see `CacheFile`.
+  private async readCache(feedUrl: string): Promise<LocalCopy | null> {
     try {
       const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CacheFile>
       if (payload.schemaVersion !== 1) return null
       if (payload.feedUrl !== feedUrl) return null
       if (typeof payload.fetchedAt !== 'string' || Number.isNaN(Date.parse(payload.fetchedAt))) return null
-      const parsed = parseHostedCardFeed(payload.feed)
+      if (typeof payload.body !== 'string') return null
+      const parsed = parseHostedCardFeed(payload.body)
       if (!parsed.ok) return null
-      return {
+      const file: CacheFile = {
         schemaVersion: 1,
         feedUrl,
         ...(typeof payload.etag === 'string' && payload.etag ? { etag: payload.etag } : {}),
         fetchedAt: payload.fetchedAt,
-        feed: parsed.feed,
+        body: payload.body,
       }
+      return { file, feed: parsed.feed, dropped: parsed.dropped, dropReasons: parsed.dropReasons }
     } catch {
       return null
     }
@@ -333,12 +443,13 @@ export class HostedCardFeedClient {
     await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
   }
 
-  private async readSeed(): Promise<HostedCardFeed | null> {
+  private async readSeed(): Promise<SeedCopy | null> {
     if (!this.packagedSeedPath) return null
     try {
       await stat(this.packagedSeedPath)
-      const parsed = parseHostedCardFeed(await readFile(this.packagedSeedPath, 'utf8'))
-      return parsed.ok ? parsed.feed : null
+      const body = await readFile(this.packagedSeedPath, 'utf8')
+      const parsed = parseHostedCardFeed(body)
+      return parsed.ok ? { body, feed: parsed.feed, dropped: parsed.dropped, dropReasons: parsed.dropReasons } : null
     } catch {
       return null
     }

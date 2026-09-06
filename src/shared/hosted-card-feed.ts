@@ -34,39 +34,81 @@ export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'workflow' | 'sprint' 
 
 const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase']
 
-// The closed verb set. Every entry is something the studio already does, with
-// its arguments constrained to things the app can name for itself: a plugin in a
-// source it already trusts, a repository by owner/name, a surface that already
-// has an id. This item ships the types and the parser for the whole set; the
-// executor honours the subset it can (item 2469), and an action it does not yet
-// implement is simply not run — never guessed at.
+// The Extensions views a card may open. The last three are exactly
+// `EXTENSIONS_DRAWER_VIEWS` in the renderer's extensionsSurfaceTarget.ts, and
+// `home` is the card feed's own tab beside them. Restated here rather than
+// imported because src/shared may not reach into the renderer; if a fourth view
+// is ever added to the door, it is added here too, never renamed.
+export type CardSurfaceView = 'home' | 'plugins' | 'skills' | 'agent-clis'
+
+const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
+
+// The closed verb set, and it is closed against the call sites rather than
+// against an imagination of them. The first cut of this union carried thirteen
+// verbs, nine of which no installer in this repository could execute:
+// `add.source`, `seed.backlog`, `create.sprint`, `create.workflow`,
+// `create.automation` and `design.import` named nothing, and the four that
+// remained were shaped wrong — `install.mcp` carried a source the catalogue does
+// not have, `clone.repo` a `ref` git-clone does not take, `open.chat` one
+// attachment list where the composer keeps two, and `open.surface` a
+// surface/tab pair the door stopped speaking in September. A schema is a
+// permanent forward-compatible contract, so shipping a fictional vocabulary is
+// worse than shipping a small true one: adding a verb later is cheap and
+// additive, while un-shipping one is a breaking change to every build in the
+// field. Each verb below is a call this repository already makes.
+//
+// **No action carries a workspace, deliberately.** A card runs in the workspace
+// the person is already in, and the executor supplies it — a card that could
+// name a workspace could reach into a project the person was not looking at.
+// `clone.repo` is the one verb that makes a new one, and everything after it in
+// the same card runs in that.
 export type CardAction =
-  // Make sure an agent CLI is there, and install it if not. `cli` is a studio
-  // plugin id (`claude-code`, `codex`), never a vendor name or a binary path.
+  // Make sure an agent CLI is there, and install it if not. `cli` is a plugin id
+  // under `resources/plugins/` (`claude-code`, `codex`), never a vendor name or
+  // a binary path.
   | { verb: 'require.cli'; cli: string }
-  // The three installs all name a source the app already holds and an id within
-  // it. `source` is a source id ('builtin', a marketplace id, a registered
-  // GitHub source) — resolving it is the installer's job, not the card's.
-  | { verb: 'install.mcp'; source: string; id: string }
+  // A server from the bundled MCP catalogue, by its catalogue id — reverse-DNS,
+  // as `resources/mcps/catalog.json` writes them
+  // (`io-github-domdomegg-gmail-mcp`). There is NO source dimension:
+  // `mcpConfigService.listCatalog()` reads one bundled file and there is nowhere
+  // else an MCP server comes from, so a `source` field would be a parameter with
+  // exactly one legal value — and the first cut's `"source": "builtin"` named a
+  // source id that no longer exists.
+  | { verb: 'install.mcp'; id: string }
+  // A skill and a plugin each name a source the app already holds and an id
+  // within it. `source` is a source id as src/shared/skills.ts mints them:
+  // `github:owner/name` or `local:<absolute path>` — `builtin` is gone. For a
+  // skill, `id` is a `ScannedSkill.id`, which is the skill directory's path
+  // relative to its source (`studio-skills/skills/debug`).
   | { verb: 'install.skill'; source: string; id: string }
+  // For a plugin, `id` is the plugin's name in its source's marketplace
+  // manifest. The card carries nothing else: `installPlugin` also wants
+  // `marketplaceName`, `marketplaceRepo` and `commitSha`, and the executor
+  // resolves all three from that source's scan at run time. A card that carried
+  // them would be carrying facts that go stale the moment the marketplace is
+  // republished, and a stale commitSha installs the wrong bytes.
   | { verb: 'install.plugin'; source: string; id: string }
-  // Add a GitHub source and scan it. `repo` is `owner/name`: a card names a
-  // repository, it does not name a URL, so no card can point the scanner at a
-  // host of its choosing.
-  | { verb: 'add.source'; repo: string }
-  | { verb: 'clone.repo'; repo: string; ref?: string }
-  // Open a chat with the named tools attached. `send: true` is R4 — Go goes:
-  // the prompt is sent, not parked in the composer for somebody to approve.
-  | { verb: 'open.chat'; prompt: string; attach?: string[]; send?: boolean }
-  | { verb: 'seed.backlog'; title: string; children?: string[] }
-  | { verb: 'create.sprint'; goal: string; roster?: string[] }
-  | { verb: 'create.workflow'; goal: string; roster?: string[] }
-  // Created disabled, for a person to arm. A card never arms an automation:
-  // nothing a card sets up may run again without somebody asking for it.
-  | { verb: 'create.automation'; id: string }
-  | { verb: 'design.import'; mode: 'import' | 'extract' }
-  // A door, on a named tab. Both are ids this build already knows.
-  | { verb: 'open.surface'; surface: string; tab?: string }
+  // Open a chat with the named tools attached and the prompt sent. Two lists and
+  // not one because the composer draft keeps them apart (newChatDraft.ts:
+  // `skills: WorkspaceSkill[]` beside `mcpServers: AgentComposerConnector[]`),
+  // and a flat list could not say which an entry was. `skills` names installed
+  // skills by directory name — a `WorkspaceSkill.id`; `mcpServers` names
+  // catalogue ids. `send` is required rather than optional: R4 is "Go goes", and
+  // an unstated `send` leaves the reader guessing whether the card meant to park
+  // its prompt in the composer for somebody to approve.
+  | { verb: 'open.chat'; prompt: string; skills?: string[]; mcpServers?: string[]; send: boolean }
+  // A door, on one of the Extensions views. Mirrors `ExtensionsSurfaceTarget`
+  // exactly: a view, and optionally its Installed tab. The pair it replaces
+  // (`surface` + `tab`) was the vocabulary of a surface that no longer exists.
+  | { verb: 'open.surface'; view: CardSurfaceView; installed?: boolean }
+  // Clone a public GitHub repository and open it. `repo` is `owner/name`: a card
+  // names a repository, never a URL, so no card can point git at a host of its
+  // choosing. `folderName` is the single directory name to clone into, and the
+  // executor supplies `parentDir` — where this app keeps projects is the app's
+  // business, not a card's. There is no `ref`, because `cloneGitHubRepo` takes
+  // `{ url, parentDir, folderName }` and has no branch or tag support: a `ref`
+  // field would be a promise the installer cannot keep.
+  | { verb: 'clone.repo'; repo: string; folderName?: string }
 
 export type CardActionVerb = CardAction['verb']
 
@@ -214,7 +256,10 @@ function parseAction(raw: unknown): { ok: true; action: CardAction } | { ok: fal
       const cli = text(raw.cli)
       return cli ? { ok: true, action: { verb, cli } } : { ok: false, message: 'require.cli needs a cli id.' }
     }
-    case 'install.mcp':
+    case 'install.mcp': {
+      const id = text(raw.id)
+      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.mcp needs a catalogue id.' }
+    }
     case 'install.skill':
     case 'install.plugin': {
       const source = text(raw.source)
@@ -222,56 +267,40 @@ function parseAction(raw: unknown): { ok: true; action: CardAction } | { ok: fal
       if (!source || !id) return { ok: false, message: `${verb} needs a source and an id.` }
       return { ok: true, action: { verb, source, id } }
     }
-    case 'add.source': {
-      const repo = repoName(raw.repo)
-      return repo ? { ok: true, action: { verb, repo } } : { ok: false, message: 'add.source needs a repo as owner/name.' }
+    case 'open.chat': {
+      const prompt = text(raw.prompt)
+      if (!prompt) return { ok: false, message: 'open.chat needs a prompt.' }
+      // Required, and required to be a boolean: a card that forgets to say
+      // whether Go sends the prompt is a card nobody can read, and defaulting
+      // either way would put words in the author's mouth.
+      if (typeof raw.send !== 'boolean') return { ok: false, message: 'open.chat needs send: true or false.' }
+      const action: Extract<CardAction, { verb: 'open.chat' }> = { verb, prompt, send: raw.send }
+      const skills = stringList(raw.skills)
+      if (skills) action.skills = skills
+      const mcpServers = stringList(raw.mcpServers)
+      if (mcpServers) action.mcpServers = mcpServers
+      return { ok: true, action }
+    }
+    case 'open.surface': {
+      const view = text(raw.view)
+      if (!CARD_SURFACE_VIEWS.includes(view as CardSurfaceView)) {
+        return { ok: false, message: `open.surface view ${JSON.stringify(raw.view)} is not one this build knows.` }
+      }
+      const action: Extract<CardAction, { verb: 'open.surface' }> = { verb, view: view as CardSurfaceView }
+      if (raw.installed === true) action.installed = true
+      return { ok: true, action }
     }
     case 'clone.repo': {
       const repo = repoName(raw.repo)
       if (!repo) return { ok: false, message: 'clone.repo needs a repo as owner/name.' }
-      const ref = text(raw.ref)
-      return { ok: true, action: ref ? { verb, repo, ref } : { verb, repo } }
-    }
-    case 'open.chat': {
-      const prompt = text(raw.prompt)
-      if (!prompt) return { ok: false, message: 'open.chat needs a prompt.' }
-      const action: Extract<CardAction, { verb: 'open.chat' }> = { verb, prompt }
-      const attach = stringList(raw.attach)
-      if (attach) action.attach = attach
-      if (raw.send === true) action.send = true
-      return { ok: true, action }
-    }
-    case 'seed.backlog': {
-      const title = text(raw.title)
-      if (!title) return { ok: false, message: 'seed.backlog needs a title.' }
-      const action: Extract<CardAction, { verb: 'seed.backlog' }> = { verb, title }
-      const children = stringList(raw.children)
-      if (children) action.children = children
-      return { ok: true, action }
-    }
-    case 'create.sprint':
-    case 'create.workflow': {
-      const goal = text(raw.goal)
-      if (!goal) return { ok: false, message: `${verb} needs a goal.` }
-      const action: Extract<CardAction, { verb: 'create.sprint' | 'create.workflow' }> = { verb, goal }
-      const roster = stringList(raw.roster)
-      if (roster) action.roster = roster
-      return { ok: true, action }
-    }
-    case 'create.automation': {
-      const id = text(raw.id)
-      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'create.automation needs an id.' }
-    }
-    case 'design.import': {
-      const mode = text(raw.mode)
-      if (mode !== 'import' && mode !== 'extract') return { ok: false, message: 'design.import mode must be import or extract.' }
-      return { ok: true, action: { verb, mode } }
-    }
-    case 'open.surface': {
-      const surface = text(raw.surface)
-      if (!surface) return { ok: false, message: 'open.surface needs a surface id.' }
-      const tab = text(raw.tab)
-      return { ok: true, action: tab ? { verb, surface, tab } : { verb, surface } }
+      const folderName = text(raw.folderName)
+      // One segment, and never a relative directory: the executor joins this
+      // onto the app's projects directory, which is the same gate
+      // `cloneGitHubRepo` puts on its own `folderName`.
+      if (folderName && (folderName === '.' || folderName === '..' || /[/\\]/.test(folderName))) {
+        return { ok: false, message: 'clone.repo folderName must be a single folder name.' }
+      }
+      return { ok: true, action: folderName ? { verb, repo, folderName } : { verb, repo } }
     }
     default:
       return { ok: false, message: `${JSON.stringify(raw.verb)} is not a verb this build implements.` }
@@ -293,7 +322,11 @@ function text(value: unknown): string {
 // segments. A card names a repository; it does not name a URL.
 function repoName(value: unknown): string {
   const repo = text(value)
-  return /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo) ? repo : ''
+  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo)) return ''
+  // The character class admits `.` and `..`, so `../..` is a well-formed
+  // owner/name by that rule alone — and `clone.repo` hands the pair to a path
+  // join. Neither segment may be a relative directory.
+  return repo.split('/').some((segment) => segment === '.' || segment === '..') ? '' : repo
 }
 
 // A fresh array of trimmed strings, or null when the field was absent or held

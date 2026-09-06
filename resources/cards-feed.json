@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-06T09:00:00Z",
+  "updatedAt": "2026-09-06T12:00:00Z",
   "cards": [
     {
       "slug": "big-task-no-problem",
@@ -11,50 +11,7 @@
       "publishedAt": "2026-09-06",
       "hero": true,
       "go": [
-        { "verb": "require.cli", "cli": "claude-code" },
-        {
-          "verb": "create.workflow",
-          "goal": "Read this repository, decide what the work actually is, and run the pieces in parallel.",
-          "roster": ["architect", "implementer", "reviewer"]
-        }
-      ]
-    },
-    {
-      "slug": "agent-drives-your-browser",
-      "kind": "mcp",
-      "title": "Let an agent drive your browser",
-      "dek": "Describe the journey in words. The agent opens your app, clicks through it, reads the console, and writes the test for the path it just proved works.",
-      "credit": "Playwright",
-      "art": "browser",
-      "publishedAt": "2026-09-05",
-      "go": [
-        { "verb": "require.cli", "cli": "claude-code" },
-        { "verb": "install.mcp", "source": "builtin", "id": "playwright" },
-        { "verb": "install.skill", "source": "builtin", "id": "browser-testing" },
-        {
-          "verb": "open.chat",
-          "prompt": "Use the Playwright MCP server to walk the main journey through this app, read the console as you go, and write the test for the path you proved works.",
-          "attach": ["playwright", "browser-testing"],
-          "send": true
-        }
-      ]
-    },
-    {
-      "slug": "build-a-3d-apocalypse",
-      "kind": "showcase",
-      "title": "Build a 3D apocalypse of your own street",
-      "dek": "Photorealistic tiles of your actual postcode, streamed into Unreal, with something unpleasant wandering up the road. Walk from the pavement into your own front door.",
-      "credit": "Unreal Engine · Cesium · Blender",
-      "art": "city",
-      "publishedAt": "2026-09-04",
-      "go": [
-        { "verb": "require.cli", "cli": "claude-code" },
-        { "verb": "clone.repo", "repo": "sprintengine/street-apocalypse-starter" },
-        {
-          "verb": "open.chat",
-          "prompt": "Point the Cesium tiles at my postcode, bring the street into Unreal, and put something unpleasant at the far end of the road.",
-          "send": true
-        }
+        { "verb": "open.surface", "view": "agent-clis" }
       ]
     },
     {
@@ -66,50 +23,16 @@
       "art": "tokens",
       "publishedAt": "2026-09-03",
       "go": [
-        { "verb": "install.skill", "source": "builtin", "id": "design-system" },
-        { "verb": "design.import", "mode": "extract" }
-      ]
-    },
-    {
-      "slug": "an-agent-in-your-telegram",
-      "kind": "mcp",
-      "title": "Put an agent in your Telegram",
-      "dek": "Ask how the sprint is going from the pub. Approve a plan from the bus. The same run you left on the desktop, answering in a chat you already have open.",
-      "credit": "Telegram",
-      "art": "plane",
-      "publishedAt": "2026-09-02",
-      "go": [
-        { "verb": "install.mcp", "source": "builtin", "id": "telegram" },
-        { "verb": "open.surface", "surface": "extensions", "tab": "installed" }
-      ]
-    },
-    {
-      "slug": "review-before-you-open-the-pr",
-      "kind": "automation",
-      "title": "Have the review done before you open the PR",
-      "dek": "Every push to a branch starts a review agent. By the time you go looking, the findings are waiting — with the ones it could not confirm already thrown out.",
-      "credit": "Runs on its own",
-      "art": "clock",
-      "publishedAt": "2026-09-01",
-      "go": [
         { "verb": "require.cli", "cli": "claude-code" },
-        { "verb": "create.automation", "id": "review-on-push" }
-      ]
-    },
-    {
-      "slug": "agent-sees-the-type-errors",
-      "kind": "plugin",
-      "title": "Let the agent see the type errors you can",
-      "dek": "Without a language server an agent guesses at your types from context. With one it reads the same squiggles your editor draws — and stops proposing code that was never going to compile.",
-      "credit": "TypeScript",
-      "art": "braces",
-      "publishedAt": "2026-08-31",
-      "go": [
-        { "verb": "install.plugin", "source": "anthropics", "id": "typescript-language-server" },
+        {
+          "verb": "install.skill",
+          "source": "github:sprintengine/studio-releases",
+          "id": "studio-skills/skills/frontend-design"
+        },
         {
           "verb": "open.chat",
-          "prompt": "Use the language server to find every type error in this repository and fix the ones you are sure about.",
-          "attach": ["typescript-language-server"],
+          "prompt": "Read the UI this repository already has, pull out the colours and spacing it repeats by hand, and write them down as a design-system bundle the build can check.",
+          "skills": ["frontend-design"],
           "send": true
         }
       ]

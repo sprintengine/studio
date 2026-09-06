@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { HostedCardFeedClient, cardFeedSeedCandidates, configuredCardFeedUrl, type CardFeedFetch } from './card-feed-client'
-import { parseHostedCardFeed } from '../../shared/hosted-card-feed'
 
 const FEED_URL = 'https://example.com/cards-feed.json'
 
@@ -15,8 +14,13 @@ const card = (slug: string) => ({
   dek: 'Two or three sentences that make the claim.',
   art: 'browser',
   publishedAt: '2026-09-04',
-  go: [{ verb: 'install.mcp', source: 'builtin', id: slug }],
+  go: [{ verb: 'install.mcp', id: 'io-github-domdomegg-gmail-mcp' }],
 })
+
+// A row this build cannot read: the verb is not in the union, so the card is
+// dropped and counted. Every "what happens to a row we cannot read" test uses
+// it, because that is the case a downgrade produces in the field.
+const unreadableCard = (slug: string) => ({ ...card(slug), go: [{ verb: 'exec.shell', command: 'rm -rf /' }] })
 
 const feed = (updatedAt: string, slugs: string[]) => ({
   schemaVersion: 1,
@@ -27,14 +31,14 @@ const feed = (updatedAt: string, slugs: string[]) => ({
 type Call = { url: string; headers: Record<string, string> }
 
 function fetcherFor(
-  respond: (call: Call, index: number) => Response | Error,
+  respond: (call: Call, index: number) => Response | Error | Promise<Response>,
   calls: Call[] = [],
 ): { fetcher: CardFeedFetch; calls: Call[] } {
   const fetcher: CardFeedFetch = async (url, init) => {
     const headers = Object.fromEntries(Object.entries((init.headers as Record<string, string>) ?? {}))
     const call = { url, headers }
     calls.push(call)
-    const out = respond(call, calls.length - 1)
+    const out = await respond(call, calls.length - 1)
     if (out instanceof Error) throw out
     return out
   }
@@ -57,6 +61,9 @@ async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
   }
 }
 
+const readCacheFile = async (path: string): Promise<{ etag?: string; fetchedAt: string; body: string }> =>
+  JSON.parse(await readFile(path, 'utf8'))
+
 let clock = Date.parse('2026-09-06T12:00:00Z')
 const now = () => new Date(clock)
 const advance = (ms: number) => {
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
     assert.equal(result.changed, true)
     assert.equal(result.etag, '"v1"')
     assert.deepEqual(result.feed.cards.map((c) => c.slug), ['drives-your-browser'])
-    const cache = JSON.parse(await readFile(join(dir, 'cache.json'), 'utf8'))
+    const cache = await readCacheFile(join(dir, 'cache.json'))
     assert.equal(cache.etag, '"v1"')
     assert.equal(calls.length, 1)
     assert.equal(calls[0].headers['if-none-match'], undefined)
@@ -129,28 +136,45 @@ async function main(): Promise<void> {
     }
   })
 
-  // One bad card is dropped and counted; the rest of the feed still renders,
-  // and what lands in the cache is the surviving rows, not the raw body.
+  // One bad card is dropped from what is SERVED and counted with its reason —
+  // and the cache keeps the body whole, rows this build cannot read included.
+  // The parsed feed used to be what was written, which meant a build that did
+  // not know a verb truncated the cache and the next 304 wrote the truncation
+  // back with the ETag intact: the card never returned. Storing the body keeps
+  // the drop to this build's own reading of it.
   await withDir(async (dir) => {
     const cachePath = join(dir, 'cache.json')
     const body = {
       schemaVersion: 1,
       updatedAt: '2026-09-06T00:00:00Z',
-      cards: [
-        card('keeps'),
-        { ...card('no-art'), art: 'https://example.com/pretty.png' },
-        { ...card('unknown-verb'), go: [{ verb: 'exec.shell', command: 'rm -rf /' }] },
-        card('also-keeps'),
-      ],
+      cards: [card('keeps'), { ...card('no-art'), art: 'https://example.com/pretty.png' }, unreadableCard('from-a-newer-build'), card('also-keeps')],
     }
-    const { fetcher } = fetcherFor(() => json(body))
+    const { fetcher, calls } = fetcherFor(() => json(body, { headers: { etag: '"v1"' } }))
     const result = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher, now }).read()
     assert.ok(result.ok)
     assert.equal(result.state, 'ok', 'a droppable row is not a failed read')
     assert.equal(result.dropped, 2)
+    assert.equal(result.dropReasons?.length, 2)
     assert.deepEqual(result.feed.cards.map((c) => c.slug), ['keeps', 'also-keeps'])
-    const cached = JSON.parse(await readFile(cachePath, 'utf8'))
-    assert.deepEqual(cached.feed.cards.map((c: { slug: string }) => c.slug), ['keeps', 'also-keeps'], 'the dropped rows do not revive from disk')
+
+    const cached = await readCacheFile(cachePath)
+    assert.deepEqual(
+      JSON.parse(cached.body).cards.map((c: { slug: string }) => c.slug),
+      ['keeps', 'no-art', 'from-a-newer-build', 'also-keeps'],
+      "the cache holds the body as received, not this build's reading of it",
+    )
+
+    // A 304 rewrites the same body with the same ETag, so the row a newer build
+    // would show is still there afterwards.
+    advance(2 * 60 * 60 * 1000)
+    const { fetcher: f304 } = fetcherFor(() => new Response(null, { status: 304 }), calls)
+    const notModified = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: f304, now }).read()
+    assert.ok(notModified.ok)
+    assert.equal(notModified.notModified, true)
+    assert.equal(notModified.dropped, 2, 'a cached copy reports what this build cannot read in it')
+    const after = await readCacheFile(cachePath)
+    assert.equal(after.etag, '"v1"')
+    assert.equal(JSON.parse(after.body).cards.length, 4, 'a 304 never truncates the stored body')
   })
 
   // Offline: the cache if there is one, else the bundled seed, else a failure.
@@ -180,6 +204,47 @@ async function main(): Promise<void> {
     assert.equal(failed.ok, false)
     assert.equal(failed.ok ? '' : failed.state, 'offline')
   })
+
+  // EVERY failure path arms the retry gap, not only the thrown fetch. Each of
+  // the five is run on a fresh client with nothing on disk, and the second read
+  // must not reach the network. The schema case in particular is checked
+  // WITHOUT forceRefresh: force skips the gap, so a forced read proves nothing
+  // about it.
+  {
+    const failures: [string, () => Response | Error][] = [
+      ['the fetch throws', () => new Error('ENOTFOUND')],
+      ['GitHub answers 500', () => new Response('nope', { status: 500 })],
+      ['GitHub answers 304 with nothing cached', () => new Response(null, { status: 304 })],
+      [
+        'the body cannot be read',
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error('socket hung up'))
+              },
+            }),
+            { status: 200 },
+          ),
+      ],
+      ['the body fails the schema gate', () => json({ schemaVersion: 7, updatedAt: '2026-09-06T00:00:00Z', cards: [] })],
+    ]
+    for (const [what, respond] of failures) {
+      await withDir(async (dir) => {
+        const { fetcher, calls } = fetcherFor(respond)
+        const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now })
+        const first = await client.read()
+        assert.equal(first.ok, false, `${what}: the read fails`)
+        assert.equal(calls.length, 1, `${what}: one request`)
+        const second = await client.read()
+        assert.equal(second.ok, false)
+        assert.equal(calls.length, 1, `${what}: the gap is armed, so no second request`)
+        advance(6 * 60 * 1000)
+        await client.read()
+        assert.equal(calls.length, 2, `${what}: after the gap it tries again`)
+      })
+    }
+  }
 
   // The first live fetch on a machine with a seed and no cache reports
   // `changed` even when the body is the seed byte for byte: the cache went from
@@ -220,6 +285,33 @@ async function main(): Promise<void> {
     assert.equal(calls.length, 1)
   })
 
+  // cachedOnly does not join a network read already in flight. The in-flight
+  // guard used to hand back whatever promise was running, so the home page's
+  // local read waited out the whole fetch timeout for an answer that was on
+  // disk. Here the fetch hangs until the local read has already answered.
+  await withDir(async (dir) => {
+    const seedPath = join(dir, 'seed.json')
+    await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
+    let release: (() => void) | null = null
+    const hang = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { fetcher, calls } = fetcherFor(async () => {
+      await hang
+      return json(feed('2026-09-06T00:00:00Z', ['live']))
+    })
+    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const inFlight = client.read()
+    const local = await client.read({ cachedOnly: true })
+    assert.ok(local.ok)
+    assert.equal(local.source, 'seed', 'the local read answered while the fetch was still open')
+    assert.equal(calls.length, 1, 'and it started no request of its own')
+    release?.()
+    const live = await inFlight
+    assert.ok(live.ok)
+    assert.equal(live.source, 'network')
+  })
+
   // The bundle wins by updatedAt: a seed edited after the cached copy replaces
   // it, and the next successful fetch replaces both.
   await withDir(async (dir) => {
@@ -240,6 +332,71 @@ async function main(): Promise<void> {
     assert.equal(fresh.changed, true)
   })
 
+  // A seed that outranks the cache is ADOPTED into it, and the TTL survives.
+  // Preferring the seed without persisting it left the client with no cache to
+  // measure the TTL against, so every single read went to the network — and the
+  // seed a release ships is stamped later than the hosted file from the day it
+  // is cut, which is exactly this state.
+  await withDir(async (dir) => {
+    const cachePath = join(dir, 'cache.json')
+    const seedPath = join(dir, 'seed.json')
+    const { fetcher: old, calls } = fetcherFor(() => json(feed('2026-08-01T00:00:00Z', ['old-cache']), { headers: { etag: '"old"' } }))
+    await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: old, now }).read()
+    const before = await readCacheFile(cachePath)
+    await writeFile(seedPath, JSON.stringify(feed('2026-09-01T00:00:00Z', ['newer-seed'])))
+
+    const { fetcher: live, calls: liveCalls } = fetcherFor(() => json(feed('2026-08-01T00:00:00Z', ['old-cache'])))
+    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now, packagedSeedPath: seedPath })
+    const served = await client.read()
+    assert.ok(served.ok)
+    assert.equal(served.source, 'seed')
+    assert.equal(liveCalls.length, 0, 'the adopted seed is inside the TTL, so no request is made')
+
+    const adopted = await readCacheFile(cachePath)
+    assert.deepEqual(JSON.parse(adopted.body).cards.map((c: { slug: string }) => c.slug), ['newer-seed'], 'the seed was written through')
+    assert.equal(adopted.fetchedAt, before.fetchedAt, 'adopting a bundled file is not a conversation with GitHub')
+    assert.equal(adopted.etag, undefined, 'the old ETag identified a body that is no longer stored')
+
+    // The next read finds cache and seed equal, so the seed no longer wins and
+    // the copy is reported as what it now is.
+    const second = await client.read()
+    assert.ok(second.ok)
+    assert.equal(second.source, 'cache')
+    assert.equal(second.changed, false)
+    assert.equal(liveCalls.length, 0, 'and the TTL still holds')
+    assert.equal(calls.length, 1)
+  })
+
+  // What a local copy could not read is reported from the cache and from the
+  // seed, not only from a fresh network body.
+  await withDir(async (dir) => {
+    const cachePath = join(dir, 'cache.json')
+    const seedPath = join(dir, 'seed.json')
+    await writeFile(
+      seedPath,
+      JSON.stringify({ schemaVersion: 1, updatedAt: '2026-09-01T00:00:00Z', cards: [card('seeded'), unreadableCard('from-a-newer-build')] }),
+    )
+    const { fetcher } = fetcherFor(() => new Error('offline'))
+    const fromSeed = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher, now, packagedSeedPath: seedPath }).read({ cachedOnly: true })
+    assert.ok(fromSeed.ok)
+    assert.equal(fromSeed.source, 'seed')
+    assert.equal(fromSeed.dropped, 1)
+    assert.match(fromSeed.dropReasons?.[0] ?? '', /is not a verb this build implements/)
+
+    const { fetcher: live } = fetcherFor(() =>
+      json({ schemaVersion: 1, updatedAt: '2026-09-06T00:00:00Z', cards: [card('live'), unreadableCard('also-from-a-newer-build')] }),
+    )
+    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now })
+    const fresh = await client.read()
+    assert.ok(fresh.ok)
+    assert.equal(fresh.dropped, 1)
+    const fromCache = await client.read({ cachedOnly: true })
+    assert.ok(fromCache.ok)
+    assert.equal(fromCache.source, 'cache')
+    assert.equal(fromCache.dropped, 1)
+    assert.match(fromCache.dropReasons?.[0] ?? '', /is not a verb this build implements/)
+  })
+
   // HTTPS only, the env override, and the seed path candidates.
   {
     const bad = await new HostedCardFeedClient({ feedUrl: 'http://example.com/cards-feed.json', cachePath: '/nonexistent/cache.json', fetcher: async () => json({}) }).read()
@@ -253,6 +410,10 @@ async function main(): Promise<void> {
     }).read()
     assert.equal(overridden.ok, false)
     assert.match(overridden.ok ? '' : overridden.message, /HTTPS/)
+    // A cachedOnly read has its own path, and the URL gate is on that one too.
+    const localOnly = await new HostedCardFeedClient({ feedUrl: 'http://example.com/cards-feed.json', cachePath: '/nonexistent/cache.json', fetcher: async () => json({}) }).read({ cachedOnly: true })
+    assert.equal(localOnly.ok, false)
+    assert.match(localOnly.ok ? '' : localOnly.message, /HTTPS/)
     assert.equal(configuredCardFeedUrl({}), 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/cards-feed.json')
     assert.equal(configuredCardFeedUrl({ MULTICODE_CARD_FEED_URL: ' https://localhost:8765/cards-feed.json ' }), 'https://localhost:8765/cards-feed.json')
     assert.deepEqual(cardFeedSeedCandidates({ isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/Resources/app.asar' }), [
@@ -262,16 +423,11 @@ async function main(): Promise<void> {
     assert.deepEqual(cardFeedSeedCandidates({ isPackaged: false, cwd: '/repo' }), ['/repo/resources/cards-feed.json'])
   }
 
-  // The bundled seed this build ships is a feed this build reads, with no row
-  // dropped: a card that fails the gate must never reach an installer.
-  {
-    // Read from the repo root: the npm script runs the bundle from there.
-    const parsed = parseHostedCardFeed(await readFile(join(process.cwd(), 'resources/cards-feed.json'), 'utf8'))
-    assert.ok(parsed.ok, parsed.ok ? '' : parsed.message)
-    assert.equal(parsed.dropped, 0, parsed.dropReasons.join('; '))
-    assert.equal(parsed.feed.cards.length, 7)
-    assert.equal(parsed.feed.cards.filter((c) => c.hero === true).length, 1)
-  }
+  // The bundled seed itself is checked by scripts/check-card-feed-seed.mjs
+  // (npm run test:card-feed), which resolves every id it names against the
+  // catalogue and sources this repository ships. It does not belong here: this
+  // file tests the client against feeds it makes up, and a self-check that only
+  // asserted the seed parses was what let six unresolvable cards ship.
 
   console.log('card-feed-client: ok')
 }
