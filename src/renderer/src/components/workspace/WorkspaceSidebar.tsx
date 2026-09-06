@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { checkoutPathFor, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -1102,7 +1102,11 @@ export default function WorkspaceSidebar({
     () => workspaces.filter((workspace) => rowHasOpenTerminals(workspace, sessionsByWorkspaceId)),
     [workspaces, sessionsByWorkspaceId]
   )
-  const gitSummaries = useSidebarGitSummaries(liveWorkspaces)
+  const gitSummaryEntries = useMemo(
+    () => liveWorkspaces.map((workspace) => ({ id: workspace.id, checkoutPath: checkoutPathFor(workspace) })),
+    [liveWorkspaces]
+  )
+  const gitSummaries = useSidebarGitSummaries(gitSummaryEntries)
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
