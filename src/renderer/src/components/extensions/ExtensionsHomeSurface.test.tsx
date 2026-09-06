@@ -43,6 +43,7 @@ domWindow.api = {
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
+import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import ExtensionsHomeSurface from './ExtensionsHomeSurface'
 import { EXTENSIONS_HOME_TILE_SUMMARIES } from './extensionsHomeTiles'
 import { ExtensionsRail } from '../workspace/ExtensionsRail'
@@ -116,16 +117,38 @@ for (const tile of tilesIn(home.host)) {
   )
 }
 
-// ── The Community section stays, and there is no module list ─────────────────
-assert.ok(
-  home.host.textContent?.includes('Community') && home.host.textContent.includes('Coming soon'),
-  'the Community section keeps its heading and its tag',
+// ── A feed with nothing in it is the page it was yesterday ───────────────────
+// The store starts with no cards, which is a fresh profile with no network and
+// also an old build meeting a feed of cards whose artwork ships later. Both
+// fall back to the tiles ALONE, and the page says nothing about either: no
+// apology, no notice, no version line (epic rulings R5 and R6).
+assert.equal(
+  home.host.querySelectorAll('article').length,
+  0,
+  'no cards, so no card region',
+)
+assert.equal(
+  home.host.querySelectorAll('input[type="search"]').length,
+  0,
+  'and no filter over cards the page is not showing',
 )
 assert.ok(
-  home.host.textContent?.includes(
-    'A browse of modules other people have published, with search and one-click install, will be listed here once the registry scan lands.',
-  ),
-  'and the ruling’s copy, word for word',
+  !home.host.textContent?.includes('Or go straight to the parts'),
+  'the heading arrives with the cards and leaves with them — with nothing above them the tiles ARE the page again',
+)
+for (const apology of ['offline', 'Offline', 'could not', 'Could not', 'unavailable', 'Unavailable', 'Retry', 'try again']) {
+  assert.ok(
+    !home.host.textContent?.includes(apology),
+    `the page never reports on its own network (R6), and it does not say “${apology}”`,
+  )
+}
+// The Community "coming soon" block that stood here is gone: it promised a
+// browse of extensions other people had published, and the card feed is that
+// promise kept. A placeholder for the thing the page now does would be the app
+// contradicting itself.
+assert.ok(
+  !home.host.textContent?.includes('Coming soon'),
+  'no coming-soon placeholder for the feature this page now has',
 )
 assert.equal(
   [...home.host.querySelectorAll('input[type="checkbox"], [role="switch"]')].length,
@@ -216,6 +239,243 @@ assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
   tilesIn(home.host).map(nameOf).filter((label) => label !== 'Sprints'),
   'and the drawer says the same thing at the same moment',
+)
+
+// ── The cards are the body of the page, and the tiles are the foot ───────────
+// Driven through the store, which is where the page reads the feed from: the
+// main process owns the fetch and WorkspaceManager owns the subscription, so a
+// page that fetched for itself would be a second reader of one file.
+const FEED: HostedCard[] = [
+  {
+    slug: 'workflows',
+    kind: 'workflow',
+    title: 'Big task? No problem.',
+    dek: 'Hand it something too big for one sitting and watch the board.',
+    credit: 'Sprint engine',
+    art: 'board',
+    publishedAt: '2026-09-01T00:00:00.000Z',
+    hero: true,
+    go: [],
+  },
+  {
+    slug: 'browser',
+    kind: 'mcp',
+    title: 'Let an agent drive your browser',
+    dek: 'Describe the journey in words. It opens your app and clicks through it.',
+    credit: 'Playwright',
+    art: 'browser',
+    publishedAt: '2026-09-05T00:00:00.000Z',
+    go: [],
+  },
+  {
+    slug: 'street',
+    kind: 'showcase',
+    title: 'Build a 3D apocalypse of your own street',
+    dek: 'Photorealistic tiles of your actual postcode, streamed into Unreal.',
+    credit: 'Unreal Engine',
+    art: 'city',
+    publishedAt: '2026-09-03T00:00:00.000Z',
+    go: [],
+  },
+  {
+    slug: 'from-a-later-release',
+    kind: 'skill',
+    title: 'A card this build cannot draw',
+    dek: 'It names artwork that ships in a release this one has never seen.',
+    art: 'artwork-from-a-later-release',
+    publishedAt: '2026-09-06T00:00:00.000Z',
+    go: [],
+  },
+]
+
+act(() => {
+  useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+})
+
+const cardsIn = (host: HTMLElement) => [...host.querySelectorAll('article')] as HTMLElement[]
+const titleOf = (poster: HTMLElement) => poster.querySelector('h3')?.textContent?.trim() ?? ''
+
+assert.deepEqual(
+  cardsIn(home.host).map(titleOf),
+  [
+    'Big task? No problem.',
+    'Let an agent drive your browser',
+    'Build a 3D apocalypse of your own street',
+  ],
+  'the hero leads however old it is, then newest first — and the card naming artwork this build does not hold is not there at all (2467’s ruling)',
+)
+assert.ok(
+  !home.host.textContent?.includes('A card this build cannot draw'),
+  'a card from a later release is absent, and the page does not mention it (R5, R6)',
+)
+
+// Layout C (ruling R3): the title sits ON the picture, inside the plate, not in
+// a caption under it. The plate is the element carrying the aspect ratio.
+for (const poster of cardsIn(home.host)) {
+  const heading = poster.querySelector('h3')
+  assert.ok(heading, `${titleOf(poster)}: the card names itself in a heading`)
+  assert.ok(
+    heading?.closest('[class*="aspect-"]'),
+    `${titleOf(poster)}: the title is over the picture, in the scrim — not under it (layout C)`,
+  )
+}
+assert.ok(
+  cardsIn(home.host)[0]?.querySelector('[class*="aspect-[2.7/1]"]'),
+  'the hero is the wide crop, and nothing else on the page is',
+)
+assert.equal(
+  cardsIn(home.host).filter((poster) => poster.querySelector('[class*="aspect-[16/9]"]')).length,
+  2,
+  'the two columns are 16:9',
+)
+
+// The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
+for (const [title, stamp, credit] of [
+  ['Big task? No problem.', 'Workflow', 'Sprint engine'],
+  ['Let an agent drive your browser', 'MCP server', 'Playwright'],
+  ['Build a 3D apocalypse of your own street', 'Showcase', 'Unreal Engine'],
+]) {
+  const poster = cardsIn(home.host).find((candidate) => titleOf(candidate) === title)
+  assert.ok(poster, `${title}: the card is on the page`)
+  assert.ok(poster?.textContent?.includes(stamp), `${title}: the stamp says what it is`)
+  assert.ok(poster?.textContent?.includes(credit), `${title}: the credit line names the thing`)
+}
+assert.equal(
+  [...home.host.querySelectorAll('article ol, article ul')].length,
+  0,
+  'a card is an advert, never a list of steps (ruling R2)',
+)
+
+// ── One Go per card, and one accent in the whole view ────────────────────────
+const goButtons = () =>
+  [...home.host.querySelectorAll('button')].filter((button) =>
+    button.textContent?.trim() === 'Go',
+  ) as HTMLElement[]
+assert.equal(goButtons().length, 3, 'one Go per card, and nothing else to press on it')
+for (const go of goButtons()) {
+  assert.equal(go.getAttribute('type'), 'button')
+  const name = go.getAttribute('aria-label') ?? ''
+  assert.ok(
+    name.startsWith('Go — '),
+    'the accessible name leads with the visible label and then says which card it belongs to',
+  )
+}
+// principles, "The accent budget": a solid accent fill is the primary action
+// and nothing else, one per view. Seven accented buttons over five tiles whose
+// glyphs are deliberately neutral ink is exactly the breach that comment warns
+// about, so the hero — the card the FEED promoted, the only one this page ranks
+// — takes the fill and every other card takes the outline.
+const accented = [...home.host.querySelectorAll('button')].filter((button) =>
+  (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
+)
+assert.equal(accented.length, 1, 'the accent is spent once in the whole view')
+assert.equal(
+  accented[0]?.getAttribute('aria-label'),
+  'Go — Big task? No problem.',
+  'and it is spent on the hero’s Go',
+)
+
+// The task-card family contract: hover is a background change, never a lift.
+for (const poster of cardsIn(home.host)) {
+  const classes = poster.getAttribute('class') ?? ''
+  assert.ok(classes.includes('hover:bg-'), `${titleOf(poster)}: hover changes the ground`)
+  assert.ok(
+    !/shadow|scale-|-translate|translate-y/.test(classes),
+    `${titleOf(poster)}: and does nothing else — no lift, no shadow, no scale`,
+  )
+}
+
+// Pressing Go, and pressing the card, do nothing at all until item 2469 wires
+// the verbs up. What must not happen is a throw, or a press that runs twice.
+act(() => {
+  goButtons()[0]?.click()
+  cardsIn(home.host)[1]?.click()
+})
+
+// ── The tiles are still there, and they are underneath ───────────────────────
+assert.ok(tilesIn(home.host).length > 0, 'the tiles keep their place on the page')
+const regions = [...home.host.querySelectorAll('article, ul')]
+assert.equal(
+  regions[regions.length - 1]?.tagName,
+  'UL',
+  'the cards are the reason to be here and the tiles are the way off, so the tiles come last',
+)
+assert.ok(
+  home.host.textContent?.includes('Or go straight to the parts'),
+  'and the quiet heading that turns them into the way off arrives with the cards',
+)
+
+// ── The search filters on title, dek and credit ──────────────────────────────
+const searchField = () => home.host.querySelector('input[type="search"]') as HTMLInputElement | null
+assert.ok(searchField(), 'a feed with cards in it gets a field to search them')
+
+// React DOM is imported above the jsdom globals in this bundle (esbuild hoists
+// it), so it decided at load that no DOM exists and runs its change-event
+// polyfill: a focused element is watched and a value change is noticed on
+// keyup. Typing here is that sequence — focus, set, keyup — the same one
+// `topbar/RemotePopover.test.tsx` and `ToastHost.test.tsx` already use.
+function search(value: string): void {
+  const input = searchField()
+  assert.ok(input, 'the search field is on the chrome row')
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    input?.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
+    setter?.call(input, value)
+    input?.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    input?.dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true }))
+  })
+}
+
+search('postcode')
+assert.deepEqual(
+  cardsIn(home.host).map(titleOf),
+  ['Build a 3D apocalypse of your own street'],
+  'the dek is searched',
+)
+search('playwright')
+assert.deepEqual(cardsIn(home.host).map(titleOf), ['Let an agent drive your browser'], 'so is the credit, case and all')
+search('big task')
+assert.deepEqual(cardsIn(home.host).map(titleOf), ['Big task? No problem.'], 'and so is the title')
+assert.equal(
+  [...home.host.querySelectorAll('button')].filter((button) =>
+    (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
+  ).length,
+  1,
+  'the hero keeps the accent while it is the only card showing',
+)
+search('nothing on any of these cards')
+assert.equal(cardsIn(home.host).length, 0)
+assert.ok(
+  home.host.textContent?.includes('No cards match this search'),
+  'a search that matches nothing gets an answer — that is the person’s own question, not the page apologising for its network',
+)
+assert.ok(tilesIn(home.host).length > 0, 'and the tiles are still there to leave by')
+search('')
+
+// ── Loading is a skeleton grid ───────────────────────────────────────────────
+act(() => {
+  useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'loading' as const }))
+})
+assert.ok(
+  home.host.querySelectorAll('.skeleton-shimmer').length > 0,
+  'a page with nothing to draw yet draws the shape of what is coming',
+)
+assert.equal(cardsIn(home.host).length, 0, 'and no cards while it waits')
+assert.ok(tilesIn(home.host).length > 0, 'the tiles do not wait on the network')
+
+// A read that fails behind cards that are already up keeps them: the feed going
+// away must never empty the page (R6).
+act(() => {
+  useWorkspaceStore.setState(() => ({
+    cards: FEED,
+    cardFeedStatus: 'error' as const,
+    cardFeedError: 'GitHub was slow',
+  }))
+})
+assert.equal(cardsIn(home.host).length, 3, 'a failed re-read leaves the cards alone')
+assert.ok(
+  !home.host.textContent?.includes('GitHub was slow'),
+  'and the page does not repeat what its own network said',
 )
 
 home.unmount()
