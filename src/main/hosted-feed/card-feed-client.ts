@@ -32,6 +32,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
+import type { HostedCardFeedReadInput, HostedCardFeedReadResult } from '../../shared/electron-api'
 import {
   HOSTED_CARD_FEED_URL,
   hostedCardFeedUpdatedAtMs,
@@ -45,45 +46,6 @@ export const DEFAULT_CARD_FEED_TIMEOUT_MS = 10_000
 // One fetch an hour, and one retry every five minutes after a failure.
 export const CARD_FEED_TTL_MS = 60 * 60 * 1_000
 export const CARD_FEED_RETRY_MS = 5 * 60 * 1_000
-
-// The read contract, which item 2466 lifts into src/shared/electron-api.ts when
-// the IPC pair and the preload surface land. It lives here until then so this
-// item ships nothing that pretends to be a channel it has not wired.
-export type HostedCardFeedReadInput = {
-  forceRefresh?: boolean
-  // Serve whatever is on disk (cache, else seed) without touching the network.
-  // The home page uses it so it never waits on a fetch to draw.
-  cachedOnly?: boolean
-}
-
-export type HostedCardFeedReadResult =
-  | {
-      ok: true
-      state: 'ok' | 'degraded'
-      feedUrl: string
-      source: 'network' | 'cache' | 'seed'
-      fetchedAt: string
-      etag?: string
-      notModified?: boolean
-      // True when this read wrote a different copy to the disk cache (the first
-      // live copy after install counts, even if it equals the bundled seed).
-      changed: boolean
-      feed: HostedCardFeed
-      // Rows the schema gate refused inside an otherwise good body, and what
-      // was wrong with each. Reported, never fatal — and reported for a cached
-      // or seeded copy too, because a build that cannot read a card the feed
-      // carries should say so wherever it read it from.
-      dropped?: number
-      dropReasons?: string[]
-      message?: string
-    }
-  | {
-      ok: false
-      state: 'offline' | 'fetch-error' | 'invalid-schema'
-      feedUrl: string
-      statusCode?: number
-      message: string
-    }
 
 // MULTICODE_CARD_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other

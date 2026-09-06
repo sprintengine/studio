@@ -6,6 +6,8 @@ import type { ObservedCheckout } from './observed-checkout'
 import type { AgentLaunchRecord } from './agent-launch'
 import type { HostedModelFeed } from './hosted-model-feed'
 export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
+import type { HostedCardFeed } from './hosted-card-feed'
+export type { CardAction, CardActionVerb, HostedCard, HostedCardFeed, HostedCardKind } from './hosted-card-feed'
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
@@ -734,6 +736,47 @@ export type HostedModelFeedReadResult =
       // Fires `hostedModelFeed:changed`; the renderer decides whether it is news.
       changed: boolean
       feed: HostedModelFeed
+      message?: string
+    }
+  | {
+      ok: false
+      state: 'offline' | 'fetch-error' | 'invalid-schema'
+      feedUrl: string
+      statusCode?: number
+      message: string
+    }
+
+// The hosted card feed (src/shared/hosted-card-feed.ts) as the main-process
+// client serves it. Deliberately the model feed's shape and deliberately not
+// the model feed's type: the two schemas ship on their own clocks and a shared
+// alias would make one feed's change the other feed's problem. `ok: true`
+// always carries a feed to draw — live from GitHub, the disk cache, or the
+// bundled seed — because the home page never apologises for its own network
+// (epic ruling R6). `dropped` counts rows this build refused inside an
+// otherwise good body: a diagnostic, never a reason to blank the page.
+export type HostedCardFeedReadInput = {
+  forceRefresh?: boolean
+  // Serve whatever is on disk (cache, else seed) without touching the network.
+  // The Extensions home uses it so first paint never waits on a fetch.
+  cachedOnly?: boolean
+}
+
+export type HostedCardFeedReadResult =
+  | {
+      ok: true
+      state: 'ok' | 'degraded'
+      feedUrl: string
+      source: 'network' | 'cache' | 'seed'
+      fetchedAt: string
+      etag?: string
+      notModified?: boolean
+      // True when this read wrote a different copy to the disk cache (the first
+      // live copy after install counts, even if it equals the bundled seed).
+      // Fires `hosted-card-feed:changed`; the renderer decides what to do.
+      changed: boolean
+      feed: HostedCardFeed
+      dropped?: number
+      dropReasons?: string[]
       message?: string
     }
   | {
@@ -3596,6 +3639,13 @@ export type ElectronApi = {
   hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
   hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
   onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
+  // The hosted card feed (src/shared/hosted-card-feed.ts), the model feed's
+  // sibling. `get` is the disk copy with no network — the first-paint path;
+  // `refresh` may fetch (the client's TTL decides unless forced); `changed`
+  // fires after any read that replaced the feed, and only then.
+  hostedCardFeedGet: () => Promise<HostedCardFeedReadResult>
+  hostedCardFeedRefresh: (input?: Pick<HostedCardFeedReadInput, 'forceRefresh'>) => Promise<HostedCardFeedReadResult>
+  onHostedCardFeedChanged: (cb: (result: HostedCardFeedReadResult) => void) => () => void
   // CLI version advisories: installed version against the package registry's
   // newest. `set-enabled` mirrors the Settings switch into main so the
   // background check can be turned off; `changed` fires from the poller.

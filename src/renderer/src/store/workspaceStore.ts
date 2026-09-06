@@ -108,6 +108,10 @@ import {
   type HostedModelFeedSlice,
 } from './slices/hostedModelFeedSlice'
 import {
+  createHostedCardFeedSlice,
+  type HostedCardFeedSlice,
+} from './slices/hostedCardFeedSlice'
+import {
   createCliVersionAdvisorySlice,
   type CliVersionAdvisorySlice,
 } from './slices/cliVersionAdvisorySlice'
@@ -155,7 +159,7 @@ import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomation
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions, FocusedAgentSlice {
+export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, HostedCardFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions, FocusedAgentSlice {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -1215,6 +1219,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createPluginsSlice(set),
       ...createCliAvailabilitySlice(set),
       ...createHostedModelFeedSlice(set),
+      ...createHostedCardFeedSlice(set),
       ...createCliVersionAdvisorySlice(set),
       ...createWorkspacePaneSlice(set),
       ...createFocusedAgentSlice(set),

@@ -15,6 +15,7 @@ import { cliRuntimeForPlugin, resolveCliReasoning, resolveLaunchableAgentCli, re
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
+import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFeedSlice'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import { hostedModelAdditions } from '../../../../shared/hosted-model-feed'
 import type { CliVersionAdvisory } from '../../../../shared/electron-api'
@@ -1746,6 +1747,18 @@ export default function WorkspaceManager() {
           navigationTarget: { kind: 'settings', ref: 'agents' },
         })
       }
+    })
+  }, [])
+
+  // The hosted card feed: the disk copy at boot so the Extensions home has its
+  // cards before anyone presses the door, then every push from main replaces
+  // them. No notices — the home page never announces its own network
+  // (epic ruling R6). The returned unsubscribe detaches the ipcRenderer
+  // listener, so a window that goes away stops being sent feeds.
+  useEffect(() => {
+    void useWorkspaceStore.getState().loadCards()
+    return subscribeHostedCardFeedChanges((result) => {
+      useWorkspaceStore.getState().applyHostedCardFeedResult(result)
     })
   }, [])
 
