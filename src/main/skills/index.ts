@@ -529,7 +529,7 @@ export function createSkillsService(
       const inDir = skillScan.skills.filter(
         (skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`)
       )
-      const skills = await enrichSkills(inDir, (skill) =>
+      const { skills } = await enrichSkills(inDir, (skill) =>
         fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
           bytes.toString('utf8')
         )
@@ -750,7 +750,7 @@ async function scanGithubSource(
     : null
 
   const scanned = scanSkillTree({ entries: tree.entries, commitSha, marketplaceManifest: manifest })
-  const skills = await enrichSkills(scanned.skills, (skill) =>
+  const { skills, skippedNoDescription } = await enrichSkills(scanned.skills, (skill) =>
     fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
       bytes.toString('utf8')
     )
@@ -767,7 +767,14 @@ async function scanGithubSource(
         .then((bytes) => bytes.toString('utf8'))
         .catch(() => null),
   })
-  const scan: ScanResult = { ...scanned, skills, ...plugins }
+  // `fileCount` is recounted because a skipped skill takes its files with it.
+  const scan: ScanResult = {
+    ...scanned,
+    skills,
+    skippedNoDescription,
+    fileCount: skills.reduce((total, skill) => total + skill.files.length, 0),
+    ...plugins,
+  }
 
   const name = `${ref.owner}/${ref.repo}`
   return {
@@ -786,15 +793,24 @@ async function scanGithubSource(
 }
 
 /**
- * Fill in each skill's name, description and declared tools from its entry
- * document. A skill whose entry cannot be read keeps its directory name and an
- * empty description — an honest blank, never invented copy.
+ * Fill in each skill's frontmatter — name, description, declared tools, and the
+ * optional license, compatibility and metadata the Agent Skills specification
+ * defines — from its entry document. A skill whose entry cannot be read keeps
+ * its directory name and an empty description — an honest blank, never invented
+ * copy.
+ *
+ * An entry that WAS read and declares no `description` is not a skill at all
+ * (https://agentskills.io/specification, fetched 2026-09-06), so it is dropped
+ * and counted. "Read" is the load-bearing word: an entry that 404ed, failed, or
+ * sat past `MAX_ENRICHED_SKILLS` was never seen, and a skill is never dropped
+ * for a document nobody read.
  */
 async function enrichSkills(
   skills: readonly ScannedSkill[],
   readEntry: (skill: ScannedSkill) => Promise<string>
-): Promise<ScannedSkill[]> {
+): Promise<{ skills: ScannedSkill[]; skippedNoDescription: number }> {
   const enriched = [...skills]
+  const skipped = new Set<number>()
   let cursor = 0
   const workers = Array.from({ length: Math.min(ENRICHMENT_CONCURRENCY, enriched.length) }, async () => {
     while (cursor < enriched.length && cursor < MAX_ENRICHED_SKILLS) {
@@ -803,16 +819,26 @@ async function enrichSkills(
       const raw = await readEntry(enriched[index]).catch(() => '')
       if (raw === '') continue
       const frontmatter = parseSkillFrontmatter(raw)
+      if (frontmatter.description === '') {
+        skipped.add(index)
+        continue
+      }
       enriched[index] = {
         ...enriched[index],
         name: frontmatter.name || enriched[index].name,
         description: frontmatter.description,
         allowedTools: frontmatter.allowedTools,
+        license: frontmatter.license,
+        compatibility: frontmatter.compatibility,
+        metadata: frontmatter.metadata,
       }
     }
   })
   await Promise.all(workers)
-  return enriched
+  return {
+    skills: enriched.filter((_, index) => !skipped.has(index)),
+    skippedNoDescription: skipped.size,
+  }
 }
 
 function githubRefFor(source: SkillSource): SkillRepoRef {

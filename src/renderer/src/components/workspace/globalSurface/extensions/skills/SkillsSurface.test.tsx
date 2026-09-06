@@ -207,6 +207,78 @@ run('a skill page opened from a listing names its source once, on the way back',
   assert.equal(occurrences(page(undefined)), 1, 'with no crumb the line names the source')
 })
 
+run('the skill page shows the license and compatibility a skill declares, and its metadata', () => {
+  const markup = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={skill('skills/pdf', {
+        license: 'Proprietary. LICENSE.txt has complete terms',
+        compatibility: 'Requires Python 3.14+ and uv',
+        metadata: { author: 'example-org' },
+      })}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onBack={() => {}}
+    />,
+  )
+  assert.ok(markup.includes('>License<') && markup.includes('Proprietary. LICENSE.txt has complete terms'))
+  assert.ok(markup.includes('>Compatibility<') && markup.includes('Requires Python 3.14+ and uv'))
+  assert.ok(markup.includes('>author<') && markup.includes('>example-org<'), 'metadata is shown as the skill wrote it')
+
+  // A skill that declares none of them shows no empty rows.
+  const bare = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={skill('skills/pdf')}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onBack={() => {}}
+    />,
+  )
+  assert.equal(bare.includes('>License<'), false)
+  assert.equal(bare.includes('>Compatibility<'), false)
+})
+
+run('a name the specification would reject is stated on the page, and Install stays live', () => {
+  // anthropics/skills' own `template/` declares `template-skill`.
+  const markup = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={skill('template', { name: 'template-skill' })}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onBack={() => {}}
+    />,
+  )
+  assert.ok(markup.includes('is not its directory name'), 'the mismatch is stated')
+  assert.ok(
+    /<button(?:(?!<\/button>)[\s\S])*?>Install skill<\/button>/.test(markup),
+    'and it is a warning, never a refusal — Install is still a live control',
+  )
+  // `disabled=""` is the attribute; `disabled:` in the class list is the kit's
+  // hover styling for the state this button is not in.
+  assert.equal(markup.includes('disabled=""'), false)
+
+  const conformant = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={skill('skills/tdd')}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onBack={() => {}}
+    />,
+  )
+  assert.equal(conformant.includes('is not its directory name'), false)
+})
+
 run('a non-markdown file is shown as its own text, not rendered as markdown', () => {
   const markup = document('#!/bin/sh\n# not a heading\nexit 0\n', 'scripts/run.sh')
   assert.ok(markup.includes('<pre'))

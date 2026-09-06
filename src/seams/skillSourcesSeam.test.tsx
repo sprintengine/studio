@@ -467,7 +467,10 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   // since the source-tabs ruling (2026-09-05); what survives of that rule is
   // the grouping, and each repository's own shape of it is what this walks.
 
-  // 41 skills in six folders: six headings, and a pager that says 41.
+  // 41 skills in six folders: six headings, and a pager that says 41. Forty-one
+  // is what the PINNED tree holds — mattpocock/skills is at 37 upstream today
+  // (checked 2026-09-06) and will move again; the fixture is the fixed point
+  // this walk is measured against, and the fetcher below refuses every host.
   const mattpocock = await scanOf('github:mattpocock/skills')
   assert.equal(mattpocock.skills.length, 41)
   assert.equal(mattpocock.groupingSignal, 'folders')
@@ -475,20 +478,31 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.ok(markup().includes('>Engineering<'), 'the repository’s folders are the headings')
   assert.ok(markup().includes('Showing 1–12 of 41'), 'and one pager walks the whole source')
 
-  // 17 skills the repository's own manifest authors three groups for — the
-  // manifest wins over the (flat) folders, and drops the template the manifest
-  // does not list.
+  // 20 skills the repository's own manifest authors five groups for — the
+  // manifest wins over the (flat) folders, and the one directory it does not
+  // list, `template/`, lands under "Everything else" rather than disappearing
+  // (2026-09-06: the Agent Skills specification defines no collection
+  // manifest, so a manifest cannot be a census).
   const anthropics = await scanOf('github:anthropics/skills')
-  assert.equal(anthropics.skills.length, 17)
+  assert.equal(anthropics.skills.length, 20)
   assert.equal(anthropics.groupingSignal, 'manifest')
-  assert.deepEqual(anthropics.groups, ['document-skills', 'example-skills', 'claude-api'])
+  assert.deepEqual(anthropics.groups, [
+    'document-skills',
+    'example-skills',
+    'claude-api',
+    'academy-guide',
+    'discernment-nudge',
+    'Everything else',
+  ])
+  assert.equal(anthropics.skills.find((skill) => skill.id === 'template')?.group, 'Everything else')
   await openSource('anthropics/skills')
   assert.ok(markup().includes('>Document skills<'), 'the manifest’s groups are the headings')
-  assert.ok(markup().includes('Showing 1–12 of 17'))
-  // The third group is on page 2 — the pager walks the source, so a group that
-  // does not fit is reached rather than hidden.
+  assert.ok(markup().includes('Showing 1–12 of 20'))
+  // The later groups are on page 2 — the pager walks the source, so a group
+  // that does not fit is reached rather than hidden.
   await click(buttonLabelled('Page 2'))
   assert.ok(markup().includes('>Claude api<'), 'and page 2 carries the group page 1 ran out of room for')
+  assert.ok(markup().includes('>Everything else<'), 'including the skills the manifest forgot')
 
   // 103 skills: listed like any other source, twelve at a time, rather than
   // withheld behind a search box until it is asked.

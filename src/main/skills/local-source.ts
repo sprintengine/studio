@@ -103,21 +103,40 @@ export async function scanLocalSkillSource(
   // carries over a thousand skills, and reading them all at once trades a
   // meaningless speedup for EMFILE.
   const skills = [...scanned.skills]
+  // An entry that was read and declares no description is not a skill
+  // (https://agentskills.io/specification, fetched 2026-09-06); one that could
+  // not be read is a skill nobody read, and keeps its row.
+  const skipped = new Set<number>()
   let cursor = 0
   const readers = Array.from({ length: Math.min(ENTRY_READ_CONCURRENCY, skills.length) }, async () => {
     while (cursor < skills.length) {
       const index = cursor
       cursor += 1
       const entryPath = join(root, ...skills[index].id.split('/').filter(Boolean), SKILL_ENTRY_FILE)
-      const frontmatter = parseSkillFrontmatter(await readFile(entryPath, 'utf8').catch(() => ''))
+      const raw = await readFile(entryPath, 'utf8').catch(() => '')
+      if (raw === '') continue
+      const frontmatter = parseSkillFrontmatter(raw)
+      if (frontmatter.description === '') {
+        skipped.add(index)
+        continue
+      }
       skills[index] = {
         ...skills[index],
         name: frontmatter.name || skills[index].name,
         description: frontmatter.description,
         allowedTools: frontmatter.allowedTools,
+        license: frontmatter.license,
+        compatibility: frontmatter.compatibility,
+        metadata: frontmatter.metadata,
       }
     }
   })
   await Promise.all(readers)
-  return { ...scanned, skills }
+  const kept = skills.filter((_, index) => !skipped.has(index))
+  return {
+    ...scanned,
+    skills: kept,
+    skippedNoDescription: skipped.size,
+    fileCount: kept.reduce((total, skill) => total + skill.files.length, 0),
+  }
 }

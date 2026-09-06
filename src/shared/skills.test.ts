@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   parseSkillFrontmatter,
   skillDirName,
+  skillNameWarning,
   skillSourceMonogram,
   sourceLayout,
   type ScanResult,
@@ -100,6 +101,9 @@ function frontmatter(): void {
     name: '',
     description: '',
     allowedTools: [],
+    license: '',
+    compatibility: '',
+    metadata: {},
   })
 
   // A folded description carries its text below the marker. Reading the marker
@@ -119,6 +123,97 @@ function frontmatter(): void {
   )
 }
 
+/**
+ * The specification's own `allowed-tools` example. It is a SPACE-separated
+ * string (https://agentskills.io/specification, fetched 2026-09-06); splitting
+ * it on commas — which is what this did until 2026-09-06 — collapsed three
+ * tools into one bogus name, `Bash(git:*) Bash(jq:*) Read`.
+ */
+function allowedToolsIsSpaceSeparated(): void {
+  const spec = parseSkillFrontmatter(
+    ['---', 'name: git-helper', 'description: Helps.', 'allowed-tools: Bash(git:*) Bash(jq:*) Read', '---'].join('\n'),
+  )
+  assert.deepEqual(spec.allowedTools, ['Bash(git:*)', 'Bash(jq:*)', 'Read'])
+
+  // A space inside a tool's own argument pattern is not a separator.
+  assert.deepEqual(
+    parseSkillFrontmatter('---\nallowed-tools: Bash(npx impeccable *) Read\n---\n').allowedTools,
+    ['Bash(npx impeccable *)', 'Read'],
+  )
+  // Nor is one inside quotes.
+  assert.deepEqual(
+    parseSkillFrontmatter('---\nallowed-tools: "my tool" Read\n---\n').allowedTools,
+    ['my tool', 'Read'],
+  )
+  // The comma-separated form Claude Code's own documentation used still reads,
+  // including the mixed form a repository ends up with.
+  assert.deepEqual(
+    parseSkillFrontmatter('---\nallowed-tools: Read, Write Bash\n---\n').allowedTools,
+    ['Read', 'Write', 'Bash'],
+  )
+}
+
+/** The three optional fields the specification defines, and the app ignored. */
+function optionalSpecFields(): void {
+  const full = parseSkillFrontmatter(
+    [
+      '---',
+      'name: pdf-processing',
+      'description: Extract PDF text, fill forms, merge files.',
+      'license: Proprietary. LICENSE.txt has complete terms',
+      'compatibility: Requires git, docker, jq, and access to the internet',
+      'metadata:',
+      '  author: example-org',
+      '  version: "1.0"',
+      '---',
+      '',
+      '# Body',
+    ].join('\n'),
+  )
+  assert.equal(full.license, 'Proprietary. LICENSE.txt has complete terms')
+  assert.equal(full.compatibility, 'Requires git, docker, jq, and access to the internet')
+  assert.deepEqual(full.metadata, { author: 'example-org', version: '1.0' })
+
+  // A folded license or compatibility block reads like every other folded
+  // scalar, and a flow map is still a map.
+  const folded = parseSkillFrontmatter(
+    ['---', 'compatibility: >', '  Designed for Claude Code', '  (or similar products)', 'metadata: {author: acme}', '---'].join('\n'),
+  )
+  assert.equal(folded.compatibility, 'Designed for Claude Code (or similar products)')
+  assert.deepEqual(folded.metadata, { author: 'acme' })
+
+  // A skill that declares none of them says so with blanks, never with copy
+  // invented from the fields it did declare.
+  const bare = parseSkillFrontmatter('---\nname: alpha\ndescription: A skill.\n---\n')
+  assert.equal(bare.license, '')
+  assert.equal(bare.compatibility, '')
+  assert.deepEqual(bare.metadata, {})
+}
+
+/** `name`, against the specification's own valid and invalid examples. */
+function nameValidation(): void {
+  assert.equal(skillNameWarning('pdf-processing', 'pdf-processing'), '')
+  assert.equal(skillNameWarning('data-analysis', 'data-analysis'), '')
+  assert.equal(skillNameWarning('code-review', 'code-review'), '')
+
+  // Nothing declared is nothing to warn about: an unread entry keeps its
+  // directory name, which is not a claim about its frontmatter.
+  assert.equal(skillNameWarning('', 'anything'), '')
+  // A skill at a source's root has no directory to match, and the other rules
+  // still apply to it.
+  assert.equal(skillNameWarning('impeccable', ''), '')
+
+  assert.match(skillNameWarning('PDF-Processing', 'PDF-Processing'), /lowercase letters/)
+  assert.match(skillNameWarning('-pdf', '-pdf'), /hyphen/)
+  assert.match(skillNameWarning('pdf-', 'pdf-'), /hyphen/)
+  assert.match(skillNameWarning('pdf--processing', 'pdf--processing'), /doubled hyphen/)
+  assert.match(skillNameWarning('a'.repeat(65), 'a'.repeat(65)), /65 characters/)
+  assert.equal(skillNameWarning('a'.repeat(64), 'a'.repeat(64)), '')
+
+  // The case anthropics/skills ships: `template/` declares `template-skill`.
+  assert.match(skillNameWarning('template-skill', 'template'), /directory name “template”/)
+}
+
 function identifiers(): void {
   assert.equal(skillDirName('solutions/ecommerce/amazon-alexa-qa'), 'amazon-alexa-qa')
   assert.equal(skillDirName('prototype'), 'prototype')
@@ -131,6 +226,9 @@ function identifiers(): void {
 function main(): void {
   layoutBoundaries()
   frontmatter()
+  allowedToolsIsSpaceSeparated()
+  optionalSpecFields()
+  nameValidation()
   identifiers()
   console.log('shared skills: ok')
 }

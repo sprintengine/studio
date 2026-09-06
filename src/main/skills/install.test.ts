@@ -255,7 +255,9 @@ async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> 
   const sourceRoot = join(temp, 'source')
   await mkdir(workspace, { recursive: true })
   await mkdir(join(sourceRoot, 'writer'), { recursive: true })
-  await writeFile(join(sourceRoot, 'writer', 'SKILL.md'), '---\nname: writer\n---\n')
+  // A description because a skill without one is not a skill and the scan drops
+  // it (https://agentskills.io/specification, fetched 2026-09-06).
+  await writeFile(join(sourceRoot, 'writer', 'SKILL.md'), '---\nname: writer\ndescription: Writes.\n---\n')
 
   const before = await scanLocalSkillSource(sourceRoot)
   await installSkillDirectory({
@@ -276,6 +278,25 @@ async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> 
   assert.ok(existsSync(join(workspace, '.agents', 'skills', 'writer', SKILL_PROVENANCE_FILE)))
 }
 
+/**
+ * A folder source reads the same specification as a repository: a directory
+ * whose SKILL.md declares no description is not a skill, and the scan says how
+ * many it passed over (https://agentskills.io/specification, fetched
+ * 2026-09-06).
+ */
+async function aLocalEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-skill-nodesc-'))
+  await mkdir(join(root, 'keeper'), { recursive: true })
+  await mkdir(join(root, 'nameless'), { recursive: true })
+  await writeFile(join(root, 'keeper', 'SKILL.md'), '---\nname: keeper\ndescription: Keeps things.\n---\n')
+  await writeFile(join(root, 'nameless', 'SKILL.md'), '---\nname: nameless\n---\n# No description\n')
+
+  const scan = await scanLocalSkillSource(root)
+  assert.deepEqual(scan.skills.map((entry) => entry.id), ['keeper'])
+  assert.equal(scan.skippedNoDescription, 1)
+  assert.equal(scan.fileCount, 1, 'the skipped directory takes its files with it')
+}
+
 async function main(): Promise<void> {
   await installsWholeDirectory()
   await reinstallReplacesRatherThanMerges()
@@ -284,6 +305,7 @@ async function main(): Promise<void> {
   await refusesWithoutAHarness()
   await installsALocalDirectory()
   await theProvenanceMarkerStaysOutOfTheReadersFileList()
+  await aLocalEntryWithNoDescriptionIsSkippedAndCounted()
   await uninstallSweepsEveryHarness()
   console.log('skills install: ok')
 }

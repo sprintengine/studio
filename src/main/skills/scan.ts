@@ -14,6 +14,7 @@
 import {
   SKILL_ENTRY_FILE,
   SKILL_REPO_ROOT_GROUP,
+  SKILL_UNLISTED_GROUP,
   skillDirName,
   type ScanResult,
   type ScannedSkill,
@@ -190,10 +191,16 @@ type Grouping = Pick<ScanResult, 'skills' | 'groups' | 'groupingSignal' | 'fileC
  * enumerates skills, else the folders the skills sit in, else nothing — and
  * none is invented.
  *
- * The manifest beats the folders deliberately. anthropics/skills is flat on
- * disk yet its manifest authors three real groups, and it is also the authority
- * on what counts: the repository holds eighteen SKILL.md files and the manifest
- * lists seventeen, because the eighteenth is a template.
+ * The manifest beats the folders deliberately: anthropics/skills is flat on
+ * disk yet its manifest authors five real groups, which folder grouping could
+ * never have produced.
+ *
+ * It is additive, not exclusive (2026-09-06). A manifest is a Claude Code
+ * convention; the Agent Skills specification defines no collection manifest at
+ * all, so the manifest says how a source groups its skills and never which
+ * directories are skills. A directory with a SKILL.md that the manifest does
+ * not list lands under "Everything else" rather than disappearing —
+ * anthropics/skills' `template/` was the skill this hid.
  */
 function group(skills: readonly ScannedSkill[], manifest: string | null): Grouping {
   const listed = parseManifestSkills(manifest)
@@ -207,7 +214,24 @@ function group(skills: readonly ScannedSkill[], manifest: string | null): Groupi
       if (!groups.includes(name)) groups.push(name)
     }
     if (grouped.length > 0) {
-      return { skills: grouped, groups, groupingSignal: 'manifest', fileCount: countFiles(grouped) }
+      const claimed = new Set(grouped.map((skill) => skill.id))
+      const unlisted = skills
+        .filter((skill) => !claimed.has(skill.id))
+        .map((skill) => ({ ...skill, group: SKILL_UNLISTED_GROUP }))
+      const all = [...grouped, ...unlisted]
+      // `includes` because a manifest is free to have authored a group of that
+      // name itself, and two headings reading the same word is a bug the reader
+      // cannot explain.
+      const withUnlisted =
+        unlisted.length > 0 && !groups.includes(SKILL_UNLISTED_GROUP)
+          ? [...groups, SKILL_UNLISTED_GROUP]
+          : groups
+      return {
+        skills: all,
+        groups: withUnlisted,
+        groupingSignal: 'manifest',
+        fileCount: countFiles(all),
+      }
     }
   }
 

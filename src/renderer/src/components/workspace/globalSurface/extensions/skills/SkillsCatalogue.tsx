@@ -18,7 +18,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
 import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { GhostButton, InlineNotice, Spinner, StatusDot, TruncatedText } from '../../../../ui'
 import { ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { InstalledExtensionsInventory } from '../../../../panels/ConnectorsPanel/InstalledExtensionsInventory'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
@@ -41,6 +41,7 @@ import {
   deriveInstallAvailability,
   deriveSkillCatalogueGroups,
   findSkill,
+  skippedNoDescriptionLine,
   summarizeInstallRun,
   summarizeSyncRun,
   type SkillListItem,
@@ -173,6 +174,18 @@ export function SkillsCatalogue({
         name={item.name}
         summary={item.description || `${item.fileCount} file${item.fileCount === 1 ? '' : 's'}`}
         chips={['Skill', ...(item.hasExecutables ? ['Runs scripts'] : [])]}
+        // A name the Agent Skills specification would reject is stated on the
+        // row: the skill still lists, and still installs. Truncated like the
+        // summary above it, because a row is one line per fact — the detail
+        // pane has the room to say it in full.
+        status={
+          item.nameWarning ? (
+            <>
+              <StatusDot tone="warn" />
+              <TruncatedText as="span" text={item.nameWarning} className="min-w-0 flex-1" />
+            </>
+          ) : undefined
+        }
         selected={openSkillId === item.skillId}
         onOpen={() => setOpenSkillId(item.skillId)}
         actions={
@@ -213,6 +226,9 @@ export function SkillsCatalogue({
         name={catalogueTabLabel(activeSource)}
         stateLine={[
           catalogueStateLine(counts[activeSource.id] ?? { status: 'loading' }, 'skill'),
+          // A source can hold directories this does not list, and says so
+          // rather than quietly showing a smaller number than the repository.
+          skippedNoDescriptionLine(scan),
           activeSource.blurb || null,
           thisReport?.outcome ?? null,
         ]

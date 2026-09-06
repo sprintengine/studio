@@ -567,7 +567,17 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
 
   // Every entry document declares the same dangerous tool set. Whether the app
   // shows it depends only on where the skill sits in the list.
-  const ENTRY = ['---', 'name: writer', 'allowed-tools: Bash(rm -rf *), Write', '---', '# writer'].join('\n')
+  // The description is what makes each of these a skill at all: an entry read
+  // with none is dropped by the scan, which would empty this case rather than
+  // exercise it (https://agentskills.io/specification, fetched 2026-09-06).
+  const ENTRY = [
+    '---',
+    'name: writer',
+    'description: Writes files.',
+    'allowed-tools: Bash(rm -rf *), Write',
+    '---',
+    '# writer',
+  ].join('\n')
   const fetcher: SkillFetch = async (url) => {
     if (url.includes('/git/trees/')) {
       return jsonResponse(JSON.stringify({ truncated: false, tree: entries }))
@@ -615,6 +625,66 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
   console.log(
     `  GAP disclosure: ${declared}/${SKILL_COUNT} skills enriched; ${unread.length} render as "declares no allowed-tools" though every entry declares Bash(rm -rf *)`
   )
+}
+
+/**
+ * A skill is a directory with a SKILL.md that declares a name AND a description
+ * (https://agentskills.io/specification, fetched 2026-09-06). An entry read
+ * with no description is not a skill and is dropped — but an entry NOBODY read
+ * is a skill nobody read, and keeps its row rather than being deleted by a
+ * failed request.
+ */
+async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
+  const entries: SkillTreeEntry[] = [
+    { path: 'keeper/SKILL.md', mode: '100644', type: 'blob', sha: 'a' },
+    { path: 'nameless/SKILL.md', mode: '100644', type: 'blob', sha: 'b' },
+    { path: 'unreadable/SKILL.md', mode: '100644', type: 'blob', sha: 'c' },
+  ]
+  const bodies: Record<string, string> = {
+    'keeper/SKILL.md': '---\nname: keeper\ndescription: Keeps things.\n---\n',
+    'nameless/SKILL.md': '---\nname: nameless\n---\n# No description\n',
+  }
+  const fetcher: SkillFetch = async (url) => {
+    if (url.includes('/git/trees/')) return jsonResponse(JSON.stringify({ truncated: false, tree: entries }))
+    if (url.includes('/commits/')) return jsonResponse(JSON.stringify({ sha: COMMIT }))
+    if (url.includes('api.github.com/repos/')) return jsonResponse(JSON.stringify({ default_branch: 'main' }))
+    const path = Object.keys(bodies).find((candidate) => url.endsWith(candidate))
+    // `unreadable/SKILL.md` fails the way a rate limit or a network drop fails.
+    if (!path) throw new Error('nope')
+    return jsonResponse(bodies[path])
+  }
+
+  const sources = new Map<string, SkillSource>()
+  const scans = new Map<string, ScanResult>()
+  const store: SkillSourceStore = {
+    listSources: async () => [...sources.values()],
+    getSource: async (id) => sources.get(id) ?? null,
+    putSource: async (source, scan) => {
+      sources.set(source.id, source)
+      if (scan) scans.set(source.id, scan)
+    },
+    removeSource: async (id) => sources.delete(id),
+    getScan: async (id) => scans.get(id) ?? null,
+    hasAdoptedLegacyPacks: async () => true,
+    markLegacyPacksAdopted: async () => undefined,
+  }
+  const service = createSkillsService(
+    await mkdtemp(join(tmpdir(), 'multicode-sec-nodesc-')),
+    { resolveToken: async () => '', listHarnesses: async () => ['claude'], github: { fetcher } },
+    store
+  )
+  const added = await service.addSource({ repo: 'someone/skills' })
+  assert.equal(added.ok, true)
+  if (!added.ok) return
+
+  assert.deepEqual(
+    added.scan.skills.map((entry) => entry.id).sort(),
+    ['keeper', 'unreadable'],
+    'the entry with no description is dropped; the one nobody could read is not'
+  )
+  assert.equal(added.scan.skippedNoDescription, 1, 'and the scan says how many it skipped')
+  assert.equal(added.scan.fileCount, 2, 'the dropped skill takes its files with it')
+  console.log('  frontmatter: an entry read with no description is skipped and counted; an unread one keeps its row')
 }
 
 async function reinstallDoesNotLeaveRemovedFilesBehind(): Promise<void> {
@@ -697,6 +767,7 @@ async function main(): Promise<void> {
   await syncNeverOverwritesASkillInstalledFromAnotherSource()
   await aSourceCannotForgeItsOwnProvenance()
   await unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools()
+  await anEntryWithNoDescriptionIsSkippedAndCounted()
   await reinstallDoesNotLeaveRemovedFilesBehind()
   console.log('skills security: ok')
 }

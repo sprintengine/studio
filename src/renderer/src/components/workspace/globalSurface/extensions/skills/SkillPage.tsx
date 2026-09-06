@@ -9,8 +9,8 @@
 
 import React, { useState } from 'react'
 
-import type { ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
-import { Badge, GhostButton, PrimaryButton } from '../../../../ui'
+import { skillDirName, skillNameWarning, type ScannedSkill, type SkillSource } from '../../../../../../../shared/skills'
+import { Badge, DefinitionList, GhostButton, PrimaryButton, StatusDot, type DefinitionItem } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SkillReader } from './SkillReader'
 import { SourceMonogram } from './SourceMonogram'
@@ -45,6 +45,18 @@ export function SkillPage({
   const [descriptionOpen, setDescriptionOpen] = useState(false)
   const fileCount = skill.files.length
   const longDescription = skill.description.length > 200
+  // The optional Agent Skills fields, shown only when the skill declares them:
+  // a "License —" row on every skill that has no licence is noise
+  // (https://agentskills.io/specification, fetched 2026-09-06).
+  const declared: DefinitionItem[] = [
+    ...(skill.license ? [{ term: 'License', description: skill.license }] : []),
+    ...(skill.compatibility ? [{ term: 'Compatibility', description: skill.compatibility }] : []),
+    ...Object.entries(skill.metadata ?? {}).map(([key, value]) => ({
+      term: key,
+      description: value,
+    })),
+  ]
+  const nameWarning = skillNameWarning(skill.name, skillDirName(skill.id))
 
   return (
     <div className="min-w-0">
@@ -87,6 +99,15 @@ export function SkillPage({
         <p className="mt-2 text-meta text-[color:var(--text-subtle)]">{availability.reason}</p>
       ) : null}
 
+      {/* A name the specification would reject is a fact about the skill, not a
+          reason to withhold it — so it is stated here and Install stays live. */}
+      {nameWarning ? (
+        <p className="mt-2 flex items-center gap-1.5 text-meta text-[color:var(--text-subtle)]">
+          <StatusDot tone="warn" />
+          {nameWarning}
+        </p>
+      ) : null}
+
       {skill.description ? (
         <div className="mt-2.5 max-w-[74ch]">
           <p
@@ -111,6 +132,13 @@ export function SkillPage({
           This skill's entry document declares no description.
         </p>
       )}
+
+      {declared.length > 0 ? (
+        <DefinitionList
+          items={declared}
+          className="mt-4 max-w-[74ch] border-t border-[color:var(--border-subtle)] pt-3"
+        />
+      ) : null}
 
       {skill.allowedTools.length > 0 || skill.hasExecutables ? (
         <section className="mt-4 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-3">

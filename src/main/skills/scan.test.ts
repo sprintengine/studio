@@ -31,8 +31,17 @@ function scan(name: string, manifestName?: string): ScanResult {
   return scanSkillTree({ entries: tree.tree, commitSha: tree.commitSha, marketplaceManifest: manifest })
 }
 
+/**
+ * mattpocock/skills as it stood at the commit `mattpocock-skills.tree.json`
+ * records, which is what these numbers are about. The repository has moved on
+ * since — it holds 37 skills at head today (checked 2026-09-06) — and that is
+ * not drift: the fixture is a pinned tree, and the scan rule is what is under
+ * test here, not the current contents of somebody else's repository. Nothing in
+ * this file reads the network.
+ */
 function mattpocock(): void {
   const result = scan('mattpocock-skills')
+  assert.equal(recorded('mattpocock-skills').commitSha, '2ab958093e83e0ec752e6c1c5932da465bf23e0c')
   assert.equal(result.skills.length, 41)
   assert.equal(result.fileCount, 107)
   assert.equal(result.groupingSignal, 'folders')
@@ -63,22 +72,80 @@ function mattpocock(): void {
 
 function anthropics(): void {
   const result = scan('anthropics-skills', 'anthropics-skills')
-  // 18 SKILL.md files are in the tree; the manifest lists 17. template/ is not
-  // a skill, and when a manifest is present it is the authority on what counts.
+  // 20 SKILL.md files are in the tree and the manifest lists 19. The manifest
+  // is the source's grouping, not its census: the Agent Skills specification
+  // defines no collection manifest at all, so the twentieth directory — the
+  // repository's `template/` — is still a skill, and lists under "Everything
+  // else" rather than vanishing because a plugin list omitted it.
   const entryFiles = recorded('anthropics-skills').tree.filter(
     (entry) => entry.type === 'blob' && entry.path.endsWith('SKILL.md')
   )
-  assert.equal(entryFiles.length, 18)
-  assert.equal(result.skills.length, 17)
-  assert.ok(!result.skills.some((skill) => skill.id === 'template'))
+  assert.equal(entryFiles.length, 20)
+  assert.equal(result.skills.length, 20)
   assert.equal(result.groupingSignal, 'manifest')
-  assert.equal(result.groups.length, 3)
-  assert.deepEqual([...result.groups].sort(), ['claude-api', 'document-skills', 'example-skills'])
+  assert.deepEqual(result.groups, [
+    'document-skills',
+    'example-skills',
+    'claude-api',
+    'academy-guide',
+    'discernment-nudge',
+    'Everything else',
+  ])
   assert.equal(sourceLayout(result), 'grouped')
 
-  // The manifest groups skills that are flat on disk — every one of them sits
-  // in `skills/`, so folder grouping could never have produced these three.
-  assert.ok(result.skills.every((skill) => skill.id.startsWith('skills/')))
+  const template = result.skills.find((skill) => skill.id === 'template')
+  assert.ok(template, 'the directory the manifest forgot is still a skill')
+  assert.equal(template.group, 'Everything else')
+  assert.equal(result.skills.filter((skill) => skill.group === 'Everything else').length, 1)
+
+  // The manifest groups skills that are flat on disk — every listed one sits in
+  // `skills/`, so folder grouping could never have produced these five.
+  assert.ok(
+    result.skills
+      .filter((skill) => skill.group !== 'Everything else')
+      .every((skill) => skill.id.startsWith('skills/'))
+  )
+  // Every file in the tree that belongs to a skill is still counted, the
+  // unlisted one included.
+  assert.equal(result.fileCount, result.skills.reduce((total, skill) => total + skill.files.length, 0))
+}
+
+/**
+ * The additive rule on a tree small enough to read: a manifest that lists one
+ * of three skills groups that one and leaves the other two reachable.
+ */
+function manifestGroupingIsAdditive(): void {
+  const entries: SkillTreeEntry[] = [
+    { path: 'skills/alpha/SKILL.md', mode: '100644', type: 'blob', sha: 'a', size: 1 },
+    { path: 'skills/beta/SKILL.md', mode: '100644', type: 'blob', sha: 'b', size: 1 },
+    { path: 'template/SKILL.md', mode: '100644', type: 'blob', sha: 'c', size: 1 },
+  ]
+  const result = scanSkillTree({
+    entries,
+    commitSha: 'sha',
+    marketplaceManifest: JSON.stringify({ plugins: [{ name: 'pack', skills: ['./skills/alpha'] }] }),
+  })
+  assert.equal(result.groupingSignal, 'manifest')
+  assert.deepEqual(result.groups, ['pack', 'Everything else'])
+  assert.deepEqual(
+    result.skills.map((skill) => [skill.id, skill.group]),
+    [
+      ['skills/alpha', 'pack'],
+      ['skills/beta', 'Everything else'],
+      ['template', 'Everything else'],
+    ]
+  )
+  assert.equal(result.fileCount, 3)
+
+  // A manifest that lists every skill adds no group of its own.
+  const complete = scanSkillTree({
+    entries,
+    commitSha: 'sha',
+    marketplaceManifest: JSON.stringify({
+      plugins: [{ name: 'pack', skills: ['./skills/alpha', './skills/beta', './template'] }],
+    }),
+  })
+  assert.deepEqual(complete.groups, ['pack'])
 }
 
 function browserAct(): void {
@@ -223,6 +290,7 @@ function repoRootSkill(): void {
 function main(): void {
   mattpocock()
   anthropics()
+  manifestGroupingIsAdditive()
   browserAct()
   impeccable()
   nonSkillDocuments()

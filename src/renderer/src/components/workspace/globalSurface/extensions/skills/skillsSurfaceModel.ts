@@ -13,6 +13,7 @@
 
 import {
   skillDirName,
+  skillNameWarning,
   skillSourceMonogram,
   sourceLayout,
   type ScanResult,
@@ -154,6 +155,12 @@ export type SkillListItem = {
   hasExecutables: boolean
   /** A skill directory of this name is already in the workspace. */
   installed: boolean
+  /**
+   * How the skill's declared `name` departs from the Agent Skills
+   * specification, '' when it does not. Stated on the row rather than acted on:
+   * the skill still lists and still installs.
+   */
+  nameWarning: string
 }
 
 export type SkillGroupTab = { name: string; label: string; count: number }
@@ -268,6 +275,7 @@ function toListItem(skill: ScannedSkill, installedDirNames: ReadonlySet<string>)
     // name in the workspace is what "installed" means to the agent that reads
     // it — the same identity the installer writes and would overwrite.
     installed: installedDirNames.has(skillDirName(skill.id)),
+    nameWarning: skillNameWarning(skill.name, skillDirName(skill.id)),
   }
 }
 
@@ -339,6 +347,19 @@ export function deriveSkillCatalogueGroups(input: {
   return ungrouped.length > 0
     ? [...grouped, { key: '(ungrouped)', label: 'Everything else', items: ungrouped }]
     : grouped
+}
+
+/**
+ * What the scan passed over: an entry document that was read and declared no
+ * `description` is not a skill (https://agentskills.io/specification, fetched
+ * 2026-09-06), so it is not listed. Null when nothing was passed over, and for
+ * a scan cached before the count existed — which is not the same as zero, and
+ * must not render as "0 skipped".
+ */
+export function skippedNoDescriptionLine(scan: Pick<ScanResult, 'skippedNoDescription'> | null): string | null {
+  const skipped = scan?.skippedNoDescription ?? 0
+  if (skipped === 0) return null
+  return `${skipped} ${skipped === 1 ? 'directory' : 'directories'} skipped: no description`
 }
 
 export function findSkill(scan: ScanResult, skillId: string): ScannedSkill | null {

@@ -19,6 +19,8 @@ import {
 import {
   defaultSkillFilePath,
   deriveGroupTabs,
+  deriveSkillCatalogueGroups,
+  skippedNoDescriptionLine,
   deriveInstallAvailability,
   deriveSkillsKindStateLine,
   deriveSourceRailRows,
@@ -609,6 +611,50 @@ run('star counts fold, and a repository already added is recognised whatever its
   assert.equal(isRepoAdded(added, 'Browser-Act/Skills'), true)
   assert.equal(isRepoAdded(added, 'mattpocock/skills'), true)
   assert.equal(isRepoAdded(added, 'anthropics/skills'), false)
+})
+
+run('a skill whose name is not its directory name carries the warning on its row', () => {
+  // anthropics/skills' own `template/` declares `template-skill`; the row says
+  // so and stays a row, because a source we do not own is not ours to refuse.
+  const groups = deriveSkillCatalogueGroups({
+    scan: scanOf([skill('template', { name: 'template-skill' }), skill('skills/tdd')]),
+    installedDirNames: new Set<string>(),
+    query: '',
+  })
+  const items = groups.flatMap((group) => group.items)
+  assert.equal(items.length, 2, 'a name the specification would reject is never a missing row')
+  const template = items.find((item) => item.skillId === 'template')
+  assert.match(template?.nameWarning ?? '', /is not its directory name “template”/)
+  assert.equal(items.find((item) => item.skillId === 'skills/tdd')?.nameWarning, '')
+})
+
+run('the skills a manifest does not list are grouped, not dropped', () => {
+  // The scan puts them in a group of their own, which the catalogue renders
+  // like any other — the fallback heading is for a group the scan never named.
+  const sections = deriveSkillCatalogueGroups({
+    scan: scanOf([skill('skills/pdf', { group: 'document-skills' }), skill('template', { group: 'Everything else' })], {
+      groups: ['document-skills', 'Everything else'],
+      groupingSignal: 'manifest',
+    }),
+    installedDirNames: new Set<string>(),
+    query: '',
+  })
+  assert.deepEqual(
+    sections.map((section) => [section.label, section.items.map((item) => item.skillId)]),
+    [
+      ['Document skills', ['skills/pdf']],
+      ['Everything else', ['template']],
+    ],
+  )
+})
+
+run('a source says how many directories the scan passed over, and never says zero', () => {
+  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 1 }), '1 directory skipped: no description')
+  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 3 }), '3 directories skipped: no description')
+  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 0 }), null)
+  // A scan cached before the count existed says nothing, rather than "0".
+  assert.equal(skippedNoDescriptionLine({}), null)
+  assert.equal(skippedNoDescriptionLine(null), null)
 })
 
 console.log('skills surface model tests passed')

@@ -75,6 +75,15 @@ export type ScannedSkill = {
   files: SkillFileRef[]
   allowedTools: string[]
   hasExecutables: boolean
+  /**
+   * The optional Agent Skills fields, read from the entry document alongside
+   * the description (https://agentskills.io/specification, fetched
+   * 2026-09-06). Optional on the type because a scan cached before 2026-09-06
+   * carries none, and because most skills declare none.
+   */
+  license?: string
+  compatibility?: string
+  metadata?: Record<string, string>
 }
 
 export type SkillGroupingSignal = 'manifest' | 'folders' | 'none'
@@ -85,6 +94,14 @@ export type ScanResult = {
   groupingSignal: SkillGroupingSignal
   fileCount: number
   commitSha: string
+  /**
+   * Entry documents that were read and declared no `description`, and so are
+   * not skills at all (https://agentskills.io/specification, fetched
+   * 2026-09-06). They are dropped from `skills`, and counted here so the
+   * surface can say a source held something it did not list. Absent on scans
+   * cached before this was counted, which is not the same as zero.
+   */
+  skippedNoDescription?: number
   /**
    * What the repository turned out to be, and the plugins and MCP servers it
    * declares (backlog/2026-09-05-plugin-sources.md). Optional because scans
@@ -237,6 +254,16 @@ export const SKILL_ENTRY_FILE = 'SKILL.md'
 
 /** Group name for skills that sit directly at a source's root. */
 export const SKILL_REPO_ROOT_GROUP = '(repo root)'
+
+/**
+ * Group name for skills a `.claude-plugin/marketplace.json` does not list.
+ *
+ * The Agent Skills specification defines no collection manifest, so a manifest
+ * is a source's own grouping and never its census: a directory with a SKILL.md
+ * that the manifest forgot is still a skill, and must not vanish because a
+ * plugin list omitted it (anthropics/skills' `template/` is the visible case).
+ */
+export const SKILL_UNLISTED_GROUP = 'Everything else'
 
 export const BUILTIN_SKILL_SOURCE_ID = 'builtin'
 export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
@@ -482,22 +509,37 @@ export type SkillFrontmatter = {
   name: string
   description: string
   allowedTools: string[]
+  /** The spec's optional `license`; '' when the skill declares none. */
+  license: string
+  /** The spec's optional `compatibility`; '' when the skill declares none. */
+  compatibility: string
+  /** The spec's optional `metadata` map; empty when the skill declares none. */
+  metadata: Record<string, string>
+}
+
+/** Every field blank — what an unreadable or frontmatter-less entry yields. */
+export function emptySkillFrontmatter(): SkillFrontmatter {
+  return { name: '', description: '', allowedTools: [], license: '', compatibility: '', metadata: {} }
 }
 
 /**
- * Read the SKILL.md frontmatter fields the surface discloses. Deliberately not
- * a YAML parser: skill frontmatter is a flat block of scalars plus the one
- * `allowed-tools` sequence, and a real YAML dependency would buy nothing but a
- * larger parse surface for third-party bytes.
+ * Read the SKILL.md frontmatter fields the surface discloses — every field the
+ * Agent Skills specification defines (https://agentskills.io/specification,
+ * fetched 2026-09-06): `name`, `description`, and the optional `license`,
+ * `compatibility`, `metadata` and `allowed-tools`.
+ *
+ * Deliberately not a YAML parser: skill frontmatter is a flat block of scalars
+ * plus one map and one tool list, and a real YAML dependency would buy nothing
+ * but a larger parse surface for third-party bytes.
  */
 export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
   const block = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
-  const result: SkillFrontmatter = { name: '', description: '', allowedTools: [] }
+  const result: SkillFrontmatter = emptySkillFrontmatter()
   if (!block) return result
 
   const lines = block[1].split(/\r?\n/)
   for (let index = 0; index < lines.length; index += 1) {
-    const scalar = lines[index].match(/^(name|description):\s*(.*)$/)
+    const scalar = lines[index].match(/^(name|description|license|compatibility):\s*(.*)$/)
     if (scalar) {
       const inline = unquoteYamlScalar(scalar[2])
       // A folded or literal block (`description: >`) carries its text on the
@@ -505,8 +547,16 @@ export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
       // to show ">" where its description belongs — `parseSkillFragment` has
       // always folded these, and now both sides of the same file agree.
       const value = isYamlBlockMarker(inline) ? foldedBlockValue(lines, index + 1) : inline
-      if (scalar[1] === 'name' && !result.name) result.name = value
-      if (scalar[1] === 'description' && !result.description) result.description = value
+      const key = scalar[1] as 'name' | 'description' | 'license' | 'compatibility'
+      // First occurrence wins, as YAML itself would take it.
+      if (!result[key]) result[key] = value
+      continue
+    }
+    const meta = lines[index].match(/^metadata:\s*(.*)$/)
+    if (meta) {
+      if (Object.keys(result.metadata).length === 0) {
+        result.metadata = readMetadataMap(lines, index, unquoteYamlScalar(meta[1]))
+      }
       continue
     }
     const tools = lines[index].match(/^allowed-tools:\s*(.*)$/)
@@ -564,12 +614,111 @@ function foldedBlockValue(lines: readonly string[], start: number): string {
   return collected.join(' ')
 }
 
+/**
+ * The `metadata` map: a block of indented `key: value` lines under the field,
+ * or a flow map on the field's own line. Values are strings, which is all the
+ * specification defines the map to hold.
+ */
+function readMetadataMap(
+  lines: readonly string[],
+  index: number,
+  inline: string
+): Record<string, string> {
+  const found: Record<string, string> = {}
+  if (inline.startsWith('{') && inline.endsWith('}')) {
+    for (const pair of inline.slice(1, -1).split(',')) {
+      const cut = pair.indexOf(':')
+      if (cut === -1) continue
+      const key = unquoteYamlScalar(pair.slice(0, cut))
+      if (key && !(key in found)) found[key] = unquoteYamlScalar(pair.slice(cut + 1))
+    }
+    return found
+  }
+  // A scalar where a map belongs is not a map; reading it as one would invent
+  // a key nobody wrote.
+  if (inline !== '') return found
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const entry = lines[cursor].match(/^\s+([^\s:][^:]*):\s*(.*)$/)
+    if (!entry) break
+    const key = unquoteYamlScalar(entry[1])
+    if (key && !(key in found)) found[key] = unquoteYamlScalar(entry[2])
+  }
+  return found
+}
+
+/**
+ * The tools an `allowed-tools` scalar names.
+ *
+ * The Agent Skills specification (https://agentskills.io/specification, fetched
+ * 2026-09-06) writes this field as a SPACE-separated string, and its own
+ * example — `Bash(git:*) Bash(jq:*) Read` — is three tools. Splitting on commas
+ * alone, which is what this did until 2026-09-06, read that example as one
+ * bogus tool name. Commas still separate too, because the YAML flow form
+ * (`[Read, Write]`) and the comma-separated form Claude Code's own
+ * documentation used are both in the wild and neither is ambiguous.
+ *
+ * A separator inside parentheses or quotes belongs to the tool's own argument
+ * pattern (`Bash(npx impeccable *)`), so those do not split.
+ */
 function splitToolList(value: string): string[] {
   const inner = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value
-  return inner
-    .split(',')
-    .map((token) => unquoteYamlScalar(token))
-    .filter((token) => token.length > 0)
+  const tokens: string[] = []
+  let current = ''
+  let depth = 0
+  let quote = ''
+  for (const char of inner) {
+    if (quote !== '') {
+      if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") {
+      quote = char
+    } else if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      depth = Math.max(0, depth - 1)
+    } else if (depth === 0 && (char === ',' || /\s/.test(char))) {
+      tokens.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  tokens.push(current)
+  return tokens.map((token) => unquoteYamlScalar(token)).filter((token) => token.length > 0)
+}
+
+/** The longest `name` the specification allows. */
+const SKILL_NAME_MAX_LENGTH = 64
+
+/**
+ * How a skill's declared `name` departs from the Agent Skills specification —
+ * '' when it does not.
+ *
+ * The specification (https://agentskills.io/specification, fetched 2026-09-06)
+ * requires 1-64 characters of `a-z`, `0-9` and `-`, no leading, trailing or
+ * doubled hyphen, and equality with the parent directory name. This states the
+ * departure rather than rejecting the skill: the file is still readable and
+ * still installable, and a repository we do not own is not ours to refuse.
+ */
+export function skillNameWarning(name: string, dirName: string): string {
+  // Nothing declared is nothing to warn about — an unread entry keeps its
+  // directory name, which is not a claim about the skill's own frontmatter.
+  if (name === '') return ''
+  if (name.length > SKILL_NAME_MAX_LENGTH) {
+    return `Its name is ${name.length} characters; the Agent Skills specification allows ${SKILL_NAME_MAX_LENGTH}.`
+  }
+  if (!/^[a-z0-9-]+$/.test(name)) {
+    return `Its name “${name}” uses characters the Agent Skills specification does not allow — lowercase letters, numbers and hyphens only.`
+  }
+  if (name.startsWith('-') || name.endsWith('-')) {
+    return `Its name “${name}” starts or ends with a hyphen, which the Agent Skills specification does not allow.`
+  }
+  if (name.includes('--')) {
+    return `Its name “${name}” has a doubled hyphen, which the Agent Skills specification does not allow.`
+  }
+  if (dirName !== '' && name !== dirName) {
+    return `Its name “${name}” is not its directory name “${dirName}”, which the Agent Skills specification requires.`
+  }
+  return ''
 }
 
 function unquoteYamlScalar(value: string): string {
