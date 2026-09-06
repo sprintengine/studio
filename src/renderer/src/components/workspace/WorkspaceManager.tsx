@@ -3031,7 +3031,7 @@ export default function WorkspaceManager() {
         workspaceRoot: spec.workspaceRoot,
         sessionId: spec.sessionId,
         repository: spec.repository,
-        // The checkout as the machine listed it; this Mac never moves it.
+        // The checkout as the machine listed it; this device never moves it.
         checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
       },
       windowId: workspaceWindowId,

@@ -71,7 +71,7 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
     lastReachedAt: null,
     detail: 'Unauthorized.',
   })
-  assert.equal(revoked?.title, 'Mini revoked this Mac')
+  assert.equal(revoked?.title, 'Mini revoked this device')
   assert.equal(
     fleetNotice({ kind: 'machine-reachability', revision: 1, connectionId: 'c1', machineName: 'Mini', checking: false, reachable: false, unauthorized: false, checkedAt: 1, lastReachedAt: null, detail: 'asleep' }),
     null,

@@ -370,7 +370,7 @@ run('the glyph itself carries the state: green for serving or connected, pulsing
   })
   assert.match(tone(waiting), /animate-pulse[\s\S]*tone-warn/, 'a waiting pair request wants a person')
   // Owner ruling 2026-09-05: a machine that stopped answering says so on its
-  // own glyph in the popover; the top-bar glyph stays green while this Mac is
+  // own glyph in the popover; the top-bar glyph stays green while this device is
   // reachable, and only a pair request may pulse it.
   assert.match(
     tone(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach({ reachable: false, detail: 'no answer' })]]) })),
@@ -433,7 +433,7 @@ run('the popover lists the driving device and the machines — no addresses anyw
   assert.doesNotMatch(markup, /100\.106\.119\.1/, 'nor the peer the transport saw')
   assert.doesNotMatch(markup, /This machine/, 'one list, not two headings')
   // Owner ruling 2026-09-05: the header is the name and the count. Whether
-  // this Mac is on the tailnet is the glyph's ink and the glyph's tooltip.
+  // this device is on the tailnet is the glyph's ink and the glyph's tooltip.
   assert.doesNotMatch(markup, /Serving/, 'no listener word in the header')
   for (const row of mounted.querySelectorAll('[data-machine-phase]')) {
     assert.doesNotMatch(row.innerHTML, /rounded-full/, 'no status dot on a machine row — the glyph is the status')
@@ -629,7 +629,7 @@ run('off the tailnet the popover says nothing in its header and grays every mach
   assert.doesNotMatch(mounted.innerHTML, /data-machine-answering="true"/, 'a machine main last saw answering is not claimed answering now')
   const state = remoteGlyphState(p)
   assert.equal(state.serving, false)
-  assert.equal(state.answering, 0, 'nothing answers while this Mac is off the tailnet')
+  assert.equal(state.answering, 0, 'nothing answers while this device is off the tailnet')
   assert.match(remoteGlyphTooltip(state), /not connected to Tailscale/)
   assert.match(remoteGlyphTooltip(state), /no Tailscale address/, 'the error rides the tooltip')
   assert.match(remoteGlyphTooltip(remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach()]]) }))), /live · 1 machine answering/)
@@ -765,7 +765,7 @@ run('a request this machine made shows its code large with the instruction to ty
   assert.match(markup, /Waiting for dev-macbook-air/)
   assert.match(markup, /481 972/, 'the code, grouped the way it is read aloud')
   assert.match(markup, /Type this code on dev-macbook-air to allow it/)
-  assert.match(markup, /also lets dev-macbook-air drive this Mac/, 'the reverse offer is said')
+  assert.match(markup, /also lets dev-macbook-air drive this device/, 'the reverse offer is said')
   click(buttonNamed(mounted, /Stop waiting/))
   await flush()
   assert.deepEqual(bridge.cancelCalls, ['tpr_9'])

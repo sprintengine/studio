@@ -243,7 +243,7 @@ export function RemoteTailnetSettingsTab() {
         />
         <SettingToggle
           label="Notify me about pairing and reachability"
-          description="A system notification when another machine asks to pair, when one answers a request this Mac made, or when a paired machine revokes it — only while no Studio window is focused."
+          description="A system notification when another machine asks to pair, when one answers a request this device made, or when a paired machine revokes it — only while no Studio window is focused."
           enabled={status?.notifications ?? true}
           onChange={(next) => void toggleNotifications(next)}
           disabled={busy || !status}

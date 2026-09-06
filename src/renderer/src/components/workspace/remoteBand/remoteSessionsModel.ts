@@ -335,7 +335,7 @@ export function buildRemoteBand(input: {
  * machines, the way the local rows sort; workspaces here whose session the
  * machine did not list come last, since nothing is happening in them.
  *
- * `listening` is whether this Mac is on the tailnet at all. Off it, nothing
+ * `listening` is whether this device is on the tailnet at all. Off it, nothing
  * over there can be reached, so nothing read from over there is drawn — only
  * the rows that are windows open HERE stay, since closing those is the
  * person's call. Nothing is forgotten: the browse rows return with the link.

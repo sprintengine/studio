@@ -92,7 +92,7 @@ export function fleetNotice(event: FleetEvent): TailnetNotice | null {
           key,
           title: `Paired with ${machine}`,
           body: event.request.reverseOffered
-            ? 'Both ways. Its workspaces and terminals are in the Fleet, and it can open this Mac.'
+            ? 'Both ways. Its workspaces and terminals are in the Fleet, and it can open this device.'
             : 'Its workspaces and terminals are in the Fleet.',
         }
       case 'denied':
@@ -108,7 +108,7 @@ export function fleetNotice(event: FleetEvent): TailnetNotice | null {
   if (event.kind === 'machine-reachability' && event.unauthorized) {
     return {
       key: `revoked:${event.connectionId}`,
-      title: `${event.machineName} revoked this Mac`,
+      title: `${event.machineName} revoked this device`,
       body: 'Its pairing was taken back over there. Pair again from Settings → Remote when you want it back.',
     }
   }

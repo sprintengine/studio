@@ -63,7 +63,7 @@ export function RemotePopover({
   // draws the picker. The Fleet panel is being retired (owner, 2026-09-05),
   // so this surface no longer routes anyone into it.
   const quiet = rowCount === 0 && pairRequests.length === 0 && fleetRequests.length === 0
-  // Whether this Mac is on the tailnet at all. The header does not say it
+  // Whether this device is on the tailnet at all. The header does not say it
   // (owner ruling 2026-09-05: no dot, no "Serving" — the glyph that opened
   // this popover is green when the listener is up, and its tooltip has the
   // words). Off the tailnet, the rows below are drawn in disabled ink: they
@@ -252,7 +252,7 @@ export function deviceLivenessText(device: Pick<TailnetLiveDevice, 'connectedSin
  * that revoked us), and Disconnect, which is always available (owner ruling
  * 2026-09-05: a machine you can add here is a machine you can drop here).
  *
- * Disconnect only ends the half of the pairing this Mac owns — the grant over
+ * Disconnect only ends the half of the pairing this device owns — the grant over
  * there is that machine's to revoke — and the toast says so, because
  * "removed" and "revoked" are different promises.
  */
@@ -266,7 +266,7 @@ function MachineRow({
   connection: FleetConnection
   phase: FleetMachinePhase
   now: number
-  /** This Mac is on the tailnet. Off it the row is remembered, not reachable: disabled ink, no Retry. */
+  /** This device is on the tailnet. Off it the row is remembered, not reachable: disabled ink, no Retry. */
   listening: boolean
   onPairAgain: () => void
 }) {
@@ -302,7 +302,7 @@ function MachineRow({
       showToast({
         tone: 'neutral',
         title: `${name} disconnected`,
-        description: `Revoke “${connection.deviceName}” in that machine's Remote settings to end the grant it gave this Mac.`,
+        description: `Revoke “${connection.deviceName}” in that machine's Remote settings to end the grant it gave this device.`,
       })
     } catch (error) {
       showToast({
@@ -323,7 +323,7 @@ function MachineRow({
       {/* One glyph vocabulary for anything remote (epic decision 7), and the
           glyph's ink is the row's whole status (owner ruling 2026-09-05):
           green while the machine answers, the default ink while it does not,
-          disabled ink while this Mac cannot ask. */}
+          disabled ink while this device cannot ask. */}
       <span
         role="img"
         aria-label={
@@ -380,10 +380,10 @@ function MachineRow({
           </OutlineButton>
         </Tooltip>
       ) : null}
-      <Tooltip content={`Remove ${name} from this Mac`} placement="left" wrapperClassName="shrink-0">
+      <Tooltip content={`Remove ${name} from this device`} placement="left" wrapperClassName="shrink-0">
         <CloseIconButton
           tone="danger"
-          aria-label={`Remove ${name} from this Mac`}
+          aria-label={`Remove ${name} from this device`}
           disabled={forgetting}
           onClick={() => void disconnect()}
         />
@@ -477,7 +477,7 @@ export function useOpenRemoteSettings(): () => void {
  * only tone that asks for something; green never does — a steady mark is a
  * fact, an animated one is a request (owner ruling 2026-09-05).
  *
- * Green means one thing: this Mac is on the tailnet and can be reached. Off
+ * Green means one thing: this device is on the tailnet and can be reached. Off
  * it, the default ink — grey, never red, because being offline is not an
  * error (owner ruling 2026-09-05). A machine that stopped answering no longer
  * turns the glyph amber either: its own glyph in the popover says so.

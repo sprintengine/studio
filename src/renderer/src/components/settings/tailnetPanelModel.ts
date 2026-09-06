@@ -138,7 +138,7 @@ export function deviceOriginText(device: Pick<TailnetDevice, 'origin'>): string 
     case 'agent':
       return by ? `Created by an agent (${by})` : 'Created by an agent'
     case 'reverse':
-      return by ? `Granted when this Mac asked to drive ${by}` : 'Granted when this Mac asked to drive it'
+      return by ? `Granted when this device asked to drive ${by}` : 'Granted when this device asked to drive it'
     case 'unknown':
       return 'Paired before origins were kept'
   }

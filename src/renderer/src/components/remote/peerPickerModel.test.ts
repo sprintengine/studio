@@ -107,8 +107,8 @@ assert.match(String(view(scanOf([peer({ isSelf: true })])).emptyMessage), /only 
 }
 
 // The direction is said before the click, both ways when the reverse half is offered.
-assert.equal(connectDirectionNote('dev-macbook-air', false), 'Lets this Mac drive dev-macbook-air.')
-assert.match(connectDirectionNote('dev-macbook-air', true), /and dev-macbook-air drive this Mac/u)
+assert.equal(connectDirectionNote('dev-macbook-air', false), 'Lets this device drive dev-macbook-air.')
+assert.match(connectDirectionNote('dev-macbook-air', true), /and dev-macbook-air drive this device/u)
 
 assert.equal(ago(NOW - 10_000, NOW), 'just now')
 assert.equal(ago(NOW - 5 * 60_000, NOW), '5 min ago')
@@ -171,7 +171,7 @@ const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
 {
   const [row] = withDevices([phone], [device()]).rows
   assert.equal(row.state, 'device', 'a paired phone is its own state, not no-studio')
-  assert.match(row.label, /Paired with this Mac as Sprint Engine Android/u)
+  assert.match(row.label, /Paired with this device as Sprint Engine Android/u)
   assert.doesNotMatch(row.label, /turn on Remote/u, 'never tell someone to fix a phone')
   assert.equal(row.tone, 'good')
 }

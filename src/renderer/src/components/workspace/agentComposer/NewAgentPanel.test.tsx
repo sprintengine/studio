@@ -879,7 +879,7 @@ async function main(): Promise<void> {
   const remoteRender = async (props: Record<string, unknown> = {}) =>
     render({ folderPath: '/proj', projectOptions: [{ path: '/proj', label: 'proj' }], onSelectProject: () => {}, onLaunchRemote: async () => {}, ...props })
 
-  await check('the machine dropdown lists This Mac first and default, paired machines alphabetically after', async () => {
+  await check('the machine dropdown lists This device first and default, paired machines alphabetically after', async () => {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
@@ -888,13 +888,13 @@ async function main(): Promise<void> {
     await settle()
     const trigger = machineTrigger(view)
     assert.ok(trigger, 'the dropdown is offered once a machine is paired')
-    assert.equal(trigger?.textContent?.trim(), 'This Mac', 'and opens on This Mac — never a remote on first open')
+    assert.equal(trigger?.textContent?.trim(), 'This device', 'and opens on This device — never a remote on first open')
     assert.equal(trigger?.querySelector('svg.icon-xs.shrink-0'), null, 'no machine glyph on the trigger while local')
     const menu = await openMachineMenu(view)
     const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map(
       (row) => (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
     )
-    assert.equal(rows[0], 'This Mac', 'This Mac heads the list')
+    assert.equal(rows[0], 'This device', 'This device heads the list')
     assert.deepEqual(rows.slice(1), ['Air', 'mini', 'Studio'], 'then the machines, sorted')
     assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role: the surface, no nested menu')
     view.unmount()
@@ -937,11 +937,11 @@ async function main(): Promise<void> {
     assert.ok(machineTrigger(again)?.textContent?.includes('Air'), 'reopening keeps the session’s last machine')
     await pickMachine(again, 'Mini')
     assert.ok(buttonWithText(again.container, 'solo'), 'a lone project is chosen without a click')
-    await pickMachine(again, 'This Mac')
+    await pickMachine(again, 'This device')
     again.unmount()
     const fresh = await remoteRender()
     await settle()
-    assert.equal(machineTrigger(fresh)?.textContent?.trim(), 'This Mac', 'choosing This Mac forgets the remote')
+    assert.equal(machineTrigger(fresh)?.textContent?.trim(), 'This device', 'choosing This device forgets the remote')
     fresh.unmount()
   })
 
@@ -1288,7 +1288,7 @@ async function main(): Promise<void> {
     })
   })
 
-  await check('with a project in hand the machine list says which machines have it, picking one keeps the project, and This Mac returns to the local clone', async () => {
+  await check('with a project in hand the machine list says which machines have it, picking one keeps the project, and This device returns to the local clone', async () => {
     seedStore()
     resetRememberedMachineForTests()
     const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
@@ -1345,7 +1345,7 @@ async function main(): Promise<void> {
     assert.ok(mini.textContent?.includes('No copy of multicode on Mini'), `with the reason; got: ${mini.textContent}`)
     assert.equal(down.disabled, true)
     assert.ok(down.textContent?.includes('Down is asleep.'), 'an unreachable machine carries its reason')
-    assert.equal(rowsByName.get('This Mac')!.disabled, false, 'This Mac is always open')
+    assert.equal(rowsByName.get('This device')!.disabled, false, 'This device is always open')
 
     await click(air)
     await settle()
@@ -1353,14 +1353,14 @@ async function main(): Promise<void> {
     assert.ok(buttonWithText(view.container, 'multicode-air'), 'picking the machine keeps the project: its copy is chosen, not the first row')
     assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
 
-    // Back to This Mac: the local clone of the same repository is the project.
-    await pickMachine(view, 'This Mac')
+    // Back to This device: the local clone of the same repository is the project.
+    await pickMachine(view, 'This device')
     await settle()
     assert.equal(selected.length, 0, 'the door was already on /proj, the local clone, so nothing is re-selected')
-    assert.equal(machineTrigger(view)?.textContent?.trim(), 'This Mac')
+    assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device')
     view.unmount()
 
-    // From a remote project to This Mac when the door is scoped elsewhere.
+    // From a remote project to This device when the door is scoped elsewhere.
     resetRememberedMachineForTests()
     const elsewhere = await remoteRender({
       folderPath: '/other',
@@ -1375,9 +1375,9 @@ async function main(): Promise<void> {
     const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
     await click(buttonWithText(projects, 'multicode-air'))
     await settle()
-    await pickMachine(elsewhere, 'This Mac')
+    await pickMachine(elsewhere, 'This device')
     await settle()
-    assert.deepEqual(selected, ['/proj'], 'This Mac keeps the project by selecting the open local clone of it')
+    assert.deepEqual(selected, ['/proj'], 'This device keeps the project by selecting the open local clone of it')
     elsewhere.unmount()
     localIdentityAnswer = () => null
   })

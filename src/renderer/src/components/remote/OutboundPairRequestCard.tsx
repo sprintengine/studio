@@ -71,7 +71,7 @@ export function OutboundPairRequestCard({
       </div>
       {request.reverseOffered ? (
         <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
-          Allowing it also lets {request.machineName} drive this Mac.
+          Allowing it also lets {request.machineName} drive this device.
         </p>
       ) : null}
       <div className="flex items-center gap-2">

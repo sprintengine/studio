@@ -35,7 +35,7 @@ export function fleetMachinePhase(
   if (offline) return { phase: 'offline', detail: offline.detail }
   const reach = reachability?.get(connectionId)
   if (!reach) return { phase: 'paired' }
-  if (reach.unauthorized) return { phase: 'revoked', detail: reach.detail ?? 'This Mac was revoked over there.' }
+  if (reach.unauthorized) return { phase: 'revoked', detail: reach.detail ?? 'This device was revoked over there.' }
   if (reach.checking && reach.checkedAt === null) return { phase: 'checking' }
   if (reach.checkedAt === null) return { phase: 'paired' }
   if (reach.reachable) return { phase: 'reachable', checkedAt: reach.checkedAt }

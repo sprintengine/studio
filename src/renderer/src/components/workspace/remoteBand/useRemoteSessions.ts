@@ -19,7 +19,7 @@ const ATTACHMENT_SETTLE_MS = 750
 export type RemoteSessions = {
   presence: TailnetPresence
   browses: ReadonlyMap<string, RemoteBrowseEntry>
-  /** This Mac is on the tailnet: the band may draw what it read from over there. */
+  /** This device is on the tailnet: the band may draw what it read from over there. */
   listening: boolean
   /** Read one machine now, or every machine that may be asked. */
   refresh: (connectionId?: string) => void
