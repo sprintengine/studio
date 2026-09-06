@@ -1,10 +1,24 @@
 #!/usr/bin/env node
 /**
  * Generates app icon files for electron-builder using only Node.js built-ins.
- * Renders the Multicode brand mark: a rounded-square charcoal background with
- * a two-faced angular glyph (light-grey left face, mid-grey right face).
- * Edges are anti-aliased via 4× supersampling (premultiplied-alpha downsample),
- * so no rasterizer dependency is needed.
+ *
+ * Renders the SprintEngine Studio mark: the "se" pair (paper `s`, green `e`)
+ * on the app's dark card. The mark itself is NOT drawn here — text needs a font
+ * rasterizer, which this script deliberately does not depend on. It is read
+ * from `resources/brand/sprintengine-se-mark-1024.png`, the committed master
+ * exported from `sprintengine-se-mark.source.html` beside it.
+ *
+ * The master is RGB with the card's rounded corners sitting on the source
+ * HTML's `#888` page background — an app icon needs real transparency there, or
+ * macOS shows a grey square in the Dock. So the rounded rect is re-cut here:
+ * coverage is supersampled 4×, fully-inside pixels keep the master's colour,
+ * boundary pixels take the card colour at partial alpha, and outside goes fully
+ * transparent. The corners are solid card everywhere the mask bites, so no grey
+ * fringe survives.
+ *
+ * Sizes are area-averaged down from the 1024 master in PREMULTIPLIED alpha, so
+ * the corner edges stay clean instead of dark-fringed at 16px.
+ *
  * Output: resources/icon.png (512px), resources/icon.ico (16…256px),
  *         resources/icon.icns (16…1024px).
  */
@@ -53,7 +67,7 @@ function buildPNG(size, getPixel) {
     }
     rows.push(row)
   }
-  const rawData   = Buffer.concat(rows)
+  const rawData    = Buffer.concat(rows)
   const compressed = zlib.deflateSync(rawData, { level: 6 })
 
   const ihdr = Buffer.allocUnsafe(13)
@@ -68,49 +82,61 @@ function buildPNG(size, getPixel) {
   ])
 }
 
-// Anti-aliased PNG: render the mark at `ss`× resolution and box-downsample,
-// averaging in PREMULTIPLIED alpha so edges against transparency (the rounded
-// corners and the glyph faces over the gradient) stay clean instead of dark-
-// fringed. Pure-Node, no rasterizer dependency — just supersampling.
-function buildPNGAA(size, ss = 4) {
-  const hi = size * ss
-  const px = makeMarkPixel(hi)
-  const samples = ss * ss
-  return buildPNG(size, (x, y) => {
-    let sr = 0, sg = 0, sb = 0, sa = 0
-    for (let sy = 0; sy < ss; sy++) {
-      for (let sx = 0; sx < ss; sx++) {
-        const [r, g, b, a] = px(x * ss + sx, y * ss + sy)
-        const af = a / 255
-        sr += r * af; sg += g * af; sb += b * af; sa += af
-      }
+// ── PNG reader (8-bit, non-interlaced, RGB or RGBA) ───────────────────────────
+function paeth(a, b, c) {
+  const p = a + b - c
+  const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c)
+  return (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c)
+}
+
+function decodePNG(buf) {
+  if (buf.readUInt32BE(0) !== 0x89504E47) throw new Error('not a PNG')
+  let width = 0, height = 0, bitDepth = 0, colorType = 0
+  const idat = []
+  let off = 8
+  while (off < buf.length) {
+    const len  = buf.readUInt32BE(off)
+    const type = buf.toString('ascii', off + 4, off + 8)
+    const data = buf.subarray(off + 8, off + 8 + len)
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0); height = data.readUInt32BE(4)
+      bitDepth = data[8]; colorType = data[9]
+      if (data[12] !== 0) throw new Error('interlaced PNG is not supported')
+    } else if (type === 'IDAT') idat.push(data)
+    else if (type === 'IEND') break
+    off += 12 + len
+  }
+  if (bitDepth !== 8) throw new Error(`bit depth ${bitDepth} is not supported`)
+  if (colorType !== 2 && colorType !== 6) throw new Error(`colour type ${colorType} is not supported`)
+
+  const bpp   = colorType === 6 ? 4 : 3
+  const raw   = zlib.inflateSync(Buffer.concat(idat))
+  const stride = width * bpp
+  const out   = Buffer.alloc(height * stride)
+
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]
+    const line   = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
+    const cur    = out.subarray(y * stride, (y + 1) * stride)
+    const prev   = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? cur[i - bpp] : 0
+      const b = prev ? prev[i] : 0
+      const c = (prev && i >= bpp) ? prev[i - bpp] : 0
+      const v = line[i]
+      cur[i] = (
+        filter === 0 ? v :
+        filter === 1 ? v + a :
+        filter === 2 ? v + b :
+        filter === 3 ? v + ((a + b) >> 1) :
+                       v + paeth(a, b, c)
+      ) & 0xFF
     }
-    if (sa <= 0) return [0, 0, 0, 0]
-    // Un-premultiply the colour; alpha is the mean coverage.
-    return [
-      Math.round(sr / sa),
-      Math.round(sg / sa),
-      Math.round(sb / sa),
-      Math.round((sa / samples) * 255),
-    ]
-  })
+  }
+  return { width, height, bpp, pixels: out }
 }
 
-// ── Brand palette ─────────────────────────────────────────────────────────────
-const BG_TOP    = [22, 22, 28]
-const BG_BOTTOM = [5,  5,  7 ]
-const LEFT_TOP    = [244, 244, 245]
-const LEFT_BOTTOM = [122, 122, 130]
-const RIGHT_TOP    = [154, 154, 162]
-const RIGHT_BOTTOM = [58,  58,  68 ]
-
-function lerp(a, b, t) { return a + (b - a) * t }
-function lerpRGB(c0, c1, t) {
-  return [Math.round(lerp(c0[0], c1[0], t)),
-          Math.round(lerp(c0[1], c1[1], t)),
-          Math.round(lerp(c0[2], c1[2], t))]
-}
-
+// ── Geometry ──────────────────────────────────────────────────────────────────
 function inRoundedRect(x, y, x1, y1, x2, y2, r) {
   if (x < x1 || x > x2 || y < y1 || y > y2) return false
   const corners = [
@@ -125,70 +151,74 @@ function inRoundedRect(x, y, x1, y1, x2, y2, r) {
   return true
 }
 
-// Point-in-triangle via sign of edge cross products.
-function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
-  const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by)
-  const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy)
-  const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay)
-  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0
-  const hasPos = d1 > 0 || d2 > 0 || d3 > 0
-  return !(hasNeg && hasPos)
-}
+// ── Master: the brand PNG with real rounded-corner alpha ──────────────────────
+// The card colour, matching `#0c0c10` in the mark's source HTML. Boundary
+// pixels are painted with this rather than the master's own, whose corner
+// anti-aliasing is blended toward the source page's #888.
+const CARD = [0x0c, 0x0c, 0x10]
+const RADIUS_RATIO = 236 / 1024  // border-radius from the mark's source HTML
+const SS = 4                     // coverage supersampling
 
-// Point in quad (4 vertices in order) — split into two triangles.
-function pointInQuad(px, py, q) {
-  return (
-    pointInTriangle(px, py, q[0][0], q[0][1], q[1][0], q[1][1], q[2][0], q[2][1]) ||
-    pointInTriangle(px, py, q[0][0], q[0][1], q[2][0], q[2][1], q[3][0], q[3][1])
-  )
-}
+function buildMaster(srcPath) {
+  const { width, height, bpp, pixels } = decodePNG(fs.readFileSync(srcPath))
+  if (width !== height) throw new Error(`master must be square, got ${width}×${height}`)
+  const n = width
+  const r = RADIUS_RATIO * n
+  const rgba = Buffer.alloc(n * n * 4)
 
-function makeMarkPixel(size) {
-  const radius = Math.round(size * 0.22)
-  // Glyph occupies an inner rect roughly 60% wide, 64% tall, centered.
-  const gx0 = Math.round(size * 0.20)
-  const gx1 = Math.round(size * 0.80)
-  const gy0 = Math.round(size * 0.18)
-  const gy1 = Math.round(size * 0.84)
-  const cx  = Math.round(size * 0.50)
-  const cyTop = Math.round(size * 0.44) // valley meeting point (top of inner V)
-
-  // Left quad: TopLeft, TopRight (slope down to valley), BottomRight, BottomLeft
-  const leftQuad = [
-    [gx0, gy0],
-    [cx,  cyTop],
-    [cx,  gy1],
-    [gx0, gy1],
-  ]
-  // Right quad mirror
-  const rightQuad = [
-    [cx,  cyTop],
-    [gx1, gy0],
-    [gx1, gy1],
-    [cx,  gy1],
-  ]
-
-  return function pixel(x, y) {
-    // Outside the rounded square: transparent.
-    if (!inRoundedRect(x, y, 0, 0, size - 1, size - 1, radius)) {
-      return [0, 0, 0, 0]
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      let covered = 0
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const px = x + (sx + 0.5) / SS
+          const py = y + (sy + 0.5) / SS
+          if (inRoundedRect(px, py, 0, 0, n, n, r)) covered++
+        }
+      }
+      const o = (y * n + x) * 4
+      if (covered === 0) { rgba[o] = 0; rgba[o+1] = 0; rgba[o+2] = 0; rgba[o+3] = 0; continue }
+      if (covered === SS * SS) {
+        const i = (y * n + x) * bpp
+        rgba[o] = pixels[i]; rgba[o+1] = pixels[i+1]; rgba[o+2] = pixels[i+2]; rgba[o+3] = 255
+      } else {
+        rgba[o] = CARD[0]; rgba[o+1] = CARD[1]; rgba[o+2] = CARD[2]
+        rgba[o+3] = Math.round((covered / (SS * SS)) * 255)
+      }
     }
-    // Background: vertical gradient charcoal.
-    const ty = y / (size - 1)
-    const bg = lerpRGB(BG_TOP, BG_BOTTOM, ty)
-
-    if (pointInQuad(x, y, leftQuad)) {
-      const t = (y - gy0) / Math.max(1, gy1 - gy0)
-      const [r, g, b] = lerpRGB(LEFT_TOP, LEFT_BOTTOM, t)
-      return [r, g, b, 255]
-    }
-    if (pointInQuad(x, y, rightQuad)) {
-      const t = (y - gy0) / Math.max(1, gy1 - gy0)
-      const [r, g, b] = lerpRGB(RIGHT_TOP, RIGHT_BOTTOM, t)
-      return [r, g, b, 255]
-    }
-    return [bg[0], bg[1], bg[2], 255]
   }
+  return { size: n, rgba }
+}
+
+// Area-average down to `size`, in premultiplied alpha. Handles sizes that do
+// not divide the master evenly (24, 48) by weighting partial source pixels.
+function resample(master, size) {
+  const { size: n, rgba } = master
+  const scale = n / size
+  return buildPNG(size, (x, y) => {
+    const x0 = x * scale, x1 = (x + 1) * scale
+    const y0 = y * scale, y1 = (y + 1) * scale
+    let sr = 0, sg = 0, sb = 0, sa = 0, sw = 0
+    for (let sy = Math.floor(y0); sy < Math.ceil(y1); sy++) {
+      const wy = Math.min(y1, sy + 1) - Math.max(y0, sy)
+      for (let sx = Math.floor(x0); sx < Math.ceil(x1); sx++) {
+        const wx = Math.min(x1, sx + 1) - Math.max(x0, sx)
+        const w  = wx * wy
+        if (w <= 0) continue
+        const o  = (sy * n + sx) * 4
+        const af = (rgba[o + 3] / 255) * w
+        sr += rgba[o] * af; sg += rgba[o+1] * af; sb += rgba[o+2] * af
+        sa += af; sw += w
+      }
+    }
+    if (sa <= 0) return [0, 0, 0, 0]
+    return [
+      Math.round(sr / sa),
+      Math.round(sg / sa),
+      Math.round(sb / sa),
+      Math.round((sa / sw) * 255),
+    ]
+  })
 }
 
 // ── ICO format (PNG-inside-ICO, Vista+) ──────────────────────────────────────
@@ -234,14 +264,15 @@ function buildICNS(icons) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const outDir = path.join(__dirname, '..', 'resources')
+const srcPng = path.join(outDir, 'brand', 'sprintengine-se-mark-1024.png')
 fs.mkdirSync(outDir, { recursive: true })
 
-process.stdout.write('Generating icons (anti-aliased, supersampled)…\n')
+process.stdout.write(`Generating icons from ${path.relative(path.join(__dirname, '..'), srcPng)}…\n`)
+const master = buildMaster(srcPng)
 
-// Render each size anti-aliased once, then reuse across the container formats.
 const png = {}
 for (const s of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
-  png[s] = buildPNGAA(s)
+  png[s] = resample(master, s)
 }
 
 // Linux / generic: a crisp 512px master (electron-builder upsamples from here).
@@ -270,6 +301,6 @@ fs.writeFileSync(path.join(outDir, 'icon.icns'), buildICNS([
   { ostype: 'ic09', png: png[512]  },
   { ostype: 'ic10', png: png[1024] },
 ]))
-process.stdout.write('  ✓ resources/icon.icns (16, 32, 64, 128, 256, 512, 1024px)\n')
+process.stdout.write('  ✓ resources/icns ladder (16, 32, 64, 128, 256, 512, 1024px)\n')
 
 process.stdout.write('Done.\n')

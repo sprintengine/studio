@@ -573,12 +573,12 @@
     "test:renderer:toast-host": "esbuild src/renderer/src/components/workspace/ToastHost.test.tsx --bundle --platform=node --format=cjs --jsx=automatic --packages=bundle --external:react --external:react-dom --external:jsdom --define:import.meta.env.DEV=false --loader:.css=empty --outfile=node_modules/.cache/multicode/toast-host.test.cjs && node node_modules/.cache/multicode/toast-host.test.cjs"
   },
   "build": {
-    "appId": "com.multicode",
-    "productName": "Multicode",
+    "appId": "com.sprintengine.studio",
+    "productName": "SprintEngine Studio",
     "directories": {
       "output": "dist"
     },
-    "artifactName": "Multicode-${version}-${os}-${arch}.${ext}",
+    "artifactName": "SprintEngine-Studio-${version}-${os}-${arch}.${ext}",
     "files": [
       "out/**/*",
       "souls/**/*.py",
