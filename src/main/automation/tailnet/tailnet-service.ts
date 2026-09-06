@@ -460,7 +460,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       emit({ kind: 'listener', running: false, error: lastError })
       return true
     }
-    stopWatchingForInterface()
     const next = createTailnetGatewayServer({
       bindAddress,
       port: current.port,
@@ -498,9 +497,15 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       server = next
       boundAddress = bindAddress
       lastError = null
+      // The beat goes on while the listener holds the address: it is what
+      // notices the address leaving.
+      watchForInterface()
       emit({ kind: 'listener', running: true })
     } catch (error) {
       await next.stop().catch(() => {})
+      // A port already taken is not a "not yet": nothing about the interface
+      // will change it, so the beat stops rather than re-announcing forever.
+      stopWatchingForInterface()
       lastError = `Tailnet remote control failed to start: ${message(error)}`
       options.log?.(lastError)
       emit({ kind: 'listener', running: false, error: lastError })
@@ -509,28 +514,69 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   }
 
   /**
-   * Poll for a Tailscale interface and start the listener when one arrives.
+   * The interface heartbeat, in BOTH directions: bind when Tailscale comes up,
+   * and stand down when it goes away under a listener that is already bound.
    *
    * A poll rather than an OS interface event: `resolveTailnetInterface` reads
-   * `os.networkInterfaces()`, Node has no portable "interface appeared" signal,
-   * and the check is cheap against a thirty-second beat. It stops itself the
-   * moment it succeeds or the setting is turned off, so a machine that never
-   * runs Tailscale pays one enumeration every half minute and nothing else.
+   * `os.networkInterfaces()`, Node has no portable "interface changed" signal,
+   * and the check is cheap against a thirty-second beat. It stops itself when
+   * the setting is turned off, so a machine that never runs Tailscale pays one
+   * enumeration every half minute and nothing else.
+   *
+   * The stand-down half exists because nothing else notices: quitting
+   * Tailscale takes the 100.64/10 address off the interface, but the socket
+   * already bound to it stays open as far as Node is concerned, so
+   * `isRunning()` kept answering true and every surface kept saying "Serving"
+   * against a machine nothing could reach. Reported by the owner on
+   * 2026-09-05, having disconnected Tailscale and watched the glyph stay green.
    */
   function watchForInterface(): void {
     if (interfaceWatch) return
     interfaceWatch = setInterval(() => {
       // Re-read rather than trust the closure: the setting can be turned off,
       // or another path can have started the listener, while this was waiting.
-      if (!loadSettings().enabled || server?.isRunning()) {
+      if (!loadSettings().enabled) {
         stopWatchingForInterface()
         return
       }
-      if (!resolveBindAddress()) return
+      const address = resolveBindAddress()
+      if (server?.isRunning()) {
+        // A different address is the same fact as none: Tailscale came back on
+        // a new one, and a socket bound to the old one reaches nobody. The
+        // next beat binds the new address.
+        if (boundAddress !== null && address !== boundAddress) void standDown()
+        return
+      }
+      if (!address) return
       void startServer()
     }, interfaceWatchMs)
     // Never hold the process open for a listener that has not started.
     interfaceWatch.unref?.()
+  }
+
+  /**
+   * Drop a listener whose interface went away, and keep watching for it to
+   * come back. Distinct from `stopServer`, which is someone ASKING for the
+   * listener to stop and therefore ends the watch too.
+   */
+  async function standDown(): Promise<void> {
+    const current = server
+    server = null
+    boundAddress = null
+    if (current) {
+      try {
+        await current.stop()
+      } catch (error) {
+        options.log?.(`Tailnet remote control could not close its listener cleanly: ${message(error)}`)
+      }
+    }
+    // Whatever the gateway was holding cannot be holding it any more: the
+    // address those sockets arrived on is gone.
+    live.clear()
+    lastError =
+      'Tailnet remote control stopped: Tailscale is no longer up on this machine. Waiting for it to come back.'
+    options.log?.(lastError)
+    emit({ kind: 'listener', running: false, error: lastError })
   }
 
   function stopWatchingForInterface(): void {

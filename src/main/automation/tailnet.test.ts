@@ -617,6 +617,62 @@ export async function testTheListenerBindsWhenTailscaleComesUpAfterTheApp(): Pro
   }
 }
 
+export async function testTheListenerStandsDownWhenTailscaleGoesAway(): Promise<void> {
+  // The other half of the late-Tailscale watch. Quitting Tailscale takes the
+  // address off the interface, but the socket bound to it stays open as far as
+  // Node is concerned — so `isRunning()` kept answering true and every surface
+  // said "Serving" against a machine nothing could reach. Reported by the
+  // owner on 2026-09-05, having disconnected Tailscale and watched the glyph
+  // stay green.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-away-'))
+  try {
+    const port = await freePort()
+    writeFileSync(
+      join(userDataDir, 'tailnet-remote-settings.json'),
+      JSON.stringify({ enabled: false, port, notifications: true })
+    )
+    let tailscaleIsUp = true
+    const events: Array<{ running: boolean; error: string | null }> = []
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => (tailscaleIsUp ? '127.0.0.1' : null),
+      interfaceWatchMs: 5,
+      onEvent: (payload) => {
+        if (payload.event.kind === 'listener') {
+          events.push({ running: payload.event.running, error: payload.event.running ? null : payload.event.error })
+        }
+      },
+    })
+
+    const serving = await service.setEnabled(true)
+    assert.equal(serving.running, true, 'bound while Tailscale is up')
+
+    tailscaleIsUp = false
+    await waitFor(() => !service.getStatus().running, 'the listener to stand down when the interface goes away')
+    const down = service.getStatus()
+    assert.equal(down.running, false, 'not serving, because nothing can reach it')
+    assert.equal(down.endpoint, null, 'and no endpoint is claimed')
+    assert.match(down.lastError ?? '', /Tailscale is no longer up/u, 'the reason is said, not left blank')
+    assert.ok(
+      events.some((event) => !event.running && /no longer up/u.test(event.error ?? '')),
+      'every window is told over the push channel, not on next open'
+    )
+
+    // And the same beat brings it back: standing down is not a verdict either.
+    tailscaleIsUp = true
+    await waitFor(() => service.getStatus().running, 'the listener to bind again when Tailscale returns')
+    assert.equal(service.getStatus().lastError, null, 'the stale reason is cleared once it stops being true')
+
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
 /** A port that is free right now, for a test that must really bind one. */
 async function freePort(): Promise<number> {
   const net = await import('node:net')
@@ -1940,6 +1996,7 @@ const tests = [
   testUploadDestinationsCannotEscapeTheThreadsFolder,
   testUploadNamesAreLeavesAndNeverOverwrite,
   testTheListenerBindsWhenTailscaleComesUpAfterTheApp,
+  testTheListenerStandsDownWhenTailscaleGoesAway,
   testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff,
   testUnpairedClientsGet401AndPairedClientsDriveTheGateway,
   testBrowserOriginatedRequestsAreRefused,
