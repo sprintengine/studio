@@ -38,6 +38,7 @@ import { SkillPage } from './SkillPage'
 import { SourceMonogram } from './SourceMonogram'
 import type { SkillSourcesState } from './useSkillSources'
 import {
+  bundledScanLine,
   deriveInstallAvailability,
   deriveSkillCatalogueGroups,
   findSkill,
@@ -234,6 +235,8 @@ export function SkillsCatalogue({
         name={catalogueTabLabel(activeSource)}
         stateLine={[
           catalogueStateLine(counts[activeSource.id] ?? { status: 'loading' }, 'skill'),
+          // Whether this listing came off the network or out of the build.
+          bundledScanLine(scan),
           // A source can hold directories this does not list, and says so
           // rather than quietly showing a smaller number than the repository.
           skippedNoDescriptionLine(scan),

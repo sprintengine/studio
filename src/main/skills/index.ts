@@ -7,10 +7,9 @@
 
 import { existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import {
-  BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
   describeUnreadPlugin,
   LOCAL_SKILL_SOURCE_ID_PREFIX,
@@ -21,6 +20,7 @@ import {
   scanPlugins,
   SKILL_ENTRY_FILE,
   skillSourceMonogram,
+  STUDIO_SKILL_SOURCE_ID,
   type ScanResult,
   type ScannedPlugin,
   type ScannedSkill,
@@ -92,6 +92,7 @@ import {
 } from './scan-plugins'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
+import { STUDIO_MARKETPLACE_RESOURCE_DIR } from './studio-plugin'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
@@ -103,8 +104,12 @@ const ENRICHMENT_CONCURRENCY = 8
 
 export type SkillsServiceDeps = {
   resolveToken: () => Promise<string>
-  /** Overridden in tests; production reads the packaged resource dirs. */
-  builtinSkillsRoot?: () => string | null
+  /**
+   * The bundled seed of our own marketplace — `resources/studio-plugin`, the
+   * same tree `sprintengine/studio-releases` publishes. Overridden in tests;
+   * production reads the packaged resource dir.
+   */
+  studioMarketplaceSeedRoot?: () => string | null
   connectorSkillsRoot?: () => string | null
   listHarnesses?: () => Promise<SkillHarness[]>
   /** Open project roots, used once to adopt the retired skill packs as sources. */
@@ -143,10 +148,12 @@ export function createSkillsService(
   deps: SkillsServiceDeps,
   store: SkillSourceStore = createSkillSourceStore(userDataDir)
 ): SkillsService {
-  const builtinRoot = deps.builtinSkillsRoot ?? defaultBuiltinSkillsRoot
+  const studioSeedRoot = deps.studioMarketplaceSeedRoot ?? defaultStudioMarketplaceSeedRoot
   const connectorRoot = deps.connectorSkillsRoot ?? (() => findMarketplaceResourcePath('skills'))
   const listHarnesses = deps.listHarnesses ?? (() => resolveInstalledSkillHarnesses())
   const localScans = new Map<string, ScanResult>()
+  /** The bundled marketplace seed, read at most once: undefined until asked. */
+  let studioSeed: ScanResult | null | undefined
   const discovery = createSkillDiscoveryClient(deps.discovery)
   const installs = deps.pluginInstallStore ?? createPluginInstallStore(userDataDir)
   const mcpClients = deps.mcpClients ?? (async () => ['claude-code', 'codex'])
@@ -157,16 +164,24 @@ export function createSkillsService(
   })
 
   const localRootFor = (id: string): string | null =>
-    id === BUILTIN_SKILL_SOURCE_ID
-      ? builtinRoot()
-      : id === CONNECTORS_SKILL_SOURCE_ID
-        ? connectorRoot()
-        : id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX)
-          ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length)
-          : null
+    id === CONNECTORS_SKILL_SOURCE_ID
+      ? connectorRoot()
+      : id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX)
+        ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length)
+        : null
 
-  async function scanFor(sourceId: string): Promise<ScanResult | null> {
-    if (sourceId === BUILTIN_SKILL_SOURCE_ID || sourceId === CONNECTORS_SKILL_SOURCE_ID) {
+  /**
+   * The scan a source is currently listed from.
+   *
+   * `seed: false` is what `getScan` passes, and the distinction is the whole of
+   * the remote-first rule: everything DOWNSTREAM of a listing — locating a
+   * skill, reading a file, installing — has to work against whatever is on
+   * screen, seed included, or the offline tab would list rows that refuse to
+   * open. The listing read itself must not take the seed as a cache hit, or it
+   * would stop going to the repository the moment one was produced.
+   */
+  async function scanFor(sourceId: string, options: { seed?: boolean } = {}): Promise<ScanResult | null> {
+    if (sourceId === CONNECTORS_SKILL_SOURCE_ID) {
       const cached = localScans.get(sourceId)
       if (cached) return cached
       const root = localRootFor(sourceId)
@@ -176,7 +191,42 @@ export function createSkillsService(
       localScans.set(sourceId, scanned)
       return scanned
     }
-    return store.getScan(sourceId)
+    const cached = await store.getScan(sourceId)
+    if (cached) return cached
+    if (sourceId === STUDIO_SKILL_SOURCE_ID && options.seed !== false) return studioMarketplaceSeed()
+    return null
+  }
+
+  /**
+   * Our own marketplace as the build shipped it: the seed the tab falls back to
+   * when the repository cannot be reached (studio-marketplace ruling,
+   * 2026-09-06), which is `registry-client.ts`'s rule for the signed index —
+   * remote wins, bundled answers when there is no remote to be had.
+   *
+   * Marked `bundled` so the surface can say which of the two it is showing, and
+   * deliberately never handed to `store.putSource`: a seed cached as though it
+   * were a scan would be a build's-worth of staleness that no Sync could
+   * distinguish from a real read, and the next launch would stop trying.
+   */
+  async function studioMarketplaceSeed(): Promise<ScanResult | null> {
+    if (studioSeed !== undefined) return studioSeed
+    const root = studioSeedRoot()
+    if (!root || !existsSync(root)) {
+      studioSeed = null
+      return null
+    }
+    try {
+      const scan = await scanLocalSkillSource(root, {
+        maxEntries: Number.POSITIVE_INFINITY,
+        plugins: true,
+      })
+      studioSeed = { ...scan, bundled: true }
+    } catch {
+      // A build whose resources did not ship is a tab that says why it is
+      // empty, not a throw on the way to drawing it.
+      studioSeed = null
+    }
+    return studioSeed
   }
 
   return {
@@ -289,7 +339,7 @@ export function createSkillsService(
     async getScan(input) {
       const source = await store.getSource(input.sourceId ?? '')
       if (!source) return { ok: false, message: 'That source is not in your list.' }
-      const scan = await scanFor(source.id)
+      const scan = await scanFor(source.id, { seed: false })
       if (scan) return { ok: true, source, scan }
       if (source.kind === 'local') {
         const root = localRootFor(source.id)
@@ -317,6 +367,14 @@ export function createSkillsService(
         await store.putSource(scanned.source, scanned.scan)
         return { ok: true, source: scanned.source, scan: scanned.scan }
       } catch (error) {
+        // Our own marketplace is the one repository the build also SHIPS, so a
+        // read that could not happen falls back to the copy on disk rather than
+        // to an empty tab. Every other source has nothing to fall back to and
+        // says why it is silent.
+        if (source.id === STUDIO_SKILL_SOURCE_ID) {
+          const seed = await studioMarketplaceSeed()
+          if (seed) return { ok: true, source, scan: seed }
+        }
         return { ok: false, message: describeFetchError(error) }
       }
     },
@@ -680,7 +738,10 @@ export function createSkillsService(
       harnesses,
       commitSha,
       readSkillFile: async (skill, file) => {
-        if (bytesRef) {
+        // An in-tree plugin of our own marketplace is on this disk already, so
+        // `readSkillBytes` answers it from the seed and the install works with
+        // no network; a linked plugin has its own repository and never can.
+        if (bytesRef && origin.kind === 'linked') {
           const github = { ...deps.github, token: await deps.resolveToken() }
           return fetchSkillRepoFile(bytesRef, commitSha, joinRepoPath(skill.id, file.path), github)
         }
@@ -802,13 +863,46 @@ export function createSkillsService(
     skill: ScannedSkill,
     file: SkillFileRef
   ): Promise<Buffer> {
+    const repoPath = joinRepoPath(skill.id, file.path)
+    const seeded = await readStudioSeedBytes(source, repoPath)
+    if (seeded) return seeded
     if (source.kind === 'github') {
       const github = { ...deps.github, token: await deps.resolveToken() }
-      return fetchSkillRepoFile(githubRefFor(source), source.commitSha, joinRepoPath(skill.id, file.path), github)
+      return fetchSkillRepoFile(githubRefFor(source), source.commitSha, repoPath, github)
     }
     const root = localRootFor(source.id)
     if (!root) throw new SkillFetchError(`${source.name} is not available in this build.`)
     return readFile(join(root, ...skill.id.split('/').filter(Boolean), ...file.path.split('/')))
+  }
+
+  /**
+   * One file of our own marketplace from the copy this build ships, or null
+   * when it holds no such file.
+   *
+   * Installing a studio skill used to be a copy from `resources/skills` and
+   * cost nothing; now that the source is a repository it would be a download,
+   * and a person with no network could no longer install the skills sitting on
+   * their own disk. The bundled tree mirrors the published one path-for-path,
+   * so it answers the same bytes at no cost.
+   *
+   * ONLY while nothing has been read from the repository. A source carrying a
+   * commit has been LISTED from the repository, and the rows on screen are that
+   * repository's; serving the build's bytes for them would install a version of
+   * a skill nobody is looking at, silently, and only on the machines whose
+   * bundle happens to be behind. The seed is the listing's companion, never a
+   * cache in front of it.
+   *
+   * Confined to the seed root: `skill.id` and `file.path` come from a scan of
+   * third-party bytes, and `..` in either must not reach out of the tree.
+   */
+  async function readStudioSeedBytes(source: SkillSource, repoPath: string): Promise<Buffer | null> {
+    if (source.id !== STUDIO_SKILL_SOURCE_ID || source.commitSha !== '') return null
+    const root = studioSeedRoot()
+    if (!root) return null
+    const base = resolve(root)
+    const full = resolve(base, ...repoPath.split('/').filter(Boolean))
+    if (full !== base && !full.startsWith(`${base}${sep}`)) return null
+    return readFile(full).catch(() => null)
   }
 }
 
@@ -1030,10 +1124,15 @@ function joinRepoPath(skillId: string, relativePath: string): string {
   return skillId === '' ? relativePath : `${skillId}/${relativePath}`
 }
 
-function defaultBuiltinSkillsRoot(): string | null {
+/**
+ * `resources/studio-plugin` in this build — the marketplace we publish, bundled.
+ * Packaged it lands beside the other extraResources as `studio-plugin`; in a
+ * dev run it is read out of the checkout.
+ */
+function defaultStudioMarketplaceSeedRoot(): string | null {
   const candidates = [
-    ...(process.resourcesPath ? [join(process.resourcesPath, 'skills')] : []),
-    join(process.cwd(), 'resources', 'skills'),
+    ...(process.resourcesPath ? [join(process.resourcesPath, STUDIO_MARKETPLACE_RESOURCE_DIR)] : []),
+    join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR),
   ]
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }

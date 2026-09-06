@@ -40,12 +40,39 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import { dirname, join, resolve } from 'node:path'
 
 import type { SkillHarness } from '../../shared/skills'
+import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { mergeAgentStateHooks } from '../agent-state'
 import { installSkillDirectory } from './install'
 import { CLAUDE_SETTINGS_RELATIVE_PATH } from './install-plugin'
 
-/** The plugin's id — the directory it lives in, and the name in its manifest. */
-export const STUDIO_PLUGIN_ID = 'sprintengine-studio'
+// The plugin's id — the directory it lives in, and the name in its manifest.
+// Declared in shared/ because the catalogues need it too (they must not offer
+// an Install for the plugin the app installs itself), and re-exported here
+// because this module is where everything else about the plugin is named.
+export { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
+
+/**
+ * The resource directory the bundled marketplace ships in: `resources/…` in a
+ * checkout, `<resourcesPath>/…` when packaged. One spelling, because it is both
+ * the template this module materialises AND the offline seed the Skills and
+ * Plugins catalogues read (studio-marketplace ruling, 2026-09-06).
+ */
+export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
+
+/**
+ * The marketplace's OTHER plugin: the workflow skills the app ships, which
+ * moved here out of `resources/skills` (studio-marketplace ruling, 2026-09-06)
+ * so one source answers for them in every catalogue.
+ *
+ * They are a plugin of their own rather than more skills inside
+ * `sprintengine-studio`, for two reasons. Every skill under that plugin is
+ * copied into every workspace the app opens, and twelve general-purpose
+ * workflow skills are a choice a person makes per workspace, not a manual the
+ * bridge needs. And `builtin-skills.ts` already owns those directories —
+ * installing them a second time from here would put two installers, with two
+ * provenance markers, on the same paths.
+ */
+export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
 
 /** The marketplace that lists it. One plugin today; child 5 publishes the rest. */
 export const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
@@ -73,24 +100,52 @@ export const CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH = '.claude/settings.local.json'
  * command, agent, hook and MCP loaders) rather than the app copying the pieces
  * in.
  *
- * OFF, and measured rather than assumed. Against Claude Code 2.1.261 on
- * 2026-09-06: a workspace `.claude/settings.json` naming a `directory`-source
- * marketplace under `extraKnownMarketplaces` plus the plugin under
- * `enabledPlugins` loaded NOTHING — no skills, no MCP server, no hooks. The
- * same workspace loaded all three the moment the marketplace also appeared in
- * Claude Code's own user-global `~/.claude/plugins/known_marketplaces.json`
- * (which `claude plugin marketplace add` writes), and stopped again when that
- * entry was removed. So native enablement needs either a write into another
- * product's user-global state — which this app will not do behind a person's
- * back — or a marketplace Claude Code bootstraps for itself, which is what the
- * GitHub marketplace child of this epic delivers.
+ * OFF, and measured rather than assumed, twice.
+ *
+ * Against Claude Code 2.1.261 on 2026-09-06: a workspace `.claude/settings.json`
+ * naming a `directory`-source marketplace under `extraKnownMarketplaces` plus
+ * the plugin under `enabledPlugins` loaded NOTHING — no skills, no MCP server,
+ * no hooks. The same workspace loaded all three the moment the marketplace also
+ * appeared in Claude Code's own user-global
+ * `~/.claude/plugins/known_marketplaces.json` (which
+ * `claude plugin marketplace add` writes), and stopped again when that entry
+ * was removed.
+ *
+ * The studio-marketplace ruling put our plugin in a GITHUB marketplace, which
+ * is the source kind Claude Code can bootstrap for itself, so the measurement
+ * was repeated against 2.1.263 on 2026-09-06 with the published repository. It
+ * came out worse, in three steps:
+ *
+ *   1. A workspace naming `{source: "github", repo: "sprintengine/studio-releases"}`
+ *      under `extraKnownMarketplaces` plus the plugin under `enabledPlugins`
+ *      loaded nothing, and left `known_marketplaces.json` untouched. The source
+ *      kind is not what the gate is about.
+ *   2. `claude plugin marketplace add sprintengine/studio-releases` (which
+ *      writes that user-global registry AND `~/.claude/settings.json`) still
+ *      loaded nothing: a github marketplace also needs the plugin INSTALLED —
+ *      `claude plugin install`, which clones into `~/.claude/plugins/cache/`
+ *      and writes user-global `installed_plugins.json`. A directory source
+ *      needed no such step, because its files were already local. So the
+ *      GitHub marketplace does not remove the user-global write; it adds a
+ *      second one.
+ *   3. With both done, the five skills loaded — and the plugin loaded from the
+ *      PUBLISHED copy, whose `.mcp.json` and `hooks/hooks.json` still carry the
+ *      `__MULTICODE_*` tokens. The MCP server failed to connect, and the
+ *      SessionEnd hook ran `node "__MULTICODE_AGENT_STATE_REPORTER__"` and
+ *      died with MODULE_NOT_FOUND. That is the deeper reason this flag stays
+ *      off: what we publish is a TEMPLATE, and the three values it cannot
+ *      carry (this machine's node, this build's bridge, this session's socket)
+ *      only exist in the copy `materialiseStudioPlugin` writes. Native loading
+ *      would need Claude Code pointed at THAT directory — which is the
+ *      directory source of measurement one, and back to the user-global write.
  *
  * Everything else is wired for the flip: the keys are written, the plugin is
  * materialised complete with its `.mcp.json` and `hooks/hooks.json`, and this
  * flag is the only thing between here and native loading. When it goes true,
  * the by-hand hook merge below must stop (Claude Code would then register the
  * plugin's hooks itself, and two registrations fire the reporter twice per
- * event) — `installStudioPlugin` already skips it on this flag.
+ * event) — `installStudioPlugin` already skips it on this flag, and
+ * `studio-plugin.test.ts` holds that to it.
  */
 export const STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT = false
 

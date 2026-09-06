@@ -13,6 +13,7 @@ import type {
   SkillHarness,
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
+import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 
 // The marker a managed copy carries. Exported because the attach path
 // (src/main/agent-skill-installer.ts) reads and writes the same file, and two
@@ -263,10 +264,21 @@ function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTarget
     ?? targets[0]
 }
 
-/** Where the skills Multicode ships live, bundled or in the checkout. */
+/**
+ * Where the skills the app ships live, bundled or in the checkout.
+ *
+ * They moved out of `resources/skills` and into `studio-plugin/studio-skills`
+ * with the studio-marketplace ruling (2026-09-06): they are a plugin in the
+ * marketplace we publish, which is what lets the Skills catalogue list them
+ * from the same source the Plugins catalogue reads instead of from a folder
+ * scan nothing else could see. This service still copies them from disk — it is
+ * the "attach a built-in skill to this agent" path, not the catalogue — and the
+ * directory is the only thing about it that changed.
+ */
 export function builtinSkillSourceRoot(): string {
-  if (app.isPackaged) return join(process.resourcesPath, 'skills')
-  return join(process.cwd(), 'resources', 'skills')
+  const relative = [STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID, 'skills']
+  if (app.isPackaged) return join(process.resourcesPath, ...relative)
+  return join(process.cwd(), 'resources', ...relative)
 }
 
 export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = {}) {

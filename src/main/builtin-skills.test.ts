@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { LoadedPlugin } from '../shared/plugin-manifest'
 import { BUILTIN_SKILLS, createBuiltinSkillManager } from './builtin-skills'
+import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 
 async function writeSkillSource(root: string, skillId: string, body: string): Promise<void> {
   const skillRoot = join(root, skillId)
@@ -20,10 +21,21 @@ async function writeAllSkillSources(root: string, body: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // The directory is named from the constants `builtinSkillSourceRoot()` builds
+  // it from, not spelled again here: the skills moved into the bundled
+  // marketplace with the studio-marketplace ruling (2026-09-06), and a path
+  // written out by hand would go on passing after the next move.
+  const shipped = join(
+    process.cwd(),
+    'resources',
+    STUDIO_MARKETPLACE_RESOURCE_DIR,
+    STUDIO_SKILLS_PLUGIN_ID,
+    'skills',
+  )
   for (const skill of BUILTIN_SKILLS) {
-    const realSkill = await readFile(join(process.cwd(), 'resources', 'skills', skill.id, 'SKILL.md'), 'utf-8')
+    const realSkill = await readFile(join(shipped, skill.id, 'SKILL.md'), 'utf-8')
     assert.match(realSkill, new RegExp(`name:\\s*${skill.id}`))
-    await readFile(join(process.cwd(), 'resources', 'skills', skill.id, 'agents', 'openai.yaml'), 'utf-8')
+    await readFile(join(shipped, skill.id, 'agents', 'openai.yaml'), 'utf-8')
   }
 
   const temp = await mkdtemp(join(tmpdir(), 'multicode-builtin-skills-'))

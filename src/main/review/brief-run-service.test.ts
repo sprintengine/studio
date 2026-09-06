@@ -92,7 +92,7 @@ run('a missing, malformed, or invalid brief reads as "no usable walkthrough"', a
 })
 
 // The tests run from the repo root (npm run), so resolve repo files from cwd.
-const skillPath = join(process.cwd(), 'resources', 'skills', 'review-guide', 'SKILL.md')
+const skillPath = join(process.cwd(), 'resources', 'studio-plugin', 'studio-skills', 'skills', 'review-guide', 'SKILL.md')
 
 run('the skill carries the schema doc verbatim', () => {
   const doc = readFileSync(join(process.cwd(), 'docs', 'review-brief-schema.md'), 'utf-8')

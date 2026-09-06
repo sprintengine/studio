@@ -10,7 +10,7 @@
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../../../shared/marketplace/manifest'
 import {
-  BUILTIN_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_ID,
   describePluginComponents,
   findScannedPlugin,
   pluginAliases,
@@ -58,10 +58,10 @@ export function derivePluginsKindStateLine(
   if (sourcesLoad.status === 'error') return 'Sources unavailable'
   const sourceLine = `${sources.length} source${sources.length === 1 ? '' : 's'}`
   // The Multicode source's plugins are the registry's, not its scan's.
-  const scanned = sources.filter((source) => source.id !== BUILTIN_SKILL_SOURCE_ID)
+  const scanned = sources.filter((source) => source.id !== STUDIO_SKILL_SOURCE_ID)
   const loads = scanned.map((source) => scans[source.id])
   if (loads.some((load) => !load || load.status !== 'ready')) return sourceLine
-  if (sources.some((source) => source.id === BUILTIN_SKILL_SOURCE_ID) && registryCount === null) return sourceLine
+  if (sources.some((source) => source.id === STUDIO_SKILL_SOURCE_ID) && registryCount === null) return sourceLine
   const total =
     loads.reduce((sum, load) => sum + (load && load.status === 'ready' ? scanPlugins(load.scan).length : 0), 0)
     + (registryCount ?? 0)

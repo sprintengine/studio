@@ -366,6 +366,25 @@ export function skippedNoDescriptionLine(scan: Pick<ScanResult, 'skippedNoDescri
   return `${skipped} ${skipped === 1 ? 'directory' : 'directories'} skipped: no description`
 }
 
+/**
+ * Said whenever a listing is the copy the app SHIPPED rather than a read of the
+ * repository — our own marketplace with the network away (studio-marketplace
+ * ruling, 2026-09-06). Null otherwise, because "read from the repository" is
+ * the ordinary case and does not need announcing.
+ *
+ * It has to be said. The two listings look identical, and the difference is
+ * whether what is on screen is as current as the repository or as current as
+ * the last release; someone deciding whether a plugin exists yet needs to know
+ * which question the answer came from.
+ */
+export function bundledScanLine(scan: Pick<ScanResult, 'bundled'> | null): string | null {
+  // "The repository could not be read", not "the network was not reachable":
+  // observed live on 2026-09-06, the fallback also fires on an anonymous rate
+  // limit with the network perfectly fine, and a line that names a cause it
+  // does not know sends someone to check their wifi. Sync says which it was.
+  return scan?.bundled === true ? 'The bundled copy this build shipped — the repository could not be read' : null
+}
+
 export function findSkill(scan: ScanResult, skillId: string): ScannedSkill | null {
   return scan.skills.find((skill) => skill.id === skillId) ?? null
 }

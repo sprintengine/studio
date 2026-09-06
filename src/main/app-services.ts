@@ -687,6 +687,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // directory would be.
   const skillsService = createSkillsService(app.getPath('userData'), {
     resolveToken: () => githubTokenStore.resolveToken(),
+    // The same bundled tree the plugin installer materialises, read here as the
+    // offline seed of our marketplace tab (studio-marketplace ruling,
+    // 2026-09-06). One resolver, so a build that ships the plugin can never
+    // fail to seed the catalogue that lists it.
+    studioMarketplaceSeedRoot: getBundledStudioPluginRoot,
     broadcastSourceUpdates: (check) => {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(SKILL_SOURCES_UPDATED_CHANNEL, check)

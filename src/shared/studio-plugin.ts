@@ -12,6 +12,14 @@
 
 import type { StudioPluginStatus } from './electron-api'
 
+/**
+ * The plugin's id — its directory in the marketplace, and its `name` in both
+ * manifests. Lives here rather than only in main because the catalogues have to
+ * recognise it: our marketplace lists it like any other plugin, and the row it
+ * gets there is the built-in row below, not an installable one.
+ */
+export const STUDIO_PLUGIN_ID = 'sprintengine-studio'
+
 export const STUDIO_PLUGIN_ROW_NAME = 'SprintEngine Studio'
 
 export const STUDIO_PLUGIN_ROW_DESCRIPTION =

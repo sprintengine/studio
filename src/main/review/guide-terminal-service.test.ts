@@ -552,7 +552,7 @@ run('an unaddressable review id never reaches the terminal runtime', async () =>
 })
 
 // The tests run from the repo root (npm run), so resolve repo files from cwd.
-const skillPath = join(process.cwd(), 'resources', 'skills', REVIEW_GUIDE_SKILL_ID, 'SKILL.md')
+const skillPath = join(process.cwd(), 'resources', 'studio-plugin', 'studio-skills', 'skills', REVIEW_GUIDE_SKILL_ID, 'SKILL.md')
 
 run('the guide wording lives only in the skill, never in the join prompt', () => {
   const skill = readFileSync(skillPath, 'utf-8')

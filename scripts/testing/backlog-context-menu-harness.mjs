@@ -110,7 +110,7 @@ async function main() {
   )
   // Install the real backlog skill for the claude harness so the slash path is
   // the genuine /backlog route, not the quoted-path fallback.
-  await cp(join(root, 'resources/skills/backlog'), join(workspaceDir, '.claude/skills/backlog'), {
+  await cp(join(root, 'resources/studio-plugin/studio-skills/skills/backlog'), join(workspaceDir, '.claude/skills/backlog'), {
     recursive: true,
   })
 

@@ -1,0 +1,10 @@
+{
+  "name": "studio-skills",
+  "description": "The workflow skills SprintEngine Studio ships: backlog, debug, prototype, review guide, handoff, knowledge, and the rest. Each is installable on its own from the Skills catalogue.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/sprintengine/studio-releases",
+  "keywords": ["skills", "backlog", "debug", "prototype", "review", "handoff"]
+}

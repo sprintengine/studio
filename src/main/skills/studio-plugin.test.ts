@@ -26,6 +26,7 @@ import {
   STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT,
   STUDIO_PLUGIN_SOURCE_ID,
   STUDIO_PLUGIN_WORKSPACE_DIR,
+  STUDIO_SKILLS_PLUGIN_ID,
   studioClaudePluginKey,
   substituteStudioPluginTokens,
   type StudioPluginTokens,
@@ -70,6 +71,30 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   const listed = marketplace.plugins.find((entry) => entry.name === STUDIO_PLUGIN_ID)
   assert.notEqual(listed, undefined, 'the marketplace must list the plugin this installer installs')
   assert.equal(listed?.source, `./${STUDIO_PLUGIN_ID}`, 'and point at the directory it is installed from')
+  // FIRST, not merely present: the catalogues draw the marketplace in listing
+  // order, and our own plugin is the row the ruling puts at the top
+  // (backlog/2026-09-06-studio-releases-is-a-claude-marketplace.md).
+  assert.equal(marketplace.plugins[0]?.name, STUDIO_PLUGIN_ID, 'ours leads the listing')
+  // Every in-tree entry has to be a directory that is actually here. The
+  // bundled tree is the seed the catalogues list offline, and a listing whose
+  // plugin has no manifest reads as a plugin that ships nothing.
+  for (const entry of marketplace.plugins) {
+    if (!entry.source.startsWith('./')) continue
+    assert.equal(
+      existsSync(join(TEMPLATE_ROOT, entry.source.slice(2), '.claude-plugin', 'plugin.json')),
+      true,
+      `${entry.name} is listed at ${entry.source}, which holds no plugin manifest`
+    )
+  }
+  // The workflow skills are the marketplace's OTHER plugin, and they are here:
+  // they moved out of `resources/skills` so one source answers for them in
+  // every catalogue (studio-marketplace ruling, 2026-09-06).
+  const workflow = await readdir(join(TEMPLATE_ROOT, STUDIO_SKILLS_PLUGIN_ID, 'skills'), { withFileTypes: true })
+  assert.equal(
+    workflow.filter((entry) => entry.isDirectory()).length,
+    12,
+    'the twelve workflow skills ship inside the marketplace'
+  )
   // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
   // particular: the root `.gitignore` entry for the generated workspace config
   // is unanchored and matched this one too, which would have shipped a plugin
@@ -83,6 +108,14 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   }
   const dirs = await listStudioPluginSkillDirs(read.template)
   assert.equal(dirs.length >= 5, true, 'one skill per area: sprints, backlog, automations, workspaces, review')
+  // …and ONLY those. The workflow skills live in the marketplace beside this
+  // plugin, not inside it, precisely so a workspace open does not install
+  // twelve general-purpose skills nobody asked for — and so `builtin-skills.ts`
+  // stays the one installer that owns those directories.
+  const workflowIds = new Set(workflow.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
+  for (const dirName of dirs) {
+    assert.equal(workflowIds.has(dirName), false, `${dirName} is a workflow skill and must not install with the plugin`)
+  }
 }
 
 async function aMissingTemplateIsNamedNotGuessed(): Promise<void> {
@@ -382,12 +415,26 @@ async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
   await rm(workspace, { recursive: true, force: true })
 }
 
-function nativeEnablementIsOffAndSaysSo(): void {
-  // Measured against Claude Code 2.1.261 on 2026-09-06: a workspace-scoped
-  // `directory` marketplace loads nothing until it also appears in Claude
-  // Code's own user-global registry. If this ever flips to true, the by-hand
-  // hook merge must stop firing — see the constant's comment.
+async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
+  // Measured twice, and both measurements are in the constant's comment:
+  // against Claude Code 2.1.261 a workspace-scoped `directory` marketplace
+  // loaded nothing until it also appeared in Claude Code's user-global
+  // registry, and against 2.1.263 the published GITHUB marketplace needed that
+  // registry AND a user-global `claude plugin install` — and then loaded the
+  // published plugin, whose tokens are still unsubstituted.
   assert.equal(STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT, false)
+
+  // And the coupling the comment promises: when it flips, the by-hand hook
+  // merge must stop, or Claude Code's registration and ours both fire the
+  // agent-state reporter on every event. Asserted on the source because the
+  // flag is a constant — nothing can flip it at runtime to observe the
+  // behaviour, and "we'll remember" is what this test exists instead of.
+  const source = await readFile(resolve(process.cwd(), 'src', 'main', 'skills', 'studio-plugin.ts'), 'utf8')
+  assert.match(
+    source,
+    /if \(!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options\.hooksAcknowledged\) \{/,
+    'the hook merge must be gated on the flag, so flipping it stops the double registration'
+  )
 }
 
 async function proseThatNamesATokenSurvivesVerbatim(): Promise<void> {
@@ -541,7 +588,7 @@ async function main(): Promise<void> {
   await aMissingReporterStopsTheInstallBeforeItRegistersAnything()
   await aWorkspaceThatVanishedIsRefusedByName()
   await handEditedSkillsAreRestoredOnTheNextOpen()
-  nativeEnablementIsOffAndSaysSo()
+  await nativeEnablementIsOffAndSaysSo()
   await proseThatNamesATokenSurvivesVerbatim()
   await anUnchangedSettingsFileIsNotRewritten()
   await everyMaterialisedFileIsFreeOfTokens()

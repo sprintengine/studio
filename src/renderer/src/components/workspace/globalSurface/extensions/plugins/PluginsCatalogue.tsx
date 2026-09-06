@@ -23,10 +23,11 @@ import type { InstalledPluginRecord, McpServerConfig, StudioPluginStatus } from 
 import {
   deriveStudioPluginRow,
   studioPluginRowMatches,
+  STUDIO_PLUGIN_ID,
   type StudioPluginRow,
 } from '../../../../../../../shared/studio-plugin'
 import {
-  BUILTIN_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_ID,
   SOURCE_SHAPE_LABEL,
   scanMcpServers,
   scanPlugins,
@@ -59,7 +60,7 @@ import type { ConnectorSources } from '../../../../panels/ConnectorsPanel/useCon
 import type { AgentComposerConnector } from '../../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { SourceMonogram } from '../skills/SourceMonogram'
-import { summarizeSyncRun } from '../skills/skillsSurfaceModel'
+import { bundledScanLine, summarizeSyncRun } from '../skills/skillsSurfaceModel'
 import type { SkillSourcesState } from '../skills/useSkillSources'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
 import { EXTENSIONS_DRAWER_VIEWS, dispatchExtensionsSurfaceTarget } from '../extensionsSurfaceTarget'
@@ -181,16 +182,32 @@ export function PluginsCatalogue({
   }, [appEntries.length, connectors.catalogLoad, connectors.registryLoad])
 
   const counts = useMemo<Record<string, CatalogueCount>>(() => {
-    const map: Record<string, CatalogueCount> = { [BUILTIN_SKILL_SOURCE_ID]: appCount }
+    const map: Record<string, CatalogueCount> = {}
     for (const source of sources.sources) {
-      if (source.id === BUILTIN_SKILL_SOURCE_ID) continue
       const load = sources.scans[source.id]
-      map[source.id] =
+      // Our own plugin still counts — it IS a row, the built-in one. What is
+      // not a row is the MCP server it declares: that server is part of that
+      // plugin and is disclosed on its row, so listing it again would be one
+      // thing counted twice (see `hiddenMcpFor` and the section builder).
+      const mine = source.id === STUDIO_SKILL_SOURCE_ID
+      const scanned: CatalogueCount =
         !load || load.status === 'loading'
           ? { status: 'loading' }
           : load.status === 'error'
             ? { status: 'error', message: load.message }
-            : { status: 'ready', count: scanPlugins(load.scan).length + scanMcpServers(load.scan).length }
+            : {
+                status: 'ready',
+                count:
+                  scanPlugins(load.scan).length
+                  + scanMcpServers(load.scan).filter((server) => server.declaredBy !== hiddenMcpFor(source.id)).length,
+              }
+      // Our own tab holds two populations, and the number on it has to be the
+      // number of rows under it: the marketplace repository's plugins and
+      // servers (studio-marketplace ruling, 2026-09-06) plus the signed
+      // registry's entries, which a Claude marketplace cannot carry because
+      // `component-trust.ts` refuses code-bearing components from any GitHub
+      // source. Neither half is spoken while it is still unknown.
+      map[source.id] = mine ? sumCounts(scanned, appCount) : scanned
     }
     return map
   }, [appCount, sources.scans, sources.sources])
@@ -214,7 +231,7 @@ export function PluginsCatalogue({
   useEffect(() => {
     if (activeSource) ensureScan(activeSource.id)
   }, [activeSource, ensureScan])
-  const isApp = activeSource?.id === BUILTIN_SKILL_SOURCE_ID
+  const isApp = activeSource?.id === STUDIO_SKILL_SOURCE_ID
 
   // ── Install / read / sync ──────────────────────────────────────────────────
 
@@ -356,43 +373,52 @@ export function PluginsCatalogue({
 
   const sections = useMemo<CatalogueSection<PluginItem>[]>(() => {
     if (!activeSource) return []
-    if (isApp) {
-      // The built-in row leads: it is the one plugin every install already has,
-      // and burying it under the catalogue's categories would put the app's own
-      // plugin somewhere a person has to search for it.
-      const builtin = deriveStudioPluginRow(studioPluginStatus)
-      const builtinSection: CatalogueSection<PluginItem>[] =
-        builtin && studioPluginRowMatches(builtin, query)
-          ? [{ key: 'built-in', label: 'Built in', items: [{ kind: 'builtin' as const, row: builtin }] }]
-          : []
-      // The registry's plugins and the MCP catalogue's servers under ONE set of
-      // headings — the catalogue's own categories — rather than a "Plugins"
-      // block and then the categories. Two sets would have asked a person to
-      // know which half a thing is in before they could look for it, which is
-      // the split the ruling folded away, and with 260 plugins ahead of them
-      // the categories would have started twenty pages in.
-      return [
-        ...builtinSection,
-        ...sectionConnectors(searchConnectors(appEntries, query)).map((section) => ({
+    // The built-in row leads our own tab: it is the one plugin every install
+    // already has, and burying it under the marketplace's other entries would
+    // put the app's own plugin somewhere a person has to search for it.
+    const builtin = isApp ? deriveStudioPluginRow(studioPluginStatus) : null
+    const builtinSection: CatalogueSection<PluginItem>[] =
+      builtin && studioPluginRowMatches(builtin, query)
+        ? [{ key: 'built-in', label: 'Built in', items: [{ kind: 'builtin' as const, row: builtin }] }]
+        : []
+    const needle = query.trim().toLowerCase()
+    // What the source's REPOSITORY holds. Our own tab reads its marketplace
+    // exactly like Anthropic's now, rather than being a registry view with a
+    // different backend under Skills (studio-marketplace ruling, 2026-09-06).
+    // Our own plugin is the built-in row above and nothing else. The
+    // marketplace lists it like any other, but a second row for it would offer
+    // an Install that cannot work: what we PUBLISH is a template, and its
+    // `.mcp.json` and `hooks/hooks.json` carry `__MULTICODE_*` tokens that only
+    // the app's own materialise step can fill in. The same goes for the MCP
+    // server it declares — added from a row here it would be a server whose
+    // command is the literal token.
+    const hiddenMcp = hiddenMcpFor(activeSource.id)
+    const plugins = scan
+      ? derivePluginRows({ source: activeSource, scan, installed: sources.installedPlugins, query }).filter(
+          (item) => !(isApp && item.pluginId === STUDIO_PLUGIN_ID),
+        )
+      : []
+    const servers = scan
+      ? scanMcpServers(scan).filter(
+          (server) =>
+            server.declaredBy !== hiddenMcp
+            && (needle === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(needle)),
+        )
+      : []
+    // …and, on our tab only, the signed registry: the agent CLIs, automation
+    // starters and signed modules a Claude marketplace cannot carry, under ONE
+    // set of headings — the catalogue's own categories — rather than a
+    // "Plugins" block and then the categories. Two sets would ask a person to
+    // know which half a thing is in before they could look for it.
+    const registrySections: CatalogueSection<PluginItem>[] = isApp
+      ? sectionConnectors(searchConnectors(appEntries, query)).map((section) => ({
           key: section.title,
           label: section.title,
           items: section.entries.map((entry) => ({ kind: 'connector' as const, entry })),
-        })),
-      ]
-    }
-    if (!scan) return []
-    const needle = query.trim().toLowerCase()
-    const plugins = derivePluginRows({
-      source: activeSource,
-      scan,
-      installed: sources.installedPlugins,
-      query,
-    })
-    const servers = scanMcpServers(scan).filter(
-      (server) =>
-        needle === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(needle),
-    )
+        }))
+      : []
     return [
+      ...builtinSection,
       ...(plugins.length > 0
         ? [{ key: 'plugins', label: 'Plugins', items: plugins.map((item) => ({ kind: 'plugin' as const, item })) }]
         : []),
@@ -405,6 +431,7 @@ export function PluginsCatalogue({
             },
           ]
         : []),
+      ...registrySections,
     ]
   }, [activeSource, appEntries, isApp, query, scan, sources.installedPlugins, studioPluginStatus])
 
@@ -530,12 +557,11 @@ export function PluginsCatalogue({
         monogram={<SourceMonogram monogram={catalogueMonogram(activeSource)} size="lg" />}
         name={catalogueTabLabel(activeSource)}
         stateLine={
-          isApp ? (
-            `${catalogueStateLine(appCount, 'listing')} · ${registryOrigin(connectors.registryUrl)}`
-          ) : (
+          <>
             <SourceStateLine
               source={activeSource}
               scan={scan}
+              hiddenMcpPlugin={hiddenMcpFor(activeSource.id)}
               count={counts[activeSource.id] ?? { status: 'loading' }}
               outcome={thisReport?.outcome ?? null}
               onOpenUnderSkills={() => {
@@ -548,7 +574,12 @@ export function PluginsCatalogue({
                 dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills })
               }}
             />
-          )
+            {/* Our own tab also lists the signed registry, which is a second
+                place these rows come from and therefore a second thing that
+                can be unavailable. Named after the scan line, in the order the
+                sections below it appear. */}
+            {isApp ? ` · ${signedEntriesLine(appCount)} · ${registryOrigin(connectors.registryUrl)}` : null}
+          </>
         }
         actions={
           <SourceTabActions
@@ -561,7 +592,7 @@ export function PluginsCatalogue({
             onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
             onRemoved={() => {
               sources.refreshSources()
-              onSelectTab(BUILTIN_SKILL_SOURCE_ID)
+              onSelectTab(STUDIO_SKILL_SOURCE_ID)
             }}
             workspaceRoot={workspaceRoot}
           />
@@ -763,9 +794,50 @@ export function PluginsCatalogue({
  * (linked-plugins ruling, 2026-09-06). A source that read them all says
  * nothing extra: the counts beside it already stand.
  */
+/**
+ * Two counts of the same tab's rows, added — and honest about not knowing yet.
+ * A tab that speaks a total while half of it is still loading would count up
+ * under the person as the second half arrived; a half that failed is stated as
+ * the failure, because the number would otherwise be short by an unknown
+ * amount and read as complete.
+ */
+function sumCounts(left: CatalogueCount, right: CatalogueCount): CatalogueCount {
+  if (left.status === 'loading' || right.status === 'loading') return { status: 'loading' }
+  if (left.status === 'error') return left
+  if (right.status === 'error') return right
+  return { status: 'ready', count: left.count + right.count }
+}
+
+/**
+ * The signed registry's own count, in a noun that pluralises. `catalogueStateLine`
+ * adds an `s`, which turned "signed entry" into "signed entrys" on screen.
+ */
+function signedEntriesLine(count: CatalogueCount): string {
+  if (count.status === 'loading') return 'Loading…'
+  if (count.status === 'error') return count.message
+  return count.count === 0
+    ? 'No signed entries here'
+    : `${count.count} signed ${count.count === 1 ? 'entry' : 'entries'}`
+}
+
+/**
+ * The plugin whose declared MCP servers this tab does NOT draw as rows of their
+ * own, or '' when every server is drawn.
+ *
+ * Only ever our own plugin, on our own tab. Its server is the bridge to this
+ * running app: it is disclosed on the built-in row, it cannot be "added"
+ * (the published `.mcp.json` is a template carrying `__MULTICODE_*` tokens
+ * only the app's install can fill in), and drawing it would be the same thing
+ * counted twice — once as the plugin, once as its contents.
+ */
+function hiddenMcpFor(sourceId: string): string {
+  return sourceId === STUDIO_SKILL_SOURCE_ID ? STUDIO_PLUGIN_ID : ''
+}
+
 function SourceStateLine({
   source,
   scan,
+  hiddenMcpPlugin,
   count,
   outcome,
   onOpenUnderSkills,
@@ -773,6 +845,8 @@ function SourceStateLine({
   source: SkillSource
   /** The source's scan once it is in hand; null while loading or failed. */
   scan: ScanResult | null
+  /** See `hiddenMcpFor`: servers this tab does not draw are not named here either. */
+  hiddenMcpPlugin: string
   count: CatalogueCount
   /** What the last Sync on this source reported, when it was this one. */
   outcome: string | null
@@ -788,7 +862,7 @@ function SourceStateLine({
     return <>{[catalogueStateLine(count, 'listing'), outcome].filter(Boolean).join(' · ')}</>
   }
   const plugins = scanPlugins(scan).length
-  const servers = scanMcpServers(scan).length
+  const servers = scanMcpServers(scan).filter((server) => server.declaredBy !== hiddenMcpPlugin).length
   const skills = scan.skills.length
   const holdings = catalogueHoldingsLine([
     [plugins, 'plugin', 'plugins'],
@@ -796,9 +870,11 @@ function SourceStateLine({
   ])
   const shortfall =
     tokenConfigured === null ? [] : linkedPluginShortfall(summariseLinkedPlugins(scan), tokenConfigured)
+  const bundled = bundledScanLine(scan)
   return (
     <>
       {SOURCE_SHAPE_LABEL[scanShape(scan)]}
+      {bundled ? ` · ${bundled}` : null}
       {holdings ? ` · ${holdings}` : ` · ${catalogueStateLine({ status: 'ready', count: 0 }, 'plugin')}`}
       {skills > 0 ? (
         <>

@@ -41,7 +41,7 @@ npm run dev                        # launch the app in development
 ## Repository layout
 
 - `src/` — Electron main, preload, and React renderer
-- `souls/`, `resources/skills`, `resources/skill-packs` — agent role prompts and skills (bundled)
+- `souls/`, `resources/studio-plugin/studio-skills/skills`, `resources/skill-packs` — agent role prompts and skills (bundled)
 - `sprintengine_core/`, `switchboard_core/` — Python agent-orchestration cores (bundled)
 - `resources/` — bundled hooks, MCP catalog, plugins, and skill packs
 - `scripts/` — dev, build, and lint tooling

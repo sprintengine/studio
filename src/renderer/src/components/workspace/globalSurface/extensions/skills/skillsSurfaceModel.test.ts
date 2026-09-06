@@ -20,6 +20,7 @@ import {
   defaultSkillFilePath,
   deriveGroupTabs,
   deriveSkillCatalogueGroups,
+  bundledScanLine,
   skippedNoDescriptionLine,
   deriveInstallAvailability,
   deriveSkillsKindStateLine,
@@ -404,10 +405,28 @@ run('a source header states only facts the scan produced', () => {
   // Before the scan lands, no counts are claimed.
   assert.deepEqual(describeSourceMeta(source(), { status: 'loading' }), ['b81f77a'])
   assert.deepEqual(
-    describeSourceMeta(source({ id: 'builtin', kind: 'builtin', repo: '', commitSha: '' }), {
+    describeSourceMeta(source({ id: 'connectors', kind: 'connectors', repo: '', commitSha: '' }), {
       status: 'loading',
     }),
     [],
+  )
+})
+
+run('a listing that came out of the build says so; one read from the repository does not', () => {
+  // The two look identical on screen and are different claims about how current
+  // the list is (studio-marketplace ruling, 2026-09-06): our own marketplace
+  // falls back to the copy this build shipped when the network is not there,
+  // and someone deciding whether a plugin exists yet needs to know which
+  // question their answer came from.
+  assert.equal(bundledScanLine(null), null, 'a scan that has not landed claims nothing either way')
+  assert.equal(bundledScanLine({}), null, 'nor does a scan cached before the flag existed')
+  assert.equal(bundledScanLine({ bundled: false }), null, 'a read of the repository is the ordinary case')
+  assert.match(bundledScanLine({ bundled: true }) ?? '', /bundled copy/)
+  assert.match(bundledScanLine({ bundled: true }) ?? '', /repository could not be read/)
+  assert.equal(
+    /network/.test(bundledScanLine({ bundled: true }) ?? ''),
+    false,
+    'and never names a cause it does not know: the fallback also fires on a rate limit',
   )
 })
 

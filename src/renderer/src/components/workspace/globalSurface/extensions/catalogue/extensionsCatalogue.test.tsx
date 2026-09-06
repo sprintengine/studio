@@ -46,7 +46,12 @@ import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
+import {
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
+  type ScanResult,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
 
 // ── The main process this surface reads through ─────────────────────────────
 // Only what the three catalogues actually call. Anything unstubbed answers
@@ -54,14 +59,17 @@ import type { ScanResult, SkillSource } from '../../../../../../../shared/skills
 // missing stub shows up as an honest error state rather than a crash.
 
 const APP_SOURCE: SkillSource = {
-  id: 'builtin',
-  kind: 'builtin',
-  name: 'Multicode',
-  repo: '',
-  monogram: 'MC',
-  blurb: 'The skills Multicode ships.',
-  commitSha: '',
-  scannedAt: '',
+  id: STUDIO_SKILL_SOURCE_ID,
+  kind: 'github',
+  name: STUDIO_SKILL_SOURCE_NAME,
+  repo: 'sprintengine/studio-releases',
+  monogram: 'SS',
+  blurb: 'The plugin and the skills SprintEngine Studio ships.',
+  // Already read once, so the surface lists it from the store rather than
+  // waiting for a tab — which is the state a machine that has opened the door
+  // before is in.
+  commitSha: 'seed0001',
+  scannedAt: '2026-09-06T09:00:00.000Z',
 }
 const ACME_SOURCE: SkillSource = {
   id: 'github:acme/skills',
@@ -116,6 +124,87 @@ const ACME_SCAN: ScanResult = {
 }
 
 /** Three linked plugins: one read, one waiting on budget, one that cannot be read. */
+/**
+ * What a scan of our own marketplace holds: the plugin the app installs itself,
+ * and the workflow skills beside it (studio-marketplace ruling, 2026-09-06).
+ * The first of the two must NOT be drawn as an installable row — it is the
+ * built-in row, and what we publish is a template whose `.mcp.json` carries
+ * tokens only the app can fill in.
+ */
+const STUDIO_SCAN: ScanResult = {
+  skills: [],
+  groups: [],
+  groupingSignal: 'none',
+  fileCount: 0,
+  commitSha: 'seed0001',
+  shape: 'claude-marketplace',
+  marketplaceName: 'sprintengine-studio',
+  pluginRenames: {},
+  mcpServers: [
+    {
+      id: 'sprintengine-studio',
+      name: 'sprintengine-studio',
+      description: '',
+      transport: 'stdio',
+      command: '__MULTICODE_NODE__',
+      args: [],
+      url: '',
+      headerNames: [],
+      envNames: [],
+      declaredIn: 'sprintengine-studio/.mcp.json',
+      declaredBy: 'sprintengine-studio',
+    },
+  ],
+  plugins: [
+    {
+      id: 'sprintengine-studio',
+      name: 'SprintEngine Studio',
+      description: 'Drive SprintEngine Studio from an agent.',
+      version: '1.0.0',
+      category: '',
+      author: 'SprintEngine Studio',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'in-tree', path: 'sprintengine-studio' },
+      componentsKnown: true,
+      components: {
+        skills: [],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
+    },
+    {
+      id: 'studio-skills',
+      name: 'Studio skills',
+      description: 'The workflow skills the studio ships.',
+      version: '1.0.0',
+      category: '',
+      author: 'SprintEngine Studio',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'in-tree', path: 'studio-skills' },
+      componentsKnown: true,
+      components: {
+        skills: [],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
+    },
+  ],
+}
+
 const HUB_SCAN: ScanResult = {
   skills: [],
   groups: [],
@@ -303,16 +392,20 @@ const api: Record<string, unknown> = {
   ),
   skillsGetScan: async ({ sourceId }: { sourceId: string }) => (
     scanCalls.push(sourceId),
-    sourceId === 'builtin'
-      ? {
-          ok: true,
-          source: APP_SOURCE,
-          scan: { skills: [], groups: [], groupingSignal: 'none', fileCount: 0, commitSha: '' },
-        }
+    sourceId === STUDIO_SKILL_SOURCE_ID
+      ? { ok: true, source: APP_SOURCE, scan: STUDIO_SCAN }
       : sourceId === HUB_SOURCE.id
         ? { ok: true, source: HUB_SOURCE, scan: HUB_SCAN }
         : { ok: true, source: ACME_SOURCE, scan: ACME_SCAN }
   ),
+  // The plugin the app installs into every workspace it opens, as the built-in
+  // row reads it (backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md).
+  studioPluginStatus: async () => ({
+    ok: true,
+    bundledVersion: '1.0.0',
+    installedVersion: '1.0.0',
+    skillDirNames: ['studio-sprints', 'studio-backlog', 'studio-automations', 'studio-workspaces', 'studio-review'],
+  }),
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),
   listThirdPartyModules: async () => ({ modules: [], rejected: [] }),
@@ -429,13 +522,46 @@ async function main(): Promise<void> {
     assert.equal(/Show \d+ more/.test(text()), false, 'and so is "Show N more"')
   })
 
+  await run('the app’s tab reads our marketplace too, our plugin once and only as the built-in row', () => {
+    // The studio-marketplace ruling (2026-09-06): this tab used to be the
+    // signed registry alone under Plugins and a folder scan under Skills. It
+    // now reads the repository we publish as well — so `studio-skills` is a
+    // row here — while our own plugin stays the built-in row it already was.
+    const body = text()
+    assert.ok(body.includes('Built in'), 'the built-in row leads the tab')
+    assert.ok(body.includes('Studio skills'), 'the marketplace’s other plugin is an ordinary row')
+    // Once, not twice: a second row for it would carry an Open/Install, and
+    // what we publish is a template whose `.mcp.json` still holds
+    // `__MULTICODE_*`. The built-in row has no such control at all, so its
+    // absence is exactly what says the marketplace's copy is not drawn.
+    assert.ok(container.querySelector('[aria-label="Open Studio skills"]'), 'the other plugin does open')
+    assert.equal(
+      container.querySelector('[aria-label="Open SprintEngine Studio"]'),
+      null,
+      'our plugin is not listed a second time under Plugins',
+    )
+    assert.equal(
+      body.includes('__MULTICODE_NODE__'),
+      false,
+      'and the server it declares is never offered as one to add',
+    )
+    // The head line names what is actually drawn. Our plugin counts — it IS
+    // the built-in row — and the server inside it does not, because it has no
+    // row of its own; a head claiming "1 MCP server" over a tab with none was
+    // the count and the rows disagreeing.
+    assert.ok(body.includes('2 plugins'), 'both plugins are named')
+    assert.equal(body.includes('1 MCP server'), false, 'the plugin’s own server is not a second row')
+    assert.ok(/\d+ signed entr(y|ies)/.test(body), 'the signed registry is named in a noun that pluralises')
+    assert.equal(body.includes('signed entrys'), false)
+  })
+
   await run('a repository nobody has scanned is not read until its tab is opened', () => {
     // Opening the Extensions door used to fire a full scan of every source in
     // the list — for the official marketplace that is a tree call and hundreds
     // of file reads against an anonymous GitHub budget, spent for someone who
     // came to look at Skills. The sources the app can answer from disk are
     // still read on mount.
-    assert.ok(scanCalls.includes('builtin'), 'a bundled source costs nothing and is read now')
+    assert.ok(scanCalls.includes(STUDIO_SKILL_SOURCE_ID), 'a source already scanned is answered from the store, now')
     assert.equal(
       scanCalls.includes(ACME_SOURCE.id),
       false,

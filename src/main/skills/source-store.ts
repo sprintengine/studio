@@ -10,11 +10,13 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
-  BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
   OFFICIAL_PLUGINS_SKILL_SOURCE_REPO,
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
+  STUDIO_SKILL_SOURCE_REPO,
   type ScanResult,
   type SkillSource,
 } from '../../shared/skills'
@@ -31,15 +33,23 @@ const FILE_NAME = 'skill-sources.json'
  * plugins by name. It is a repository like any the user adds — it is read over
  * the network, it carries a commit, Sync re-reads it — and it differs only in
  * that it is present before anyone adds it and cannot be taken away.
+ *
+ * The studio-marketplace ruling (2026-09-06) made ours the same shape. It used
+ * to be a `builtin` folder scan of `resources/skills` under Skills and the
+ * signed registry under Plugins — one tab, two backends, and our own plugin
+ * with no home in either. It is now `sprintengine/studio-releases`, a
+ * Claude-format marketplace we publish, read exactly like Anthropic's. What is
+ * bundled is a SEED of it (see `studioMarketplaceSeedRoot` in index.ts), so the
+ * tab lists offline and the remote copy wins whenever it can be reached.
  */
 export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
   {
-    id: BUILTIN_SKILL_SOURCE_ID,
-    kind: 'builtin',
-    name: 'Multicode',
-    repo: '',
-    monogram: 'MC',
-    blurb: 'The skills Multicode ships.',
+    id: STUDIO_SKILL_SOURCE_ID,
+    kind: 'github',
+    name: STUDIO_SKILL_SOURCE_NAME,
+    repo: STUDIO_SKILL_SOURCE_REPO,
+    monogram: 'SS',
+    blurb: 'The plugin and the skills SprintEngine Studio ships.',
     commitSha: '',
     scannedAt: '',
   },
@@ -76,9 +86,10 @@ export function isRemovableSkillSource(id: string): boolean {
  * a store that dropped them would refetch 292 plugins on every launch and could
  * never say an update was available.
  *
- * The two bundled-with-the-app sources are the opposite: no commit, no network,
- * re-read from disk each launch, so nothing about them is worth persisting and
- * a stored copy would only be a stale name waiting to overrule this build's.
+ * The bundled-with-the-app source (Connectors) is the opposite: no commit, no
+ * network, re-read from disk each launch, so nothing about it is worth
+ * persisting and a stored copy would only be a stale name waiting to overrule
+ * this build's.
  */
 function isCachedAlwaysPresentSource(stored: SkillSource): boolean {
   return ALWAYS_PRESENT_SKILL_SOURCES.some(
@@ -95,7 +106,8 @@ function isCachedAlwaysPresentSource(stored: SkillSource): boolean {
  * An always-present source, wearing whatever a scan of it wrote down. Identity
  * — name, repository, monogram, blurb — is this build's and is never overruled
  * by the persisted copy: `scanGithubSource` names a source after its repository
- * ("claude-plugins-official"), and this source is called Anthropic.
+ * ("claude-plugins-official", "studio-releases"), and these sources are called
+ * Anthropic and SprintEngine Studio.
  */
 function withPersistedScanState(always: SkillSource, stored: SkillSource | undefined): SkillSource {
   // Each field is checked rather than copied: `isPersistableSource` validates
@@ -242,7 +254,14 @@ export function parseSkillSourceState(raw: string): PersistedState {
   const scans: Record<string, ScanResult> = {}
   if (record.scans && typeof record.scans === 'object' && !Array.isArray(record.scans)) {
     for (const [id, scan] of Object.entries(record.scans as Record<string, unknown>)) {
-      if (known.has(id) && isPersistableScan(scan)) scans[id] = scan
+      if (!known.has(id) || !isPersistableScan(scan)) continue
+      // A seed scan is never written here on purpose (see `putSource`'s caller
+      // in index.ts), and if one ever were, wearing the flag on the way back
+      // out would make a cache read look like a bundled read forever. The
+      // stored copy is a read of something, so the flag is dropped rather than
+      // trusted.
+      const { bundled: _bundled, ...cached } = scan
+      scans[id] = cached
     }
   }
   return { sources, scans, adoptedLegacyPacks: record.adoptedLegacyPacks === true }
@@ -253,9 +272,9 @@ function emptyState(): PersistedState {
 }
 
 /**
- * What a stored source has to be to survive a read. The two bundled-with-the-app
- * sources never appear here (they are always-present and filtered out by id;
- * the always-present REPOSITORY does appear, carrying its scan state), so this
+ * What a stored source has to be to survive a read. The bundled-with-the-app
+ * source never appears here (it is always-present and filtered out by id; the
+ * always-present REPOSITORIES do appear, carrying their scan state), so this
  * covers the kinds a person can ADD: a repository, and — since the source-tabs
  * ruling (2026-09-05) — a folder on this machine, which is identified by its
  * path rather than by a repository and so must carry one.

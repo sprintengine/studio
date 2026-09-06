@@ -1,15 +1,19 @@
 // Skill sources: the shapes the whole Skills surface is built on.
 //
-// A *source* is somewhere skills come from — the skills Multicode ships
-// (`builtin`), the skills its connector catalogue ships (`connectors`), or any
-// public GitHub repository the user adds (`github`). Scanning a source turns it
-// into a list of skills; a skill is a directory containing SKILL.md, taken
+// A *source* is somewhere skills come from — a public GitHub repository
+// (`github`), which includes the two every install has and nobody chose, our own
+// marketplace and Anthropic's; the skills the connector catalogue ships
+// (`connectors`); or a folder on this machine (`local`). Scanning a source turns
+// it into a list of skills; a skill is a directory containing SKILL.md, taken
 // whole.
 //
 // Renderer-safe on purpose (no node imports): the Extensions surface, the
 // reader, and the main-process scanner all speak these types.
 
-export type SkillSourceKind = 'builtin' | 'connectors' | 'github' | 'local'
+// `builtin` is gone: the app's own catalogue used to be a folder on disk, and
+// since the studio-marketplace ruling (2026-09-06) it is the repository we
+// publish, read like any other (STUDIO_SKILL_SOURCE_ID below).
+export type SkillSourceKind = 'connectors' | 'github' | 'local'
 
 /**
  * An agent CLI that reads workspace skills. Which directory each one reads is
@@ -118,6 +122,17 @@ export type ScanResult = {
    * listed under now. Read through `scanPluginRenames()`, never directly.
    */
   pluginRenames?: Record<string, string>
+  /**
+   * True when this scan is the copy that SHIPPED WITH THE APP rather than a
+   * read of the repository — the seed our own marketplace falls back to when
+   * the network is not there (studio-marketplace ruling, 2026-09-06), the same
+   * bundled-or-remote distinction `registry-client.ts` draws for the signed
+   * index. The surface says so, because "12 skills" read from a repository and
+   * "12 skills" read from the build are different claims about how current the
+   * list is. Never persisted: a seed cached as though it were a scan would
+   * stop the next launch from going and getting the real one.
+   */
+  bundled?: boolean
 }
 
 // Plugins and MCP servers: the other two kinds a source can hold.
@@ -681,8 +696,20 @@ export const SKILL_REPO_ROOT_GROUP = '(repo root)'
  */
 export const SKILL_UNLISTED_GROUP = 'Everything else'
 
-export const BUILTIN_SKILL_SOURCE_ID = 'builtin'
 export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
+
+// Our own marketplace, an always-present source since the studio-marketplace
+// ruling (2026-09-06). It was two backends behind one tab — a folder scan under
+// Skills, the signed registry under Plugins — and it is now the repository we
+// publish, in the Claude marketplace format, read like any other repository.
+//
+// Its id is the one `addSource` would mint for it, so someone who pastes
+// `sprintengine/studio-releases` into "Add from GitHub…" is told they already
+// have it rather than getting a second, removable tab of the same plugins.
+export const STUDIO_SKILL_SOURCE_REPO = 'sprintengine/studio-releases'
+export const STUDIO_SKILL_SOURCE_ID = `github:${STUDIO_SKILL_SOURCE_REPO}`
+/** What that source is CALLED: the product, not the repository path. */
+export const STUDIO_SKILL_SOURCE_NAME = 'SprintEngine Studio'
 
 // Claude Code's own plugin marketplace, an always-present source since the
 // official-plugins ruling (2026-09-06). Its id is the one `addSource` would
@@ -702,7 +729,7 @@ export const OFFICIAL_PLUGINS_SKILL_SOURCE_NAME = 'Anthropic'
  */
 export function isBundledSkillSource(id: string): boolean {
   return (
-    id === BUILTIN_SKILL_SOURCE_ID
+    id === STUDIO_SKILL_SOURCE_ID
     || id === CONNECTORS_SKILL_SOURCE_ID
     || id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID
   )

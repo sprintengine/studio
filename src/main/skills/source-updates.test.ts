@@ -26,11 +26,16 @@ function source(repo: string, commitSha: string): SkillSource {
 async function main(): Promise<void> {
   const userData = await mkdtemp(join(tmpdir(), 'multicode-source-updates-'))
   const store = createSkillSourceStore(userData)
+  // Our own marketplace is a repository like the rest since the
+  // studio-marketplace ruling (2026-09-06), so it is checked like the rest —
+  // and it is always present, which is why it appears here without being added.
+  await store.putSource(source('sprintengine/studio-releases', 'sss'), null)
   await store.putSource(source('anthropics/claude-plugins-official', 'aaa'), null)
   await store.putSource(source('pbakaus/impeccable', 'bbb'), null)
   await store.putSource(source('broken/repo', 'ccc'), null)
 
   const heads = new Map([
+    ['sprintengine/studio-releases', 'sss'],
     ['anthropics/claude-plugins-official', 'aaa'],
     ['pbakaus/impeccable', 'bbb2'],
   ])
@@ -49,12 +54,17 @@ async function main(): Promise<void> {
 
   // First check: one source moved, one did not, one could not be asked.
   const first = await checker.check()
-  assert.deepEqual(asked, ['anthropics/claude-plugins-official', 'pbakaus/impeccable', 'broken/repo'])
+  assert.deepEqual(asked, [
+    'sprintengine/studio-releases',
+    'anthropics/claude-plugins-official',
+    'pbakaus/impeccable',
+    'broken/repo',
+  ])
   assert.deepEqual(first.changed, ['github:pbakaus/impeccable'])
   assert.deepEqual(first.newlyChanged, ['github:pbakaus/impeccable'])
   assert.equal(first.failures.length, 1)
   assert.equal(first.failures[0].sourceId, 'github:broken/repo')
-  assert.equal(first.sources.length, 2, 'a source that could not be asked is a failure, not a row')
+  assert.equal(first.sources.length, 3, 'a source that could not be asked is a failure, not a row')
 
   // The head is written onto the source, so a rail can mark it without a
   // second read, and the built-in sources are never asked.

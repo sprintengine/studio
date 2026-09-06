@@ -10,7 +10,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react'
 
-import { BUILTIN_SKILL_SOURCE_ID } from '../../../../../../../shared/skills'
+import { STUDIO_SKILL_SOURCE_ID } from '../../../../../../../shared/skills'
 import { EmptyState, GhostButton, InlineNotice, Spinner } from '../../../../ui'
 import { PluginDetailPanel } from '../../../../settings/BrowseStorefront'
 import {
@@ -104,7 +104,7 @@ export function AgentClisCatalogue({
     // machine. A tab that states one number while listing another is two
     // answers to one word, so it states none and the list speaks for itself.
     installedCount: null,
-    counts: { [BUILTIN_SKILL_SOURCE_ID]: appCount },
+    counts: { [STUDIO_SKILL_SOURCE_ID]: appCount },
   })
   const tabId = resolveCatalogueTab(tabs, activeTabId)
 

@@ -15,9 +15,10 @@
 // tested without a renderer.
 
 import {
-  BUILTIN_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
   localSourceFolderName,
   skillSourceMonogram,
   sourceHasUpdate,
@@ -30,11 +31,13 @@ export type CatalogueKind = 'plugins' | 'skills' | 'agent-clis'
 export const INSTALLED_TAB_ID = 'installed'
 
 /**
- * What the app's own catalogue is called on screen. The source record calls
- * itself `Multicode`; the product is SprintEngine Studio, and the registry it
- * serves is published from `sprintengine/studio-releases`.
+ * What the app's own catalogue is called on screen: the product, not the
+ * repository it is published from. Since the studio-marketplace ruling
+ * (2026-09-06) the source IS `sprintengine/studio-releases`, and the store
+ * already names it this — the constant stays so the label is one string and
+ * a tab never renames itself mid-sync (see `catalogueTabLabel`).
  */
-export const APP_CATALOGUE_LABEL = 'SprintEngine Studio'
+export const APP_CATALOGUE_LABEL = STUDIO_SKILL_SOURCE_NAME
 
 /** A source's count for one kind, or why there is none to state. */
 export type CatalogueCount =
@@ -68,17 +71,17 @@ export type CatalogueTab = {
  * the name it gave itself.
  */
 export function catalogueTabLabel(source: SkillSource): string {
-  if (source.id === BUILTIN_SKILL_SOURCE_ID) return APP_CATALOGUE_LABEL
-  // The official marketplace is called by its publisher, not by its path. A tab
-  // reading `anthropics/claude-plugins-official` beside one reading SprintEngine
-  // Studio names one source by its address and the other by who publishes it;
-  // the two bundled catalogues are peers and read as peers (official-plugins
-  // ruling, 2026-09-06).
+  if (source.id === STUDIO_SKILL_SOURCE_ID) return APP_CATALOGUE_LABEL
+  // Both always-present marketplaces are called by their publisher, not by
+  // their path. A tab reading `anthropics/claude-plugins-official` beside one
+  // reading `sprintengine/studio-releases` names two peers by their addresses,
+  // where what a person is choosing between is Anthropic and us
+  // (official-plugins ruling, 2026-09-06).
   //
   // The record's OWN name is deliberately not consulted: a scan names a source
   // after the repository it read, so the copy Sync hands back reads
-  // "claude-plugins-official" until the source list is read again — and the tab
-  // renamed itself under the person mid-sync.
+  // "claude-plugins-official" (or "studio-releases") until the source list is
+  // read again — and the tab renamed itself under the person mid-sync.
   if (source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID) return OFFICIAL_PLUGINS_SKILL_SOURCE_NAME
   if (source.repo) return source.repo
   if (source.kind === 'local') return localSourceFolderName(source.path ?? source.name)
@@ -108,7 +111,7 @@ export function catalogueMonogram(source: SkillSource): string {
  */
 export function orderCatalogueSources(sources: readonly SkillSource[]): SkillSource[] {
   const rank = (source: SkillSource): number =>
-    source.id === BUILTIN_SKILL_SOURCE_ID ? 0 : source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID ? 1 : 2
+    source.id === STUDIO_SKILL_SOURCE_ID ? 0 : source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID ? 1 : 2
   // A stable partition, not a sort: everything else keeps the order it arrived
   // in, which is the order the sources were added.
   return [0, 1, 2].flatMap((tier) => sources.filter((source) => rank(source) === tier))
@@ -138,7 +141,7 @@ export function deriveCatalogueTabs(input: {
   // this kind — and the reason the plus is withheld from it (CatalogueSurface).
   const sources =
     input.kind === 'agent-clis'
-      ? input.sources.filter((source) => source.id === BUILTIN_SKILL_SOURCE_ID)
+      ? input.sources.filter((source) => source.id === STUDIO_SKILL_SOURCE_ID)
       : orderCatalogueSources(input.sources)
   return [
     installed,

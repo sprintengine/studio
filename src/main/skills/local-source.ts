@@ -1,14 +1,15 @@
-// The two sources that are always present: the skills Multicode ships
-// (resources/skills) and the skills its connector catalogue ships
-// (resources/marketplace/skills). Both are directories on disk, so they scan
-// with the same rule as a repository — walk to SKILL.md, take the directory
-// whole — just over a filesystem listing instead of a git tree.
+// Sources that are directories on disk rather than repositories: a folder
+// someone added, the connector catalogue's skills (resources/marketplace/skills)
+// and the bundled seed of our own marketplace (resources/studio-plugin). They
+// scan with the same rule as a repository — walk to SKILL.md, take the
+// directory whole — just over a filesystem listing instead of a git tree.
 
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE, type ScanResult } from '../../shared/skills'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH, type SkillTreeEntry } from './scan'
+import { scanPluginTree } from './scan-plugins'
 
 // Bounded so a mis-pointed root cannot walk a whole disk. Depth alone is not
 // the bound that matters: a home directory is wide long before it is deep, and
@@ -82,14 +83,21 @@ export async function listLocalTree(
  * description the surface lists. Local reads are cheap enough to do inline;
  * a repository defers the same enrichment behind the network.
  *
- * `maxEntries` is the walk's breadth cap, on by default. The two bundled roots
+ * `maxEntries` is the walk's breadth cap, on by default. The bundled roots
  * pass `Infinity` deliberately: their size is a release decision the app made
  * and can measure, not a folder someone picked by mistake — the connector
  * catalogue alone is over ten thousand files today.
+ *
+ * `plugins` reads the same tree for the plugins and MCP servers it declares,
+ * the way a repository scan does. Off by default, because a folder someone
+ * pointed at is a folder of skills until it says otherwise and the extra pass
+ * costs a read per manifest; on for the bundled marketplace seed
+ * (studio-marketplace ruling, 2026-09-06), whose whole point is that the tab
+ * lists the same plugins offline as it does over the network.
  */
 export async function scanLocalSkillSource(
   root: string,
-  options: { maxEntries?: number } = {},
+  options: { maxEntries?: number; plugins?: boolean } = {},
 ): Promise<ScanResult> {
   const entries = await listLocalTree(root, options.maxEntries ?? MAX_LOCAL_ENTRIES)
   const manifest = entries.some((entry) => entry.path === SKILL_MARKETPLACE_MANIFEST_PATH)
@@ -135,10 +143,33 @@ export async function scanLocalSkillSource(
   })
   await Promise.all(readers)
   const kept = skills.filter((_, index) => !skipped.has(index))
-  return {
+  const base: ScanResult = {
     ...scanned,
     skills: kept,
     skippedNoDescription: skipped.size,
     fileCount: kept.reduce((total, skill) => total + skill.files.length, 0),
   }
+  if (options.plugins !== true) return base
+  // Every directory, not just the listable ones — the same rule the repository
+  // scan follows: a plugin's own manifest is the authority on what it ships,
+  // and a skill this scan dropped is still a directory the plugin shipped.
+  const declared = await scanPluginTree({
+    entries,
+    skills: scanned.skills,
+    marketplaceManifest: manifest,
+    readFile: (path) => readLocalFile(root, path),
+  })
+  return { ...base, ...declared }
+}
+
+/**
+ * One file under `root`, or null. Confined to the tree: a manifest is
+ * third-party content, and a `source` of `../../..` in it must not turn a scan
+ * into a read of somebody's home directory.
+ */
+async function readLocalFile(root: string, path: string): Promise<string | null> {
+  const full = resolve(root, ...path.split('/'))
+  const base = resolve(root)
+  if (full !== base && !full.startsWith(`${base}${sep}`)) return null
+  return readFile(full, 'utf8').catch(() => null)
 }

@@ -7,6 +7,9 @@ import {
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
   sourceHasUpdate,
   OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
+  STUDIO_SKILL_SOURCE_REPO,
   type ScanResult,
   type SkillSource,
 } from '../../shared/skills'
@@ -93,7 +96,7 @@ async function main(): Promise<void> {
     const listed = await reopened.listSources()
     assert.deepEqual(
       listed.map((source) => source.id),
-      ['builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors', FOLDER.id],
+      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors', FOLDER.id],
       'the folder is in the list beside the ones the app always has',
     )
     const found = await reopened.getSource(FOLDER.id)
@@ -184,7 +187,7 @@ async function main(): Promise<void> {
     const listed = await reopened.listSources()
     assert.deepEqual(
       listed.map((source) => source.id),
-      ['builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors'],
+      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors'],
       'it is listed once, not once as itself and once as the copy its scan wrote',
     )
     const reread = await reopened.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
@@ -250,13 +253,53 @@ async function main(): Promise<void> {
     // build's.
     const state = parseSkillSourceState(
       JSON.stringify({
-        sources: [{ id: 'builtin', kind: 'github', name: 'Old name', repo: '' }],
-        scans: { builtin: scanOf('stale') },
+        sources: [{ id: 'connectors', kind: 'github', name: 'Old name', repo: '' }],
+        scans: { connectors: scanOf('stale') },
         adoptedLegacyPacks: false,
       }),
     )
     assert.deepEqual(state.sources, [])
     assert.deepEqual(Object.keys(state.scans), [])
+  })
+
+  await run('our own marketplace is a repository, first in the row, and not removable', async () => {
+    // The studio-marketplace ruling (2026-09-06): the app's own catalogue used
+    // to be a folder scan with no commit and nothing to persist. It is now the
+    // repository we publish, so its scan and its commit have to survive to
+    // disk exactly like Anthropic's — otherwise every launch refetches it and
+    // no check could ever say an update was available.
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-skill-sources-'))
+    const store = createSkillSourceStore(dir)
+    const listed = await store.listSources()
+    assert.equal(listed[0]?.id, STUDIO_SKILL_SOURCE_ID, 'ours leads the row')
+    assert.equal(listed[0]?.kind, 'github')
+    assert.equal(listed[0]?.repo, STUDIO_SKILL_SOURCE_REPO)
+    assert.equal(listed[0]?.name, STUDIO_SKILL_SOURCE_NAME)
+    assert.equal(isRemovableSkillSource(STUDIO_SKILL_SOURCE_ID), false)
+    assert.equal(await store.removeSource(STUDIO_SKILL_SOURCE_ID), false)
+
+    await store.putSource(
+      { ...(listed[0] as SkillSource), name: 'studio-releases', commitSha: 'abc123', scannedAt: '2026-09-06T00:00:00.000Z' },
+      scanOf('one'),
+    )
+    const again = (await store.listSources())[0]
+    assert.equal(again?.commitSha, 'abc123', 'the scan state survives')
+    assert.equal(again?.name, STUDIO_SKILL_SOURCE_NAME, 'but the name a scan wrote never overrules this build\'s')
+    assert.equal((await store.getScan(STUDIO_SKILL_SOURCE_ID))?.skills[0]?.id, 'one', 'and so does the scan beside it')
+  })
+
+  await run('a seed cached as though it were a scan loses the flag on the way out', async () => {
+    // The bundled seed is never written here (index.ts hands it straight to
+    // the surface), and if one ever were, wearing `bundled` on the way back
+    // out would make every later cache read claim the network was away.
+    const state = parseSkillSourceState(
+      JSON.stringify({
+        sources: [{ id: STUDIO_SKILL_SOURCE_ID, kind: 'github', name: 'x', repo: STUDIO_SKILL_SOURCE_REPO }],
+        scans: { [STUDIO_SKILL_SOURCE_ID]: { ...scanOf('seeded'), bundled: true } },
+        adoptedLegacyPacks: false,
+      }),
+    )
+    assert.equal('bundled' in state.scans[STUDIO_SKILL_SOURCE_ID], false)
   })
 
   console.log('skill source store: ok')

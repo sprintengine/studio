@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 
 import {
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
   type SkillSource,
 } from '../../../../../../../shared/skills'
 import type { InstalledExtension } from '../../../../settings/extensionsInstalled'
@@ -43,7 +45,12 @@ const source = (over: Partial<SkillSource> & { id: string }): SkillSource => ({
   ...over,
 })
 
-const APP = source({ id: 'builtin', kind: 'builtin', name: 'Multicode', monogram: 'MC' })
+const APP = source({
+  id: STUDIO_SKILL_SOURCE_ID,
+  name: STUDIO_SKILL_SOURCE_NAME,
+  repo: 'sprintengine/studio-releases',
+  monogram: 'SS',
+})
 const CONNECTORS = source({ id: 'connectors', kind: 'connectors', name: 'Connectors' })
 const ACME = source({ id: 'github:acme/skills', repo: 'acme/skills' })
 const FOLDER = source({ id: 'local:/Users/me/work/skills', kind: 'local', name: 'skills', path: '/Users/me/work/skills' })
@@ -65,13 +72,13 @@ run('Installed leads, then the app’s own catalogue, then the rest in the order
   })
   assert.deepEqual(
     tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, 'builtin', 'github:acme/skills', 'connectors'],
+    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, 'github:acme/skills', 'connectors'],
   )
   assert.equal(tabs[0].label, 'Installed')
   assert.equal(tabs[0].count, 3)
   assert.deepEqual(
     orderCatalogueSources([ACME, APP]).map((entry) => entry.id),
-    ['builtin', 'github:acme/skills'],
+    [STUDIO_SKILL_SOURCE_ID, 'github:acme/skills'],
   )
 })
 
@@ -88,7 +95,7 @@ run('the two bundled catalogues lead the row, ours first, then the rest as added
   })
   assert.deepEqual(
     tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, 'builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'github:acme/skills', FOLDER.id],
+    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'github:acme/skills', FOLDER.id],
     'Installed · SprintEngine Studio · Anthropic · the sources you added, in the order you added them',
   )
 })
@@ -99,14 +106,14 @@ run('the Plugins catalogue opens on Anthropic, and only Plugins does', () => {
   const plugins = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
   assert.equal(resolveCatalogueTab(plugins, null), OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
   assert.equal(
-    resolveCatalogueTab(plugins, 'builtin'),
-    'builtin',
+    resolveCatalogueTab(plugins, STUDIO_SKILL_SOURCE_ID),
+    STUDIO_SKILL_SOURCE_ID,
     'and a tab the person chose still wins over the default',
   )
   const skills = deriveCatalogueTabs({ kind: 'skills', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(skills, null), 'builtin', 'Skills is unchanged: our own skills lead it')
+  assert.equal(resolveCatalogueTab(skills, null), STUDIO_SKILL_SOURCE_ID, 'Skills is unchanged: our own skills lead it')
   const withoutIt = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ACME], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(withoutIt, null), 'builtin', 'a row without it opens on its first source, as before')
+  assert.equal(resolveCatalogueTab(withoutIt, null), STUDIO_SKILL_SOURCE_ID, 'a row without it opens on its first source, as before')
 })
 
 run('a source that holds two kinds says so in both nouns', () => {
@@ -202,16 +209,16 @@ run('Agent CLIs list the app’s catalogue alone', () => {
     installedCount: 2,
     counts: { builtin: { status: 'ready', count: 12 } },
   })
-  assert.deepEqual(tabs.map((tab) => tab.id), [INSTALLED_TAB_ID, 'builtin'])
+  assert.deepEqual(tabs.map((tab) => tab.id), [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID])
 })
 
 run('a removed source does not leave the surface on a tab that is gone', () => {
   const tabs = deriveCatalogueTabs({ kind: 'skills', sources: [APP], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(tabs, 'github:acme/skills'), 'builtin', 'it falls back to the first source')
+  assert.equal(resolveCatalogueTab(tabs, 'github:acme/skills'), STUDIO_SKILL_SOURCE_ID, 'it falls back to the first source')
   assert.equal(resolveCatalogueTab(tabs, INSTALLED_TAB_ID), INSTALLED_TAB_ID, 'a tab that exists is kept')
-  assert.equal(resolveCatalogueTab(tabs, null), 'builtin', 'and a cold surface opens on a source, not on Installed')
+  assert.equal(resolveCatalogueTab(tabs, null), STUDIO_SKILL_SOURCE_ID, 'and a cold surface opens on a source, not on Installed')
   const onlyInstalled = deriveCatalogueTabs({ kind: 'skills', sources: [], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(onlyInstalled, 'builtin'), INSTALLED_TAB_ID)
+  assert.equal(resolveCatalogueTab(onlyInstalled, STUDIO_SKILL_SOURCE_ID), INSTALLED_TAB_ID)
 })
 
 // ── The Installed tab, grouped by where each row came from ───────────────────

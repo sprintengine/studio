@@ -6,7 +6,8 @@ import { join } from 'node:path'
 
 import type { WorkspaceSkill } from '../shared/electron-api'
 import type { SkillTreeEntry } from '../main/skills/scan'
-import type { ScanResult, ScannedSkill, SkillSource } from '../shared/skills'
+import { STUDIO_SKILL_SOURCE_ID, type ScanResult, type ScannedSkill, type SkillSource } from '../shared/skills'
+import { STUDIO_MARKETPLACE_RESOURCE_DIR } from '../main/skills/studio-plugin'
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
 
 // ── Seam: a skill source, end to end (T1 → T2 → T3 → T4 → T7, item MC-1932ff) ─
@@ -49,6 +50,21 @@ const domWindow = dom.window as unknown as Record<string, unknown>
 const FIXTURES = join(process.cwd(), 'src', 'main', 'skills', '__fixtures__')
 const MANIFEST_PATH = '.claude-plugin/marketplace.json'
 const PROTOTYPE_ID = 'skills/engineering/prototype'
+
+/**
+ * What the bundled marketplace holds: the five skills of the plugin the app
+ * installs into every workspace, and the twelve workflow skills it ships as
+ * `studio-skills` (studio-marketplace ruling, 2026-09-06). Counted rather than
+ * spelled, so adding a skill to either plugin does not fail this seam for a
+ * reason that has nothing to do with what it is proving.
+ */
+const SHIPPED_SKILL_COUNT = readdirSync(
+  join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'sprintengine-studio', 'skills'),
+  { withFileTypes: true },
+).filter((entry) => entry.isDirectory()).length
+  + readdirSync(join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'studio-skills', 'skills'), {
+    withFileTypes: true,
+  }).filter((entry) => entry.isDirectory()).length
 const RESEARCH_ID = 'skills/engineering/research'
 
 type RecordedTree = { repo: string; commitSha: string; truncated: boolean; tree: SkillTreeEntry[] }
@@ -283,7 +299,10 @@ async function main(): Promise<void> {
     // The two agent CLIs this machine is pretending to have. Real detection
     // probes binaries, which a test machine cannot be asked to have installed.
     listHarnesses: async () => ['claude', 'agents'],
-    builtinSkillsRoot: () => join(process.cwd(), 'resources', 'skills'),
+    // No fixture answers for `sprintengine/studio-releases`, which is exactly
+    // the offline case: the source falls back to the marketplace seed this
+    // build ships, and everything below reads and installs from that.
+    studioMarketplaceSeedRoot: () => join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR),
     connectorSkillsRoot: () => null,
     listWorkspaceRoots: () => [],
     github: { fetcher: (url) => fixtureFetch(url) },
@@ -520,12 +539,24 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.ok(markup().includes('Showing 1–1 of 1'))
   assert.ok(markup().includes('>impeccable<'))
 
-  // The skills Multicode ships, read off disk by the same service, under the
-  // name the product goes by.
-  const builtin = await scanOf('builtin')
-  assert.equal(builtin.skills.length, 12)
+  // Our own marketplace, with no network to read it over: the seed this build
+  // ships, listed by the same service under the name the product goes by.
+  const studio = await scanOf(STUDIO_SKILL_SOURCE_ID)
+  assert.equal(studio.bundled, true, 'and it says which of the two copies this is')
+  assert.equal(studio.commitSha, '', 'a seed is not a read, so it claims no commit')
+  // Both plugins, in the order the marketplace lists them: ours leads, and the
+  // workflow skills are the plugin beside it.
+  assert.deepEqual(
+    (studio.plugins ?? []).map((plugin) => plugin.id),
+    ['sprintengine-studio', 'studio-skills'],
+    'the offline listing is the marketplace, in its own order',
+  )
+  assert.equal(studio.skills.length, SHIPPED_SKILL_COUNT)
   await openSource('SprintEngine Studio')
-  assert.ok(markup().includes('Showing 1–12 of 12'), 'the bundled source lists its skills too')
+  assert.ok(
+    markup().includes(`Showing 1–12 of ${SHIPPED_SKILL_COUNT}`),
+    'the bundled source lists its skills too',
+  )
 
   // ── The reader: a multi-file skill, and the links between its files ────────
 
@@ -778,10 +809,10 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
 
   // ── 1. The workspace holds Multicode's own `prototype` ────────────────────
 
-  const builtinScan = await scanOf('builtin')
-  await install('builtin', idOfSkillNamed(builtinScan, 'prototype'))
+  const studioScan = await scanOf(STUDIO_SKILL_SOURCE_ID)
+  await install(STUDIO_SKILL_SOURCE_ID, idOfSkillNamed(studioScan, 'prototype'))
 
-  const shippedRoot = join(process.cwd(), 'resources', 'skills', 'prototype')
+  const shippedRoot = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'studio-skills', 'skills', 'prototype')
   /**
    * Every file of the installed copy, against the directory Multicode ships —
    * the marker aside, which install writes and the source never had. Compares
@@ -808,7 +839,7 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   for (const harness of HARNESS_DIRS) assertHoldsShippedPrototype(harness, 'as installed')
   assert.equal(
     (await readSkillProvenance(installedPath('.claude', 'prototype')))?.sourceId,
-    'builtin',
+    STUDIO_SKILL_SOURCE_ID,
     'and the copy records which source wrote it',
   )
   // mattpocock ships a `prototype` too — without that, nothing below collides.
@@ -862,7 +893,7 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   for (const harness of HARNESS_DIRS) assertHoldsShippedPrototype(harness, 'after another source synced')
   assert.equal(
     (await readSkillProvenance(installedPath('.claude', 'prototype')))?.sourceId,
-    'builtin',
+    STUDIO_SKILL_SOURCE_ID,
     'and the marker still names the source that installed it',
   )
 
