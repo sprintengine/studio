@@ -286,15 +286,18 @@ async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> 
  */
 async function aLocalEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-skill-nodesc-'))
-  await mkdir(join(root, 'keeper'), { recursive: true })
-  await mkdir(join(root, 'nameless'), { recursive: true })
+  for (const name of ['keeper', 'nameless', 'empty']) {
+    await mkdir(join(root, name), { recursive: true })
+  }
   await writeFile(join(root, 'keeper', 'SKILL.md'), '---\nname: keeper\ndescription: Keeps things.\n---\n')
   await writeFile(join(root, 'nameless', 'SKILL.md'), '---\nname: nameless\n---\n# No description\n')
+  // A zero-byte entry document was READ, and declares no description.
+  await writeFile(join(root, 'empty', 'SKILL.md'), '')
 
   const scan = await scanLocalSkillSource(root)
   assert.deepEqual(scan.skills.map((entry) => entry.id), ['keeper'])
-  assert.equal(scan.skippedNoDescription, 1)
-  assert.equal(scan.fileCount, 1, 'the skipped directory takes its files with it')
+  assert.equal(scan.skippedNoDescription, 2)
+  assert.equal(scan.fileCount, 1, 'the skipped directories take their files with them')
 }
 
 async function main(): Promise<void> {

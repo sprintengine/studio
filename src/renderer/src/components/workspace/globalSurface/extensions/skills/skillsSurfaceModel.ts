@@ -12,6 +12,7 @@
 // render as a zero count.
 
 import {
+  SKILL_UNLISTED_GROUP,
   skillDirName,
   skillNameWarning,
   skillSourceMonogram,
@@ -342,10 +343,13 @@ export function deriveSkillCatalogueGroups(input: {
     label: skillGroupLabel(name),
     items: matched.filter((item) => item.group === name),
   }))
-  // A skill whose group the scan did not list still has to be reachable.
+  // A skill whose group the scan did not list still has to be reachable. It
+  // reads under the scan's OWN name for that bucket rather than a second one of
+  // this module's invention, so a source cannot show two headings meaning the
+  // same thing (`SKILL_UNLISTED_GROUP`, shared/skills.ts).
   const ungrouped = matched.filter((item) => !groups.includes(item.group))
   return ungrouped.length > 0
-    ? [...grouped, { key: '(ungrouped)', label: 'Everything else', items: ungrouped }]
+    ? [...grouped, { key: '(ungrouped)', label: SKILL_UNLISTED_GROUP, items: ungrouped }]
     : grouped
 }
 
@@ -495,8 +499,11 @@ export function isMarkdownSkillFile(path: string): boolean {
  * rather than at a block of YAML.
  */
 export function stripSkillFrontmatter(content: string): string {
-  const block = content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
-  return block ? content.slice(block[0].length) : content
+  // The byte-order mark a Windows editor writes sits before the fence, so
+  // without dropping it the reader renders the frontmatter as prose.
+  const document = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content
+  const block = document.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
+  return block ? document.slice(block[0].length) : document
 }
 
 export type SkillLinkTarget =

@@ -648,6 +648,11 @@ run('the skills a manifest does not list are grouped, not dropped', () => {
   )
 })
 
+run('the reader drops a byte-order mark before the fence, so frontmatter is never prose', () => {
+  const withBom = '\uFEFF---\nname: tdd\ndescription: A skill.\n---\n\n# TDD\n\nBody.\n'
+  assert.equal(stripSkillFrontmatter(withBom), '\n# TDD\n\nBody.\n')
+})
+
 run('a source says how many directories the scan passed over, and never says zero', () => {
   assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 1 }), '1 directory skipped: no description')
   assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 3 }), '3 directories skipped: no description')

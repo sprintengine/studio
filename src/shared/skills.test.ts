@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  parseSkillFragment,
   parseSkillFrontmatter,
   skillDirName,
   skillNameWarning,
@@ -151,6 +152,31 @@ function allowedToolsIsSpaceSeparated(): void {
     parseSkillFrontmatter('---\nallowed-tools: Read, Write Bash\n---\n').allowedTools,
     ['Read', 'Write', 'Bash'],
   )
+  // An apostrophe inside a command is not an opening quote. Treating it as one
+  // swallowed the rest of the line into a single bogus tool name — the very
+  // failure splitting on whitespace was meant to end.
+  assert.deepEqual(
+    parseSkillFrontmatter("---\nallowed-tools: Bash(don't:*) Read Write\n---\n").allowedTools,
+    ["Bash(don't:*)", 'Read', 'Write'],
+  )
+}
+
+/**
+ * A byte-order mark sits before the opening fence, so a SKILL.md saved by a
+ * Windows editor used to parse to nothing at all — and since a skill with no
+ * description is skipped, that would delete the skill from its source's listing
+ * over three invisible bytes.
+ */
+function byteOrderMarkedFrontmatter(): void {
+  const bom = '\uFEFF'
+  const parsed = parseSkillFrontmatter(
+    `${bom}---\nname: writer\ndescription: Writes things.\nallowed-tools: Read Write\n---\n# Writer\n`,
+  )
+  assert.equal(parsed.name, 'writer')
+  assert.equal(parsed.description, 'Writes things.')
+  assert.deepEqual(parsed.allowedTools, ['Read', 'Write'])
+  // The same three bytes in a code-search fragment, which has no fence at all.
+  assert.equal(parseSkillFragment(`${bom}name: writer\ndescription: Writes things.\n`).name, 'writer')
 }
 
 /** The three optional fields the specification defines, and the app ignored. */
@@ -182,6 +208,24 @@ function optionalSpecFields(): void {
   assert.equal(folded.compatibility, 'Designed for Claude Code (or similar products)')
   assert.deepEqual(folded.metadata, { author: 'acme' })
 
+  // A nested value under `metadata` is not four more top-level keys: the map is
+  // string to string, and reading the deeper lines invented rows stating
+  // nothing. The entries at the map's own indent still read.
+  const nested = parseSkillFrontmatter(
+    [
+      '---',
+      'name: alpha',
+      'description: A skill.',
+      'metadata:',
+      '  author: example-org',
+      '  contact:',
+      '    email: nobody@example.com',
+      '  version: "2"',
+      '---',
+    ].join('\n'),
+  )
+  assert.deepEqual(nested.metadata, { author: 'example-org', contact: '', version: '2' })
+
   // A skill that declares none of them says so with blanks, never with copy
   // invented from the fields it did declare.
   const bare = parseSkillFrontmatter('---\nname: alpha\ndescription: A skill.\n---\n')
@@ -210,6 +254,12 @@ function nameValidation(): void {
   assert.match(skillNameWarning('a'.repeat(65), 'a'.repeat(65)), /65 characters/)
   assert.equal(skillNameWarning('a'.repeat(64), 'a'.repeat(64)), '')
 
+  // "Unicode lowercase alphanumeric" is what the specification says, so a name
+  // outside ASCII is conformant as long as it is not upper case.
+  assert.equal(skillNameWarning('café-export', 'café-export'), '')
+  assert.match(skillNameWarning('Café-Export', 'Café-Export'), /lowercase letters/)
+  assert.match(skillNameWarning('pdf processing', 'pdf processing'), /lowercase letters/)
+
   // The case anthropics/skills ships: `template/` declares `template-skill`.
   assert.match(skillNameWarning('template-skill', 'template'), /directory name “template”/)
 }
@@ -227,6 +277,7 @@ function main(): void {
   layoutBoundaries()
   frontmatter()
   allowedToolsIsSpaceSeparated()
+  byteOrderMarkedFrontmatter()
   optionalSpecFields()
   nameValidation()
   identifiers()

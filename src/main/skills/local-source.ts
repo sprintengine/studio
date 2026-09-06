@@ -113,8 +113,10 @@ export async function scanLocalSkillSource(
       const index = cursor
       cursor += 1
       const entryPath = join(root, ...skills[index].id.split('/').filter(Boolean), SKILL_ENTRY_FILE)
-      const raw = await readFile(entryPath, 'utf8').catch(() => '')
-      if (raw === '') continue
+      // null is "not read"; '' is a zero-byte SKILL.md, which exists and
+      // declares no description.
+      const raw = await readFile(entryPath, 'utf8').catch(() => null)
+      if (raw === null) continue
       const frontmatter = parseSkillFrontmatter(raw)
       if (frontmatter.description === '') {
         skipped.add(index)

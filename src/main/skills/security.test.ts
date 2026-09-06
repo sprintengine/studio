@@ -20,6 +20,7 @@ import {
   isMarketplaceSourceHostAllowed,
   parseMarketplaceExtraHosts,
 } from '../../shared/marketplace/source-policy'
+import { scanPlugins } from '../../shared/skills'
 import type { ScanResult, ScannedSkill, SkillFileRef, SkillSource } from '../../shared/skills'
 import {
   DEFAULT_SKILL_MAX_FILE_BYTES,
@@ -635,14 +636,30 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
  * failed request.
  */
 async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
+  const MANIFEST = '.claude-plugin/marketplace.json'
   const entries: SkillTreeEntry[] = [
-    { path: 'keeper/SKILL.md', mode: '100644', type: 'blob', sha: 'a' },
-    { path: 'nameless/SKILL.md', mode: '100644', type: 'blob', sha: 'b' },
-    { path: 'unreadable/SKILL.md', mode: '100644', type: 'blob', sha: 'c' },
+    { path: MANIFEST, mode: '100644', type: 'blob', sha: 'm' },
+    { path: 'skills/keeper/SKILL.md', mode: '100644', type: 'blob', sha: 'a' },
+    { path: 'skills/nameless/SKILL.md', mode: '100644', type: 'blob', sha: 'b' },
+    { path: 'skills/empty/SKILL.md', mode: '100644', type: 'blob', sha: 'd' },
+    { path: 'skills/unreadable/SKILL.md', mode: '100644', type: 'blob', sha: 'c' },
   ]
   const bodies: Record<string, string> = {
-    'keeper/SKILL.md': '---\nname: keeper\ndescription: Keeps things.\n---\n',
-    'nameless/SKILL.md': '---\nname: nameless\n---\n# No description\n',
+    [MANIFEST]: JSON.stringify({
+      name: 'someone',
+      plugins: [
+        {
+          name: 'pack',
+          source: './',
+          skills: ['./skills/keeper', './skills/nameless', './skills/empty'],
+        },
+      ],
+    }),
+    'skills/keeper/SKILL.md': '---\nname: keeper\ndescription: Keeps things.\n---\n',
+    'skills/nameless/SKILL.md': '---\nname: nameless\n---\n# No description\n',
+    // A zero-byte entry document exists and declares nothing, which is not the
+    // same as an entry nobody could read.
+    'skills/empty/SKILL.md': '',
   }
   const fetcher: SkillFetch = async (url) => {
     if (url.includes('/git/trees/')) return jsonResponse(JSON.stringify({ truncated: false, tree: entries }))
@@ -679,12 +696,27 @@ async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
 
   assert.deepEqual(
     added.scan.skills.map((entry) => entry.id).sort(),
-    ['keeper', 'unreadable'],
-    'the entry with no description is dropped; the one nobody could read is not'
+    ['skills/keeper', 'skills/unreadable'],
+    'the entries read with no description are dropped; the one nobody could read is not'
   )
-  assert.equal(added.scan.skippedNoDescription, 1, 'and the scan says how many it skipped')
-  assert.equal(added.scan.fileCount, 2, 'the dropped skill takes its files with it')
-  console.log('  frontmatter: an entry read with no description is skipped and counted; an unread one keeps its row')
+  assert.equal(added.scan.skippedNoDescription, 2, 'and the scan says how many it skipped')
+  assert.equal(added.scan.fileCount, 2, 'the dropped skills take their files with them')
+
+  // The plugin that NAMES those directories still finds them. Handing the
+  // plugin scan the filtered list made it report a directory that shipped and
+  // was read as "listed, not found", which is a claim about the repository that
+  // is not true.
+  const [plugin] = scanPlugins(added.scan)
+  assert.ok(plugin, 'the marketplace manifest names one plugin')
+  assert.deepEqual(plugin.components.missingSkills, [], 'nothing the plugin lists is reported missing')
+  assert.deepEqual(
+    plugin.components.skills.map((entry) => entry.id),
+    ['skills/keeper', 'skills/nameless', 'skills/empty'],
+    'a plugin ships what it ships, in the order its manifest lists it'
+  )
+  console.log(
+    '  frontmatter: entries read with no description are skipped and counted; an unread one keeps its row, and a plugin still finds both'
+  )
 }
 
 async function reinstallDoesNotLeaveRemovedFilesBehind(): Promise<void> {

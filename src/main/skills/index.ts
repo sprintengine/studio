@@ -529,7 +529,10 @@ export function createSkillsService(
       const inDir = skillScan.skills.filter(
         (skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`)
       )
-      const { skills } = await enrichSkills(inDir, (skill) =>
+      // `all`, because these ARE the plugin's components rather than a source's
+      // skill listing: dropping one here would shrink a plugin's declared
+      // contents with nothing on screen to say why.
+      const { all: skills } = await enrichSkills(inDir, (skill) =>
         fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
           bytes.toString('utf8')
         )
@@ -750,7 +753,7 @@ async function scanGithubSource(
     : null
 
   const scanned = scanSkillTree({ entries: tree.entries, commitSha, marketplaceManifest: manifest })
-  const { skills, skippedNoDescription } = await enrichSkills(scanned.skills, (skill) =>
+  const { all, skills, skippedNoDescription } = await enrichSkills(scanned.skills, (skill) =>
     fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
       bytes.toString('utf8')
     )
@@ -760,7 +763,10 @@ async function scanGithubSource(
   // plugin listed under the marketplace's own words.
   const plugins = await scanPluginTree({
     entries: tree.entries,
-    skills,
+    // Every directory, not just the listable ones: a plugin's own manifest is
+    // the authority on what that plugin ships, and a skill this scan will not
+    // list is still a directory the plugin shipped.
+    skills: all,
     marketplaceManifest: manifest,
     readFile: (path) =>
       fetchSkillRepoFile(ref, commitSha, path, github)
@@ -800,15 +806,21 @@ async function scanGithubSource(
  * copy.
  *
  * An entry that WAS read and declares no `description` is not a skill at all
- * (https://agentskills.io/specification, fetched 2026-09-06), so it is dropped
- * and counted. "Read" is the load-bearing word: an entry that 404ed, failed, or
- * sat past `MAX_ENRICHED_SKILLS` was never seen, and a skill is never dropped
- * for a document nobody read.
+ * (https://agentskills.io/specification, fetched 2026-09-06), so it is left out
+ * of `skills` and counted. "Read" is the load-bearing word: an entry the reader
+ * could not fetch, or that sat past `MAX_ENRICHED_SKILLS`, was never seen, and
+ * nothing is dropped for a document nobody read. A zero-byte SKILL.md IS read,
+ * and declares no description.
+ *
+ * `all` carries every directory the tree held, enriched, skipped ones included.
+ * The plugin scan matches its manifests against that list: a plugin naming a
+ * directory that shipped and was read must not be told the directory is
+ * missing, which is what handing it the filtered list did.
  */
 async function enrichSkills(
   skills: readonly ScannedSkill[],
-  readEntry: (skill: ScannedSkill) => Promise<string>
-): Promise<{ skills: ScannedSkill[]; skippedNoDescription: number }> {
+  readEntry: (skill: ScannedSkill) => Promise<string | null>
+): Promise<{ all: ScannedSkill[]; skills: ScannedSkill[]; skippedNoDescription: number }> {
   const enriched = [...skills]
   const skipped = new Set<number>()
   let cursor = 0
@@ -816,8 +828,9 @@ async function enrichSkills(
     while (cursor < enriched.length && cursor < MAX_ENRICHED_SKILLS) {
       const index = cursor
       cursor += 1
-      const raw = await readEntry(enriched[index]).catch(() => '')
-      if (raw === '') continue
+      // null is "not read"; '' is a document that exists and says nothing.
+      const raw = await readEntry(enriched[index]).catch(() => null)
+      if (raw === null) continue
       const frontmatter = parseSkillFrontmatter(raw)
       if (frontmatter.description === '') {
         skipped.add(index)
@@ -836,6 +849,7 @@ async function enrichSkills(
   })
   await Promise.all(workers)
   return {
+    all: enriched,
     skills: enriched.filter((_, index) => !skipped.has(index)),
     skippedNoDescription: skipped.size,
   }
