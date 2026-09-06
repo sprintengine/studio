@@ -16,6 +16,7 @@ import {
   pluginAliases,
   scanPluginRenames,
   scanPlugins,
+  unreadPluginChip,
   type ScanResult,
   type ScannedPlugin,
   type SkillHarness,
@@ -83,6 +84,14 @@ export type PluginListItem = {
   components: string
   hasHooks: boolean
   linked: boolean
+  /**
+   * Two or three words for a plugin that has NOT been read, or null when it
+   * has. A row shows the description when there is one, and every linked entry
+   * in the official marketplace has one, so without this the plugin whose
+   * repository could not be read looked exactly like the one that was read
+   * (linked-plugins ruling, 2026-09-06).
+   */
+  unread: string | null
   install: PluginInstallState
 }
 
@@ -167,6 +176,7 @@ export function derivePluginRows(input: {
       components: describePluginComponents(plugin),
       hasHooks: plugin.components.hooks.length > 0,
       linked: plugin.origin.kind === 'linked',
+      unread: unreadPluginChip(plugin),
       install: derivePluginInstallState(
         input.installed,
         input.source.id,
@@ -322,6 +332,9 @@ export function deriveRegistryPluginRows(entries: readonly MarketplacePluginEntr
       components: describeRegistryComponents(entry),
       hasHooks: false,
       linked: false,
+      // A registry entry is read from the registry itself; there is no
+      // repository behind it that could be unread.
+      unread: null,
       // Registry installs are recorded by the marketplace lifecycle's own
       // receipts, which the storefront detail panel reads; the row itself
       // does not claim a state it cannot see.

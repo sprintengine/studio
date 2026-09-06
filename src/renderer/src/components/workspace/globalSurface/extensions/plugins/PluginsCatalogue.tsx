@@ -30,7 +30,9 @@ import {
   SOURCE_SHAPE_LABEL,
   scanMcpServers,
   scanPlugins,
+  linkedPluginShortfall,
   scanShape,
+  summariseLinkedPlugins,
   unreadPluginReason,
   type ScanResult,
   type ScannedMcpServer,
@@ -72,6 +74,7 @@ import {
   type CatalogueCount,
 } from '../catalogue/catalogueTabs'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
+import { openGitHubSettings, useGitHubTokenConfigured } from '../catalogue/useGitHubToken'
 import { PluginDetailPane } from './PluginDetailPane'
 import {
   derivePluginInstallAvailability,
@@ -448,6 +451,11 @@ export function PluginsCatalogue({
             summary={row.description || row.components}
             chips={[
               'Plugin',
+              // Said on the row, not only in the pane: the row already shows a
+              // description for every linked entry the official marketplace
+              // lists, so an unread one is otherwise indistinguishable from a
+              // read one (linked-plugins ruling, 2026-09-06).
+              ...(row.unread ? [row.unread] : []),
               ...(row.install.kind === 'installed' ? ['Installed'] : []),
               ...(row.install.kind === 'update-available' ? ['Update available'] : []),
             ]}
@@ -738,6 +746,13 @@ export function PluginsCatalogue({
  * ruling, 2026-09-06). Before it, both were totalled into "292 listings", and
  * "listing" is a word for a row rather than for a thing you can install — the
  * owner read `anthropics/skills`'s five plugin bundles as five skills.
+ *
+ * The line also admits when the scan was partial. A marketplace whose plugins
+ * live in other repositories is read within a budget, and without a GitHub
+ * token that budget is twenty repositories a scan — so the shortfall is stated
+ * here, and the words that name the fix ARE the button that opens it
+ * (linked-plugins ruling, 2026-09-06). A source that read them all says
+ * nothing extra: the counts beside it already stand.
  */
 function SourceStateLine({
   source,
@@ -754,6 +769,10 @@ function SourceStateLine({
   outcome: string | null
   onOpenUnderSkills: () => void
 }): JSX.Element {
+  // Read before the early return, because it is a hook: null while the answer
+  // is on its way, and the shortfall clause holds its tongue until it lands
+  // rather than telling somebody to add a token they already added.
+  const tokenConfigured = useGitHubTokenConfigured()
   // A count is never spoken while it is unknown: a scan still loading, or one
   // that failed, says that instead — the tab-row rule, unchanged.
   if (!scan) {
@@ -766,6 +785,8 @@ function SourceStateLine({
     [plugins, 'plugin', 'plugins'],
     [servers, 'MCP server', 'MCP servers'],
   ])
+  const shortfall =
+    tokenConfigured === null ? [] : linkedPluginShortfall(summariseLinkedPlugins(scan), tokenConfigured)
   return (
     <>
       {SOURCE_SHAPE_LABEL[scanShape(scan)]}
@@ -783,6 +804,22 @@ function SourceStateLine({
           </button>
         </>
       ) : null}
+      {shortfall.map((part) => (
+        <React.Fragment key={part.text}>
+          {' · '}
+          {part.action === 'github-settings' ? (
+            <button
+              type="button"
+              onClick={openGitHubSettings}
+              className={`interactive rounded-[3px] text-meta text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+            >
+              {part.text}
+            </button>
+          ) : (
+            <span className="text-[color:var(--text-muted)]">{part.text}</span>
+          )}
+        </React.Fragment>
+      ))}
       {outcome ? ` · ${outcome}` : null}
     </>
   )

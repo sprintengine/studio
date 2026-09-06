@@ -57,6 +57,10 @@ import type {
   SkillUninstallInput,
   SkillUninstallOutcome,
 } from '../../shared/electron-api'
+import {
+  MARKETPLACE_EXTRA_HOSTS_ENV,
+  parseMarketplaceExtraHosts,
+} from '../../shared/marketplace/source-policy'
 import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { findMarketplaceResourcePath } from '../marketplace/resources'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
@@ -76,7 +80,15 @@ import { installPlugin, readEnabledClaudePlugins, uninstallPlugin } from './inst
 import { scanLocalSkillSource } from './local-source'
 import { createPluginInstallStore, type PluginInstallStore } from './plugin-install-store'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
-import { readPluginComponents, scanPluginTree } from './scan-plugins'
+import {
+  dedupeScannedMcpServers,
+  followLinkedPlugins,
+  linkedRepositoryBudget,
+  LinkedPluginReadError,
+  readPluginComponents,
+  scanPluginTree,
+  type LinkedPluginRepoReader,
+} from './scan-plugins'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
@@ -195,7 +207,9 @@ export function createSkillsService(
       }
       try {
         const github = { ...deps.github, token: await deps.resolveToken() }
-        const { source, scan } = await scanGithubSource(ref, id, github)
+        // Re-adding a repository already in the list carries its cached scan
+        // in, so the linked plugins it already read are not read again.
+        const { source, scan } = await scanGithubSource(ref, id, github, await store.getScan(id))
         await store.putSource(source, scan)
         return { ok: true, source, scan }
       } catch (error) {
@@ -298,7 +312,7 @@ export function createSkillsService(
       if (!ref) return { ok: false, message: `${source.repo} is not a repository that can be read.` }
       try {
         const github = { ...deps.github, token: await deps.resolveToken() }
-        const scanned = await scanGithubSource(ref, source.id, github)
+        const scanned = await scanGithubSource(ref, source.id, github, await store.getScan(source.id))
         await store.putSource(scanned.source, scanned.scan)
         return { ok: true, source: scanned.source, scan: scanned.scan }
       } catch (error) {
@@ -399,7 +413,11 @@ export function createSkillsService(
       let rescan: { source: SkillSource; scan: ScanResult }
       try {
         const github = { ...deps.github, token: await deps.resolveToken() }
-        rescan = await scanGithubSource(ref, source.id, github)
+        // `previous` is the cache the follow reads: a linked plugin whose pinned
+        // sha has not moved is carried over instead of fetched again, which is
+        // what makes the second Sync of a marketplace cost a fraction of the
+        // first and what lets a budgeted pass resume where it stopped.
+        rescan = await scanGithubSource(ref, source.id, github, previous)
         // Synced to head: the head the last check recorded IS this commit now,
         // so the drift mark clears with the scan rather than an hour later.
         rescan.source = { ...rescan.source, headSha: rescan.source.commitSha, headCheckedAt: new Date().toISOString() }
@@ -571,6 +589,11 @@ export function createSkillsService(
         homepage: plugin.homepage || read.manifest?.homepage || '',
         origin: { ...plugin.origin, sha: commitSha },
         componentsKnown: true,
+        // Opening a plugin is a full read of its one repository, entry
+        // documents included, so it supersedes whatever the scan's budgeted
+        // follow left behind — including a `pending` or `unreadable` verdict
+        // this read has just disproved (linked-plugins ruling, 2026-09-06).
+        linkedRead: { status: 'read' },
         components: {
           ...read.components,
           mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
@@ -764,7 +787,13 @@ export function createSkillsService(
 async function scanGithubSource(
   ref: SkillRepoRef,
   id: string,
-  github: SkillGithubOptions
+  github: SkillGithubOptions,
+  /**
+   * This source's previous scan, when there is one. A linked plugin whose
+   * pinned sha has not moved is taken from it, so a re-scan reads only what
+   * moved (linked-plugins ruling, 2026-09-06).
+   */
+  previous?: ScanResult | null
 ): Promise<{ source: SkillSource; scan: ScanResult }> {
   const commitSha = await resolveSkillRepoCommit(ref, github)
   const tree = await fetchSkillRepoTree(ref, commitSha, github)
@@ -797,6 +826,18 @@ async function scanGithubSource(
         .then((bytes) => bytes.toString('utf8'))
         .catch(() => null),
   })
+  // …and the plugins that live in OTHER repositories, read at the commits this
+  // marketplace pinned (linked-plugins ruling, 2026-09-06). One tree listing
+  // per distinct repository, bounded by a budget the token decides, and every
+  // plugin a previous scan already read at the same sha costs nothing at all.
+  const followed = await followLinkedPlugins({
+    plugins: plugins.plugins,
+    cached: previous ? scanPlugins(previous) : [],
+    marketplaceManifest: manifest,
+    budget: linkedRepositoryBudget(github.token),
+    extraHosts: parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV]),
+    reader: githubLinkedPluginReader(github),
+  })
   // `fileCount` is recounted because a skipped skill takes its files with it.
   const scan: ScanResult = {
     ...scanned,
@@ -804,6 +845,11 @@ async function scanGithubSource(
     skippedNoDescription,
     fileCount: skills.reduce((total, skill) => total + skill.files.length, 0),
     ...plugins,
+    plugins: followed.plugins,
+    // The source's server list is the reach of everything it lists, in-tree and
+    // linked alike: 15 was the in-tree count, and it was not what this
+    // repository actually offers.
+    mcpServers: dedupeScannedMcpServers([...plugins.mcpServers, ...followed.mcpServers]),
   }
 
   const name = `${ref.owner}/${ref.repo}`
@@ -814,11 +860,57 @@ async function scanGithubSource(
       name: ref.repo,
       repo: name,
       monogram: skillSourceMonogram(ref.repo),
-      blurb: describeSourceBlurb(name, skills.length, plugins.plugins.length, plugins.mcpServers.length),
+      blurb: describeSourceBlurb(name, skills.length, scan.plugins?.length ?? 0, scan.mcpServers?.length ?? 0),
       commitSha,
       scannedAt: new Date().toISOString(),
     },
     scan,
+  }
+}
+
+/**
+ * `followLinkedPlugins`'s reader, over GitHub.
+ *
+ * Its whole job besides fetching is to sort failures into "this minute" and
+ * "this repository", because the follow stops the entire pass on the first of
+ * the former and carries on past the latter. 403 and 429 are how GitHub says
+ * rate limit (`githubErrorMessage` in github-tree.ts). A `SkillFetchError`
+ * carrying NO status code is a request that never reached GitHub at all — the
+ * machine is offline, DNS failed, the fetch timed out — and calling that
+ * "unreadable" would tell somebody on a train that 238 repositories are gone.
+ */
+function githubLinkedPluginReader(github: SkillGithubOptions): LinkedPluginRepoReader {
+  const refFor = (repo: string): SkillRepoRef => {
+    const [owner, name] = repo.split('/')
+    return { owner: owner ?? '', repo: name ?? '', ref: '' }
+  }
+  const rethrow = (error: unknown): never => {
+    throw new LinkedPluginReadError(describeFetchError(error), linkedFailureKind(error))
+  }
+  return {
+    resolveCommit: (repo, ref) =>
+      resolveSkillRepoCommit({ ...refFor(repo), ref }, github).catch(rethrow),
+    readTree: (repo, sha) =>
+      fetchSkillRepoTree(refFor(repo), sha, github)
+        .then((tree) => tree.entries)
+        .catch(rethrow),
+    // A missing file is null, not a failure: `.mcp.json` and `hooks/hooks.json`
+    // are absent from most plugins, and the tree listing has already said which
+    // of them exist. A rate limit reaching HERE cannot stop the pass — the tree
+    // is already in hand — so it only costs this plugin that one file.
+    //
+    // Which is exactly why it is tried twice. The scan only asks for a path the
+    // tree listed, so a null is a fetch that failed rather than a file that is
+    // not there, and the plugin then lists fewer components than it ships with
+    // nothing on screen to say so. A run of the live marketplace on 2026-09-06
+    // lost seven MCP servers that way — 172 where two other runs read 179 —
+    // out of 386 raw reads. One retry, because a second failure on the same
+    // byte range is no longer plausibly a blip.
+    readFile: async (repo, sha, path) => {
+      const read = (): Promise<string | null> =>
+        fetchSkillRepoFile(refFor(repo), sha, path, github).then((bytes) => bytes.toString('utf8'))
+      return read().catch(() => read().catch(() => null))
+    },
   }
 }
 
@@ -900,6 +992,13 @@ function defaultBuiltinSkillsRoot(): string | null {
 function isUtf8Text(bytes: Buffer): boolean {
   if (bytes.includes(0)) return false
   return Buffer.compare(Buffer.from(bytes.toString('utf8'), 'utf8'), bytes) === 0
+}
+
+/** Which of the three a GitHub failure is — see `githubLinkedPluginReader`. */
+function linkedFailureKind(error: unknown): 'rate-limited' | 'offline' | 'unreadable' {
+  if (!(error instanceof SkillFetchError)) return 'unreadable'
+  if (error.statusCode === 403 || error.statusCode === 429) return 'rate-limited'
+  return error.statusCode === undefined ? 'offline' : 'unreadable'
 }
 
 function describeFetchError(error: unknown): string {

@@ -20,9 +20,18 @@
 // and nothing else — and `strict`, `tags`, `keywords` and the top-level
 // `renames` all ride the scan, because a field this file drops is a field no
 // surface can ever show.
+//
+// A linked entry is FOLLOWED rather than left as a shell (linked-plugins
+// ruling, 2026-09-06): `followLinkedPlugins` reads each distinct repository
+// once at the commit the marketplace pinned. It is a second stage rather than
+// part of `scanPluginTree` because it reads other repositories — a different
+// reader, a different budget, and a pass that may legitimately stop half way
+// and be finished by the next scan.
 
+import { isMarketplaceSourceHostAllowed } from '../../shared/marketplace/source-policy'
 import {
   emptyPluginComponents,
+  type LinkedPluginReadState,
   type ScannedLspServer,
   type ScannedMcpServer,
   type ScannedPlugin,
@@ -32,7 +41,7 @@ import {
   type ScannedSkill,
   type SourceShape,
 } from '../../shared/skills'
-import type { SkillTreeEntry } from './scan'
+import { scanSkillTree, type SkillTreeEntry } from './scan'
 
 export const CLAUDE_PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json'
 export const CLAUDE_MARKETPLACE_MANIFEST_PATH = '.claude-plugin/marketplace.json'
@@ -131,7 +140,7 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
   // repository *is* a server (or ships one) without being a plugin.
   const rootIsPlugin = pluginDirs.includes('')
   const rootServers = rootIsPlugin ? [] : await readRootServers(blobs, input.readFile)
-  const mcpServers = dedupeServers([...declared, ...rootServers])
+  const mcpServers = dedupeScannedMcpServers([...declared, ...rootServers])
 
   return {
     shape: deriveShape({
@@ -185,6 +194,356 @@ export async function readPluginComponents(options: {
     options.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
   )
   return readComponents(options.dir, blobs, options.skills, options.readFile, options.listedSkills ?? [], null)
+}
+
+// ── Following linked plugins ────────────────────────────────────────────────
+//
+// 238 of `anthropics/claude-plugins-official`'s 291 entries live in another
+// repository, and until the linked-plugins ruling (2026-09-06) every one of
+// them was a row that said nothing about what it installs. They are read here.
+//
+// The unit of work is a REPOSITORY AT A COMMIT, not a plugin: the 238 entries
+// resolve to 220 distinct `repo@sha` pairs, several of them shared by two or
+// three plugins in different subdirectories, and one tree listing answers for
+// all of them at once.
+
+/**
+ * Repository trees one scan will fetch to follow linked plugins, WITH a token.
+ *
+ * The expensive request is the tree listing: it goes to api.github.com, which
+ * is what GitHub's 5,000-an-hour authenticated limit counts. (The two or three
+ * small files each followed plugin then reads come from
+ * raw.githubusercontent.com, which that limit does not govern.) 250 covers the
+ * official marketplace's 220 distinct pinned repositories in a single pass with
+ * headroom for its growth, and spends 5% of an hour's authenticated budget —
+ * bounded, and enough that "a full scan with a token" really is full.
+ */
+export const MAX_LINKED_REPOSITORY_READS = 250
+
+/**
+ * …and WITHOUT one, where GitHub allows 60 API requests an hour for the whole
+ * machine — a budget the app's other GitHub work also draws on, and which the
+ * source's own scan has already spent three of before this stage starts.
+ *
+ * 20 leaves most of the hour for everything else and, crucially, makes the scan
+ * COMPLETE rather than die on request 57 with the listing half written. The
+ * pass is resumable: everything it reads is cached against its pinned sha, so
+ * the next Sync starts where this one stopped. Twelve syncs would cover the
+ * official marketplace, which is the honest cost of no token — and why the head
+ * line says so and offers the one setting that fixes it.
+ */
+export const MAX_LINKED_REPOSITORY_READS_ANONYMOUS = 20
+
+/**
+ * Repositories read at once. Each unit is one tree listing followed by up to
+ * three small file reads, run in series, so this is also the ceiling on open
+ * sockets — twenty, against GitHub's documented hundred.
+ *
+ * The number is latency, not budget: the same 220 repositories cost the same
+ * 220 requests at any width, and this scan is what a person waits through the
+ * first time they open the Plugins tab. Twenty read the live marketplace's 220
+ * repositories in under four seconds on a warm link on 2026-09-06 (and in half
+ * a minute on a bad one — the variance is the network, not the width), with no
+ * secondary rate limit. Nothing wider was tried: the seconds left are not worth
+ * crowding a limit whose penalty lands on the whole app's GitHub use.
+ */
+const LINKED_REPOSITORY_CONCURRENCY = 20
+
+/**
+ * Why a linked repository could not be read, in the three flavours that lead
+ * somewhere different.
+ *
+ * `rate-limited` and `offline` are facts about this minute rather than about
+ * the repository, so either one stops the whole pass — every request after it
+ * would fail the same way — and leaves the plugins it did not reach PENDING, to
+ * be read by the next scan. `unreadable` is a fact about the repository: a
+ * commit that is gone, a repository that went private. That one fails its own
+ * group and the pass carries on.
+ */
+export class LinkedPluginReadError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'rate-limited' | 'offline' | 'unreadable'
+  ) {
+    super(message)
+    this.name = 'LinkedPluginReadError'
+  }
+}
+
+/**
+ * Another repository, read at a commit. One implementation fetches GitHub; the
+ * unit suite's answers from recorded bytes, so the batching, the cache and the
+ * partial states are all tested with no network at all.
+ */
+export type LinkedPluginRepoReader = {
+  /** The commit a ref names, for the rare entry a marketplace did not pin. */
+  resolveCommit: (repo: string, ref: string) => Promise<string>
+  /** The whole tree listing at that commit — the one expensive request. */
+  readTree: (repo: string, sha: string) => Promise<readonly SkillTreeEntry[]>
+  /** One file at that commit; null when it is missing. */
+  readFile: (repo: string, sha: string, path: string) => Promise<string | null>
+}
+
+export type FollowLinkedPluginsInput = {
+  plugins: readonly ScannedPlugin[]
+  reader: LinkedPluginRepoReader
+  /** How many repository trees this pass may fetch. */
+  budget: number
+  /**
+   * The plugins a previous scan of this source left behind. A linked plugin
+   * whose pinned sha has not moved is taken from here and costs no request at
+   * all, which is what makes a re-scan read only what moved.
+   */
+  cached?: readonly ScannedPlugin[]
+  /** The source's marketplace manifest, for the `skills` an entry names itself. */
+  marketplaceManifest?: string | null
+  /** Hosts the allowlist has been widened to, for an honest refusal. */
+  extraHosts?: readonly string[]
+}
+
+export type FollowLinkedPluginsResult = {
+  plugins: ScannedPlugin[]
+  /** Repository trees actually fetched — what this pass spent. */
+  repositoriesRead: number
+  /** Servers the followed plugins declare, for the source's own server list. */
+  mcpServers: ScannedMcpServer[]
+}
+
+/**
+ * Read every linked plugin's own repository, within a budget.
+ *
+ * The order of business, and why each step is where it is:
+ *
+ *  1. A plugin whose host this app cannot read is settled without a request —
+ *     saying so is free, and spending a repository of budget to prove it again
+ *     every scan would be the storm this budget exists to prevent.
+ *  2. A plugin whose pinned sha matches a cached read is taken from the cache.
+ *     Pinned means the bytes cannot have moved, so re-reading them would be a
+ *     request that can only return what is already in hand.
+ *  3. What is left is grouped by `repo@sha` and the groups are ordered: ones
+ *     holding a plugin nobody has read go first, ones only retrying a previous
+ *     failure last. A repository that 404s must never crowd out one that would
+ *     have answered.
+ *  4. Groups past the budget are `pending: 'budget'` — stated, not silent.
+ *  5. The first reply that is about the minute rather than the repository — a
+ *     rate limit, or no network at all — stops the pass. Every request after it
+ *     would fail the same way, and the plugins it would have covered are marked
+ *     `pending` rather than `unreadable`: a limit resets, a connection returns.
+ *
+ * Skill entry documents are deliberately NOT read here. A plugin's components
+ * are its skills, commands, agents, hooks and servers, and the tree listing
+ * proves all of those by name; a description costs one more request per skill
+ * across an unbounded second population, and it arrives when the plugin is
+ * opened and its one repository is read properly (`scanLinkedPlugin`).
+ */
+export async function followLinkedPlugins(
+  input: FollowLinkedPluginsInput
+): Promise<FollowLinkedPluginsResult> {
+  const listedSkills = listedSkillsByPlugin(input.marketplaceManifest ?? null)
+  const cached = new Map<string, ScannedPlugin>()
+  for (const plugin of input.cached ?? []) cached.set(plugin.id, plugin)
+
+  const plugins = [...input.plugins]
+  const groups = new Map<string, { sha: string; ref: string; repo: string; indexes: number[]; retryOnly: boolean }>()
+
+  for (let index = 0; index < plugins.length; index += 1) {
+    const plugin = plugins[index]
+    const origin = plugin.origin
+    if (origin.kind !== 'linked') continue
+
+    const refusal = hostRefusal(origin, input.extraHosts ?? [])
+    if (refusal) {
+      plugins[index] = markLinked(plugin, { status: 'unreadable', message: refusal })
+      continue
+    }
+
+    const hit = cached.get(plugin.id)
+    if (
+      hit
+      && hit.componentsKnown
+      && hit.origin.kind === 'linked'
+      && origin.sha !== ''
+      && hit.origin.sha === origin.sha
+    ) {
+      plugins[index] = { ...plugin, componentsKnown: true, components: hit.components, linkedRead: { status: 'read' } }
+      continue
+    }
+
+    // An entry the marketplace did not pin has no sha to group by, so its ref
+    // is the key: two entries on the same ref still share one resolve and one
+    // tree, and one on another ref is honestly a second repository to read.
+    const key = origin.sha !== '' ? `${origin.repo}@${origin.sha}` : `${origin.repo}#${origin.ref}`
+    const group = groups.get(key)
+    const retry = hit?.linkedRead?.status === 'unreadable'
+    if (group) {
+      group.indexes.push(index)
+      group.retryOnly = group.retryOnly && retry
+    } else {
+      groups.set(key, { sha: origin.sha, ref: origin.ref, repo: origin.repo, indexes: [index], retryOnly: retry })
+    }
+  }
+
+  // Never-read repositories first; ones only retrying a previous failure last.
+  const ordered = [...groups.values()].sort((a, b) => Number(a.retryOnly) - Number(b.retryOnly))
+  const affordable = ordered.slice(0, Math.max(0, input.budget))
+  for (const group of ordered.slice(Math.max(0, input.budget))) {
+    for (const index of group.indexes) {
+      plugins[index] = markLinked(plugins[index], { status: 'pending', reason: 'budget' })
+    }
+  }
+
+  // Set by the first reply that says the problem is the minute, not the
+  // repository; every group after it is marked with the same reason and asks
+  // for nothing.
+  let halted: 'rate-limited' | 'offline' | null = null
+  let repositoriesRead = 0
+  let cursor = 0
+  const workers = Array.from(
+    { length: Math.min(LINKED_REPOSITORY_CONCURRENCY, affordable.length) },
+    async () => {
+      while (cursor < affordable.length) {
+        const group = affordable[cursor]
+        cursor += 1
+        if (halted) {
+          for (const index of group.indexes) {
+            plugins[index] = markLinked(plugins[index], { status: 'pending', reason: halted })
+          }
+          continue
+        }
+        try {
+          const sha = group.sha || (await input.reader.resolveCommit(group.repo, group.ref))
+          const entries = await input.reader.readTree(group.repo, sha)
+          repositoriesRead += 1
+          const tree = scanSkillTree({ entries: [...entries], commitSha: sha })
+          for (const index of group.indexes) {
+            plugins[index] = await readLinkedPlugin({
+              plugin: plugins[index],
+              sha,
+              entries,
+              skills: tree.skills,
+              listedSkills: listedSkills.get(plugins[index].id) ?? [],
+              readFile: (path) => input.reader.readFile(group.repo, sha, path),
+            })
+          }
+        } catch (error) {
+          const kind = error instanceof LinkedPluginReadError ? error.kind : 'unreadable'
+          if (kind !== 'unreadable') halted = kind
+          const state: LinkedPluginReadState =
+            kind === 'unreadable'
+              ? { status: 'unreadable', message: describeLinkedFailure(group, error) }
+              : { status: 'pending', reason: kind }
+          for (const index of group.indexes) plugins[index] = markLinked(plugins[index], state)
+        }
+      }
+    }
+  )
+  await Promise.all(workers)
+
+  const followed = plugins.filter(
+    (plugin) => plugin.origin.kind === 'linked' && plugin.componentsKnown
+  )
+  return {
+    plugins,
+    repositoriesRead,
+    mcpServers: dedupeScannedMcpServers(followed.flatMap((plugin) => plugin.components.mcpServers)),
+  }
+}
+
+/** The budget for one pass: a token is the difference between 20 and 250. */
+export function linkedRepositoryBudget(token: string | undefined): number {
+  return token && token.trim() !== '' ? MAX_LINKED_REPOSITORY_READS : MAX_LINKED_REPOSITORY_READS_ANONYMOUS
+}
+
+async function readLinkedPlugin(options: {
+  plugin: ScannedPlugin
+  sha: string
+  entries: readonly SkillTreeEntry[]
+  skills: readonly ScannedSkill[]
+  listedSkills: readonly string[]
+  readFile: PluginFileReader
+}): Promise<ScannedPlugin> {
+  const plugin = options.plugin
+  const dir = plugin.origin.kind === 'linked' ? plugin.origin.path : ''
+  const read = await readPluginComponents({
+    dir,
+    entries: options.entries,
+    skills: options.skills,
+    readFile: options.readFile,
+    listedSkills: options.listedSkills,
+  })
+  return {
+    ...plugin,
+    // The marketplace entry's words outrank the plugin's own manifest, exactly
+    // as they do for an in-tree plugin: it is the curated listing. The manifest
+    // fills only what the entry left blank.
+    version: plugin.version || read.manifest?.version || '',
+    description: plugin.description || read.manifest?.description || '',
+    author: plugin.author || read.manifest?.author || '',
+    homepage: plugin.homepage || read.manifest?.homepage || '',
+    origin: plugin.origin.kind === 'linked' ? { ...plugin.origin, sha: options.sha } : plugin.origin,
+    componentsKnown: true,
+    linkedRead: { status: 'read' },
+    components: {
+      ...read.components,
+      mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
+    },
+  }
+}
+
+/** A plugin that was not read keeps its empty components and gains the reason. */
+function markLinked(plugin: ScannedPlugin, linkedRead: LinkedPluginReadState): ScannedPlugin {
+  return { ...plugin, componentsKnown: false, components: emptyPluginComponents(), linkedRead }
+}
+
+/**
+ * Why this app will not even try a repository, or null when it will.
+ *
+ * `repo` is '' for anything `githubRepoFromUrl` could not place on github.com,
+ * which is the only host these reads speak: the tree listing is the GitHub API.
+ * The allowlist (src/shared/marketplace/source-policy.ts) is consulted so the
+ * two refusals read differently — a host nobody allowed and a host that is
+ * allowed to serve bundles but cannot serve a git tree are not the same fact,
+ * and a person shown one message for both would go looking for the wrong fix.
+ */
+function hostRefusal(
+  origin: Extract<ScannedPluginOrigin, { kind: 'linked' }>,
+  extraHosts: readonly string[]
+): string | null {
+  if (origin.repo !== '') return null
+  const host = hostnameOf(origin.url)
+  if (host === '') return 'Names no repository this app can read.'
+  return isMarketplaceSourceHostAllowed(host, extraHosts)
+    ? `Hosted on ${host}; plugin repositories are read from github.com only.`
+    : `Hosted on ${host}, which is not on this app's allowlist.`
+}
+
+function hostnameOf(value: string): string {
+  try {
+    return new URL(value).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function describeLinkedFailure(group: { repo: string; sha: string }, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  const at = group.sha === '' ? group.repo : `${group.repo} at ${group.sha.slice(0, 7)}`
+  return `${at} could not be read: ${detail}`
+}
+
+/**
+ * Each entry's own `skills` list, by plugin name. Three of the official
+ * marketplace's linked entries name their skills explicitly instead of
+ * shipping a `skills/` directory, and a follow that ignored the list would
+ * report those three as shipping nothing.
+ */
+function listedSkillsByPlugin(raw: string | null): Map<string, readonly string[]> {
+  const listed = new Map<string, readonly string[]>()
+  const marketplace = parseMarketplaceManifest(raw)
+  for (const entry of marketplace?.plugins ?? []) {
+    if (entry.skills.length > 0) listed.set(entry.name, entry.skills)
+  }
+  return listed
 }
 
 // ── Plans ───────────────────────────────────────────────────────────────────
@@ -462,7 +821,7 @@ async function readMcpServers(
     const parsed = parseJsonObject(await readFile(path))
     if (parsed) servers.push(...parseMcpServers(parsed, path, declaredBy))
   }
-  return dedupeServers(servers)
+  return dedupeScannedMcpServers(servers)
 }
 
 /**
@@ -586,7 +945,12 @@ async function readRootServers(blobs: ReadonlySet<string>, readFile: PluginFileR
   return servers
 }
 
-function dedupeServers(servers: readonly ScannedMcpServer[]): ScannedMcpServer[] {
+/**
+ * One server per `declaredBy` + id. The plugin is part of the key on purpose:
+ * two plugins may each ship a server called `context7`, and collapsing them
+ * would attribute one plugin's server to the other.
+ */
+export function dedupeScannedMcpServers(servers: readonly ScannedMcpServer[]): ScannedMcpServer[] {
   const seen = new Set<string>()
   const out: ScannedMcpServer[] = []
   for (const server of servers) {

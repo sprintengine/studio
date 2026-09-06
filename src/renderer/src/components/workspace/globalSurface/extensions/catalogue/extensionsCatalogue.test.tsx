@@ -76,6 +76,22 @@ const ACME_SOURCE: SkillSource = {
   scannedAt: '',
 }
 
+/**
+ * A marketplace whose plugins live in OTHER repositories, most of them unread.
+ * Its head line is the one that has to admit a partial scan and offer the token
+ * that fixes it (linked-plugins ruling, 2026-09-06).
+ */
+const HUB_SOURCE: SkillSource = {
+  id: 'github:acme/hub',
+  kind: 'github',
+  name: 'hub',
+  repo: 'acme/hub',
+  monogram: 'AH',
+  blurb: 'A marketplace from acme.',
+  commitSha: 'def5678',
+  scannedAt: '',
+}
+
 /** Every source `skillsGetScan` was asked for, in order. */
 const scanCalls: string[] = []
 
@@ -94,6 +110,77 @@ const ACME_SCAN: ScanResult = {
   groupingSignal: 'folders',
   fileCount: 30,
   commitSha: 'abc1234',
+}
+
+/** Three linked plugins: one read, one waiting on budget, one that cannot be read. */
+const HUB_SCAN: ScanResult = {
+  skills: [],
+  groups: [],
+  groupingSignal: 'none',
+  fileCount: 0,
+  commitSha: 'def5678',
+  shape: 'claude-marketplace',
+  marketplaceName: 'acme-hub',
+  mcpServers: [],
+  pluginRenames: {},
+  plugins: [
+    {
+      id: 'read-one',
+      name: 'Read one',
+      description: 'Its repository was read.',
+      version: '1.0.0',
+      category: '',
+      author: 'acme',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'linked', repo: 'acme/one', ref: '', sha: 'a'.repeat(40), path: '', url: 'https://github.com/acme/one' },
+      componentsKnown: true,
+      linkedRead: { status: 'read' },
+      components: {
+        skills: [],
+        commands: ['go'],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
+    },
+    {
+      id: 'waiting',
+      name: 'Waiting',
+      description: 'The budget ran out before it.',
+      version: '',
+      category: '',
+      author: 'acme',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'linked', repo: 'acme/two', ref: '', sha: 'b'.repeat(40), path: '', url: 'https://github.com/acme/two' },
+      componentsKnown: false,
+      linkedRead: { status: 'pending', reason: 'budget' },
+      components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+    },
+    {
+      id: 'elsewhere',
+      name: 'Elsewhere',
+      description: 'Hosted somewhere this app does not read.',
+      version: '',
+      category: '',
+      author: 'acme',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'linked', repo: '', ref: '', sha: '', path: '', url: 'https://gitlab.com/acme/three' },
+      componentsKnown: false,
+      linkedRead: { status: 'unreadable', message: "Hosted on gitlab.com, which is not on this app's allowlist." },
+      components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+    },
+  ],
 }
 
 const api: Record<string, unknown> = {
@@ -178,7 +265,10 @@ const api: Record<string, unknown> = {
       ],
     },
   }),
-  skillsListSources: async () => ({ ok: true, sources: [APP_SOURCE, ACME_SOURCE] }),
+  skillsListSources: async () => ({ ok: true, sources: [APP_SOURCE, ACME_SOURCE, HUB_SOURCE] }),
+  // No token on this machine, which is what makes the head line's shortfall
+  // clause the one that offers to add one.
+  getGitHubTokenStatus: async () => ({ configured: false, source: 'none', encryptionAvailable: true }),
   skillsGetScan: async ({ sourceId }: { sourceId: string }) => (
     scanCalls.push(sourceId),
     sourceId === 'builtin'
@@ -187,7 +277,9 @@ const api: Record<string, unknown> = {
           source: APP_SOURCE,
           scan: { skills: [], groups: [], groupingSignal: 'none', fileCount: 0, commitSha: '' },
         }
-      : { ok: true, source: ACME_SOURCE, scan: ACME_SCAN }
+      : sourceId === HUB_SOURCE.id
+        ? { ok: true, source: HUB_SOURCE, scan: HUB_SCAN }
+        : { ok: true, source: ACME_SOURCE, scan: ACME_SCAN }
   ),
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),
@@ -277,7 +369,7 @@ async function main(): Promise<void> {
   })
 
   await run('Installed leads the tab row, then one tab per source, the app’s catalogue first', () => {
-    assert.deepEqual(tabNames(), ['Installed', 'SprintEngine Studio', 'acme/skills'])
+    assert.deepEqual(tabNames(), ['Installed', 'SprintEngine Studio', 'acme/skills', 'acme/hub'])
     assert.equal(
       container.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.startsWith('SprintEngine Studio'),
       true,
@@ -359,6 +451,63 @@ async function main(): Promise<void> {
 
   await openView('plugins')
 
+  await act(async () => {
+    tabNamed('acme/hub')?.click()
+  })
+  await settle()
+
+  // ── A partial scan says so, and the fix is one click ─────────────────────────
+
+  await run('a marketplace whose linked plugins are not all read says how many are not', () => {
+    assert.ok(text().includes('3 plugins'), 'every linked plugin is listed, read or not')
+    assert.ok(
+      text().includes('1 of 3 linked plugins not yet read'),
+      'and the head line states the shortfall rather than reading as a complete listing',
+    )
+    assert.ok(
+      text().includes('1 of 3 linked plugin could not be read'),
+      'a plugin nothing can read is counted apart from one a later scan will read',
+    )
+  })
+
+  await run('and the words that name the fix are the button that opens it', async () => {
+    const fix = [...container.querySelectorAll('button')].find((button) =>
+      (button.textContent ?? '').includes('add a GitHub token'),
+    ) as HTMLElement | undefined
+    assert.ok(fix, 'Settings is one click away, not a sentence telling somebody to go and find it')
+    await act(async () => {
+      fix.click()
+    })
+    await settle()
+    const state = useWorkspaceStore.getState()
+    assert.equal(state.activeModalSurface, 'settings')
+    assert.equal(state.settingsOverlay.initialTab, 'github')
+    await act(async () => {
+      useWorkspaceStore.getState().closeSettingsOverlay()
+    })
+    await settle()
+  })
+
+  await run('an unread linked plugin is marked as such on its own row', () => {
+    // Not in the summary line: a row shows the description when there is one,
+    // and every linked entry the official marketplace lists has one, so the
+    // state has to be a chip or it is invisible.
+    assert.ok(text().includes('Could not be read'), 'the plugin nothing can read wears it')
+    assert.ok(text().includes('Not read yet'), 'and so does the one a later scan will read')
+    assert.equal(
+      text().includes('Read when opened'),
+      false,
+      'which is what all three said before the scan followed any of them',
+    )
+  })
+
+  await act(async () => {
+    tabNamed('acme/skills')?.click()
+  })
+  await settle()
+
+  await openView('plugins')
+
   // ── The plus menu ───────────────────────────────────────────────────────────
 
   await act(async () => {
@@ -386,7 +535,7 @@ async function main(): Promise<void> {
 
   await run('Skills is the same page, and its tab row is the same tab row', () => {
     assert.equal(title(), 'Skills')
-    assert.deepEqual(tabNames(), ['Installed', 'SprintEngine Studio', 'acme/skills'])
+    assert.deepEqual(tabNames(), ['Installed', 'SprintEngine Studio', 'acme/skills', 'acme/hub'])
     assert.ok(container.querySelector('button[aria-label="Add source"]'), 'the plus is here too')
   })
 

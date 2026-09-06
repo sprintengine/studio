@@ -10,17 +10,26 @@ import { join } from 'node:path'
 import {
   describePluginComponents,
   findScannedPlugin,
+  describeUnreadPlugin,
+  linkedPluginShortfallLine,
   pluginAliases,
   scanPluginRenames,
   scanPlugins,
   scanShape,
+  summariseLinkedPlugins,
   type ScanResult,
+  type ScannedPlugin,
 } from '../../shared/skills'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
 import {
   CLAUDE_MARKETPLACE_MANIFEST_PATH,
   CLAUDE_PLUGIN_MANIFEST_PATH,
+  followLinkedPlugins,
   githubRepoFromUrl,
+  linkedRepositoryBudget,
+  LinkedPluginReadError,
+  MAX_LINKED_REPOSITORY_READS,
+  MAX_LINKED_REPOSITORY_READS_ANONYMOUS,
   MAX_SCANNED_PLUGINS,
   parseHooks,
   parseLspServers,
@@ -29,6 +38,7 @@ import {
   parseMcpServers,
   readPluginComponents,
   scanPluginTree,
+  type LinkedPluginRepoReader,
 } from './scan-plugins'
 
 const FIXTURES = join(process.cwd(), 'src', 'main', 'skills', '__fixtures__')
@@ -514,11 +524,450 @@ function parsers(): void {
   assert.equal(githubRepoFromUrl('not a url'), '')
 }
 
+// ── Following linked plugins ────────────────────────────────────────────────
+//
+// Recorded against three of the marketplace's real linked repositories at the
+// commits it pins: carta/plugins (three of its plugins in three subdirectories,
+// which is what proves one tree listing answers for all three),
+// 42Crunch-AI/claude-plugins (one subdirectory) and
+// SalesforceAIResearch/agentforce-adlc (the whole repository as one plugin).
+
+type RecordedRepos = {
+  repos: Record<string, { repo: string; commitSha: string; tree: SkillTreeEntry[]; files: Record<string, string> }>
+}
+
+const LINKED_REPOS = JSON.parse(
+  readFileSync(join(FIXTURES, 'linked-plugin-repos.json'), 'utf8')
+) as RecordedRepos
+
+/** The four plugins the fixture repositories back, and one it deliberately does not. */
+const RECORDED_PLUGINS = [
+  '42crunch-api-security-testing',
+  'agentforce-adlc',
+  'carta-cap-table',
+  'carta-crm',
+  'carta-investors',
+]
+const UNRECORDED_PLUGIN = 'convex'
+const CONVEX_REPO = 'get-convex/convex-backend-skill@6ca54f6e2e7582812187b8a5a4783fb4dff52692'
+
+/**
+ * A reader over the recorded repositories that counts every call, so a test can
+ * assert what a pass SPENT rather than only what it produced. A repository the
+ * fixture does not hold fails the way GitHub fails for a commit that is gone.
+ */
+type CountingReader = LinkedPluginRepoReader & { trees: string[]; commits: string[] }
+
+function recordedReader(
+  options: { rateLimitOn?: string; offlineOn?: string; resolvesTo?: Record<string, string> } = {},
+): CountingReader {
+  const trees: string[] = []
+  const commits: string[] = []
+  return {
+    trees,
+    commits,
+    // A marketplace that pinned no commit: the ref is resolved once for the
+    // whole group, and that resolved commit is what the cache is keyed by.
+    resolveCommit: async (repo, ref) => {
+      commits.push(`${repo}#${ref}`)
+      const resolved = options.resolvesTo?.[repo]
+      if (resolved === undefined) throw new LinkedPluginReadError(`No commit could be resolved for ${repo}.`, 'unreadable')
+      return resolved
+    },
+    readTree: async (repo, sha) => {
+      trees.push(`${repo}@${sha}`)
+      // Matched as a prefix, because neither a rate limit nor a dead network is
+      // aimed at one repository: it is the minute, and every request in it
+      // fails alike.
+      if (options.offlineOn !== undefined && repo.startsWith(options.offlineOn)) {
+        throw new LinkedPluginReadError('Could not reach GitHub. fetch failed', 'offline')
+      }
+      if (options.rateLimitOn !== undefined && repo.startsWith(options.rateLimitOn)) {
+        throw new LinkedPluginReadError(
+          'GitHub rate-limited this request. Adding a GitHub token in Settings raises the limit.',
+          'rate-limited',
+        )
+      }
+      const found = LINKED_REPOS.repos[`${repo}@${sha}`]
+      if (!found) throw new LinkedPluginReadError('That repository could not be found, or it is not public.', 'unreadable')
+      return found.tree
+    },
+    readFile: async (repo, sha, path) => LINKED_REPOS.repos[`${repo}@${sha}`]?.files[path] ?? null,
+  }
+}
+
+function unreadableMessage(plugin: ScannedPlugin): string {
+  const state = plugin.linkedRead
+  assert.equal(state?.status, 'unreadable', `${plugin.id} was expected to be unreadable`)
+  return state?.status === 'unreadable' ? state.message : ''
+}
+
+async function linkedPluginsFollowed(): Promise<void> {
+  const scan = await scanOfficial()
+  const marketplaceManifest = manifest('claude-plugins-official')
+  const all = scanPlugins(scan)
+  // The four the fixture backs, one linked plugin whose repository it does not
+  // hold, and one in-tree plugin that must come through untouched.
+  const subject = [
+    ...all.filter((plugin) => RECORDED_PLUGINS.includes(plugin.id)),
+    all.find((plugin) => plugin.id === UNRECORDED_PLUGIN)!,
+    all.find((plugin) => plugin.id === 'security-guidance')!,
+  ]
+  assert.equal(subject.length, 7)
+  assert.ok(subject.every((plugin) => plugin !== undefined))
+
+  const reader = recordedReader()
+  const first = await followLinkedPlugins({
+    plugins: subject,
+    reader,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+  })
+
+  // Batching: six linked plugins over four distinct repositories, and the
+  // three carta plugins cost ONE tree listing between them.
+  assert.equal(reader.trees.length, 4)
+  assert.equal(reader.trees.filter((key) => key.startsWith('carta/plugins@')).length, 1)
+  assert.equal(first.repositoriesRead, 3, 'the fourth repository is not in the fixture and failed')
+  assert.equal(reader.commits.length, 0, 'every entry is pinned, so no ref is resolved')
+
+  const byId = new Map(first.plugins.map((plugin) => [plugin.id, plugin]))
+  const capTable = byId.get('carta-cap-table')!
+  assert.equal(capTable.componentsKnown, true)
+  assert.deepEqual(capTable.linkedRead, { status: 'read' })
+  assert.ok(capTable.components.skills.length > 0)
+  assert.ok(capTable.components.hooks.length > 0, 'its hooks/hooks.json was read from ITS repository')
+  assert.ok(
+    capTable.components.skills.every((skill) => skill.id.startsWith('plugins/carta-cap-table/skills/')),
+    'and it took only the skills under its own directory, not its two neighbours',
+  )
+  const crm = byId.get('carta-crm')!
+  assert.equal(crm.componentsKnown, true)
+  assert.ok(crm.components.skills.length > 0)
+  assert.ok(crm.components.skills.every((skill) => skill.id.startsWith('plugins/carta-crm/skills/')))
+
+  // The marketplace entry's words still outrank the plugin manifest's, exactly
+  // as they do for an in-tree plugin.
+  // A `url` entry is the whole repository: the plugin's directory is its root.
+  const adlc = byId.get('agentforce-adlc')!
+  assert.equal(adlc.componentsKnown, true)
+  assert.equal(adlc.components.skills.length, 3)
+  assert.equal(adlc.components.agents.length, 4)
+
+  const crunch = byId.get('42crunch-api-security-testing')!
+  assert.equal(crunch.author, '42Crunch')
+  assert.equal(crunch.components.skills.length, 5)
+  assert.ok(
+    describePluginComponents(crunch).startsWith('5 skills'),
+    'and the row says what it ships instead of "Read when opened"',
+  )
+
+  // The repository the fixture does not hold is LISTED, saying why.
+  const convex = byId.get(UNRECORDED_PLUGIN)!
+  assert.equal(convex.componentsKnown, false)
+  assert.match(unreadableMessage(convex), /could not be found/, 'the reason GitHub gave, not a shrug')
+  assert.equal(describePluginComponents(convex), unreadableMessage(convex))
+
+  // The in-tree plugin is untouched, components and all.
+  const guidance = byId.get('security-guidance')!
+  assert.equal(guidance.linkedRead, undefined)
+  assert.ok(guidance.components.hooks.length >= 3)
+
+  // The servers the followed plugins declare come back for the source's list,
+  // each attributed to the plugin that declared it.
+  assert.ok(first.mcpServers.every((server) => server.declaredBy !== ''))
+
+  // ── The cache: an unchanged pinned sha costs no request at all ────────────
+  const reread = recordedReader()
+  const cachedRun = await followLinkedPlugins({
+    plugins: subject,
+    reader: reread,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+    cached: first.plugins,
+  })
+  assert.deepEqual(reread.trees, [CONVEX_REPO], 'only the repository that never answered is asked again')
+  assert.equal(cachedRun.repositoriesRead, 0)
+  assert.equal(
+    cachedRun.plugins.find((plugin) => plugin.id === 'carta-crm')?.components.skills.length,
+    crm.components.skills.length,
+    'and a cached plugin keeps the components the earlier read gave it',
+  )
+
+  // A sha that MOVED is read again: the cache is keyed by the pinned commit.
+  const moved = subject.map((plugin) =>
+    plugin.id === 'carta-crm' && plugin.origin.kind === 'linked'
+      ? { ...plugin, origin: { ...plugin.origin, sha: 'f'.repeat(40) } }
+      : plugin,
+  )
+  const movedReader = recordedReader()
+  await followLinkedPlugins({
+    plugins: moved,
+    reader: movedReader,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+    cached: first.plugins,
+  })
+  assert.ok(
+    movedReader.trees.includes(`carta/plugins@${'f'.repeat(40)}`),
+    'the moved plugin is re-read at its new commit',
+  )
+  assert.ok(
+    !movedReader.trees.includes('carta/plugins@cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4'),
+    'and its two neighbours, still pinned where they were, are not',
+  )
+}
+
+async function linkedPluginsPartial(): Promise<void> {
+  const scan = await scanOfficial()
+  const marketplaceManifest = manifest('claude-plugins-official')
+  const all = scanPlugins(scan)
+
+  // No budget at all: nothing is fetched, nothing is invented, and the head
+  // line states the whole shortfall along with the setting that fixes it.
+  const none = recordedReader()
+  const unread = await followLinkedPlugins({ plugins: all, reader: none, budget: 0, marketplaceManifest })
+  assert.equal(none.trees.length, 0)
+  const summary = summariseLinkedPlugins({ plugins: unread.plugins })
+  assert.deepEqual(summary, { total: 238, read: 0, pending: 238, unreadable: 0 })
+  assert.equal(
+    linkedPluginShortfallLine(summary, false),
+    '238 of 238 linked plugins not yet read — add a GitHub token',
+  )
+  assert.equal(
+    linkedPluginShortfallLine(summary, true),
+    '238 of 238 linked plugins not yet read — Sync to read the rest',
+    'with a token already in hand the honest next step is Sync, not a setting that is set',
+  )
+  assert.equal(
+    describePluginComponents(unread.plugins.find((plugin) => plugin.id === UNRECORDED_PLUGIN)!),
+    'Not read yet — read when opened',
+  )
+  assert.equal(linkedPluginShortfallLine({ total: 0, read: 0, pending: 0, unreadable: 0 }, false), null)
+  assert.equal(
+    linkedPluginShortfallLine({ total: 238, read: 238, pending: 0, unreadable: 0 }, false),
+    null,
+    'a source that read them all says nothing extra: the counts already stand',
+  )
+
+  // A partial budget: as many as it allows, the rest stated as pending.
+  const partialReader = recordedReader()
+  const subject = all.filter((plugin) => RECORDED_PLUGINS.includes(plugin.id))
+  const partial = await followLinkedPlugins({
+    plugins: subject,
+    reader: partialReader,
+    budget: 1,
+    marketplaceManifest,
+  })
+  assert.equal(partialReader.trees.length, 1, 'the budget is spent on repositories, not on plugins')
+  const partialSummary = summariseLinkedPlugins({ plugins: partial.plugins })
+  assert.equal(partialSummary.total, 5)
+  assert.ok(partialSummary.read > 0 && partialSummary.pending > 0)
+  assert.equal(partialSummary.read + partialSummary.pending, 5)
+  for (const plugin of partial.plugins) {
+    if (plugin.componentsKnown) continue
+    assert.deepEqual(plugin.linkedRead, { status: 'pending', reason: 'budget' })
+  }
+
+  // A repository that failed last time never crowds out one nobody has read.
+  const failedBefore = subject.map((plugin) =>
+    plugin.id === '42crunch-api-security-testing'
+      ? { ...plugin, linkedRead: { status: 'unreadable' as const, message: 'gone' } }
+      : plugin,
+  )
+  const orderReader = recordedReader()
+  await followLinkedPlugins({
+    plugins: subject,
+    reader: orderReader,
+    budget: 1,
+    marketplaceManifest,
+    cached: failedBefore,
+  })
+  assert.ok(
+    !orderReader.trees.some((key) => key.startsWith('42Crunch-AI/')),
+    'the retry waits; the budget goes to a repository that has never answered',
+  )
+
+  // The rate limit stops the pass rather than spending the rest of the hour on
+  // requests that would all fail the same way — and says so, because it resets.
+  const limited = recordedReader({ rateLimitOn: 'carta/plugins' })
+  const capped = await followLinkedPlugins({
+    plugins: subject,
+    reader: limited,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+  })
+  const carta = capped.plugins.find((plugin) => plugin.id === 'carta-crm')!
+  assert.deepEqual(
+    carta.linkedRead,
+    { status: 'pending', reason: 'rate-limited' },
+    'pending, not unreadable: the limit resets and the next scan will read it',
+  )
+  assert.equal(describePluginComponents(carta), 'Not read — GitHub rate limit reached')
+  assert.equal(
+    capped.plugins.find((plugin) => plugin.id === 'agentforce-adlc')?.componentsKnown,
+    true,
+    'and a repository that answered before the limit keeps what it said',
+  )
+
+  // …and with more repositories than the pass runs at once, the ones it has not
+  // started are never asked for: an hour of requests that would all fail the
+  // same way is the storm the budget and this stop exist to prevent.
+  const crowd = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: Array.from({ length: 60 }, (_, index) => ({
+        name: `linked-${index}`,
+        source: { source: 'github', repo: `owner/repo-${index}`, sha: String(index).padStart(40, '0') },
+      })),
+    }),
+    readFile: async () => null,
+  })
+  const flooded = recordedReader({ rateLimitOn: 'owner/' })
+  const stopped = await followLinkedPlugins({
+    plugins: crowd.plugins,
+    reader: flooded,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest: null,
+  })
+  assert.equal(crowd.plugins.length, 60)
+  assert.ok(flooded.trees.length < 60, `the pass stopped after ${flooded.trees.length} of 60 repositories`)
+  assert.equal(stopped.repositoriesRead, 0)
+  assert.ok(
+    stopped.plugins.every((plugin) => plugin.linkedRead?.status === 'pending'),
+    'every plugin it did not reach is pending, none of them unreadable',
+  )
+  assert.equal(
+    summariseLinkedPlugins({ plugins: stopped.plugins }).pending,
+    60,
+    'and the head line counts all sixty as not yet read',
+  )
+
+  // A host this app cannot read costs no request at all and names the host.
+  const offSite = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: [{ name: 'off-site', source: { source: 'git', url: 'https://gitlab.com/o/r.git' } }],
+    }),
+    readFile: async () => null,
+  })
+  const refusedReader = recordedReader()
+  const refused = await followLinkedPlugins({
+    plugins: offSite.plugins,
+    reader: refusedReader,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest: null,
+  })
+  assert.equal(refusedReader.trees.length, 0)
+  assert.equal(unreadableMessage(refused.plugins[0]), "Hosted on gitlab.com, which is not on this app's allowlist.")
+  assert.deepEqual(summariseLinkedPlugins({ plugins: refused.plugins }), {
+    total: 1,
+    read: 0,
+    pending: 0,
+    unreadable: 1,
+  })
+  assert.equal(
+    linkedPluginShortfallLine({ total: 1, read: 0, pending: 0, unreadable: 1 }, true),
+    '1 of 1 linked plugin could not be read',
+  )
+
+  // …and a budget that fits every repository still reads them all, which is
+  // what "a full scan with a token" means: 250 stands clear of the 220 distinct
+  // pinned repositories the official marketplace resolves to today.
+  assert.equal(linkedRepositoryBudget('ghp_x'), MAX_LINKED_REPOSITORY_READS)
+  assert.equal(linkedRepositoryBudget(''), MAX_LINKED_REPOSITORY_READS_ANONYMOUS)
+  assert.equal(linkedRepositoryBudget(undefined), MAX_LINKED_REPOSITORY_READS_ANONYMOUS)
+  assert.equal(distinctPinnedRepositories(all), 220)
+  assert.ok(MAX_LINKED_REPOSITORY_READS > distinctPinnedRepositories(all))
+
+  // A dead network is not a dead repository. It stops the pass the way the rate
+  // limit does and leaves everything pending, because both come back — telling
+  // somebody on a train that 238 repositories could not be read would be a
+  // permanent-sounding verdict on a temporary fact.
+  const offline = recordedReader({ offlineOn: 'owner/' })
+  const dark = await followLinkedPlugins({
+    plugins: crowd.plugins,
+    reader: offline,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest: null,
+  })
+  assert.ok(offline.trees.length < 60, 'it stops rather than firing sixty requests at nothing')
+  assert.deepEqual(summariseLinkedPlugins({ plugins: dark.plugins }), {
+    total: 60,
+    read: 0,
+    pending: 60,
+    unreadable: 0,
+  })
+  assert.deepEqual(dark.plugins[59].linkedRead, { status: 'pending', reason: 'offline' })
+  assert.equal(describePluginComponents(dark.plugins[59]), 'Not read — GitHub could not be reached')
+  assert.match(describeUnreadPlugin(dark.plugins[59]), /Sync when the connection is back/)
+
+  // An entry the marketplace did NOT pin: its ref is resolved once for the
+  // group, and the commit that comes back is what the plugin ends up pinned to.
+  const unpinned = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: [
+        { name: 'floating-a', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-crm' } },
+        { name: 'floating-b', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-investors' } },
+      ],
+    }),
+    readFile: async () => null,
+  })
+  const resolving = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
+  const floated = await followLinkedPlugins({
+    plugins: unpinned.plugins,
+    reader: resolving,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest: null,
+  })
+  assert.deepEqual(resolving.commits, ['carta/plugins#main'], 'one resolve for the group, not one per plugin')
+  assert.equal(resolving.trees.length, 1, 'and one tree after it')
+  assert.equal(floated.repositoriesRead, 1)
+  assert.ok(floated.plugins.every((plugin) => plugin.componentsKnown))
+  assert.equal(
+    floated.plugins[0].origin.kind === 'linked' ? floated.plugins[0].origin.sha : '',
+    'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4',
+    'the plugin now pins the commit the ref resolved to, so the cache can key on it',
+  )
+
+  // …and with that commit written back, a re-scan of the unpinned entries costs
+  // nothing: resumability does not depend on the marketplace having pinned.
+  const settled = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
+  await followLinkedPlugins({
+    plugins: floated.plugins,
+    reader: settled,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest: null,
+    cached: floated.plugins,
+  })
+  assert.deepEqual(settled.trees, [])
+  assert.deepEqual(settled.commits, [])
+}
+
+/** How many tree listings a full follow of this marketplace would cost. */
+function distinctPinnedRepositories(plugins: readonly ScannedPlugin[]): number {
+  const keys = new Set<string>()
+  for (const plugin of plugins) {
+    if (plugin.origin.kind !== 'linked' || plugin.origin.repo === '') continue
+    keys.add(`${plugin.origin.repo}@${plugin.origin.sha}`)
+  }
+  return keys.size
+}
+
 async function main(): Promise<void> {
   await officialMarketplace()
   cachedScansPredatingTheseFields()
   await renamesOfNamesStillListed()
   await readBudget()
+  await linkedPluginsFollowed()
+  await linkedPluginsPartial()
   await linkedPluginRead()
   await skillsOnlyRepositories()
   await rootServers()

@@ -281,11 +281,13 @@ export type LinkedPluginReadState =
   /** Its repository was listed at the pinned commit and its components are real. */
   | { status: 'read' }
   /**
-   * Nothing was fetched for it: this pass's budget ran out, or GitHub's rate
-   * limit did. The next scan resumes where this one stopped, because every
-   * plugin already read is cached against its pinned sha and costs nothing.
+   * Nothing was fetched for it, for a reason that is about this moment rather
+   * than about the plugin: the pass's budget ran out, GitHub's rate limit did,
+   * or the network was not there. The next scan resumes where this one
+   * stopped, because every plugin already read is cached against its pinned
+   * sha and costs nothing.
    */
-  | { status: 'pending'; reason: 'budget' | 'rate-limited' }
+  | { status: 'pending'; reason: 'budget' | 'rate-limited' | 'offline' }
   /** Reading it was refused or failed in a way a retry will not change. */
   | { status: 'unreadable'; message: string }
 
@@ -324,20 +326,39 @@ export function linkedPluginShortfallLine(
   summary: LinkedPluginSummary,
   tokenConfigured: boolean
 ): string | null {
-  const parts: string[] = []
+  const parts = linkedPluginShortfall(summary, tokenConfigured)
+  return parts.length > 0 ? parts.map((part) => part.text).join('; ') : null
+}
+
+/**
+ * The same sentence, in the pieces a surface can act on: the clause that ends
+ * in "add a GitHub token" carries `action`, so the head line can make those
+ * words the button that opens the setting rather than telling a person to go
+ * and find it. The clause about plugins that could not be read carries none —
+ * there is no setting that fixes a repository that is gone.
+ */
+export type LinkedPluginShortfallPart = { text: string; action: 'github-settings' | null }
+
+export function linkedPluginShortfall(
+  summary: LinkedPluginSummary,
+  tokenConfigured: boolean
+): LinkedPluginShortfallPart[] {
+  const parts: LinkedPluginShortfallPart[] = []
   if (summary.pending > 0) {
-    parts.push(
-      `${summary.pending} of ${summary.total} linked plugins not yet read — ${
+    parts.push({
+      text: `${summary.pending} of ${summary.total} linked plugins not yet read — ${
         tokenConfigured ? 'Sync to read the rest' : 'add a GitHub token'
-      }`
-    )
+      }`,
+      action: tokenConfigured ? null : 'github-settings',
+    })
   }
   if (summary.unreadable > 0) {
-    parts.push(
-      `${summary.unreadable} of ${summary.total} linked ${summary.unreadable === 1 ? 'plugin' : 'plugins'} could not be read`
-    )
+    parts.push({
+      text: `${summary.unreadable} of ${summary.total} linked ${summary.unreadable === 1 ? 'plugin' : 'plugins'} could not be read`,
+      action: null,
+    })
   }
-  return parts.length > 0 ? parts.join('; ') : null
+  return parts
 }
 
 /**
@@ -474,6 +495,51 @@ export function unreadPluginReason(
 }
 
 /**
+ * The two or three words a ROW wears when a plugin has not been read: short
+ * enough to sit beside "Plugin" as a chip, and present at all only because a
+ * row shows a plugin's description when it has one, which every one of the
+ * official marketplace's 238 linked entries does. Without the chip a plugin
+ * nothing could read looked exactly like one that was read (linked-plugins
+ * ruling, 2026-09-06).
+ */
+export function unreadPluginChip(plugin: ScannedPlugin): string | null {
+  if (plugin.componentsKnown) return null
+  if (unreadPluginReason(plugin) !== 'unopened') return 'Not scanned'
+  const state = plugin.linkedRead
+  if (state?.status === 'unreadable') return 'Could not be read'
+  if (state?.status === 'pending' && state.reason === 'rate-limited') return 'Rate limited'
+  if (state?.status === 'pending' && state.reason === 'offline') return 'GitHub unreachable'
+  return 'Not read yet'
+}
+
+/**
+ * The pane's fuller answer to "why is nothing listed here": the row's few words
+ * plus what to do about them.
+ *
+ * The three cases are three different next steps, which is exactly why they are
+ * three sentences rather than one (linked-plugins ruling, 2026-09-06). Opening
+ * the plugin reads it. Waiting for the rate limit to reset and syncing reads
+ * it. Nothing reads a repository this app will not fetch from, and saying
+ * "not read yet" there would send a person to press a button that cannot work.
+ */
+export function describeUnreadPlugin(plugin: ScannedPlugin): string {
+  if (unreadPluginReason(plugin) !== 'unopened') {
+    return 'This source lists more plugins than one scan reads, and this one was past the limit. Its components are unknown, and opening it reads nothing — Sync the source when it has fewer.'
+  }
+  const state = plugin.linkedRead
+  if (state?.status === 'unreadable') {
+    return `${state.message} Its components cannot be listed from here.`
+  }
+  if (state?.status === 'pending' && state.reason === 'rate-limited') {
+    return 'GitHub rate-limited the scan before this plugin was read. Open it to read it now, or Sync once the limit resets.'
+  }
+  if (state?.status === 'pending' && state.reason === 'offline') {
+    return 'GitHub could not be reached while the scan was reading this plugin. Sync when the connection is back.'
+  }
+  return 'Not read yet. Its components are unknown until its repository is read.'
+}
+
+/**
  * The words a row uses for what a plugin ships: "4 skills · 2 commands · 1 MCP".
  *
  * An unread linked plugin says WHY it is unread rather than the flat "Read when
@@ -488,9 +554,9 @@ export function describePluginComponents(plugin: ScannedPlugin): string {
     const state = plugin.linkedRead
     if (!state || state.status === 'read') return 'Read when opened'
     if (state.status === 'unreadable') return state.message
-    return state.reason === 'rate-limited'
-      ? 'Not read — GitHub rate limit reached'
-      : 'Not read yet — read when opened'
+    if (state.reason === 'rate-limited') return 'Not read — GitHub rate limit reached'
+    if (state.reason === 'offline') return 'Not read — GitHub could not be reached'
+    return 'Not read yet — read when opened'
   }
   const c = plugin.components
   const parts: string[] = []
