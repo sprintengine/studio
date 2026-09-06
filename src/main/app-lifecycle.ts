@@ -15,6 +15,7 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import type { MulticodeUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
+import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readCliVersionAdvisories } from './cli-version-advisory-service'
 
 type RegisterAppLifecycleOptions = {
@@ -204,21 +205,38 @@ export function registerAppLifecycle({
       },
     }).finally(() => markStartup('main.discovery-settled'))
 
-    // What the studio pulls on its own after boot: the hosted model feed and
-    // the CLI version advisories 15 s after the window is up and then hourly,
-    // app updates every four minutes. The boot leg above
-    // keeps the one immediate update check; the poller's first update check
-    // waits a full interval so it is not repeated. Skipped while offline.
+    // What the studio pulls on its own after boot: the hosted model feed, the
+    // hosted card feed and the CLI version advisories 15 s after the window is
+    // up and then hourly, app updates every four minutes — often enough that a
+    // session left open all day still learns about a same-day release.
+    // The boot leg above keeps the one immediate update check; the poller's
+    // first update check waits a full interval so it is not repeated. Skipped
+    // while offline.
     hostedFeedPoller = createHostedFeedPoller({
       checkUpdates: async () => {
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      // The plugin-source update check rides the feed leg: same hour, same
-      // jitter, one fewer timer (backlog/2026-09-05-plugin-sources.md).
+      // Three riders on one hour. The plugin-source update check rides the feed
+      // leg for the cadence it wants and one fewer timer
+      // (backlog/2026-09-05-plugin-sources.md), and the card feed rides it for
+      // the same reason — this is the ONLY thing in the app that ever fetches
+      // the card feed, and without it a shipped machine serves the bundled seed
+      // until the next release, which is the whole point of hosting the file.
+      //
+      // The tick is a heartbeat and not a schedule: both clients own their own
+      // TTL and retry gap, so an hourly knock on a feed fetched forty minutes
+      // ago costs nothing and an offline machine is not made to pay a timeout.
+      //
+      // Each rider is awaited on its own so one feed that cannot be read does
+      // not take the others' hour with it; the first failure is rethrown so the
+      // poller still reports the leg as failed.
       refreshFeed: async () => {
-        await readHostedModelFeed()
+        const failures: unknown[] = []
+        await readHostedModelFeed().catch((error) => void failures.push(error))
+        await readHostedCardFeed().catch((error) => void failures.push(error))
         await checkPluginSourceUpdates?.().catch(() => undefined)
+        if (failures.length > 0) throw failures[0]
       },
       refreshVersions: () => readCliVersionAdvisories(),
       isOnline: () => net.isOnline(),

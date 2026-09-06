@@ -775,6 +775,10 @@ export type HostedCardFeedReadResult =
       // Fires `hosted-card-feed:changed`; the renderer decides what to do.
       changed: boolean
       feed: HostedCardFeed
+      // Rows the schema gate refused inside an otherwise good body, and what
+      // was wrong with each. Reported, never fatal — and reported for a cached
+      // or seeded copy too, because a build that cannot read a card the feed
+      // carries should say so wherever it read it from.
       dropped?: number
       dropReasons?: string[]
       message?: string

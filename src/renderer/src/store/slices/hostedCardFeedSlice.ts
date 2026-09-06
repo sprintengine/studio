@@ -13,6 +13,11 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 // blanking a page of cards because GitHub was slow is exactly that apology.
 export interface HostedCardFeedSliceState {
   cards: HostedCard[]
+  // `'error'` does not mean "nothing to draw". It means the last READ failed,
+  // and `cards` still holds the last good feed — so a consumer writing
+  // `status === 'error' ? <Empty/> : <Cards/>` blanks a full page the first
+  // time the machine is offline, which is the apology R6 forbids. Draw the
+  // cards; `cards.length` is what says whether there is a page.
   cardFeedStatus: 'idle' | 'loading' | 'ready' | 'error'
   // Why the last read failed, kept for diagnostics. The home page reads the
   // cards, not this.

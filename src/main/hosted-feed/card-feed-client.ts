@@ -29,7 +29,7 @@
 //   - the result says where the copy came from and what it lost on the way, so
 //     nothing downstream has to guess whether it is looking at the network, the
 //     cache or the installer, or why a card it expected is not there.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult } from '../../shared/electron-api'
@@ -131,6 +131,10 @@ type SeedCopy = {
   dropReasons: string[]
 }
 
+// Distinguishes one write's temp file from another's within a process; the pid
+// distinguishes it across processes.
+let cacheWriteSeq = 0
+
 export class HostedCardFeedClient {
   private readonly feedUrl: string
   private readonly cachePath: string
@@ -166,6 +170,27 @@ export class HostedCardFeedClient {
   // home page draws on this one, and a page that opens on a spinner because
   // something else was talking to GitHub is the failure this input exists to
   // prevent.
+  //
+  // The escape has a price, and it is written down here because it only became
+  // reachable when something started fetching (the poller, item 2466): a
+  // `cachedOnly` read and a fetching read can now be inside the cache file at
+  // the same moment.
+  //
+  //   - The WRITE is safe. `writeCache` renames a finished file into place, so
+  //     a `:get` that lands mid-`:refresh` reads one whole copy or the other.
+  //     It could not read a truncated one, discard it, and quietly serve the
+  //     bundled seed reporting `source: 'seed'` — which is what a plain
+  //     truncate-then-write would have let it do, on a machine that had a
+  //     perfectly good cached feed.
+  //   - The ORDER is not. If a `:get` adopts a leading seed (see `readLocal`)
+  //     while a `:refresh` is in flight, the refresh's 304 branch writes back
+  //     the body and ETag it read BEFORE the adoption — undoing it, and
+  //     stamping `fetchedAt` with now, so the TTL holds the un-adopted copy for
+  //     an hour. Nothing is lost permanently: the read after that hour adopts
+  //     the seed again. But a card a release meant to correct or retire can be
+  //     an hour late on a machine that opened the home page at the wrong
+  //     second. Closing it means the 304 branch re-reading the cache before it
+  //     writes, which is surgery on the fetch path and not on this one.
   read(input: HostedCardFeedReadInput = {}): Promise<HostedCardFeedReadResult> {
     if (input.cachedOnly === true) return this.readLocalOnly()
     if (this.inFlight) return this.inFlight
@@ -400,9 +425,25 @@ export class HostedCardFeedClient {
     }
   }
 
+  // Written beside the cache and renamed into place, never written over it. A
+  // `cachedOnly` read deliberately does not join the in-flight guard (see
+  // `read`), so it can arrive in the middle of this one; `writeFile` truncates
+  // before it writes, and a reader that caught the file empty would fail
+  // `JSON.parse`, fall back to the bundled seed and report `source: 'seed'`
+  // with nothing anywhere saying the cache was fine a millisecond earlier. The
+  // temp name carries the pid and a counter so two processes sharing a userData
+  // directory cannot rename each other's unfinished file into place.
   private async writeCache(cache: CacheFile): Promise<void> {
     await mkdir(dirname(this.cachePath), { recursive: true })
-    await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+    const temp = `${this.cachePath}.${process.pid}.${(cacheWriteSeq += 1)}.tmp`
+    try {
+      await writeFile(temp, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+      await rename(temp, this.cachePath)
+    } catch (error) {
+      // A rename that did not happen leaves a file nobody will ever read.
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 
   private async readSeed(): Promise<SeedCopy | null> {
