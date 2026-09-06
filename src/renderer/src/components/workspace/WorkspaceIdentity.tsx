@@ -17,7 +17,10 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
 import { gitBadgeMode, useGitLineCounts } from '../../hooks/useGitLineCounts'
 import { useGitStatus } from '../../hooks/useGitStatus'
-import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
+import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { followedCheckoutOf } from './followedCheckout'
+import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
+import CliIcon from '../CliIcon'
 import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, isStarred } from '../../utils/highlight'
 import type {
@@ -343,8 +346,18 @@ export function WorkspaceIdentity({
   // worktree first and probe its `gitRoot`; regular workspaces have no worktree and
   // fall back to `folderPath` unchanged. The folder-path segment still opens the
   // file explorer rooted at `folderPath` — only the git probes move to the worktree.
-  const worktree = activeWorkspace ? resolveWorkspaceWorktree(activeWorkspace) : null
-  const gitProbePath = worktree?.gitRoot ?? activeWorkspace?.folderPath ?? null
+  //
+  // And since sidebar-lists-every-terminal, the chip follows the FOCUSED
+  // AGENT: an agent that moved into a worktree of its own is what the chip
+  // describes while its tab is the one selected — with no tab focused, the
+  // last one that was. Only a workspace that never focused an agent shows its
+  // own checkout. `followedCheckoutOf` is that rule, shared with the lines.
+  const terminalSessions = useTerminalSessions()
+  const focusedAgentId = useWorkspaceStore((state) =>
+    activeWorkspaceId ? state.focusedAgentByWorkspaceId[activeWorkspaceId] : undefined
+  )
+  const followed = activeWorkspace ? followedCheckoutOf(activeWorkspace, focusedAgentId, terminalSessions) : null
+  const gitProbePath = followed?.probePath ?? null
   const gitBranch = useGitBranch(gitProbePath)
   const {
     status: gitFileStatus,
@@ -355,8 +368,12 @@ export function WorkspaceIdentity({
   // is a second read — the same `getGitRowSummary` the sidebar row uses, keyed
   // off the status snapshot so it moves when the tree does.
   const gitLineCounts = useGitLineCounts(gitRepoRoot, gitFileStatus)
-  const branchIsRepo = worktree ? true : gitBranch.isRepo
-  const branchName = worktree ? worktree.branch ?? null : gitBranch.branch
+  const branchIsRepo = followed?.isRepo ?? gitBranch.isRepo
+  const branchName = followed?.branch ?? gitBranch.branch
+  // Who the chip is following, for its mark and its words; null means the
+  // workspace's own checkout, said the way it always was.
+  const followedAgent = followed?.agent ?? null
+  const followingSpoken = followedAgent ? `, following ${followedAgent.name}` : ''
   // The git change count that used to badge the (now-removed) Git panel switch
   // rides the branch chip instead — the branch is where "how much has changed"
   // belongs. Same source as the old badge: files in the worktree's status, shown
@@ -398,11 +415,11 @@ export function WorkspaceIdentity({
   // overflow menu, 3 the chips fold in with it. Nothing is ever deleted — every
   // stage moves a segment, and the menu is where it moves to.
   const fold = useTitleBarFold()
-  // The checkout an external editor should open: the mounted worktree when the
-  // workspace has one, else the project root — the same resolution the branch
-  // chip and the Git view use, so all three name one tree. Called
-  // unconditionally (hooks) and for both spellings of the control at once, so
-  // the `Primary+O` reveal listener is registered exactly once.
+  // The checkout an external editor should open: the one the branch chip
+  // describes — the followed agent's, else the mounted worktree, else the
+  // project root — so the two name one tree. Called unconditionally (hooks)
+  // and for both spellings of the control at once, so the `Primary+O` reveal
+  // listener is registered exactly once.
   const folderTargets = useFolderOpenTargets(activeWorkspaceId, gitProbePath ?? '')
 
   if (!activeWorkspace) return null
@@ -423,11 +440,9 @@ export function WorkspaceIdentity({
   // basename. The full path still rides the chip's tooltip, and the reveal-Files
   // affordance is preserved. Handles POSIX and Windows separators and trailing
   // slashes; falls back to the whole string if there is no separator.
-  // The checkout an external editor should open: the mounted worktree when the
-  // workspace has one, else the project root — the same resolution the branch
-  // chip above and the Git view use, so all three name one tree. Distinct from
-  // `folderPath` below, which stays the project root because the Files panel is
-  // rooted there.
+  // The checkout an external editor should open is `gitProbePath` — the one
+  // the branch chip above describes. Distinct from `folderPath` below, which
+  // stays the project root because the Files panel is rooted there.
   // Drawn once for both spellings of this control (the Git-panel button and the
   // read-only span when the panel module is off), so they can never drift.
   const gitCountBadge = gitHasLineCounts ? (
@@ -446,6 +461,19 @@ export function WorkspaceIdentity({
       {gitChangeLabel}
     </span>
   ) : null
+  // The followed agent's runtime mark, ahead of the branch glyph, so "whose
+  // branch" reads at a glance; decorative here — the control's words carry the
+  // name (`followingSpoken`), and the chip's tooltip names it in full.
+  const followedMark = followedAgent?.cli ? (
+    <span aria-hidden="true" className="flex shrink-0 items-center text-[color:var(--text-subtle)]">
+      <CliIcon cli={followedAgent.cli} className="icon-xs" />
+    </span>
+  ) : null
+  const branchTooltip = followedAgent
+    ? `${branchName ?? 'Detached HEAD'} · following ${followedAgent.name}${
+        followedAgent.cli ? ` (${labelForCliRuntime(followedAgent.cli)})` : ''
+      } — select another tab to follow it`
+    : branchName ?? 'Detached HEAD'
 
   const openPath = gitProbePath
 
@@ -651,16 +679,17 @@ export function WorkspaceIdentity({
       {chipsInline && branchIsRepo ? (
         gitPanelEnabled ? (
           <Tooltip
-            content={branchName ?? 'Detached HEAD'}
+            content={branchTooltip}
             placement="bottom"
             wrapperClassName="flex min-w-0 shrink-[10]"
           >
             <button
               type="button"
               onClick={toggleGitPanel}
-              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${gitChangeSpoken}`}
+              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${followingSpoken}${gitChangeSpoken}`}
               className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
+              {followedMark}
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               {showChipWords ? (
                 <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
@@ -669,15 +698,19 @@ export function WorkspaceIdentity({
             </button>
           </Tooltip>
         ) : (
-          <span className="flex min-w-0 shrink-[10] items-center gap-1 text-meta text-[color:var(--text-muted)]">
-            <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            {showChipWords ? <span className="min-w-0 truncate">{branchName ?? 'detached'}</span> : null}
-            {gitCountBadge}
-            {/* aria-hidden on the badge above: the numbers read visually, and
-                the words ride along here for AT — the same split the sidebar
-                row's diff stat uses. */}
-            {gitChangeSpoken ? <span className="sr-only">{gitChangeSpoken}</span> : null}
-          </span>
+          <Tooltip content={branchTooltip} placement="bottom" wrapperClassName="flex min-w-0 shrink-[10]">
+            <span className="flex min-w-0 items-center gap-1 text-meta text-[color:var(--text-muted)]">
+              {followedMark}
+              <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+              {showChipWords ? <span className="min-w-0 truncate">{branchName ?? 'detached'}</span> : null}
+              {gitCountBadge}
+              {/* aria-hidden on the badge above: the numbers read visually, and
+                  the words ride along here for AT — the same split the sidebar
+                  row's diff stat uses. */}
+              {followingSpoken ? <span className="sr-only">{followingSpoken}</span> : null}
+              {gitChangeSpoken ? <span className="sr-only">{gitChangeSpoken}</span> : null}
+            </span>
+          </Tooltip>
         )
       ) : null}
       {/*
