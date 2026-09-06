@@ -11,12 +11,13 @@ import {
   describePluginComponents,
   findScannedPlugin,
   describeUnreadPlugin,
-  linkedPluginShortfallLine,
+  linkedPluginShortfall,
   pluginAliases,
   scanPluginRenames,
   scanPlugins,
   scanShape,
   summariseLinkedPlugins,
+  type LinkedPluginSummary,
   type ScanResult,
   type ScannedPlugin,
 } from '../../shared/skills'
@@ -596,6 +597,12 @@ function recordedReader(
   }
 }
 
+/** The head line's shortfall clauses as one sentence, the way the head line reads. */
+function shortfallLine(summary: LinkedPluginSummary, tokenConfigured: boolean): string | null {
+  const parts = linkedPluginShortfall(summary, tokenConfigured)
+  return parts.length > 0 ? parts.map((part) => part.text).join('; ') : null
+}
+
 function unreadableMessage(plugin: ScannedPlugin): string {
   const state = plugin.linkedRead
   assert.equal(state?.status, 'unreadable', `${plugin.id} was expected to be unreadable`)
@@ -731,21 +738,28 @@ async function linkedPluginsPartial(): Promise<void> {
   const summary = summariseLinkedPlugins({ plugins: unread.plugins })
   assert.deepEqual(summary, { total: 238, read: 0, pending: 238, unreadable: 0 })
   assert.equal(
-    linkedPluginShortfallLine(summary, false),
+    shortfallLine(summary, false),
     '238 of 238 linked plugins not yet read — add a GitHub token',
   )
   assert.equal(
-    linkedPluginShortfallLine(summary, true),
+    shortfallLine(summary, true),
     '238 of 238 linked plugins not yet read — Sync to read the rest',
     'with a token already in hand the honest next step is Sync, not a setting that is set',
   )
+  // The clause naming the token IS the button, so the head line can offer the
+  // setting rather than describe where to find it.
+  assert.deepEqual(
+    linkedPluginShortfall(summary, false).map((part) => part.action),
+    ['github-settings'],
+  )
+  assert.deepEqual(linkedPluginShortfall(summary, true).map((part) => part.action), [null])
   assert.equal(
     describePluginComponents(unread.plugins.find((plugin) => plugin.id === UNRECORDED_PLUGIN)!),
     'Not read yet — read when opened',
   )
-  assert.equal(linkedPluginShortfallLine({ total: 0, read: 0, pending: 0, unreadable: 0 }, false), null)
+  assert.equal(shortfallLine({ total: 0, read: 0, pending: 0, unreadable: 0 }, false), null)
   assert.equal(
-    linkedPluginShortfallLine({ total: 238, read: 238, pending: 0, unreadable: 0 }, false),
+    shortfallLine({ total: 238, read: 238, pending: 0, unreadable: 0 }, false),
     null,
     'a source that read them all says nothing extra: the counts already stand',
   )
@@ -871,7 +885,7 @@ async function linkedPluginsPartial(): Promise<void> {
     unreadable: 1,
   })
   assert.equal(
-    linkedPluginShortfallLine({ total: 1, read: 0, pending: 0, unreadable: 1 }, true),
+    shortfallLine({ total: 1, read: 0, pending: 0, unreadable: 1 }, true),
     '1 of 1 linked plugin could not be read',
   )
 

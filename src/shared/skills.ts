@@ -312,30 +312,19 @@ export function summariseLinkedPlugins(scan: Pick<ScanResult, 'plugins'>): Linke
 }
 
 /**
- * The head line's admission that a scan is partial, or null when there is
- * nothing to admit. A source with no linked plugins, and one whose linked
- * plugins are all read, say nothing extra — the counts already stand.
+ * The head line's admission that a scan is partial, in the pieces a surface can
+ * act on. Empty when there is nothing to admit: a source with no linked
+ * plugins, and one whose linked plugins are all read, say nothing extra
+ * because the counts beside them already stand.
  *
  * The token is named only when there is not one: at 60 unauthenticated
  * requests an hour the budget is 20 repositories a scan, and "add a GitHub
  * token" is the action that turns twelve scans into one (linked-plugins
  * ruling, 2026-09-06). With a token in place the honest next step is Sync,
- * which resumes from what is already cached.
- */
-export function linkedPluginShortfallLine(
-  summary: LinkedPluginSummary,
-  tokenConfigured: boolean
-): string | null {
-  const parts = linkedPluginShortfall(summary, tokenConfigured)
-  return parts.length > 0 ? parts.map((part) => part.text).join('; ') : null
-}
-
-/**
- * The same sentence, in the pieces a surface can act on: the clause that ends
- * in "add a GitHub token" carries `action`, so the head line can make those
- * words the button that opens the setting rather than telling a person to go
- * and find it. The clause about plugins that could not be read carries none —
- * there is no setting that fixes a repository that is gone.
+ * which resumes from what is already cached. That clause carries `action`, so
+ * the head line can make those words the button that opens the setting rather
+ * than telling a person to go and find it; the clause about plugins that could
+ * not be read carries none, because no setting fixes a repository that is gone.
  */
 export type LinkedPluginShortfallPart = { text: string; action: 'github-settings' | null }
 
