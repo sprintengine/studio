@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { Badge } from '../ui/Badge'
+import { EmptyState } from '../ui/EmptyState'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { ExtensionsGlyph } from '../workspace/AppRail'
 import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
@@ -61,11 +64,18 @@ import { homeCardCount, homeCardGrid } from './homeCards'
 // something from something else and with no cards there is nothing to separate
 // them from.
 //
-// The Community "coming soon" block that stood here went with that change. It
-// promised a browse of extensions other people had published, and the card feed
-// is that promise kept — a coming-soon placeholder under seven live cards from
-// a hosted feed is the app contradicting itself, and Frame 1 of the mockup
-// draws the page without it.
+// **The Community "coming soon" block stays.** Item 2468 removed it as a side
+// effect, on the reading that "the card feed is that promise kept", and it is
+// restored here because that reading does not survive the copy: the block
+// promises a browse of modules OTHER PEOPLE have published, with search and
+// one-click install, once the registry scan lands. What ships above it is two
+// hand-authored first-party cards — no registry, no scan, no third-party
+// publisher — so the two say different things and only one of them has been
+// delivered. Retiring it is an owner call (it is an owner ruling of 2026-09-05
+// that put it here, and a later commit kept it deliberately, with a test on its
+// copy word for word); this epic did not make that call and item 2468 does not
+// authorise it. It sits under the tiles now rather than under the drawer's
+// five, which is the only thing the new page changes about it.
 //
 // What this page deliberately does NOT carry is the module list: module
 // switches live in Settings → Modules, and having them here too put the same
@@ -250,6 +260,10 @@ function useDesignSystemLibraryCount(): { ready: boolean; count: number } {
 /** The id the search field says it filters, and the grid it filters. */
 const CARD_GRID_ID = 'extensions-home-cards'
 
+/** The two named regions under the cards, each labelled by its own heading. */
+const PARTS_HEADING_ID = 'extensions-home-parts-heading'
+const COMMUNITY_HEADING_ID = 'extensions-community-heading'
+
 /**
  * The grid, in one shape for every state that has cards in it.
  *
@@ -264,10 +278,25 @@ const CARD_GRID_ID = 'extensions-home-cards'
  * The hero takes both columns. It is a 2.7:1 plate and nothing else on the page
  * is, which is the whole of what "hero" means here.
  */
-function CardGrid({ children }: { children: React.ReactNode }): JSX.Element {
+function CardGrid({
+  children,
+  status,
+}: {
+  children: React.ReactNode
+  /** A sentence about the grid, INSIDE the region the field says it controls. */
+  status?: React.ReactNode
+}): JSX.Element {
   return (
     <div id={CARD_GRID_ID} className="@container">
-      <div className="grid grid-cols-1 gap-5 @min-[46rem]:grid-cols-2">{children}</div>
+      <div className="grid grid-cols-1 gap-5 @[736px]:grid-cols-2">{children}</div>
+      {/* The live region is always here and usually empty, because that is what
+          makes an insertion into it something assistive technology speaks. A
+          sentence that mounted with `aria-live` already set on it is a new
+          element, not a change to a region being watched, and is routinely
+          missed — and this one was worse than missed: it stood OUTSIDE the
+          element `aria-controls` names, so a reader following the search field's
+          own pointer arrived at an empty grid and was told nothing. */}
+      <div aria-live="polite">{status}</div>
     </div>
   )
 }
@@ -284,15 +313,27 @@ function CardGrid({ children }: { children: React.ReactNode }): JSX.Element {
  * Four followers rather than the feed's own count, because the count is the
  * thing not known yet. It is a placeholder for a grid, not a promise about how
  * many cards there are.
+ *
+ * The surface colour is passed in, as `Skeleton`'s own docstring requires and
+ * as every other caller in the tree does: the shared `.skeleton-shimmer` class
+ * carries the SWEEP and no ground, and the sweep itself only exists under
+ * `prefers-reduced-motion: no-preference`. Without a background the loading
+ * state was transparent rectangles on a wide screen and a blank page on a
+ * machine that had asked for less motion. `--bg-surface-raised` is the plate's
+ * own ground (`cardSplash.tsx`), so the placeholder is the colour the picture
+ * will land on.
  */
 function CardGridSkeleton(): JSX.Element {
   return (
     <CardGrid>
-      <div className="@min-[46rem]:col-span-2">
-        <Skeleton className="aspect-[2.7/1] max-h-[330px] w-full rounded-lg" />
+      <div className="@[736px]:col-span-2">
+        <Skeleton className="aspect-[2.7/1] max-h-[330px] w-full rounded-lg bg-[color:var(--bg-surface-raised)]" />
       </div>
       {[0, 1, 2, 3].map((slot) => (
-        <Skeleton key={slot} className="aspect-[16/9] w-full rounded-lg" />
+        <Skeleton
+          key={slot}
+          className="aspect-[16/9] w-full rounded-lg bg-[color:var(--bg-surface-raised)]"
+        />
       ))}
     </CardGrid>
   )
@@ -316,6 +357,18 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   // What this build can draw at all, and what survives the search. The first is
   // what decides whether there is a card region; the second is what goes in it.
   const drawable = useMemo(() => homeCardCount(cards), [cards])
+  // The field goes away with the cards, so the query has to go with the field.
+  // React state outlives the element that edits it: a feed that emptied and came
+  // back — the poller's next read, a profile that got its network — used to
+  // return to a filter typed minutes ago against a page that no longer showed
+  // the field holding it, so the cards came back and immediately said "no cards
+  // match this search". Clearing on the way out is the option taken over keeping
+  // the field permanently mounted, because the field's absence is a decision
+  // this page made on purpose: a page that has fallen back to its tiles offers
+  // no filter over cards it is not showing.
+  useEffect(() => {
+    if (drawable === 0) setQuery('')
+  }, [drawable])
   const grid = useMemo(() => homeCardGrid(cards, query), [cards, query])
   const matched = (grid.hero ? 1 : 0) + grid.rest.length
   // Only a page with nothing to draw is loading — the slice says the same thing
@@ -328,6 +381,11 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   // it, opens the chat and sends the prompt. Until then the button is drawn and
   // pressing it does nothing — a card that half-ran its actions would be worse
   // than a card that waits for the item that owns them.
+  //
+  // Which makes this item unreleasable on its own, and the spec says so: 2468
+  // must not reach users ahead of 2469. Shipping the card feed with an inert
+  // `Go` shows a person an advert, invites the one press it offers, and answers
+  // with nothing at all.
   const onGo = () => {}
 
   return (
@@ -362,9 +420,26 @@ export default function ExtensionsHomeSurface(): JSX.Element {
       <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
         {loading ? <CardGridSkeleton /> : null}
         {!loading && drawable > 0 ? (
-          <CardGrid>
+          <CardGrid
+            status={
+              /* A search that matches nothing gets an answer, and it is the one
+                 state on this page that says anything at all. It is not the
+                 notice R6 forbids — that rule is about the page apologising for
+                 its own network, and this is the app answering a question the
+                 person just asked. An empty grid under a field with text in it
+                 would read as a page that had broken. It goes INSIDE the grid
+                 region, which is what the search field's `aria-controls` points
+                 at; as a sibling after it, it was a sentence no reader following
+                 that pointer would ever be sent to. */
+              matched === 0 ? (
+                <p className="m-0 pt-1 text-meta text-[color:var(--text-muted)]">
+                  No cards match this search.
+                </p>
+              ) : null
+            }
+          >
             {grid.hero ? (
-              <div className="@min-[46rem]:col-span-2">
+              <div className="@[736px]:col-span-2">
                 <CardPoster card={grid.hero} shape="hero" onGo={onGo} />
               </div>
             ) : null}
@@ -373,30 +448,34 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             ))}
           </CardGrid>
         ) : null}
-        {/* A search that matches nothing gets an answer, and it is the one
-            state on this page that says anything at all. It is not the notice
-            R6 forbids — that rule is about the page apologising for its own
-            network, and this is the app answering a question the person just
-            asked. An empty grid under a field with text in it would read as a
-            page that had broken. */}
-        {!loading && drawable > 0 && matched === 0 ? (
-          <p className="m-0 text-meta text-[color:var(--text-muted)]">
-            No cards match this search.
-          </p>
-        ) : null}
         {/* The heading arrives with the cards and leaves with them. With cards
             above it, it is what turns the tiles from the page into the way off
             the page ("Or go straight to the parts", Frame 1); with no cards
             above it, the tiles ARE the page again and a heading would be the
-            door's own name said twice (principles, Composition). */}
-        <div className="space-y-2.5">
+            door's own name said twice (principles, Composition).
+
+            A `<section>` either way, and one the heading names when there is a
+            heading to name it: the tiles and the Community block are two regions
+            of one page, and a reader that can jump between them is the whole
+            point of sectioning them. */}
+        <section
+          aria-labelledby={hasCardRegion ? PARTS_HEADING_ID : undefined}
+          className="space-y-2.5"
+        >
           {hasCardRegion ? (
             <div className="flex items-baseline gap-2.5">
-              {/* h3, under the door's own h2 and beside the card titles: this
-                  is a section of the page, not a peer of the page's name. */}
-              <h3 className="m-0 text-meta font-semibold text-[color:var(--text-strong)]">
+              {/* h2, one level under the door's own name and one ABOVE the h3
+                  each card titles itself with: this labels a section, and a
+                  heading list that ranked it level with the cards' own titles
+                  would read the label as a sibling of their content. Drawn
+                  quietly all the same — the level is the outline, not the
+                  type. */}
+              <h2
+                id={PARTS_HEADING_ID}
+                className="m-0 text-meta font-semibold text-[color:var(--text-strong)]"
+              >
                 Or go straight to the parts
-              </h3>
+              </h2>
               <p className="m-0 text-meta text-[color:var(--text-muted)]">
                 The five things the studio is made of.
               </p>
@@ -421,7 +500,28 @@ export default function ExtensionsHomeSurface(): JSX.Element {
               ) : null,
             )}
           </ul>
-        </div>
+        </section>
+        {/* Removed by item 2468 and restored here. See the note at the top of
+            this file: the copy promises a browse of what OTHER PEOPLE have
+            published, once the registry scan lands, and none of that has
+            shipped — so retiring it is an owner call this epic did not make. */}
+        <section aria-labelledby={COMMUNITY_HEADING_ID} className="space-y-2">
+          <div className="flex items-baseline gap-2.5">
+            <h2
+              id={COMMUNITY_HEADING_ID}
+              className="text-heading font-semibold text-[color:var(--text-strong)]"
+            >
+              Community
+            </h2>
+            <Badge tone="neutral">Coming soon</Badge>
+          </div>
+          <EmptyState
+            density="list"
+            glyph={<ExtensionsGlyph className="icon-lg" />}
+            title="Extensions built by the community"
+            body="A browse of modules other people have published, with search and one-click install, will be listed here once the registry scan lands."
+          />
+        </section>
       </div>
     </GlobalSurfaceShell>
   )

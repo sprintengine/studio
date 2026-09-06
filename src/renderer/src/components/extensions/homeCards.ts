@@ -75,7 +75,16 @@ export function cardStampLabel(kind: HostedCardKind): string {
  */
 export function orderHomeCards(cards: readonly HostedCard[]): readonly HostedCard[] {
   return [...renderableCards(cards)].sort((left, right) => {
-    if (left.hero !== right.hero) return left.hero ? -1 : 1
+    // `Boolean(...)`, not the raw fields. `hero` is OPTIONAL on the schema, so a
+    // card that writes `hero: false` and a card that says nothing at all are two
+    // different values for one meaning — and `false !== undefined` is true, which
+    // made the comparator answer "these differ" for two ordinary cards and skip
+    // the date branch entirely. The feed then came out in whatever order it
+    // arrived in rather than newest first, silently, on a page where the order
+    // IS the editorial decision. Comparing the meaning rather than the value is
+    // also what makes this a total order, which is the only kind `sort` promises
+    // anything about.
+    if (Boolean(left.hero) !== Boolean(right.hero)) return left.hero ? -1 : 1
     return publishedAtMs(right) - publishedAtMs(left)
   })
 }

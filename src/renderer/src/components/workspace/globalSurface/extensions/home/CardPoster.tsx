@@ -22,13 +22,37 @@
 // accent is missing hierarchy, and this page is not.
 //
 // **The whole card is the target, and hover is a background change only** — the
-// task-card family contract: no lift, no shadow, no scale. The press is carried
-// by the article rather than by a stretched hit area inside the button, because
-// the hero has no card body at all: its row of words is absolutely positioned
-// over the picture, and an overlay inside an absolutely positioned button
-// resolves against the button rather than against the card. One mechanism for
-// both shapes beats two that differ by where the button happens to sit. `Go`
-// stops the click from reaching the article so the handler runs once.
+// task-card family contract: no lift, no shadow, no scale.
+//
+// The target is a STRETCHED OVERLAY, and the article itself is inert. The first
+// build hung `onClick` on the `<article>` with `cursor-pointer` over it and
+// nothing else, which is the half of the contract a mouse can see: no tab stop,
+// no key handler, no focus ring, so a keyboard could not reach a card at all.
+// The obvious repair — `role="button" tabIndex={0}` on the article, the way
+// `ui/TaskCard.tsx` does it — is not available here, because a card CONTAINS a
+// real `<button>` and a button inside `role="button"` is markup no assistive
+// technology is required to make sense of.
+//
+// So `Go` is the one tab stop and the one control, and the card is the area it
+// answers for:
+//
+//   The ordinary card stretches `Go`'s own `::after` over the whole shell. The
+//   button sits in normal flow inside the body, so the nearest positioned
+//   ancestor of that pseudo-element is the article — which is exactly the box
+//   the overlay should cover.
+//
+//   The hero cannot use it. Its row of words is absolutely positioned over the
+//   picture, so the same `::after` would resolve against that row and cover a
+//   sixth of the card. The hero gets the overlay as a DIRECT CHILD of the
+//   article instead: one pointer surface, aria-hidden, carrying no keyboard
+//   duty, because the keyboard already has `Go`.
+//
+// The focus ring goes on the CARD, keyed to that one button
+// (`has-[button:focus-visible]:focus-ring`, the wrapper idiom `ui/tokens.ts`
+// documents for `InboxSearchInput`). A 2px ring around a 30px pill is the wrong
+// answer to "what will Enter do here" when Enter opens the whole card, and two
+// rings for one tab stop is the failure that idiom's own note warns about — so
+// `Go` gives its ring up and the card wears it.
 
 import React from 'react'
 
@@ -48,10 +72,34 @@ import { CardSplash, CardSplashScrim, CardSplashStamp, CardSplashTitle } from '.
  * the hover. Both are in the mockup's own rule (`.card:hover`) and neither
  * moves a pixel of layout.
  */
+// `has-[button:focus-visible]:focus-ring` is written out here as ONE literal and
+// never assembled, for the reason `ui/tokens.ts` sets out at length: Tailwind
+// generates a rule only for a candidate it can see as literal text, so a variant
+// built from a constant and a prefix ships no CSS and no focus indicator at all.
+// It stays here rather than joining the constants in `tokens.ts` because it is
+// this card's own composition — the card is the ring's box, the button is its
+// trigger — and the accessibility contract test enumerates that file exactly.
 const SHELL =
   'relative flex w-full cursor-pointer flex-col overflow-hidden rounded-lg border ' +
   'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] ' +
-  'transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]'
+  'transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)] ' +
+  'has-[button:focus-visible]:focus-ring'
+
+/**
+ * The overlay that makes the card the target, in the two shapes it takes.
+ *
+ * No layer of its own in either: painting order is DOM order here, and both sit
+ * after the plate they cover. The one piece of furniture that DID have a layer —
+ * the stamp — now stands out of the pointer's way instead (`cardSplash.tsx`), so
+ * the top-right corner of a card is not the one square of poster that does
+ * nothing when you press it.
+ *
+ * Both spelled out in full, and neither assembled from the other: `after:` is a
+ * variant, and a variant Tailwind cannot read as literal text in a source file
+ * produces no CSS (`ui/tokens.ts` has the long version of this).
+ */
+const HERO_OVERLAY = 'absolute inset-0'
+const GO_OVERLAY = 'after:absolute after:inset-0'
 
 /**
  * The button, and the only control on the card.
@@ -64,17 +112,29 @@ const SHELL =
 function CardGo({
   title,
   accent,
+  stretch,
   onGo,
 }: {
   title: string
   accent: boolean
+  /** Own the card-wide hit area as a pseudo-element. The ordinary card only. */
+  stretch: boolean
   onGo: () => void
 }): JSX.Element {
   const props = {
     'aria-label': `Go — ${title}`,
+    // `focus-visible:outline-none` discharged by the card, not left dangling:
+    // `SHELL` above draws the shared ring on the article whenever this button is
+    // focus-visible, which is one indicator on one tab stop rather than two.
+    // The card is what Enter acts on, so the card is what the ring should
+    // outline.
+    className: `focus-visible:outline-none ${stretch ? GO_OVERLAY : ''}`,
     onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-      // The card is the target too, and both press the same button. Stopping
-      // here is what makes one press one run.
+      // The overlay is this button's own pseudo-element on an ordinary card, so
+      // there is nothing to stop; on the hero the overlay is a sibling and this
+      // press never reaches it either. Kept anyway, and cheap: it is the guard
+      // that makes one press one run whatever a later shape does with the
+      // pointer surface.
       event.stopPropagation()
       onGo()
     },
@@ -108,7 +168,7 @@ export function CardPoster({
   // come last and still sit over everything.
   if (shape === 'hero') {
     return (
-      <article onClick={onGo} className={SHELL}>
+      <article className={SHELL}>
         <CardSplash shape="hero">
           <CardArt name={card.art} />
           <CardSplashScrim />
@@ -124,16 +184,31 @@ export function CardPoster({
                   </p>
                 ) : null}
               </div>
-              <CardGo title={card.title} accent onGo={onGo} />
+              <CardGo title={card.title} accent stretch={false} onGo={onGo} />
             </div>
           </CardSplashTitle>
           <CardSplashStamp label={stamp} />
         </CardSplash>
+        {/* The hero's pointer surface. It is a direct child of the article
+            because every other candidate is absolutely positioned inside the
+            splash, and an overlay resolves against the nearest positioned
+            ancestor rather than against the card it means. `aria-hidden` and no
+            tab stop: this is glass for a mouse, and the keyboard's way in is the
+            `Go` inside it.
+
+            Last, and so over the `Go` as well — deliberately, and at the cost of
+            that one button's own hover tint. Lifting the button back out from
+            under it would take a z-index the ladder does not have a rung for,
+            and the card is ONE target: a press on the glass over the button runs
+            exactly what the button runs, and the hover a person sees is the
+            card's ground and hairline moving, which is the whole of the hover
+            the task-card family allows anyway. */}
+        <span aria-hidden="true" className={HERO_OVERLAY} onClick={() => onGo()} />
       </article>
     )
   }
   return (
-    <article onClick={onGo} className={SHELL}>
+    <article className={SHELL}>
       <CardSplash>
         <CardArt name={card.art} />
         <CardSplashScrim />
@@ -157,7 +232,7 @@ export function CardPoster({
             </span>
           ) : null}
           <span className="ml-auto flex shrink-0">
-            <CardGo title={card.title} accent={false} onGo={onGo} />
+            <CardGo title={card.title} accent={false} stretch onGo={onGo} />
           </span>
         </div>
       </div>

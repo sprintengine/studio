@@ -154,6 +154,12 @@ export function CardSplashTitle({
 /**
  * The stamp: one word, top right, saying what the card is.
  *
+ * It takes no clicks. The card that composes these puts a stretched overlay over
+ * the whole plate so the poster is one target (`CardPoster.tsx`), and the stamp
+ * is the one piece of furniture with a layer of its own — without this it would
+ * be the single square of a card that does nothing when you press it. A label is
+ * not a control, so it has nothing to lose by standing out of the way.
+ *
  * The mockup sets it in uppercase with tracking, and it is the PAIRING the
  * design system rejects — `principles.md` "Type" refuses uppercase letter-spaced
  * labels as hierarchy, policed as the `uppercase-tracked` conformance rule and
@@ -165,7 +171,7 @@ export function CardSplashTitle({
  */
 export function CardSplashStamp({ label }: { label: string }): JSX.Element {
   return (
-    <span className="absolute top-2.5 right-2.5 z-10 inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium uppercase text-[color:var(--text-muted)]">
+    <span className="pointer-events-none absolute top-2.5 right-2.5 z-10 inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium uppercase text-[color:var(--text-muted)]">
       {label}
     </span>
   )

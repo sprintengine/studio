@@ -60,6 +60,26 @@ run('the hero leads, and everything after it is newest first', () => {
   )
 })
 
+run('a card that spells `hero: false` sorts by date like one that says nothing', () => {
+  // `hero` is optional, so the feed has two ways of saying "ordinary card" and
+  // the comparator has to read them as one. Comparing the raw fields made
+  // `false !== undefined` true, which answered "these differ" for two ordinary
+  // cards and never reached the date branch at all — so the page came out in
+  // feed order and nobody could see that it had. The oldest card is written
+  // FIRST here on purpose: that is the pair order the broken comparator got
+  // wrong, and a list already in the right order would have hidden it.
+  const ordered = orderHomeCards([
+    card({ slug: 'old', publishedAt: '2026-08-01T00:00:00.000Z' }),
+    card({ slug: 'new', publishedAt: '2026-09-05T00:00:00.000Z', hero: false }),
+    card({ slug: 'middle', publishedAt: '2026-09-02T00:00:00.000Z' }),
+  ])
+  assert.deepEqual(
+    slugs(ordered),
+    ['new', 'middle', 'old'],
+    'newest first, whichever of the two ways each card declines to be the hero',
+  )
+})
+
 run('two cards published on the same day keep the feed’s own order', () => {
   const sameDay = '2026-09-03T00:00:00.000Z'
   const ordered = orderHomeCards([

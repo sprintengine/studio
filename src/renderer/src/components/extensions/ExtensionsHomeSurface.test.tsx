@@ -142,13 +142,30 @@ for (const apology of ['offline', 'Offline', 'could not', 'Could not', 'unavaila
     `the page never reports on its own network (R6), and it does not say “${apology}”`,
   )
 }
-// The Community "coming soon" block that stood here is gone: it promised a
-// browse of extensions other people had published, and the card feed is that
-// promise kept. A placeholder for the thing the page now does would be the app
-// contradicting itself.
+// The Community "coming soon" block STAYS. Item 2468 deleted it on the reading
+// that the card feed was the promise kept; the copy says otherwise — a browse of
+// what OTHER PEOPLE have published, with search and one-click install, once the
+// registry scan lands — and none of that has shipped. It is an owner ruling of
+// 2026-09-05 and retiring it is an owner call this epic did not make, so the
+// assertion on its copy is here word for word, exactly as it was before.
 assert.ok(
-  !home.host.textContent?.includes('Coming soon'),
-  'no coming-soon placeholder for the feature this page now has',
+  home.host.textContent?.includes('Community') && home.host.textContent.includes('Coming soon'),
+  'the Community section keeps its heading and its tag',
+)
+assert.ok(
+  home.host.textContent?.includes(
+    'A browse of modules other people have published, with search and one-click install, will be listed here once the registry scan lands.',
+  ),
+  'and the ruling’s copy, word for word',
+)
+const communitySection = home.host.querySelector(
+  'section[aria-labelledby="extensions-community-heading"]',
+)
+assert.ok(communitySection, 'it is a named region, not a run of divs')
+assert.equal(
+  communitySection?.querySelector('#extensions-community-heading')?.tagName,
+  'H2',
+  'and the heading that names it is a heading',
 )
 assert.equal(
   [...home.host.querySelectorAll('input[type="checkbox"], [role="switch"]')].length,
@@ -385,6 +402,37 @@ for (const poster of cardsIn(home.host)) {
   )
 }
 
+// ── The whole card is reachable, and `Go` is the one way in ──────────────────
+// The card is a target for a pointer and a target for a keyboard, and the two
+// have to be the same target. The article itself is inert — no tab stop, no
+// role, because a card CONTAINS a button and a button inside `role="button"` is
+// markup nothing is required to make sense of — so `Go` is the single control
+// and a stretched overlay is what makes the rest of the card press it.
+for (const poster of cardsIn(home.host)) {
+  assert.equal(poster.getAttribute('tabindex'), null, `${titleOf(poster)}: the card is not a second tab stop`)
+  assert.equal(poster.getAttribute('role'), null, `${titleOf(poster)}: and it claims no role a button could not sit inside`)
+  assert.equal(
+    [...poster.querySelectorAll('button, a[href], input, [tabindex]')].length,
+    1,
+    `${titleOf(poster)}: exactly one thing to reach, and it is the Go`,
+  )
+  assert.ok(
+    (poster.getAttribute('class') ?? '').includes('has-[button:focus-visible]:focus-ring'),
+    `${titleOf(poster)}: the ring is drawn on the CARD when its button takes focus — the card is what Enter acts on`,
+  )
+  // The overlay: the ordinary card owns it as `Go`'s own pseudo-element, the
+  // hero as a direct child of the article, because the hero's button sits
+  // inside an absolutely positioned row and a pseudo-element resolves against
+  // that row rather than against the card.
+  const go = [...poster.querySelectorAll('button')][0] as HTMLElement
+  const stretched =
+    (go.getAttribute('class') ?? '').includes('after:absolute after:inset-0') ||
+    [...poster.children].some((child) =>
+      (child.getAttribute('class') ?? '').includes('absolute inset-0'),
+    )
+  assert.ok(stretched, `${titleOf(poster)}: something stretches over the card, so the card is the target`)
+}
+
 // Pressing Go, and pressing the card, do nothing at all until item 2469 wires
 // the verbs up. What must not happen is a throw, or a press that runs twice.
 act(() => {
@@ -445,21 +493,64 @@ assert.equal(
 )
 search('nothing on any of these cards')
 assert.equal(cardsIn(home.host).length, 0)
+const noMatch = [...home.host.querySelectorAll('p')].find((line) =>
+  line.textContent?.includes('No cards match this search'),
+)
 assert.ok(
-  home.host.textContent?.includes('No cards match this search'),
+  noMatch,
   'a search that matches nothing gets an answer — that is the person’s own question, not the page apologising for its network',
 )
+// And it is answered where the field said to look. `aria-controls` on the input
+// names the grid region, so a sentence sitting outside that region is a sentence
+// a reader following the pointer is never sent to; the live region inside it is
+// what makes the answer arrive rather than merely exist.
+assert.ok(
+  noMatch?.closest(`#${searchField()?.getAttribute('aria-controls')}`),
+  'the answer lives inside the region the search field says it controls',
+)
+assert.ok(noMatch?.closest('[aria-live="polite"]'), 'and inside a region that is watched, so it is spoken')
 assert.ok(tilesIn(home.host).length > 0, 'and the tiles are still there to leave by')
 search('')
+
+// ── A query does not outlive the field that typed it ─────────────────────────
+// The field is absent when there are no cards, so the query has to go with it:
+// state outlives the element that edits it, and a feed that emptied and came
+// back would otherwise return to a filter typed against a page that no longer
+// showed the box holding it — cards back, and an instant "no cards match".
+search('playwright')
+act(() => {
+  useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'ready' as const }))
+})
+assert.equal(searchField(), null, 'the field goes with the cards')
+act(() => {
+  useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+})
+assert.equal(searchField()?.value, '', 'and the query went with the field')
+assert.equal(
+  cardsIn(home.host).length,
+  3,
+  'so a feed that emptied and refilled comes back whole, not behind a filter nobody can see',
+)
 
 // ── Loading is a skeleton grid ───────────────────────────────────────────────
 act(() => {
   useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'loading' as const }))
 })
+const shimmers = [...home.host.querySelectorAll('.skeleton-shimmer')]
 assert.ok(
-  home.host.querySelectorAll('.skeleton-shimmer').length > 0,
+  shimmers.length > 0,
   'a page with nothing to draw yet draws the shape of what is coming',
 )
+// And the shape is PAINTED. `.skeleton-shimmer` carries the sweep and no ground,
+// and the sweep itself only runs under `prefers-reduced-motion: no-preference` —
+// so a caller that passes no background draws transparent rectangles, and draws
+// nothing whatsoever on a machine that asked for less motion.
+for (const shimmer of shimmers) {
+  assert.ok(
+    /bg-\[color:var\(--[a-z-]+\)\]/.test(shimmer.getAttribute('class') ?? ''),
+    'every skeleton carries the surface colour its own docstring says the caller owns',
+  )
+}
 assert.equal(cardsIn(home.host).length, 0, 'and no cards while it waits')
 assert.ok(tilesIn(home.host).length > 0, 'the tiles do not wait on the network')
 
