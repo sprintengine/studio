@@ -46,6 +46,7 @@ import {
   sectionConnectors,
   type ConnectorEntry,
 } from '../../../../panels/ConnectorsPanel/connectorsFacets'
+import { mcpServerConfigFromScanned } from '../../../../../../../shared/mcp/server-from-scanned'
 import type { ConnectorSources } from '../../../../panels/ConnectorsPanel/useConnectorSources'
 import type { AgentComposerConnector } from '../../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
@@ -279,28 +280,23 @@ export function PluginsCatalogue({
     [workspaceRoot, onRemoveMcpServers, sources],
   )
 
-  /** A source's MCP server, added to MCP settings from the row it sits on. */
+  /**
+   * A source's MCP server, added to MCP settings from the row it sits on.
+   *
+   * Through the same mapping the plugin install uses, and carrying the same
+   * provenance: the source, the server's id in its scan, and the commit that
+   * scan was taken at. Without it a Sync could not tell this entry from one
+   * typed by hand, which is the whole of
+   * backlog/2026-09-06-mcp-installs-carry-source-provenance.md.
+   */
   const addScannedServer = useCallback(
-    (server: ScannedMcpServer) => {
+    (source: SkillSource, scanned: ScanResult, server: ScannedMcpServer) => {
       onAddMcpServers([
-        {
-          id: server.id,
-          name: server.name,
-          description: server.description,
-          transport: server.transport,
-          command: server.command || undefined,
-          args: server.args,
-          url: server.url || undefined,
-          env: server.env,
-          envVarNames: server.envVarNames,
-          headers: server.headers,
-          enabled: true,
-          required: false,
-          clients: ['codex', 'claude-code'],
-          scope: 'workspace',
-          source: 'custom',
-          riskLevel: server.transport === 'stdio' ? 'local-command' : 'network',
-        },
+        mcpServerConfigFromScanned(server, ['codex', 'claude-code'], {
+          sourceId: source.id,
+          itemId: server.id,
+          commitSha: scanned.commitSha,
+        }),
       ])
     },
     [onAddMcpServers],
@@ -416,7 +412,7 @@ export function PluginsCatalogue({
             ) : (
               <GhostButton
                 size="sm"
-                onClick={() => addScannedServer(server)}
+                onClick={() => activeSource && scan && addScannedServer(activeSource, scan, server)}
                 className="border border-[color:var(--border-default)]"
                 aria-label={`Add ${server.name}`}
               >
@@ -427,7 +423,7 @@ export function PluginsCatalogue({
         />
       )
     },
-    [addScannedServer, connectors, onLaunchConnector, openPluginRow, openRow],
+    [activeSource, addScannedServer, connectors, onLaunchConnector, openPluginRow, openRow, scan],
   )
 
   // ── Head, notices, body, detail ────────────────────────────────────────────

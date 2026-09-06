@@ -55,6 +55,7 @@ import { pluginTrust } from '../../settings/BrowseStorefront'
 import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
 import {
   deriveInstalledExtensions,
+  NO_LONGER_IN_SOURCE,
   type ExtensionKind,
   type ExtensionsInstalledView,
   type InstalledExtension,
@@ -820,6 +821,11 @@ function RowStatus({ item }: { item: InstalledExtension }) {
       <>
         <StatusDot tone={item.enabled ? 'good' : 'neutral'} />
         {item.enabled ? 'Active' : 'Not active'}
+        {/* A server its source has stopped declaring keeps working, so the
+            active state still leads; the sentence after it is why Sync will not
+            be refreshing it any more
+            (backlog/2026-09-06-mcp-installs-carry-source-provenance.md). */}
+        {item.missingFromSource ? ` · ${NO_LONGER_IN_SOURCE}` : null}
       </>
     )
   }

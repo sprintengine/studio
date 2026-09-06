@@ -16,6 +16,7 @@ import {
   type ScanResult,
   type SkillSource,
 } from '../../../../../../../shared/skills'
+import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { OutlineButton, OverflowMenu } from '../../../../ui'
 import { skillSourceCommitsUrl } from '../skills/skillsSurfaceModel'
 
@@ -25,6 +26,9 @@ export type SourceSyncResult = {
   refreshed: number
   failures: readonly { skillId: string; message: string }[]
   scan: ScanResult
+  /** Source-installed MCP servers whose declaration moved, and ones the source dropped. */
+  mcpChanged: number
+  mcpMissing: number
 }
 
 export function SourceTabActions({
@@ -41,6 +45,13 @@ export function SourceTabActions({
   onRemoved: (sourceId: string) => void
 }): JSX.Element | null {
   const [syncing, setSyncing] = useState(false)
+  // The MCP servers this machine has configured, read here rather than passed
+  // in: a source is synced from whichever catalogue the person happens to be
+  // looking at, and the servers it installed must be refreshed by all three of
+  // them (backlog/2026-09-06-mcp-installs-carry-source-provenance.md). MCP
+  // settings are app-level, so there is one right answer to read.
+  const mcpServers = useWorkspaceStore((state) => state.appSettings.mcp?.servers)
+  const upsertMcpServer = useWorkspaceStore((state) => state.upsertMcpServer)
   // The two bundled sources ship with the app and refresh with it; a folder or
   // a repository is the person's, and can be re-read and removed.
   const canSync = source.kind === 'github' || source.kind === 'local'
@@ -57,17 +68,30 @@ export function SourceTabActions({
     if (typeof window.api.skillsSyncSource !== 'function' || syncing) return
     setSyncing(true)
     try {
-      const result = await window.api.skillsSyncSource({ sourceId: source.id, workspaceRoot })
+      // The servers ride the call because MCP settings live in this store, not
+      // on disk in main; what comes back is written straight back into it.
+      const result = await window.api.skillsSyncSource({
+        sourceId: source.id,
+        workspaceRoot,
+        mcpServers: Object.values(mcpServers ?? {}),
+      })
       if (!result.ok) {
         onSyncFailed(source, result.message)
         return
       }
+      // The servers this source installed, as the sync left them: fresh
+      // configs, and the ones it could no longer find marked rather than
+      // dropped. Written back through the store so they survive a restart.
+      const mcp = result.mcpServers
+      for (const server of mcp.updated) upsertMcpServer(server)
       onSynced(result.source, {
         added: result.added,
         removed: result.removed,
         refreshed: result.refreshed,
         failures: result.failures,
         scan: result.scan,
+        mcpChanged: mcp.changed.length,
+        mcpMissing: mcp.missing.length,
       })
     } catch (error) {
       onSyncFailed(source, error instanceof Error ? error.message : String(error))

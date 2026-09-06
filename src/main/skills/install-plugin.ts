@@ -24,8 +24,14 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
-import type { ScannedMcpServer, ScannedPlugin, ScannedSkill, SkillFileRef } from '../../shared/skills'
+import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
+import type { ScannedPlugin, ScannedSkill, SkillFileRef } from '../../shared/skills'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
+
+// The mapping is shared with the renderer's own "Add this server" row, so both
+// stamp the same provenance; re-exported here because this module was where it
+// lived and the install tests read it from here.
+export { mcpServerConfigFromScanned }
 
 export const CLAUDE_SETTINGS_RELATIVE_PATH = '.claude/settings.json'
 
@@ -169,7 +175,16 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
     ok: true,
     pluginId: plugin.id,
     harnesses: outcomes,
-    mcpServers: plugin.components.mcpServers.map((server) => mcpServerConfigFromScanned(server, options.mcpClients)),
+    // Provenance, so a later Sync of this source can refresh exactly these
+    // entries: the source, the server's id in that source's scan, and the
+    // commit the declaration was read at.
+    mcpServers: plugin.components.mcpServers.map((server) =>
+      mcpServerConfigFromScanned(server, options.mcpClients, {
+        sourceId: options.sourceId,
+        itemId: server.id,
+        commitSha: options.commitSha,
+      })
+    ),
     claudePluginKey: nativeKey,
     warnings,
   }
@@ -304,34 +319,6 @@ async function writeClaudeSettings(path: string, settings: ClaudeSettings): Prom
     return { ok: true }
   } catch (error) {
     return { ok: false, message: `${CLAUDE_SETTINGS_RELATIVE_PATH} could not be written: ${describe(error)}` }
-  }
-}
-
-// ── MCP ─────────────────────────────────────────────────────────────────────
-
-/**
- * A scanned server in the shape the MCP settings store keeps. `custom` because
- * it is not from the bundled catalogue; the risk level says what it can reach.
- */
-export function mcpServerConfigFromScanned(server: ScannedMcpServer, clients: readonly string[]): McpServerConfig {
-  const needsSecrets = server.envVarNames.length > 0
-  return {
-    id: server.id,
-    name: server.name,
-    description: server.description || (server.declaredBy ? `Declared by the ${server.declaredBy} plugin.` : undefined),
-    transport: server.transport,
-    ...(server.command ? { command: server.command } : {}),
-    args: server.args,
-    ...(server.url ? { url: server.url } : {}),
-    env: server.env,
-    envVarNames: server.envVarNames,
-    headers: server.headers,
-    enabled: true,
-    required: false,
-    clients: [...clients],
-    scope: 'workspace',
-    source: 'custom',
-    riskLevel: server.transport === 'stdio' ? 'local-command' : needsSecrets ? 'secrets' : 'network',
   }
 }
 

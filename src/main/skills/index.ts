@@ -77,7 +77,7 @@ import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import { readPluginComponents, scanPluginTree } from './scan-plugins'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
-import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills } from './sync'
+import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
 // listing is what makes a source browsable, so this runs at scan time and the
@@ -384,7 +384,7 @@ export function createSkillsService(
     async syncSource(input) {
       const source = await store.getSource(input.sourceId ?? '')
       if (!source) return { ok: false, message: 'That source is not in your list.' }
-      if (source.kind === 'local') return syncLocalSource(source, input.workspaceRoot ?? '')
+      if (source.kind === 'local') return syncLocalSource(source, input)
       if (source.kind !== 'github') {
         return { ok: false, message: `${source.name} ships with Multicode and refreshes with the app.` }
       }
@@ -430,6 +430,15 @@ export function createSkillsService(
         removed: changes.removed.length,
         refreshed: copied.refreshed.length,
         failures: copied.failures,
+        // The servers this source installed, re-read at the same commit as the
+        // skills. Independent of the workspace: MCP settings are app-level, so
+        // a sync with no workspace open still refreshes them.
+        mcpServers: refreshSourceMcpServers({
+          sourceId: source.id,
+          servers: input.mcpServers ?? [],
+          scan: rescan.scan,
+          commitSha: rescan.scan.commitSha,
+        }),
       }
     },
 
@@ -463,7 +472,7 @@ export function createSkillsService(
    * folder that has gone away — and that is reported rather than left as a
    * list wearing a fresh timestamp for bytes nobody re-read.
    */
-  async function syncLocalSource(source: SkillSource, workspaceRootInput: string): Promise<SkillSyncSourceOutcome> {
+  async function syncLocalSource(source: SkillSource, input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome> {
     const root = localRootFor(source.id)
     if (!root || !existsSync(root)) {
       return { ok: false, message: `${source.path ?? source.name} is no longer on this machine.` }
@@ -480,7 +489,7 @@ export function createSkillsService(
     const synced: SkillSource = { ...source, scannedAt: new Date().toISOString() }
     await store.putSource(synced, scan)
     const changes = diffScannedSkills(previous, scan)
-    const workspaceRoot = workspaceRootInput.trim()
+    const workspaceRoot = (input.workspaceRoot ?? '').trim()
     const copied =
       workspaceRoot && existsSync(workspaceRoot)
         ? await refreshInstalledSkills({
@@ -499,6 +508,12 @@ export function createSkillsService(
       removed: changes.removed.length,
       refreshed: copied.refreshed.length,
       failures: copied.failures,
+      mcpServers: refreshSourceMcpServers({
+        sourceId: source.id,
+        servers: input.mcpServers ?? [],
+        scan,
+        commitSha: scan.commitSha,
+      }),
     }
   }
 

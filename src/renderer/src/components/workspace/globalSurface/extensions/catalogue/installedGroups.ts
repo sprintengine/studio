@@ -35,14 +35,20 @@ function provenanceKey(row: InstalledExtension): string {
 }
 
 /**
- * Which source id installed this row, from the receipts — null when none did.
- * A skill row's id is its directory name, which is exactly what the installer
- * recorded; an MCP row's id is the server id it added.
+ * Which source id installed this row — null when nothing says.
+ *
+ * A row that carries its own provenance is believed first: an MCP server
+ * records the source it came from on its config (`sourceRef`), and a server
+ * added from a source's own row has no plugin receipt to be found in. The
+ * receipts answer for everything else: a skill row's id is its directory name,
+ * which is exactly what the installer recorded, and a plugin install's receipt
+ * lists the MCP server ids it added.
  */
 export function installedRowSourceId(
   row: InstalledExtension,
   records: readonly InstalledPluginRecord[],
 ): string | null {
+  if (row.sourceId) return row.sourceId
   for (const record of records) {
     if (row.kind === 'skill' && record.skillDirNames.includes(row.id)) return record.sourceId
     if (row.kind === 'mcp' && record.mcpServerIds.includes(row.id)) return record.sourceId

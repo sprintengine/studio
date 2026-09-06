@@ -135,7 +135,7 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
   // MCP servers come back shaped for the settings store.
   assert.equal(result.mcpServers.length, 1)
   assert.equal(result.mcpServers[0].id, 'context7')
-  assert.equal(result.mcpServers[0].source, 'custom')
+  assert.equal(result.mcpServers[0].source, 'source', 'and say which source installed them')
   assert.equal(result.mcpServers[0].riskLevel, 'secrets')
   assert.deepEqual(result.mcpServers[0].clients, ['claude-code', 'codex'])
 
@@ -258,6 +258,37 @@ function shapes(): void {
   assert.equal(stdio.command, 'npx')
   assert.equal(stdio.url, undefined)
   assert.equal(stdio.description, 'Declared by the p plugin.')
+  assert.equal(stdio.source, 'custom', 'with no source reference it is a server nothing re-reads')
+}
+
+/**
+ * The servers an install hands back name the source that installed them, so a
+ * later Sync of that source can refresh exactly these entries
+ * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+ */
+async function installedServersCarryTheirSource(): Promise<void> {
+  const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-mcp-'))
+  const result = await installPlugin({
+    workspaceRoot: workspace,
+    sourceId: 'github:anthropics/claude-plugins-official',
+    marketplaceName: 'claude-plugins-official',
+    marketplaceRepo: 'anthropics/claude-plugins-official',
+    plugin: plugin(),
+    harnesses: ['codex'],
+    commitSha: 'deadbee',
+    readSkillFile: READ,
+    mcpClients: ['codex', 'claude-code'],
+  })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.mcpServers.length, 1)
+  const server = result.mcpServers[0]
+  assert.equal(server.source, 'source')
+  assert.deepEqual(server.sourceRef, {
+    sourceId: 'github:anthropics/claude-plugins-official',
+    itemId: 'context7',
+    commitSha: 'deadbee',
+  })
 }
 
 async function main(): Promise<void> {
@@ -265,6 +296,7 @@ async function main(): Promise<void> {
   await pluginOnlyRepositoryCopiesSkillsToClaudeToo()
   await nothingToInstallIsSaidNotHidden()
   await settingsThatDoNotParseAreLeftAlone()
+  await installedServersCarryTheirSource()
   shapes()
   console.log('skills plugin install tests passed')
 }

@@ -3,9 +3,11 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { ScanResult, ScannedSkill } from '../../shared/skills'
+import type { McpServerConfig } from '../../shared/electron-api'
+import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
+import type { ScanResult, ScannedMcpServer, ScannedSkill } from '../../shared/skills'
 import { SKILL_PROVENANCE_FILE } from './install'
-import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills } from './sync'
+import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
 
 const SOURCE = 'github:acme/skills'
 
@@ -194,6 +196,157 @@ async function leavesACopyInstalledFromAnotherSourceAlone(): Promise<void> {
   console.log('ok - a sync updates its own installs and leaves other sources alone')
 }
 
+// ── MCP servers ─────────────────────────────────────────────────────────────
+
+function server(over: Partial<ScannedMcpServer> = {}): ScannedMcpServer {
+  return {
+    id: 'context7',
+    name: 'Context7',
+    description: 'Docs for libraries',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@upstash/context7-mcp@1'],
+    url: '',
+    env: {},
+    envVarNames: [],
+    headers: {},
+    declaredIn: '.mcp.json',
+    declaredBy: '',
+    ...over,
+  }
+}
+
+function scanWithServers(servers: ScannedMcpServer[], commitSha = 'newsha1'): ScanResult {
+  return { ...scanOf([], commitSha), mcpServers: servers, shape: 'mcp-server' }
+}
+
+/** What the install wrote when this source's server was added, at the old commit. */
+function installedFromSource(over: Partial<McpServerConfig> = {}): McpServerConfig {
+  return {
+    ...mcpServerConfigFromScanned(server(), ['claude-code'], {
+      sourceId: SOURCE,
+      itemId: 'context7',
+      commitSha: 'oldsha0',
+    }),
+    ...over,
+  }
+}
+
+function syncsTheServersItInstalledAndOnlyThose(): void {
+  // The same server, at a new command the source now declares.
+  const moved = server({ args: ['-y', '@upstash/context7-mcp@2'], description: 'Docs, faster' })
+  const handTyped: McpServerConfig = {
+    id: 'context7-mine',
+    name: 'My own context7',
+    transport: 'stdio',
+    command: 'node',
+    args: ['server.js'],
+    enabled: true,
+    clients: ['claude-code'],
+    scope: 'workspace',
+    source: 'custom',
+    riskLevel: 'local-command',
+  }
+  // A server of the SAME id from another source: name collisions across
+  // sources are ordinary, and provenance is what tells them apart.
+  const fromElsewhere: McpServerConfig = installedFromSource({
+    sourceRef: { sourceId: 'github:other/plugins', itemId: 'context7', commitSha: 'oldsha0' },
+  })
+  const installed = installedFromSource({ enabled: false, clients: ['codex'], env: { CONTEXT7_TOKEN: 'typed-by-hand' } })
+
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installed, handTyped, fromElsewhere],
+    scan: scanWithServers([moved]),
+    commitSha: 'newsha1',
+  })
+
+  assert.deepEqual(result.changed, ['context7'], 'only the entry whose declaration moved is claimed as updated')
+  assert.deepEqual(result.missing, [])
+  assert.equal(result.updated.length, 1, 'the hand-typed server and the other source are not rewritten')
+  const next = result.updated[0]
+  assert.deepEqual(next.args, ['-y', '@upstash/context7-mcp@2'], 'the fresh declaration lands')
+  assert.equal(next.description, 'Docs, faster')
+  assert.equal(next.sourceRef?.commitSha, 'newsha1', 'and is pinned to the commit it was read at')
+  // What the person chose survives the refresh; a source ships defaults, not
+  // decisions, and never the token they typed.
+  assert.equal(next.enabled, false)
+  assert.deepEqual(next.clients, ['codex'])
+  assert.deepEqual(next.env, { CONTEXT7_TOKEN: 'typed-by-hand' })
+  console.log('ok - a sync rewrites the servers this source installed and leaves every other one alone')
+}
+
+function unchangedDeclarationIsNotReportedAsAnUpdate(): void {
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installedFromSource()],
+    scan: scanWithServers([server()]),
+    commitSha: 'newsha1',
+  })
+  assert.deepEqual(result.changed, [], 'nothing moved, so the line may not claim an update')
+  assert.equal(result.updated.length, 1)
+  assert.equal(result.updated[0].sourceRef?.commitSha, 'newsha1', 'but the pin still follows the scan')
+  console.log('ok - a server the source did not touch is re-pinned without being called updated')
+}
+
+function aServerThatLeftItsSourceKeepsWorkingAndSaysSo(): void {
+  const installed = installedFromSource()
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installed],
+    scan: scanWithServers([]),
+    commitSha: 'newsha1',
+  })
+  assert.deepEqual(result.missing, ['context7'])
+  assert.equal(result.updated.length, 1)
+  const marked = result.updated[0]
+  assert.equal(marked.sourceRef?.missing, true, 'the row draws its state line from this')
+  assert.equal(marked.command, 'npx', 'and the config it runs on is untouched, so it keeps working')
+  assert.equal(marked.enabled, true)
+
+  // Marked once. A second sync of a source that still lacks it has nothing new
+  // to say, and re-reporting would make every sync claim a fresh loss.
+  const again = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [marked],
+    scan: scanWithServers([]),
+    commitSha: 'newsha2',
+  })
+  assert.deepEqual(again.missing, [])
+  assert.deepEqual(again.updated, [])
+  console.log('ok - a server removed from its source keeps working, is marked once, and is never deleted')
+}
+
+function aServerThatComesBackLosesTheMark(): void {
+  const marked = installedFromSource({
+    sourceRef: { sourceId: SOURCE, itemId: 'context7', commitSha: 'oldsha0', missing: true },
+  })
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [marked],
+    scan: scanWithServers([server()]),
+    commitSha: 'newsha2',
+  })
+  assert.deepEqual(result.missing, [])
+  assert.equal(result.updated[0].sourceRef?.missing, undefined, 'the state line goes when the reason does')
+  console.log('ok - a server the source declares again stops saying it is gone')
+}
+
+function aRenamedEntryKeepsItsIdentityInTheSettingsMap(): void {
+  // The settings map is keyed by id; rewriting the id would orphan the old
+  // entry rather than update it.
+  const installed = installedFromSource({ id: 'context7-renamed-by-the-user' })
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installed],
+    scan: scanWithServers([server({ args: ['-y', '@upstash/context7-mcp@2'] })]),
+    commitSha: 'newsha1',
+  })
+  assert.equal(result.updated[0].id, 'context7-renamed-by-the-user')
+  assert.deepEqual(result.updated[0].args, ['-y', '@upstash/context7-mcp@2'])
+  console.log('ok - a refresh updates the entry in place rather than adding a second one')
+}
+
 async function main(): Promise<void> {
   await reportsWhatCameInAndWhatWent()
   await reCopiesOnlyTheHarnessesThatHoldTheSkill()
@@ -201,6 +354,11 @@ async function main(): Promise<void> {
   await reportsAFailedCopyWithoutStoppingTheRest()
   await leavesABundledSkillOfTheSameNameAlone()
   await leavesACopyInstalledFromAnotherSourceAlone()
+  syncsTheServersItInstalledAndOnlyThose()
+  unchangedDeclarationIsNotReportedAsAnUpdate()
+  aServerThatLeftItsSourceKeepsWorkingAndSaysSo()
+  aServerThatComesBackLosesTheMark()
+  aRenamedEntryKeepsItsIdentityInTheSettingsMap()
   console.log('skills sync tests passed')
 }
 

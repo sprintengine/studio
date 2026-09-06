@@ -143,6 +143,7 @@ export type {
   McpScope,
   McpServerConfig,
   McpServerSource,
+  McpServerSourceRef,
   McpSettings,
   McpTransport,
   SpecialistActionId,

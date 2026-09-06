@@ -418,6 +418,10 @@ export type SkillSyncReport = {
   removed: number
   refreshed: number
   failures: readonly SkillInstallFailure[]
+  /** Source-installed MCP servers the sync rewrote; absent where a surface has none. */
+  mcpChanged?: number
+  /** Source-installed MCP servers the source has stopped declaring. */
+  mcpMissing?: number
 }
 
 /**
@@ -435,6 +439,15 @@ export function summarizeSyncRun(report: SkillSyncReport): string {
   if (parts.length === 0) parts.push('no new skills')
   if (report.refreshed > 0) {
     parts.push(`${report.refreshed} installed ${report.refreshed === 1 ? 'skill' : 'skills'} updated`)
+  }
+  // An MCP server a source installed is refreshed by the same press, so the
+  // line says so; silence would leave the person to discover a rewritten
+  // command by running an agent against it.
+  const mcpChanged = report.mcpChanged ?? 0
+  const mcpMissing = report.mcpMissing ?? 0
+  if (mcpChanged > 0) parts.push(`${mcpChanged} MCP ${mcpChanged === 1 ? 'server' : 'servers'} updated`)
+  if (mcpMissing > 0) {
+    parts.push(`${mcpMissing} MCP ${mcpMissing === 1 ? 'server is' : 'servers are'} no longer in this source`)
   }
   const line = `Synced · ${parts.join(' · ')}`
   if (report.failures.length === 0) return line

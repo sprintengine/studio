@@ -34,8 +34,21 @@ export type SpecialistActionId = string
 export type McpClientTarget = AgentCli
 export type McpTransport = 'stdio' | 'http' | 'sse'
 export type McpScope = 'workspace' | 'user'
-export type McpServerSource = 'bundled' | 'custom'
+// These MCP shapes are the twin of the ones in src/shared/electron-api.ts (the
+// renderer re-exports them from here, the IPC contract declares them there);
+// they are structurally identical on purpose and must be changed together.
+// 'source' — a server a source installed, owned by Sync — arrived with
+// backlog/2026-09-06-mcp-installs-carry-source-provenance.md.
+export type McpServerSource = 'bundled' | 'custom' | 'source'
 export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
+
+export type McpServerSourceRef = {
+  sourceId: string
+  itemId: string
+  commitSha: string
+  /** Set by a sync that no longer found `itemId` in the source. */
+  missing?: boolean
+}
 
 export type McpServerConfig = {
   id: string
@@ -54,6 +67,8 @@ export type McpServerConfig = {
   clients: McpClientTarget[]
   scope: McpScope
   source: McpServerSource
+  /** Present exactly when `source` is 'source'; see McpServerSourceRef. */
+  sourceRef?: McpServerSourceRef
   riskLevel: McpRiskLevel
   auth?: string
   capabilities?: string[]

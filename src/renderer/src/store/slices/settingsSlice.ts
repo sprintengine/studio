@@ -4,6 +4,7 @@ import {
   isNoRolesRosterRef,
 } from '../../../../shared/sprintengine/run-types'
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
+import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
@@ -181,7 +182,13 @@ export function normalizeMcpServer(value: unknown): McpServerConfig | null {
     .map(normalizeMcpId)
     .filter(Boolean)
   const scope = candidate.scope === 'user' ? 'user' : 'workspace'
-  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
+  // Provenance survives the round trip through the store, or Sync loses track
+  // of every server a source installed the moment the app restarts. A 'source'
+  // server without a usable reference is a hand-maintained one — 'custom' —
+  // which is also what keeps a sync off entries it never wrote
+  // (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+  const sourceRef = normalizeMcpSourceRef(candidate.sourceRef)
+  const source = candidate.source === 'source' && sourceRef ? 'source' : candidate.source === 'custom' || candidate.source === 'source' ? 'custom' : 'bundled'
   const riskLevel = (
     candidate.riskLevel === 'network'
     || candidate.riskLevel === 'local-command'
@@ -210,6 +217,7 @@ export function normalizeMcpServer(value: unknown): McpServerConfig | null {
     clients,
     scope,
     source,
+    ...(source === 'source' && sourceRef ? { sourceRef } : {}),
     riskLevel,
   }
 }

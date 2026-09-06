@@ -910,8 +910,31 @@ export type CliInstallResult = {
 export type McpClientTarget = AgentCli
 export type McpTransport = 'stdio' | 'http' | 'sse'
 export type McpScope = 'workspace' | 'user'
-export type McpServerSource = 'bundled' | 'custom'
+// 'source' is a server a *source* installed (backlog/2026-09-05-plugin-sources.md,
+// "Provenance"): it is neither bundled with the app nor typed by hand, and Sync
+// owns it. The distinction is what lets a sync overwrite exactly what it wrote
+// and nothing else — the same rule `.multicode-skill.json` gives skills.
+export type McpServerSource = 'bundled' | 'custom' | 'source'
 export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
+
+/**
+ * Which source installed a server, which of its items it is, and the commit its
+ * declaration was read at. A config carrying this is `source: 'source'`; one
+ * without it can never be, so nothing a person typed is ever taken over by a
+ * sync.
+ */
+export type McpServerSourceRef = {
+  sourceId: string
+  /** The `ScannedMcpServer.id` in that source's scan. */
+  itemId: string
+  commitSha: string
+  /**
+   * Set by a sync that re-read the source and no longer found `itemId`. The
+   * entry stays and keeps working; the surface says it is no longer in its
+   * source rather than deleting a server someone is using.
+   */
+  missing?: boolean
+}
 
 export type McpServerConfig = {
   id: string
@@ -930,6 +953,8 @@ export type McpServerConfig = {
   clients: McpClientTarget[]
   scope: McpScope
   source: McpServerSource
+  /** Present exactly when `source` is 'source'; see McpServerSourceRef. */
+  sourceRef?: McpServerSourceRef
   riskLevel: McpRiskLevel
   auth?: string
   capabilities?: string[]
@@ -1240,7 +1265,18 @@ export type SkillUninstallOutcome =
   | { ok: false; message: string }
 
 /** The workspace whose installed copies get re-copied; null with no workspace open. */
-export type SkillSyncSourceInput = { sourceId: string; workspaceRoot: string | null }
+export type SkillSyncSourceInput = {
+  sourceId: string
+  workspaceRoot: string | null
+  /**
+   * The MCP servers this machine has configured. Sent in because MCP settings
+   * live in the renderer's store, not on disk in main: the sync rewrites the
+   * ones this source installed and hands them back for the surface to apply
+   * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md). Omitted by a
+   * caller that has none, which refreshes skills and nothing else.
+   */
+  mcpServers?: McpServerConfig[]
+}
 
 export type SkillSyncFailure = { skillId: string; message: string }
 
@@ -1262,6 +1298,13 @@ export type SkillSyncSourceOutcome =
       refreshed: number
       /** Installed skills whose re-copy failed; the list still refreshed. */
       failures: SkillSyncFailure[]
+      /**
+       * The source-installed MCP servers as they now stand: `updated` is what
+       * to write back, `changed` the ones whose declaration really moved, and
+       * `missing` the ones this source no longer declares (their entries stay,
+       * marked, and go on working).
+       */
+      mcpServers: { updated: McpServerConfig[]; changed: string[]; missing: string[] }
     }
   | { ok: false; message: string }
 

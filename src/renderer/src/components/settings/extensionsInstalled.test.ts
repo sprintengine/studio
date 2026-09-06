@@ -14,9 +14,11 @@ import {
   mcpToInstalled,
   modulesToInstalled,
   skillsToInstalled,
+  NO_LONGER_IN_SOURCE,
   type ExtensionsInstalledInput,
   type LoadedSource,
 } from './extensionsInstalled'
+import { installedRowSourceId } from '../workspace/globalSurface/extensions/catalogue/installedGroups'
 
 // The Installed inventory is the single canonical surface across four
 // primitives, so the mapping must read real state (trust, enablement,
@@ -108,6 +110,47 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.deepEqual(rows[0].chips, ['MCP server'], 'transport stays off the row face')
   assert.deepEqual(rows[1].chips, ['MCP server'], 'provenance carries no chip')
   assert.equal(rows[0].key, 'mcp:context7')
+  assert.equal(rows[0].sourceId, undefined, 'a server nothing installed claims no source')
+}
+
+// A server a source installed carries that source on the row, which is what
+// groups it under the source's heading on the Installed tab; and a source that
+// has stopped declaring it earns the one state a person can act on
+// (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+{
+  const ref = { sourceId: 'github:acme/plugins', itemId: 'context7', commitSha: 'b81f77a' }
+  const [fromSource] = mcpToInstalled([mcp({ source: 'source', sourceRef: ref })])
+  assert.equal(fromSource.sourceId, 'github:acme/plugins')
+  assert.deepEqual(fromSource.chips, ['MCP server'], 'a healthy source-installed server reads like any other')
+
+  const [gone] = mcpToInstalled([mcp({ source: 'source', sourceRef: { ...ref, missing: true } })])
+  assert.equal(gone.missingFromSource, true)
+  assert.deepEqual(gone.chips, ['MCP server'], 'the state rides the row\u2019s state line, where it fits and can be read')
+  assert.equal(NO_LONGER_IN_SOURCE, 'No longer in source')
+  assert.equal(gone.sourceId, 'github:acme/plugins', 'and it stays under the source it came from')
+  assert.equal(gone.enabled, true, 'the server keeps working; only the row says something changed')
+
+  // The row's own provenance beats the receipts, which is the only thing that
+  // knows about a server added from a source's MCP row (no plugin, no receipt).
+  assert.equal(installedRowSourceId(gone, []), 'github:acme/plugins')
+  assert.equal(
+    installedRowSourceId({ ...gone, sourceId: undefined }, [
+      {
+        workspaceRoot: '/repo',
+        sourceId: 'github:other/plugins',
+        pluginId: 'docs',
+        pluginName: 'Docs',
+        marketplaceName: '',
+        claudePluginKey: '',
+        skillDirNames: [],
+        mcpServerIds: ['context7'],
+        commitSha: '',
+        installedAt: '',
+      },
+    ]),
+    'github:other/plugins',
+    'and the receipts still answer for everything that carries none',
+  )
 }
 
 {

@@ -33,6 +33,15 @@ export const EXTENSION_KIND_LABEL: Record<ExtensionKind, string> = {
 
 const GROUP_ORDER: ExtensionKind[] = ['mcp', 'skill', 'cli', 'module']
 
+/**
+ * The row state for a server whose source has stopped declaring it. It rides
+ * the row's state LINE rather than a chip: the inventory's name column is
+ * narrow, and a second chip there pushes the server's own name out of the row
+ * and then clips itself — a state nobody can finish reading, on a row that no
+ * longer says what it is about.
+ */
+export const NO_LONGER_IN_SOURCE = 'No longer in source'
+
 // One row in the aggregated inventory. `trust` is only carried by capability
 // modules (the security axis the trust dot encodes); `enabled` is tri-state —
 // true/false where the primitive has an enable concept (MCP servers, modules),
@@ -45,6 +54,15 @@ export type InstalledExtension = {
   kind: ExtensionKind
   /** Provenance: 'Bundled' | 'User' | 'Custom'. */
   source: string
+  /**
+   * The source that installed this row, when the row itself knows — an MCP
+   * server carries its own `sourceRef`, where a skill's provenance lives in the
+   * install receipt. Read by `groupInstalledBySource`, which prefers it over
+   * the receipts.
+   */
+  sourceId?: string
+  /** That source has stopped declaring it; the row says so, and it keeps working. */
+  missingFromSource?: boolean
   trust?: ModuleTrustStatus
   enabled?: boolean
   /** Human one-line summary (catalog description, module summary, skill description). */
@@ -113,6 +131,9 @@ function sourceLabel(source: string | undefined): string {
       return 'User'
     case 'custom':
     case 'third-party':
+    // A source-installed server is grouped under its source by id; this label
+    // only ever shows if that source is gone from the list entirely.
+    case 'source':
       return 'Custom'
     default:
       return 'Bundled'
@@ -126,10 +147,16 @@ export function mcpToInstalled(servers: McpServerConfig[]): InstalledExtension[]
     name: server.name,
     kind: 'mcp' as const,
     source: sourceLabel(server.source),
+    ...(server.sourceRef ? { sourceId: server.sourceRef.sourceId } : {}),
+    ...(server.sourceRef?.missing === true ? { missingFromSource: true } : {}),
     enabled: server.enabled,
     summary: server.description,
     // Transport is plumbing and provenance is not a decision: neither earns a
-    // chip (`source` stays on the record for the icon lookup).
+    // chip (`source` stays on the record for the icon lookup). A sync having
+    // found the server gone from its source IS a state — the entry still works,
+    // and saying nothing would leave a person believing Sync still maintains it
+    // — but it rides the state line, not a chip
+    // (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
     chips: [EXTENSION_KIND_LABEL.mcp],
   }))
 }

@@ -834,6 +834,53 @@ async function main(): Promise<void> {
   assert.match(connectorCodexConfig, /\[mcp_servers\.railway\]/, 'connector server must be written to codex config')
   assert.match(connectorCodexConfig, /\[profiles\.default\]/, 'unrelated codex config must be preserved through a connector-scoped prune')
   assert.match(connectorCodexConfig, /model = "gpt-5-codex"/, 'unrelated codex config must be preserved through a connector-scoped prune')
+
+  await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
+}
+
+/**
+ * A server a source installed is written into the CLI's config like any other,
+ * and comes back out of normalization still saying which source owns it — the
+ * sync normalizes every server it is handed, and a `source` flattened to
+ * `bundled` there is a Sync that can no longer find what it installed
+ * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+ */
+async function sourceInstalledServerSyncsAndKeepsItsProvenance(
+  service: ReturnType<typeof createMcpConfigService>,
+  temp: string
+): Promise<void> {
+  const { normalizeMcpServerConfig } = await import('./mcp-config-service')
+  const root = join(temp, 'source-owned')
+  await mkdir(root, { recursive: true })
+  const sourceRef = { sourceId: 'github:acme/plugins', itemId: 'context7', commitSha: 'b81f77a' }
+  const settings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      context7: {
+        id: 'context7',
+        name: 'Context7',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@upstash/context7-mcp'],
+        enabled: true,
+        clients: ['claude-code'],
+        scope: 'workspace',
+        source: 'source',
+        sourceRef,
+        riskLevel: 'local-command',
+      },
+    },
+  }
+  const result = service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
+  assert.equal(result.ok, true, 'a source-owned server is a valid server to sync')
+  const written = JSON.parse(await readFile(join(root, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, { command?: string }>
+  }
+  assert.equal(written.mcpServers.context7?.command, 'npx', 'and lands in the CLI config like any other')
+
+  const normalized = normalizeMcpServerConfig(settings.servers.context7)
+  assert.equal(normalized?.source, 'source', 'normalization must not flatten it to bundled')
+  assert.deepEqual(normalized?.sourceRef, sourceRef)
 }
 
 main().catch((error) => {

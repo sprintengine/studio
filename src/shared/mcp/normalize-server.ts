@@ -6,13 +6,20 @@
 // these) and node-free shared consumers (the marketplace registry validator)
 // apply identical rules. Do not add fs/electron/path dependencies here.
 
-import type { McpClientTarget, McpRiskLevel, McpScope, McpServerConfig } from '../electron-api'
+import type {
+  McpClientTarget,
+  McpRiskLevel,
+  McpScope,
+  McpServerConfig,
+  McpServerSource,
+  McpServerSourceRef,
+} from '../electron-api'
 
 export type McpServerNormalizationOptions = {
   clients?: McpClientTarget[]
   enabled?: boolean
   scope?: McpScope
-  source?: 'bundled' | 'custom'
+  source?: McpServerSource
   riskLevel?: McpRiskLevel
 }
 
@@ -41,6 +48,7 @@ export function normalizeMcpServerConfig(
 
 export function normalizeServer(server: McpServerConfig): McpServerConfig | null {
   const id = sanitizeId(server.id)
+  const sourceRef = normalizeMcpSourceRef(server.sourceRef)
   if (!id) return null
   const clients = normalizeMcpClients(server.clients)
   if (clients.length === 0) return null
@@ -60,13 +68,40 @@ export function normalizeServer(server: McpServerConfig): McpServerConfig | null
     headers: normalizeStringRecord(server.headers),
     clients,
     scope: server.scope === 'user' ? 'user' : 'workspace',
-    source: server.source === 'custom' ? 'custom' : 'bundled',
+    // A server is 'source'-owned only while it carries the reference a sync
+    // needs; strip the reference and it is a config someone now maintains by
+    // hand, which is exactly 'custom'. That invariant — source implies ref, ref
+    // implies source — is what stops a sync from hunting for an item id no
+    // source names, and stops a hand-typed entry from being taken over.
+    source: sourceOf(server.source, sourceRef),
+    sourceRef: server.source === 'source' ? sourceRef : undefined,
     riskLevel: server.riskLevel === 'network' || server.riskLevel === 'local-command' || server.riskLevel === 'secrets' ? server.riskLevel : 'low',
     category: normalizeOptionalString(server.category),
     auth: normalizeOptionalString(server.auth),
     capabilities: normalizeStringArray(server.capabilities),
     sourceUrl: normalizeOptionalString(server.sourceUrl),
   }
+}
+
+/**
+ * A provenance reference is only usable if it names both the source and the
+ * item: a half-written one would have a sync matching on '' and claiming
+ * servers it never installed. The commit may be '' — a folder source has no
+ * commit to pin, and that is not a reason to disown the entry.
+ */
+export function normalizeMcpSourceRef(value: unknown): McpServerSourceRef | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const candidate = value as Partial<McpServerSourceRef>
+  const sourceId = typeof candidate.sourceId === 'string' ? candidate.sourceId.trim() : ''
+  const itemId = typeof candidate.itemId === 'string' ? candidate.itemId.trim() : ''
+  const commitSha = typeof candidate.commitSha === 'string' ? candidate.commitSha.trim() : ''
+  if (!sourceId || !itemId) return undefined
+  return { sourceId, itemId, commitSha, ...(candidate.missing === true ? { missing: true } : {}) }
+}
+
+function sourceOf(source: McpServerSource | undefined, sourceRef: McpServerSourceRef | undefined): McpServerSource {
+  if (source === 'source') return sourceRef ? 'source' : 'custom'
+  return source === 'custom' ? 'custom' : 'bundled'
 }
 
 export function normalizeStringRecord(value: unknown): Record<string, string> | undefined {

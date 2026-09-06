@@ -12,13 +12,19 @@
 // file's blob SHA before writing) named there for the day it bites. It does not
 // extend across sources — what a sync may overwrite is what that same source
 // installed, proven by the provenance marker install writes.
+//
+// The MCP servers a source installed follow the same shape, at the bottom of
+// this file: the marker there is `McpServerConfig.sourceRef`, and because MCP
+// settings live in the renderer's store the rule is pure and the surface
+// applies its result.
 
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { SkillHarness } from '../../shared/electron-api'
+import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
+import { isOwnedBySource, mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
-import { skillDirName, type ScanResult, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import { scanMcpServers, skillDirName, type ScanResult, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
 import { installSkill, readSkillProvenance } from './install'
 
 export type SkillSyncChanges = { added: string[]; removed: string[] }
@@ -124,4 +130,102 @@ export async function refreshInstalledSkills(options: {
     else failures.push({ skillId: skill.id, message: result.message })
   }
   return { refreshed, failures }
+}
+
+// ── MCP servers ─────────────────────────────────────────────────────────────
+
+/**
+ * What a sync means for the MCP servers a source installed
+ * (backlog/2026-09-05-plugin-sources.md, "Sync and updates").
+ *
+ * `updated` is every entry the caller should write back — MCP settings live in
+ * the renderer's store, so this rule is pure and the surface applies it, the
+ * same split the install already uses.
+ */
+export type McpSourceRefresh = {
+  updated: McpServerConfig[]
+  /** Ids whose declaration really moved — what the sync line may claim. */
+  changed: string[]
+  /** Ids the source no longer declares; their entries stay, marked. */
+  missing: string[]
+}
+
+/**
+ * Re-write the servers this source installed from its refreshed scan.
+ *
+ * Three rules, and each is the MCP twin of one the skill re-copy already
+ * follows:
+ *
+ *  - Only entries whose `sourceRef` names THIS source are touched. A
+ *    hand-typed server and one from another source are left exactly as they
+ *    are, even when the ids collide — the provenance marker is the proof, not
+ *    the name.
+ *  - A server the source has stopped declaring keeps its entry and is marked
+ *    `missing`, so it goes on working and the row can say it is no longer in
+ *    its source. Deleting a server someone's agents are using because a
+ *    repository moved on is not an update, it is data loss.
+ *  - What the person chose is kept over what the source declares: `enabled`,
+ *    the CLIs it targets, its scope, and any env value already filled in. A
+ *    source ships env *defaults*; the value in the config can be the token the
+ *    person typed, and a refresh must not wipe it.
+ */
+export function refreshSourceMcpServers(input: {
+  sourceId: string
+  servers: readonly McpServerConfig[]
+  scan: ScanResult
+  /** The commit the refreshed scan was taken at; stamped on every entry it rewrites. */
+  commitSha: string
+}): McpSourceRefresh {
+  const declared = new Map(scanMcpServers(input.scan).map((server) => [server.id, server]))
+  const updated: McpServerConfig[] = []
+  const changed: string[] = []
+  const missing: string[] = []
+  for (const server of input.servers) {
+    if (!isOwnedBySource(server, input.sourceId)) continue
+    const itemId = server.sourceRef?.itemId ?? ''
+    const scanned = declared.get(itemId)
+    if (!scanned) {
+      if (server.sourceRef?.missing === true) continue
+      missing.push(server.id)
+      updated.push({ ...server, sourceRef: { ...server.sourceRef!, missing: true } })
+      continue
+    }
+    const fresh = mcpServerConfigFromScanned(scanned, server.clients, {
+      sourceId: input.sourceId,
+      itemId,
+      commitSha: input.commitSha,
+    })
+    const next: McpServerConfig = {
+      ...fresh,
+      // The id is the entry's identity in the settings map; a source that
+      // renames its server would otherwise orphan the old entry rather than
+      // update it.
+      id: server.id,
+      enabled: server.enabled,
+      required: server.required,
+      scope: server.scope,
+      env: { ...fresh.env, ...server.env },
+    }
+    if (declarationChanged(server, next)) changed.push(server.id)
+    updated.push(next)
+  }
+  return { updated, changed, missing }
+}
+
+/** Everything a source declares, ignoring the parts the person owns. */
+function declarationChanged(before: McpServerConfig, after: McpServerConfig): boolean {
+  const shape = (server: McpServerConfig): string =>
+    JSON.stringify([
+      server.name,
+      server.description ?? '',
+      server.transport,
+      server.command ?? '',
+      server.args ?? [],
+      server.url ?? '',
+      server.env ?? {},
+      server.envVarNames ?? [],
+      server.headers ?? {},
+      server.riskLevel,
+    ])
+  return shape(before) !== shape(after)
 }

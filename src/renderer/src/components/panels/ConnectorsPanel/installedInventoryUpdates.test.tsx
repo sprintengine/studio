@@ -334,7 +334,118 @@ async function main(): Promise<void> {
   }
   console.log('ok - the Skills surface carries no update banner or detection')
 
+  await sourceOwnedServersNameTheirSourceAndSayWhenTheyLeaveIt()
+
   console.log('installed inventory updates: all assertions passed')
+}
+
+/**
+ * The Installed tab, source-grouped: a server a source installed sits under
+ * that source's heading, and one the source has stopped declaring keeps its row
+ * — still listed, still enabled — and says so
+ * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+ */
+async function sourceOwnedServersNameTheirSourceAndSayWhenTheyLeaveIt(): Promise<void> {
+  const React = await import('react')
+  const { act } = React
+  const { createRoot } = await import('react-dom/client')
+  const { InstalledExtensionsInventory } = await import('./InstalledExtensionsInventory')
+
+  const ref = { sourceId: 'github:acme/plugins', itemId: 'context7', commitSha: 'b81f77a' }
+  const mcpServers = [
+    {
+      id: 'context7',
+      name: 'Context7',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@upstash/context7-mcp'],
+      enabled: true,
+      clients: ['claude-code'],
+      scope: 'workspace',
+      source: 'source',
+      sourceRef: ref,
+      riskLevel: 'local-command',
+    },
+    {
+      id: 'departed',
+      name: 'Departed',
+      transport: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+      enabled: true,
+      clients: ['claude-code'],
+      scope: 'workspace',
+      source: 'source',
+      sourceRef: { ...ref, itemId: 'departed', missing: true },
+      riskLevel: 'local-command',
+    },
+    {
+      id: 'typed-by-hand',
+      name: 'Typed by hand',
+      transport: 'stdio',
+      command: 'node',
+      args: ['mine.js'],
+      enabled: true,
+      clients: ['claude-code'],
+      scope: 'workspace',
+      source: 'custom',
+      riskLevel: 'local-command',
+    },
+  ]
+  const sources = [
+    {
+      id: 'github:acme/plugins',
+      kind: 'github',
+      name: 'acme/plugins',
+      repo: 'acme/plugins',
+      monogram: 'AP',
+      blurb: '',
+      commitSha: 'b81f77a',
+      scannedAt: '',
+    },
+  ]
+
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.append(host)
+  const root = createRoot(host)
+  await act(async () => {
+    root.render(
+      React.createElement(InstalledExtensionsInventory, {
+        mcpServers: mcpServers as never,
+        moduleOverrides: {},
+        workspaceRoot: '/repo',
+        kinds: ['mcp'],
+        sourceGrouping: { sources, records: [] } as never,
+        mcpSettings: { syncEnabled: true, servers: {} } as never,
+      }),
+    )
+  })
+  for (let i = 0; i < 6; i += 1) {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  const text = host.textContent ?? ''
+  assert.match(text, /acme\/plugins/, 'a source-installed server is listed under the source it came from')
+  assert.match(text, /Added on this machine/, 'and a hand-typed one keeps its own provenance heading')
+  // On the state line, beside the state it is still in — not as a second chip:
+  // the name column is narrow, and a chip there pushes the server's own name
+  // out of the row and clips itself.
+  assert.match(text, /Active · No longer in source/, 'a server its source dropped says so on its state line')
+  assert.match(text, /Departed/, 'and is still listed rather than deleted')
+  assert.equal(
+    (text.match(/No longer in source/g) ?? []).length,
+    1,
+    'only the server that actually left says it',
+  )
+  // The state is on the row that lost its source, not on the group.
+  const rows = [...host.querySelectorAll('*')].filter(
+    (node) => (node.textContent ?? '').includes('No longer in source'),
+  )
+  assert.ok(rows.length > 0)
+  root.unmount()
+  console.log('ok - installed MCP servers name their source, and one that left it says so')
 }
 
 void main().then(
