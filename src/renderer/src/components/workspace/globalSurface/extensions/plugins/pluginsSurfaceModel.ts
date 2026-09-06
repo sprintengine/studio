@@ -216,9 +216,15 @@ export type HarnessPlanLine = { harness: SkillHarness; label: string; line: stri
 
 /**
  * The per-harness sentence the pane shows BEFORE install, from the same rule
- * the installer applies: Claude Code enables a marketplace plugin natively;
- * every other harness gets the skills; a harness with nothing to receive is
- * told so rather than shown a blank.
+ * the installer applies: every harness gets the skills and the MCP servers,
+ * and a harness with nothing to receive is told so rather than shown a blank.
+ *
+ * Claude Code's row says the same thing as the others, plus the two things
+ * only it has: the components this app does not write for it, and the settings
+ * keys it does. It used to claim a native load — "Claude Code loads its
+ * commands, agents, hooks, MCP servers and language servers itself" — which
+ * measurement showed to be false, and which was the visible half of
+ * backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md.
  */
 export function describeInstallPlan(input: {
   plugin: ScannedPlugin
@@ -234,31 +240,43 @@ export function describeInstallPlan(input: {
       line: 'Known once the plugin has been read.',
     }))
   }
-  const native = input.marketplaceName !== '' && input.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
+  const keyWritten = input.marketplaceName !== '' && input.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
   const skills = plugin.components.skills.length
   const claudeOnly = claudeOnlyComponents(plugin)
   return input.harnesses.map((harness) => {
-    if (harness === 'claude' && native) {
-      return {
-        harness,
-        label: HARNESS_LABEL[harness],
-        line: `Enabled as ${plugin.id}@${input.marketplaceName} in this workspace's .claude/settings.json. Claude Code loads its commands, agents, hooks, MCP servers and language servers itself.`,
-      }
-    }
+    const claude = harness === 'claude'
     const parts: string[] = []
     if (skills > 0) parts.push(`${skills} ${skills === 1 ? 'skill' : 'skills'} copied into ${harnessDir(harness)}/skills`)
     if (plugin.components.mcpServers.length > 0) {
       parts.push(`${plugin.components.mcpServers.length} MCP ${plugin.components.mcpServers.length === 1 ? 'server' : 'servers'} added to MCP settings`)
     }
+    // What is NOT written, in the words each harness deserves: no equivalent
+    // exists elsewhere, whereas Claude Code has all four and this app simply
+    // does not write them for it.
+    const unsupported = claudeOnly
+      ? claude
+        ? ` Its ${claudeOnly} are not installed — Claude Code loads those only from a plugin \`claude plugin install\` put in its own cache.`
+        : ` Its ${claudeOnly} have no equivalent here.`
+      : ''
+    // Self-contained: a plugin with no commands, agents or hooks has no
+    // preceding clause for "that command" to refer back to, so the sentence
+    // names the command itself.
+    const key =
+      claude && keyWritten
+        ? ` .claude/settings.json also names ${plugin.id}@${input.marketplaceName}, for a \`claude plugin install\` you run yourself.`
+        : ''
     if (parts.length === 0) {
-      return {
-        harness,
-        label: HARNESS_LABEL[harness],
-        line: claudeOnly ? `Nothing to install. Its ${claudeOnly} are Claude Code-format and have no equivalent here.` : 'Nothing to install.',
-      }
+      // "Nothing is copied" rather than "Nothing to install" for Claude Code:
+      // the settings key IS written, so a flat "nothing" would be the third
+      // false claim on this row.
+      const nothing = claude
+        ? `Nothing is copied.${unsupported}`
+        : claudeOnly
+          ? `Nothing to install. Its ${claudeOnly} are Claude Code-format and have no equivalent here.`
+          : 'Nothing to install.'
+      return { harness, label: HARNESS_LABEL[harness], line: `${nothing}${key}` }
     }
-    const tail = claudeOnly ? ` Its ${claudeOnly} have no equivalent here.` : ''
-    return { harness, label: HARNESS_LABEL[harness], line: `${parts.join('; ')}.${tail}` }
+    return { harness, label: HARNESS_LABEL[harness], line: `${parts.join('; ')}.${unsupported}${key}` }
   })
 }
 
@@ -302,14 +320,12 @@ export function derivePluginInstallAvailability(
 
 /** One line for what an install did, per harness, in the installer's own words. */
 export function summarizePluginInstall(outcome: {
-  harnesses: readonly { harness: SkillHarness; mode: 'native' | 'skills' | 'nothing'; skillDirNames: string[] }[]
+  harnesses: readonly { harness: SkillHarness; mode: 'skills' | 'nothing'; skillDirNames: string[] }[]
   mcpServers: readonly unknown[]
   warnings: readonly string[]
 }): string {
   const parts: string[] = []
-  const native = outcome.harnesses.filter((h) => h.mode === 'native')
   const skills = outcome.harnesses.filter((h) => h.mode === 'skills' && h.skillDirNames.length > 0)
-  if (native.length > 0) parts.push(`enabled in ${native.map((h) => HARNESS_LABEL[h.harness]).join(', ')}`)
   if (skills.length > 0) {
     const count = Math.max(...skills.map((h) => h.skillDirNames.length))
     parts.push(`${count} ${count === 1 ? 'skill' : 'skills'} copied for ${skills.map((h) => HARNESS_LABEL[h.harness]).join(', ')}`)

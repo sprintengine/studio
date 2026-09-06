@@ -836,6 +836,7 @@ async function main(): Promise<void> {
   assert.match(connectorCodexConfig, /model = "gpt-5-codex"/, 'unrelated codex config must be preserved through a connector-scoped prune')
 
   await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
+  await aForgottenServerLeavesTheConfig(service, temp)
 }
 
 /**
@@ -881,6 +882,74 @@ async function sourceInstalledServerSyncsAndKeepsItsProvenance(
   const normalized = normalizeMcpServerConfig(settings.servers.context7)
   assert.equal(normalized?.source, 'source', 'normalization must not flatten it to bundled')
   assert.deepEqual(normalized?.sourceRef, sourceRef)
+}
+
+/**
+ * Uninstalling a plugin forgets its server in settings, and the workspace's own
+ * config has to lose it too. A server is pruned only while the settings still
+ * name it, so a caller that has already dropped one says so with
+ * `forgetServerIds` — without which an uninstalled plugin's server stayed in
+ * `.mcp.json` for good
+ * (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+ */
+async function aForgottenServerLeavesTheConfig(
+  service: ReturnType<typeof createMcpConfigService>,
+  temp: string
+): Promise<void> {
+  const root = join(temp, 'forgotten')
+  await mkdir(root, { recursive: true })
+  const settings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      telegram: {
+        id: 'telegram',
+        name: 'telegram',
+        transport: 'stdio',
+        command: 'bun',
+        args: ['run', 'start'],
+        enabled: true,
+        clients: ['claude-code'],
+        scope: 'workspace',
+        source: 'source',
+        riskLevel: 'local-command',
+      },
+      keeper: {
+        id: 'keeper',
+        name: 'keeper',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'keeper'],
+        enabled: true,
+        clients: ['claude-code'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'local-command',
+      },
+    },
+  }
+  assert.equal(service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] }).ok, true)
+  const path = join(root, '.mcp.json')
+  const before = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(Object.keys(before.mcpServers).sort(), ['keeper', 'telegram'])
+
+  // What the uninstall does: the server is gone from settings, and named here.
+  const remaining: McpSettings = { syncEnabled: true, servers: { keeper: settings.servers.keeper } }
+  const after = service.sync({
+    workspaceRoot: root,
+    settings: remaining,
+    clients: ['claude-code'],
+    forgetServerIds: ['telegram'],
+  })
+  assert.equal(after.ok, true)
+  const written = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(Object.keys(written.mcpServers), ['keeper'], 'the forgotten server is gone, the other stays')
+
+  // Without it, the same sync leaves the entry behind — which is the bug.
+  service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
+  const restored = service.sync({ workspaceRoot: root, settings: remaining, clients: ['claude-code'] })
+  assert.equal(restored.ok, true)
+  const stale = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(Object.keys(stale.mcpServers).sort(), ['keeper', 'telegram'])
 }
 
 main().catch((error) => {

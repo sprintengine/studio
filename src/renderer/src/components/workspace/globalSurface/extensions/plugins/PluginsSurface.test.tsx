@@ -96,10 +96,19 @@ function pane(over: Partial<PluginDetailPaneProps> = {}): string {
 run('the pane discloses hook commands verbatim and withholds Install until acknowledged', () => {
   const markup = pane()
   assert.ok(markup.includes('PreToolUse on Edit|Write: node &quot;${CLAUDE_PLUGIN_ROOT}/hooks/check.js&quot;'), 'the command, verbatim')
-  assert.ok(markup.includes('runs a command on your machine'), 'the warning names what happens')
+  assert.ok(markup.includes('declares a hook command'), 'the warning names what the plugin carries')
+  assert.ok(markup.includes('Installing here copies no hooks'), 'and what an install here does with it')
   assert.ok(markup.includes('type="checkbox"'), 'acknowledgement is a real checkbox')
   assert.ok(/<button[^>]*disabled=""[^>]*>Install to this workspace<\/button>/.test(markup), 'Install is disabled')
-  assert.ok(markup.includes('Enabled as security-guidance@claude-plugins-official'), 'Claude Code gets native enablement')
+  // The Claude Code row: no native-load claim, the settings key named as the
+  // extra it is, and the hooks stated as not installed rather than implied
+  // (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+  assert.equal(markup.includes('Enabled as security-guidance@claude-plugins-official'), false)
+  assert.ok(markup.includes('Its hooks are not installed'), 'Claude Code is told what does not land')
+  assert.ok(
+    markup.includes('also names security-guidance@claude-plugins-official'),
+    'and that the settings key is written for `claude plugin install`',
+  )
   assert.ok(markup.includes('Its hooks are Claude Code-format'), 'Codex is told nothing lands')
   assert.ok(markup.includes('Open on GitHub'))
 })

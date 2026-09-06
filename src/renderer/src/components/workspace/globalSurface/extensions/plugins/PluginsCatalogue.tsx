@@ -334,7 +334,12 @@ export function PluginsCatalogue({
         if (result.mcpServerIds.length > 0) onRemoveMcpServers(result.mcpServerIds)
         setReport({
           sourceId: source.id,
-          outcome: `Removed ${record.pluginName}${result.disabledClaudePluginKey ? ` and disabled ${result.disabledClaudePluginKey}` : ''}.`,
+          outcome: [
+            `Removed ${record.pluginName}${result.disabledClaudePluginKey ? ` and disabled ${result.disabledClaudePluginKey}` : ''}.`,
+            // The copies are gone either way; a settings file that refused its
+            // edit is said here rather than swallowed.
+            ...result.warnings,
+          ].join(' '),
           error: null,
         })
         sources.refreshInstalled()

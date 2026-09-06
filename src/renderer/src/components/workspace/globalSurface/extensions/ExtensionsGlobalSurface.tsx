@@ -165,11 +165,29 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     },
     [connectors],
   )
+  /**
+   * Servers an uninstall takes back — and out of the workspace's own config.
+   *
+   * Forgetting them in settings is not enough: `mcp-config-service` prunes a
+   * server from a CLI's config only while the settings still name it, so the
+   * automatic sync that follows this change sees nothing to remove and the
+   * entry sits in `.mcp.json` after the plugin that declared it is gone. The
+   * explicit sync says which ids to forget, which is what actually deletes them
+   * (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+   */
   const removeMcpServers = useCallback(
     (serverIds: string[]) => {
+      if (serverIds.length === 0) return
+      const settings = connectors.mcpSettings
+      const servers = { ...settings.servers }
+      for (const id of serverIds) delete servers[id]
       for (const id of serverIds) removeMcpServer(id)
+      if (!activeWorkspaceRoot || !settings.syncEnabled || typeof window.api.mcpSync !== 'function') return
+      void window.api
+        .mcpSync({ workspaceRoot: activeWorkspaceRoot, settings: { ...settings, servers }, forgetServerIds: [...serverIds] })
+        .catch(() => {})
     },
-    [removeMcpServer],
+    [activeWorkspaceRoot, connectors.mcpSettings, removeMcpServer],
   )
 
   const openAddedSource = useCallback((source: SkillSource) => {

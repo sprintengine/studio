@@ -182,12 +182,20 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
           </Section>
         ) : null}
 
+        {/*
+          Not "this plugin runs a command on your machine": no harness this app
+          writes for loads a plugin's hooks, so an install here runs nothing.
+          The disclosure stays — and the acknowledgement gate with it — because
+          the workspace's .claude/settings.json names the plugin, and a
+          `claude plugin install` would make exactly these commands run
+          (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+        */}
         {plugin.componentsKnown && hooks.length > 0 ? (
           <div className="px-3 pb-3">
             <InlineNotice
               tone="warn"
-              title={`This plugin runs ${hooks.length === 1 ? 'a command' : `${hooks.length} commands`} on your machine.`}
-              hint="Hooks execute when the agent works. The commands listed above are exactly what will run, at the commit shown. Unsigned; not reviewed by Multicode."
+              title={`This plugin declares ${hooks.length === 1 ? 'a hook command' : `${hooks.length} hook commands`}.`}
+              hint="Hooks run on your machine when the agent works. Installing here copies no hooks; the commands listed above are exactly what would run, at the commit shown, if you loaded this plugin in Claude Code yourself. Unsigned; not reviewed by Multicode."
             >
               <div className="mt-2">
                 <Checkbox

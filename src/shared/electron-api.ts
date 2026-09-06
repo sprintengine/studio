@@ -1021,6 +1021,15 @@ export type McpSyncInput = {
   workspaceRoot: string
   settings: McpSettings
   clients?: McpClientTarget[]
+  /**
+   * Servers this sync must take OUT of every CLI's config, named because the
+   * settings no longer do. A server is pruned from a config only while
+   * `settings` still names it, so a caller that has just forgotten one — an
+   * uninstalled plugin's, say — has to say so here or the entry survives in
+   * `.mcp.json` for good
+   * (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+   */
+  forgetServerIds?: string[]
   managedSprintEngine?: {
     statePath: string
     workspaceRoot?: string
@@ -1354,7 +1363,8 @@ export type SkillPluginInstallInput = {
 
 export type SkillPluginInstallHarness = {
   harness: SkillHarness
-  mode: 'native' | 'skills' | 'nothing'
+  /** `skills` — skill directories copied; `nothing` — the plugin has nothing this harness reads. */
+  mode: 'skills' | 'nothing'
   skillDirNames: string[]
   message: string
 }
@@ -1366,7 +1376,11 @@ export type SkillPluginInstallOutcome =
       harnesses: SkillPluginInstallHarness[]
       /** MCP servers the plugin declares, shaped for the MCP settings store. */
       mcpServers: McpServerConfig[]
-      /** `name@marketplace` when Claude Code enabled it natively, else ''. */
+      /**
+       * `name@marketplace` written into the workspace's Claude settings, '' when
+       * none was. An extra for `claude plugin install`, never what delivered the
+       * plugin — see src/main/skills/install-plugin.ts.
+       */
       claudePluginKey: string
       warnings: string[]
     }
@@ -1375,7 +1389,14 @@ export type SkillPluginInstallOutcome =
 export type SkillPluginUninstallInput = { sourceId: string; pluginId: string; workspaceRoot: string }
 
 export type SkillPluginUninstallOutcome =
-  | { ok: true; removedPaths: string[]; disabledClaudePluginKey: string; mcpServerIds: string[] }
+  | {
+      ok: true
+      removedPaths: string[]
+      disabledClaudePluginKey: string
+      mcpServerIds: string[]
+      /** The copies went; the Claude settings file refused its edit. */
+      warnings: string[]
+    }
   | { ok: false; message: string }
 
 /** One installed plugin, as this app recorded it. */

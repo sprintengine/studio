@@ -1,21 +1,32 @@
 // Installing a plugin into a workspace (backlog/2026-09-05-plugin-sources.md,
-// "What install means, per kind and per harness").
+// "What install means, per kind and per harness"), corrected by
+// backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md.
 //
-// Three things can happen, and the result says which did:
+// Every harness is served the same way now: what this app can copy, it copies.
 //
-//  1. **Claude Code enables it natively.** When the plugin came from a
-//     marketplace on GitHub and Claude Code reads this workspace, the
-//     marketplace is registered under `extraKnownMarketplaces` and the plugin
-//     under `enabledPlugins` in `<workspace>/.claude/settings.json`. Claude
-//     Code then loads its commands, agents, hooks and MCP servers itself —
-//     the same two keys `/plugin install name@marketplace` writes. Nothing is
-//     copied for it; a second loader that drifted from Claude Code's own was
-//     the rejected alternative.
-//  2. **Every harness gets the skills.** Copied through the existing skill
-//     installer with a provenance marker, so Sync owns them afterwards.
-//  3. **The MCP servers are handed back.** MCP settings live in the renderer
-//     store and sync into each CLI's own config from there; the install
-//     returns the configs and the surface adds them.
+//  1. **The skills are copied.** Through the existing skill installer, into
+//     every harness's skill directory, each copy carrying a provenance marker
+//     so Sync owns it afterwards. Claude Code included — see below.
+//  2. **The MCP servers are handed back.** MCP settings live in the renderer
+//     store and sync into each CLI's own config from there (the workspace's
+//     `.mcp.json` for Claude Code); the install returns the configs and the
+//     surface adds them.
+//  3. **Commands, agents, hooks and language servers are not installed.** They
+//     are Claude Code's own formats and this app has no loader for them; the
+//     outcome and the pane say so rather than implying they landed.
+//
+// Claude Code used to be the exception: a plugin from a GitHub marketplace was
+// "enabled natively" by writing `extraKnownMarketplaces` and `enabledPlugins`
+// into `<workspace>/.claude/settings.json`, and nothing was copied for it.
+// Measured twice, independently, against Claude Code 2.1.263 on 2026-09-06:
+// those two keys load NOTHING on their own. A `github` marketplace also needs
+// `claude plugin marketplace add` AND `claude plugin install` — two writes to
+// another product's user-global state, which this app will not make behind a
+// person's back. So the keys stopped being the install (owner ruling,
+// 2026-09-06) and became an extra: still written where they are harmless, so a
+// person who runs `claude plugin install` themselves gets the native load too,
+// and nothing here depends on them. A settings file that cannot be written is
+// a warning beside a completed install, never a failed one.
 //
 // The settings file is merged, never replaced: only the two keys are touched,
 // only the entries this install adds, and uninstall removes only those.
@@ -25,7 +36,8 @@ import { dirname, join } from 'node:path'
 
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
 import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
-import { unreadPluginReason, type ScannedPlugin, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import { describeUnreadPlugin, type ScannedPlugin, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
 
 // The mapping is shared with the renderer's own "Add this server" row, so both
@@ -42,8 +54,8 @@ export function claudePluginKey(pluginId: string, marketplaceName: string): stri
 
 export type PluginInstallHarnessOutcome = {
   harness: SkillHarness
-  /** `native` — enabled in Claude Code's own settings; `skills` — skill dirs copied; `nothing` — the plugin has nothing this harness reads. */
-  mode: 'native' | 'skills' | 'nothing'
+  /** `skills` — skill directories copied; `nothing` — the plugin has nothing this harness reads. */
+  mode: 'skills' | 'nothing'
   skillDirNames: string[]
   message: string
 }
@@ -73,7 +85,15 @@ export type PluginInstallResult =
       harnesses: PluginInstallHarnessOutcome[]
       /** Ready for the MCP settings store; empty when the plugin declares none. */
       mcpServers: McpServerConfig[]
-      /** The `name@marketplace` key when Claude Code enabled it natively, else ''. */
+      /**
+       * The `name@marketplace` key written into the workspace's Claude
+       * settings, or '' when none was (no marketplace, no Claude Code on this
+       * machine, or the settings file refused the write). It is a courtesy for
+       * `claude plugin install`, and a de-duplicator: `listInstalledPlugins`
+       * matches it against the keys the settings enable so a plugin this app
+       * installed is not also listed as one somebody enabled by hand. Nothing
+       * about what landed on disk depends on it.
+       */
       claudePluginKey: string
       /** Failures that did not stop the install (one skill of several). */
       warnings: string[]
@@ -83,49 +103,39 @@ export type PluginInstallResult =
 export async function installPlugin(options: PluginInstallOptions): Promise<PluginInstallResult> {
   const { plugin } = options
   if (!plugin.componentsKnown) {
-    // Two different dead ends, and only one of them is the person's to clear:
-    // a linked plugin is read by opening it, while one past the scan's plugin
-    // limit is not read by anything the surface offers. Telling the second to
-    // "open it" sent people to a button that changed nothing.
+    // The last gate before anything is written, and it stays where it is: a
+    // plugin nobody has seen whole may be hiding a hooks file that failed to
+    // fetch, and installing it would slip past the hooks acknowledgement
+    // (6803a703d). The service refuses first, in these same words.
+    //
+    // The words are `describeUnreadPlugin`'s, not this file's own. It used to
+    // spell its own two cases, and once `incomplete` joined them a plugin whose
+    // files could not be fetched was told the source "lists more plugins than
+    // one scan reads" — a reason that had nothing to do with what happened.
+    return { ok: false, message: `${plugin.name} has not been read whole, so it cannot be installed. ${describeUnreadPlugin(plugin)}` }
+  }
+  if (plugin.id === STUDIO_PLUGIN_ID) {
+    // The app installs its own plugin itself, by materialising the bundled
+    // template into `.multicode/studio-plugin` and copying the skills from
+    // there (studio-plugin.ts). A catalogue install would be a SECOND copy of
+    // the same skills under a second provenance marker — and of the published
+    // template, whose `.mcp.json` and hooks still carry `__MULTICODE_*` tokens
+    // only that materialise step can fill in. The catalogue draws it as the
+    // built-in row with no Install; this refuses the same install reached any
+    // other way, such as from a hand-added source pointing at our releases
+    // repository (marketplace-plugin-install ruling, 2026-09-06).
     return {
       ok: false,
-      message:
-        unreadPluginReason(plugin) === 'unopened'
-          ? `${plugin.name} has not been read yet. Open it so its contents can be read, then install.`
-          : `${plugin.name} was not read: this source lists more plugins than one scan reads, and this one was past the limit. Its contents are unknown, so it cannot be installed.`,
+      message: `${plugin.name} is built in: the app installs and updates it in every workspace it opens, so it cannot be installed from a catalogue.`,
     }
   }
   const outcomes: PluginInstallHarnessOutcome[] = []
   const warnings: string[] = []
   const skillHarnesses: SkillHarness[] = []
-  let nativeKey = ''
 
-  // Native enablement needs a marketplace Claude Code can fetch: a name and a
-  // GitHub repository. A plugin-only repository has neither, and gets the
-  // skills copy every other harness gets.
-  const nativeEligible =
-    options.marketplaceName !== '' && options.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
   for (const harness of options.harnesses) {
-    if (harness === 'claude' && nativeEligible) {
-      const key = claudePluginKey(plugin.id, options.marketplaceName)
-      const enabled = await enableClaudePlugin({
-        workspaceRoot: options.workspaceRoot,
-        marketplaceName: options.marketplaceName,
-        marketplaceRepo: options.marketplaceRepo,
-        pluginKey: key,
-      })
-      if (!enabled.ok) return enabled
-      nativeKey = key
-      outcomes.push({
-        harness,
-        mode: 'native',
-        skillDirNames: [],
-        message: `Enabled as ${key} in ${CLAUDE_SETTINGS_RELATIVE_PATH}. Claude Code loads its commands, agents, hooks and MCP servers itself.`,
-      })
-      continue
-    }
     if (plugin.components.skills.length === 0) {
-      outcomes.push({ harness, mode: 'nothing', skillDirNames: [], message: nothingMessage(plugin) })
+      outcomes.push({ harness, mode: 'nothing', skillDirNames: [], message: nothingMessage(plugin, harness) })
       continue
     }
     skillHarnesses.push(harness)
@@ -167,18 +177,45 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
         message:
           dirs.length === 0
             ? 'No skill could be copied.'
-            : `${dirs.length} ${dirs.length === 1 ? 'skill' : 'skills'} copied. ${unsupportedComponents(plugin)}`.trim(),
+            : `${dirs.length} ${dirs.length === 1 ? 'skill' : 'skills'} copied. ${unsupportedComponents(plugin, harness)}`.trim(),
       })
     }
   }
 
-  if (nativeKey === '' && [...copiedByHarness.values()].every((dirs) => dirs.length === 0)) {
+  if ([...copiedByHarness.values()].every((dirs) => dirs.length === 0)) {
     if (plugin.components.skills.length > 0 && warnings.length > 0) {
       return { ok: false, message: warnings[0] }
     }
     if (plugin.components.mcpServers.length === 0) {
-      return { ok: false, message: `${plugin.name} has nothing the agent CLIs on this machine can use. ${nothingMessage(plugin)}` }
+      return {
+        ok: false,
+        message: `${plugin.name} has nothing the agent CLIs on this machine can use. ${nothingMessage(plugin, options.harnesses[0] ?? 'codex')}`,
+      }
     }
+  }
+
+  // The settings keys, last and by themselves: route 2 of the ruling, additive
+  // to the copy above. They are written only when Claude Code is on this
+  // machine and the plugin came from a marketplace Claude Code could fetch for
+  // itself — a name and a GitHub repository. A plugin-only repository has
+  // neither, and there is nothing to name.
+  let nativeKey = ''
+  const nativeEligible =
+    options.marketplaceName !== '' && options.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
+  if (nativeEligible && options.harnesses.includes('claude')) {
+    const key = claudePluginKey(plugin.id, options.marketplaceName)
+    const enabled = await enableClaudePlugin({
+      workspaceRoot: options.workspaceRoot,
+      marketplaceName: options.marketplaceName,
+      marketplaceRepo: options.marketplaceRepo,
+      pluginKey: key,
+    })
+    // A refusal here loses nothing that was installed: the skills are on disk
+    // and the MCP servers are about to be returned. Failing the install over an
+    // extra would be depending on it, which is the bug this file was corrected
+    // for.
+    if (enabled.ok) nativeKey = key
+    else warnings.push(enabled.message)
   }
 
   return {
@@ -210,11 +247,19 @@ export type PluginUninstallOptions = {
 }
 
 export type PluginUninstallResult =
-  | { ok: true; removedPaths: string[]; disabledClaudePluginKey: string }
+  | {
+      ok: true
+      removedPaths: string[]
+      /** The `name@marketplace` key this uninstall took back out of the settings, '' when there was none. */
+      disabledClaudePluginKey: string
+      /** The settings file refused the edit; the copies still went. */
+      warnings: string[]
+    }
   | { ok: false; message: string }
 
 export async function uninstallPlugin(options: PluginUninstallOptions): Promise<PluginUninstallResult> {
   const removedPaths: string[] = []
+  const warnings: string[] = []
   for (const dirName of options.skillDirNames) {
     const result = await uninstallSkill({
       workspaceRoot: options.workspaceRoot,
@@ -228,10 +273,13 @@ export async function uninstallPlugin(options: PluginUninstallOptions): Promise<
   if (options.marketplaceName !== '') {
     const key = claudePluginKey(options.pluginId, options.marketplaceName)
     const disabled = await disableClaudePlugin({ workspaceRoot: options.workspaceRoot, pluginKey: key })
-    if (!disabled.ok) return disabled
-    if (disabled.removed) disabledKey = key
+    // Symmetrical with install: the key is an extra, so a settings file nobody
+    // can parse is reported beside a completed uninstall rather than leaving
+    // the copies on disk with a Remove that failed.
+    if (!disabled.ok) warnings.push(disabled.message)
+    else if (disabled.removed) disabledKey = key
   }
-  return { ok: true, removedPaths, disabledClaudePluginKey: disabledKey }
+  return { ok: true, removedPaths, disabledClaudePluginKey: disabledKey, warnings }
 }
 
 // ── Claude Code settings ────────────────────────────────────────────────────
@@ -243,10 +291,15 @@ type ClaudeSettings = Record<string, unknown> & {
 
 /**
  * Register the marketplace and enable the plugin — the two keys Claude Code
- * documents for team-shared plugins. Merged into whatever the file already
- * holds: a person's own hooks, permissions and other marketplaces survive
- * byte-for-byte in meaning, and an existing marketplace entry of the same
- * name is left as they wrote it.
+ * documents for team-shared plugins. They are NOT sufficient on their own (see
+ * this file's head: measured against 2.1.263, a github marketplace also needs
+ * `claude plugin marketplace add` and `claude plugin install`), so this is the
+ * half of the handshake the app can honestly do and the copy above is what
+ * actually delivers the plugin.
+ *
+ * Merged into whatever the file already holds: a person's own hooks,
+ * permissions and other marketplaces survive byte-for-byte in meaning, and an
+ * existing marketplace entry of the same name is left as they wrote it.
  */
 export async function enableClaudePlugin(input: {
   workspaceRoot: string
@@ -280,7 +333,8 @@ export async function disableClaudePlugin(input: {
   if (!isRecord(enabled) || !(input.pluginKey in enabled)) return { ok: true, removed: false }
   delete enabled[input.pluginKey]
   // The marketplace registration stays: other plugins from it may be enabled,
-  // and a registration is harmless on its own.
+  // a person may have written it themselves, and a registration on its own
+  // loads nothing — which is the whole finding this file was corrected for.
   const written = await writeClaudeSettings(path, read.settings)
   return written.ok ? { ok: true, removed: true } : written
 }
@@ -334,23 +388,35 @@ async function writeClaudeSettings(path: string, settings: ClaudeSettings): Prom
 
 // ── Words ───────────────────────────────────────────────────────────────────
 
-function nothingMessage(plugin: ScannedPlugin): string {
-  const parts: string[] = []
-  const c = plugin.components
-  if (c.commands.length > 0) parts.push('commands')
-  if (c.agents.length > 0) parts.push('agents')
-  if (c.hooks.length > 0) parts.push('hooks')
-  if (parts.length === 0) return 'It declares no skills.'
-  return `Its ${parts.join(', ')} are Claude Code-format and have no equivalent here.`
+function nothingMessage(plugin: ScannedPlugin, harness: SkillHarness): string {
+  const parts = claudeOnlyComponents(plugin)
+  if (parts === '') return 'It declares no skills.'
+  return harness === 'claude'
+    ? `Its ${parts} are not installed: Claude Code loads those only from a plugin \`claude plugin install\` put in its own cache.`
+    : `Its ${parts} are Claude Code-format and have no equivalent here.`
 }
 
-function unsupportedComponents(plugin: ScannedPlugin): string {
+function unsupportedComponents(plugin: ScannedPlugin, harness: SkillHarness): string {
+  const parts = claudeOnlyComponents(plugin)
+  if (parts === '') return ''
+  // "No equivalent here" is true of every harness but Claude Code, which has
+  // all three — this app simply does not write them. Saying it has none would
+  // be the same false implication, pointed the other way
+  // (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+  return harness === 'claude'
+    ? `Its ${parts} are not installed: Claude Code loads those only from a plugin \`claude plugin install\` put in its own cache.`
+    : `Its ${parts} have no equivalent here.`
+}
+
+/** The component kinds only Claude Code loads, named for a sentence. */
+function claudeOnlyComponents(plugin: ScannedPlugin): string {
   const c = plugin.components
   const parts: string[] = []
   if (c.commands.length > 0) parts.push('commands')
   if (c.agents.length > 0) parts.push('agents')
   if (c.hooks.length > 0) parts.push('hooks')
-  return parts.length > 0 ? `Its ${parts.join(', ')} have no equivalent here.` : ''
+  if (c.lspServers.length > 0) parts.push('LSP servers')
+  return parts.join(', ')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

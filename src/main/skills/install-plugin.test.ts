@@ -1,6 +1,8 @@
-// Installing a plugin into a workspace: Claude Code gets the native enablement
-// keys merged into its settings, every other harness gets the skills copied,
-// and uninstall takes back exactly what install wrote and nothing else.
+// Installing a plugin into a workspace: EVERY harness gets the skills copied,
+// Claude Code included; the two Claude settings keys ride along as an extra
+// nothing depends on; and uninstall takes back exactly what install wrote and
+// nothing else
+// (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
 
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
@@ -9,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { emptyPluginComponents, type ScannedPlugin, type ScannedSkill } from '../../shared/skills'
+import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { readSkillProvenance } from './install'
 import {
   CLAUDE_SETTINGS_RELATIVE_PATH,
@@ -73,7 +76,7 @@ function plugin(over: Partial<ScannedPlugin> = {}): ScannedPlugin {
 const READ = async (_skill: ScannedSkill, file: { path: string }): Promise<Buffer> =>
   Buffer.from(`bytes of ${file.path}\n`, 'utf8')
 
-async function nativeForClaudeSkillsForOthers(): Promise<void> {
+async function claudeIsCopiedForLikeEveryOtherHarness(): Promise<void> {
   const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
   // A person's own settings must survive untouched.
   await mkdir(join(workspace, '.claude'), { recursive: true })
@@ -98,11 +101,15 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
 
   assert.equal(result.claudePluginKey, 'security-guidance@claude-plugins-official')
   const byHarness = new Map(result.harnesses.map((outcome) => [outcome.harness, outcome]))
-  assert.equal(byHarness.get('claude')?.mode, 'native')
-  assert.equal(byHarness.get('codex')?.mode, 'skills')
-  assert.deepEqual(byHarness.get('codex')?.skillDirNames, ['review'])
-  assert.equal(byHarness.get('agents')?.mode, 'skills')
-  assert.match(byHarness.get('codex')?.message ?? '', /hooks have no equivalent/)
+  for (const harness of ['claude', 'codex', 'agents'] as const) {
+    assert.equal(byHarness.get(harness)?.mode, 'skills', `${harness} is copied for`)
+    assert.deepEqual(byHarness.get(harness)?.skillDirNames, ['review'])
+  }
+  // The same components are unsupported everywhere; only Claude Code is told
+  // WHY differently, because it is the one harness that has them.
+  assert.match(byHarness.get('codex')?.message ?? '', /hooks have no equivalent here/)
+  assert.match(byHarness.get('claude')?.message ?? '', /hooks are not installed/)
+  assert.match(byHarness.get('claude')?.message ?? '', /claude plugin install/)
 
   // The settings file: merged, the other plugin and the permissions kept.
   const settings = JSON.parse(await readFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8'))
@@ -117,9 +124,9 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
     'security-guidance@claude-plugins-official',
   ])
 
-  // Skills copied for the non-native harnesses, with provenance, and NOT for
-  // Claude, which loads the plugin itself.
-  for (const dir of ['.codex', '.agents']) {
+  // Skills copied for every harness, Claude Code included, with provenance.
+  // This is the bug: `.claude/skills/review` used not to exist at all.
+  for (const dir of ['.claude', '.codex', '.agents']) {
     const root = join(workspace, dir, 'skills', 'review')
     assert.equal(await readFile(join(root, 'SKILL.md'), 'utf8'), 'bytes of SKILL.md\n')
     assert.equal(await readFile(join(root, 'reference', 'notes.md'), 'utf8'), 'bytes of reference/notes.md\n')
@@ -130,9 +137,9 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
       commitSha: '85cce03',
     })
   }
-  assert.equal(existsSync(join(workspace, '.claude', 'skills', 'review')), false)
 
-  // MCP servers come back shaped for the settings store.
+  // MCP servers come back shaped for the settings store, for Claude Code's own
+  // client among others — that is how they reach the workspace's `.mcp.json`.
   assert.equal(result.mcpServers.length, 1)
   assert.equal(result.mcpServers[0].id, 'context7')
   assert.equal(result.mcpServers[0].source, 'source', 'and say which source installed them')
@@ -140,7 +147,7 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
   assert.deepEqual(result.mcpServers[0].clients, ['claude-code', 'codex'])
 
   // Uninstall: the key goes, the marketplace registration and the other
-  // plugin stay, the copies go.
+  // plugin stay, every copy goes — `.claude/skills` included.
   const removed = await uninstallPlugin({
     workspaceRoot: workspace,
     pluginId: 'security-guidance',
@@ -151,11 +158,81 @@ async function nativeForClaudeSkillsForOthers(): Promise<void> {
   assert.equal(removed.ok, true)
   if (!removed.ok) return
   assert.equal(removed.disabledClaudePluginKey, 'security-guidance@claude-plugins-official')
-  assert.equal(removed.removedPaths.length, 2)
+  assert.deepEqual(removed.warnings, [])
+  assert.equal(removed.removedPaths.length, 3)
   const after = JSON.parse(await readFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8'))
   assert.deepEqual(Object.keys(after.enabledPlugins), ['other@elsewhere'])
   assert.ok(after.extraKnownMarketplaces['claude-plugins-official'])
-  assert.equal(existsSync(join(workspace, '.codex', 'skills', 'review')), false)
+  for (const dir of ['.claude', '.codex', '.agents']) {
+    assert.equal(existsSync(join(workspace, dir, 'skills', 'review')), false)
+  }
+}
+
+/**
+ * The keys are an extra. A settings file nobody can parse is a warning beside a
+ * completed install, because the copy is what delivers the plugin — the whole
+ * correction of 2026-09-06.
+ */
+async function theSettingsKeysAreAnExtraNothingDependsOn(): Promise<void> {
+  const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+  await mkdir(join(workspace, '.claude'), { recursive: true })
+  await writeFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), '{ "permissions": ')
+  const result = await installPlugin({
+    workspaceRoot: workspace,
+    sourceId: 's',
+    marketplaceName: 'm',
+    marketplaceRepo: 'o/r',
+    plugin: plugin(),
+    harnesses: ['claude'],
+    commitSha: 'abc',
+    readSkillFile: READ,
+    mcpClients: ['claude-code'],
+  })
+  assert.equal(result.ok, true, 'the skills still land')
+  if (!result.ok) return
+  assert.equal(existsSync(join(workspace, '.claude', 'skills', 'review', 'SKILL.md')), true)
+  assert.equal(result.claudePluginKey, '', 'no key was written, and none is claimed')
+  assert.match(result.warnings.join(' '), /not valid JSON, so it was left alone/)
+  // The file a person was mid-edit in is untouched.
+  assert.equal(await readFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8'), '{ "permissions": ')
+
+  // And the same on the way out: the copies go, the unreadable file is said.
+  const removed = await uninstallPlugin({
+    workspaceRoot: workspace,
+    pluginId: 'security-guidance',
+    marketplaceName: 'm',
+    skillDirNames: ['review'],
+    allHarnesses: ['claude'],
+  })
+  assert.equal(removed.ok, true)
+  if (!removed.ok) return
+  assert.equal(existsSync(join(workspace, '.claude', 'skills', 'review')), false)
+  assert.match(removed.warnings.join(' '), /not valid JSON/)
+}
+
+/**
+ * The app's own plugin installs itself, by materialising the bundled template
+ * and copying from that (studio-plugin.ts). A catalogue install would be a
+ * second copy of the same skills — so it is refused wherever it is reached
+ * from, not only hidden on our own tab.
+ */
+async function theAppsOwnPluginIsNeverInstalledTwice(): Promise<void> {
+  const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+  const result = await installPlugin({
+    workspaceRoot: workspace,
+    sourceId: 'github:sprintengine/studio-releases',
+    marketplaceName: 'sprintengine-studio',
+    marketplaceRepo: 'sprintengine/studio-releases',
+    plugin: plugin({ id: STUDIO_PLUGIN_ID, name: 'SprintEngine Studio' }),
+    harnesses: ['claude', 'codex'],
+    commitSha: 'abc',
+    readSkillFile: READ,
+    mcpClients: ['claude-code'],
+  })
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.match(result.message, /built in/)
+  assert.equal(existsSync(join(workspace, '.claude')), false, 'nothing was written at all')
 }
 
 async function pluginOnlyRepositoryCopiesSkillsToClaudeToo(): Promise<void> {
@@ -206,33 +283,37 @@ async function nothingToInstallIsSaidNotHidden(): Promise<void> {
     marketplaceName: 'm',
     marketplaceRepo: 'o/r',
     plugin: plugin({ componentsKnown: false, components: emptyPluginComponents() }),
-    harnesses: ['codex'],
+    // Claude Code included: the copy for it sits behind the same guard, so a
+    // plugin whose hooks file failed to fetch cannot slip past the
+    // acknowledgement by being installed for Claude Code (6803a703d).
+    harnesses: ['claude', 'codex'],
     commitSha: 'abc',
     readSkillFile: READ,
     mcpClients: [],
   })
   assert.equal(unread.ok, false)
-}
-
-async function settingsThatDoNotParseAreLeftAlone(): Promise<void> {
-  const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
-  await mkdir(join(workspace, '.claude'), { recursive: true })
-  await writeFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), '{ "permissions": ')
-  const result = await installPlugin({
+  if (unread.ok) return
+  // The shared words, not this file's own: a partly-read plugin is told which
+  // files went missing, never that the source lists too many plugins.
+  const partial = await installPlugin({
     workspaceRoot: workspace,
     sourceId: 's',
     marketplaceName: 'm',
     marketplaceRepo: 'o/r',
-    plugin: plugin({ components: emptyPluginComponents() }),
+    plugin: plugin({
+      componentsKnown: false,
+      readState: { status: 'partial', unread: ['hooks/hooks.json'] },
+      components: emptyPluginComponents(),
+    }),
     harnesses: ['claude'],
     commitSha: 'abc',
     readSkillFile: READ,
     mcpClients: [],
   })
-  assert.equal(result.ok, false)
-  if (result.ok) return
-  assert.match(result.message, /not valid JSON, so it was left alone/)
-  assert.equal(await readFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8'), '{ "permissions": ')
+  assert.equal(partial.ok, false)
+  if (partial.ok) return
+  assert.match(partial.message, /hooks\/hooks\.json could not be read/)
+  assert.equal(/lists more plugins than one scan reads/.test(partial.message), false)
 }
 
 function shapes(): void {
@@ -292,10 +373,11 @@ async function installedServersCarryTheirSource(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await nativeForClaudeSkillsForOthers()
+  await claudeIsCopiedForLikeEveryOtherHarness()
+  await theSettingsKeysAreAnExtraNothingDependsOn()
+  await theAppsOwnPluginIsNeverInstalledTwice()
   await pluginOnlyRepositoryCopiesSkillsToClaudeToo()
   await nothingToInstallIsSaidNotHidden()
-  await settingsThatDoNotParseAreLeftAlone()
   await installedServersCarryTheirSource()
   shapes()
   console.log('skills plugin install tests passed')

@@ -160,12 +160,22 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
     return { ok: false, message: blocking.message, issues }
   }
 
+  // Ids the caller has already dropped from settings and wants out of the
+  // configs. They belong to every client's known list, because a forgotten
+  // server no longer says which clients it was written for.
+  const forgottenServerIds = (input.forgetServerIds ?? [])
+    .map((id) => String(id ?? '').trim())
+    .filter((id) => id !== '' && !(id in settings.servers))
+
   const targets: McpSyncTarget[] = []
   for (const client of clients) {
     const clientServers = activeServers.filter((server) => server.clients.includes(client))
-    const knownClientServerIds = Object.values(settings.servers)
-      .filter((server) => server.clients.includes(client))
-      .map((server) => server.id)
+    const knownClientServerIds = [
+      ...Object.values(settings.servers)
+        .filter((server) => server.clients.includes(client))
+        .map((server) => server.id),
+      ...forgottenServerIds,
+    ]
     if (clientServers.length === 0 && knownClientServerIds.length === 0) continue
 
     const pluginId = pluginIdForCli(client)

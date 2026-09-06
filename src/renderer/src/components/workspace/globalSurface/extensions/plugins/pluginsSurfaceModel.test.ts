@@ -254,14 +254,36 @@ run('the install plan says per harness what will land, before it does', () => {
     harnesses: ['claude', 'codex', 'agents'],
   })
   assert.equal(plan.length, 3)
-  assert.match(plan[0].line, /Enabled as security-guidance@claude-plugins-official/)
+  // Claude Code is copied for like every other harness, and the row says the
+  // two things only it has: what is NOT written for it, and the settings key
+  // that is. It used to claim a native load that measurement disproved
+  // (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+  assert.match(plan[0].line, /1 skill copied into \.claude\/skills/)
+  assert.match(plan[0].line, /Its hooks are not installed/)
+  assert.match(
+    plan[0].line,
+    /\.claude\/settings\.json also names security-guidance@claude-plugins-official, for a `claude plugin install` you run yourself\./,
+  )
+  assert.equal(/Enabled as/.test(plan[0].line), false, 'nothing claims Claude Code loads it itself')
   assert.match(plan[1].line, /1 skill copied into \.codex\/skills/)
   assert.match(plan[1].line, /hooks have no equivalent here/)
+  assert.equal(/settings\.json/.test(plan[1].line), false, 'the key is Claude Code\u2019s row alone')
   assert.equal(plan[2].label, 'Shared agents directory')
 
-  // No marketplace: Claude gets the copy too. Hooks only: nothing, and why.
+  // No marketplace: the copy is the same, and there is no key to name.
   const noMarket = describeInstallPlan({ plugin: p, marketplaceName: '', marketplaceRepo: SOURCE.repo, harnesses: ['claude'] })
   assert.match(noMarket[0].line, /copied into \.claude\/skills/)
+  assert.equal(/settings\.json/.test(noMarket[0].line), false)
+
+  // Claude Code with nothing to copy says so, and still names the key.
+  const claudeNothing = describeInstallPlan({
+    plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+    marketplaceName: 'claude-plugins-official',
+    marketplaceRepo: SOURCE.repo,
+    harnesses: ['claude'],
+  })
+  assert.match(claudeNothing[0].line, /Nothing is copied\. Its hooks are not installed/)
+  assert.match(claudeNothing[0].line, /also names h@claude-plugins-official/)
   const hooksOnly = describeInstallPlan({
     plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
     marketplaceName: '',
@@ -310,14 +332,14 @@ run('what an install did is one line in the installer’s words', () => {
   assert.equal(
     summarizePluginInstall({
       harnesses: [
-        { harness: 'claude', mode: 'native', skillDirNames: [] },
+        { harness: 'claude', mode: 'skills', skillDirNames: ['review', 'audit'] },
         { harness: 'codex', mode: 'skills', skillDirNames: ['review', 'audit'] },
         { harness: 'agents', mode: 'skills', skillDirNames: ['review', 'audit'] },
       ],
       mcpServers: [{}],
       warnings: [],
     }),
-    'Installed: enabled in Claude Code; 2 skills copied for Codex, Shared agents directory; 1 MCP server added.',
+    'Installed: 2 skills copied for Claude Code, Codex, Shared agents directory; 1 MCP server added.',
   )
   assert.equal(summarizePluginInstall({ harnesses: [], mcpServers: [], warnings: ['x failed'] }), 'Installed. x failed')
 })
