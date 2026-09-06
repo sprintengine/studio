@@ -10,7 +10,7 @@ const FEED_URL = 'https://example.com/model-feed.json'
 const feed = (updatedAt: string, ids: string[]) => ({
   schemaVersion: 1,
   updatedAt,
-  clis: { 'claude-code': { models: ids.map((id) => ({ id, label: id })) } },
+  clis: { 'claude-code': { models: ids.map((id) => ({ id, label: id, releasedAt: '2026-07-24' })) } },
 })
 
 type Call = { url: string; headers: Record<string, string> }

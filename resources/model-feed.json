@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T15:15:35Z",
+  "updatedAt": "2026-09-05T14:06:55Z",
   "clis": {
     "claude-code": {
       "models": [
@@ -38,7 +38,8 @@
           "id": "claude-fable-5",
           "label": "Fable 5",
           "releasedAt": "2026-06-09",
-          "retired": false
+          "retired": true,
+          "retiredAt": "2026-09-01"
         }
       ]
     },

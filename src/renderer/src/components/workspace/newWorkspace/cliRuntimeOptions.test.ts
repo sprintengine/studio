@@ -649,12 +649,29 @@ const firstFeed = hostedRows({
 assert.deepEqual(
   firstFeed,
   [
-    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
-    { id: 'claude-opus-5', label: 'Opus 5 (feed label)', origin: 'hosted', releasedAt: '2026-07-25' },
     { id: 'claude-fable-5-1', label: 'Fable 5.1', origin: 'hosted', releasedAt: '2026-09-04' },
+    { id: 'claude-opus-5', label: 'Opus 5 (feed label)', origin: 'hosted', releasedAt: '2026-07-25' },
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
     { id: 'claude-haiku-4-5', origin: 'user' },
   ],
-  'a manifest-only id survives a feed that omits it; a feed row the manifest also has takes the feed label and the hosted claim; a new feed id appears with its release date',
+  'a manifest-only id survives a feed that omits it; a feed row the manifest also has takes the feed label and the hosted claim; a new feed id appears with its release date, and dated rows lead, newest first',
+)
+
+// Newest first: the date decides, not the layer or the file order. Two models
+// shipped the same day keep the feed's order; undated rows (aliases, manifest
+// leftovers, user additions) follow in layer order, never ahead of a dated one.
+const datedFeed = hostedRows({
+  'claude-code': [
+    { id: 'claude-opus-5', label: 'Opus 5', releasedAt: '2026-07-24' },
+    { id: 'fable', label: 'Fable (latest)', alias: true },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', releasedAt: '2026-07-24' },
+    { id: 'claude-fable-5-1', label: 'Fable 5.1', releasedAt: '2026-09-01' },
+  ],
+})
+assert.deepEqual(
+  datedFeed.map((row) => row.id),
+  ['claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'opus[1m]', 'fable', 'claude-haiku-4-5'],
+  'dated rows lead newest first, same-day rows keep feed order, and undated rows trail in layer order',
 )
 
 const secondFeed = hostedRows({ 'claude-code': [{ id: 'claude-opus-5', label: 'Opus 5' }] })
