@@ -76,6 +76,13 @@ import type {
   ModuleRegistrySnapshot,
 } from '../../shared/modules/registry-snapshot'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
+// The built-in Backlog skill id backlog.work installs and invokes, and the
+// plain-language handoff it falls back to. Both come from the shared module the
+// renderer's "Hand to agent" reads too, so the same handoff is worded the same
+// way whichever door it comes through. The skill contract owns item lifecycle
+// through backlog.update; this tool only launches the agent and records links
+// (epic decision 7).
+import { BACKLOG_SKILL_ID, backlogLifecycleHandoffPrompt } from '../../shared/backlog/handoff-prompt'
 import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
@@ -105,11 +112,6 @@ const LAUNCH_PERMISSION_PRESETS = ['manual', 'auto'] as const
 // `run-skill-loop` reuses `parseSpawnAgentConfig`). Local because the automation
 // contracts carry no exported list yet — collapse this into one when they do.
 const AGENT_BACKED_ACTION_KINDS: readonly string[] = ['spawn-agent', 'run-skill-loop']
-
-// The built-in Backlog skill id backlog.work installs and invokes; the skill
-// contract owns item lifecycle through backlog.update, while this handoff tool
-// only launches the agent and records links (epic decision 7).
-const BACKLOG_SKILL_ID = 'backlog'
 
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
@@ -1735,12 +1737,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (template) {
       return renderSkillInvocationTemplate(template, { skillId: BACKLOG_SKILL_ID, skillName: 'Backlog', path: relativePath })
     }
-    return (
-      `Work the Backlog item at ${relativePath}. `
-      + 'Use the SprintEngine Studio MCP backlog.update tool for every lifecycle change: set `in_progress` when '
-      + 'you start, `needs_input` (and state the blocking question) if you stop for input, and `completed` only '
-      + 'after the work is real and verified — the tool stamps the update timestamp for you.'
-    )
+    return backlogLifecycleHandoffPrompt(relativePath)
   }
 
   const backlogWork: McpToolRegistration = {

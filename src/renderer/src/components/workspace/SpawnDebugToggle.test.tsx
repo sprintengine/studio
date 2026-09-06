@@ -143,14 +143,30 @@ run('WorkspaceManager carries the toggle into the spawn payload, resets it, and 
   )
 })
 
-run('every new-chat spawn path seeds the shared permission preset onto the agent record', () => {
-  // The composer's Default/Auto/Bypass pick must reach the launched agent on
-  // BOTH New Chat paths — the specialist seed and the General seed. The General
-  // path silently dropped it (launching Bypass picks with default permissions)
-  // until createNewChat seeded the preset like the specialist path does.
+run('every CLI spawn path seeds the picked row’s permission preset onto the agent record', () => {
+  // The Default/Auto/Bypass pick must reach the launched agent on every CLI
+  // path — the in-workspace specialist and General spawns, and both New Chat
+  // seeds. The General new-chat path silently dropped it (launching Bypass
+  // picks with default permissions) until createNewChat seeded it too.
+  //
+  // The preset is stored against the MODEL ROW now (owner, 2026-09-05), so each
+  // path resolves it from the (cli, model) it is launching rather than reading
+  // one app-wide value — which is also what keeps a path from seeding a preset
+  // for a different row than the one it spawns.
   assert.ok(
-    (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length >= 5,
-    'the shared preset rides every CLI spawn path, including the General new-chat seed',
+    (managerSource.match(/cliPermissionPreset: resolveModelPermissionPreset\(/g) ?? []).length >= 4,
+    'every CLI spawn path resolves the row’s preset',
+  )
+  assert.match(
+    managerSource,
+    /cliPermissionPreset: resolveModelPermissionPreset\(templateAgentCli, cliModel, agentSpawnPermissionPreset\)/,
+    'including the General new-chat seed, on the model that chat launches with',
+  )
+  // A conversation is a provider/model pair, not a picker row: it has no stored
+  // preset and keeps the app-wide default.
+  assert.ok(
+    (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length === 2,
+    'only the two conversation spawns fall back to the app-wide preset',
   )
 })
 

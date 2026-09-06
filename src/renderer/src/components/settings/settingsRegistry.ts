@@ -100,7 +100,7 @@ const CLI_OPTIONS: ReadonlyArray<SelectOption<AgentCli>> = [
 const PERMISSION_PRESET_OPTIONS: ReadonlyArray<
   SelectOption<SprintEngineCliPermissionPreset>
 > = [
-  { value: 'none', label: 'CLI default — pass no flag, let the CLI decide' },
+  { value: 'none', label: 'None — pass no flag, let the CLI decide' },
   { value: 'manual', label: 'Manual — ask before every action' },
   { value: 'auto', label: 'Auto — the CLI reviews each action instead of you' },
   { value: 'bypass', label: 'Bypass all — no permission checks' },

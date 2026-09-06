@@ -41,9 +41,11 @@ import {
   InlineSkillPicker,
   Popover,
   PrimaryButton,
+  setModelPermissionPreset,
   StarGlyph,
   Tooltip,
   TruncatedText,
+  useModelPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
@@ -53,13 +55,12 @@ import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import {
   AGENT_SPAWN_PERMISSION_OPTIONS,
-  focusActivePresetRow,
   menuRadioRowKeyDown,
   nearestRemotePermissionPreset,
-  PermissionPresetMenuRows,
   REMOTE_PERMISSION_PRESETS,
   REMOTE_PRESET_DISABLED_REASONS,
 } from './agentSpawnShared'
+import { SpawnPermissionFooter } from './spawnFooter'
 import { ProjectSourceMenu, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
@@ -107,8 +108,9 @@ export type NewAgentPanelProps = {
   onSelectProject?: (path: string) => void
   onBrowseProject?: () => void
   initialSelection: AgentComposerSelection
+  /** The app-wide default a model row nobody has set still resolves to; the
+   *  picker's footer writes per-row, so this is a fallback, never what it edits. */
   permissionPreset: SprintEngineCliPermissionPreset
-  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
@@ -335,7 +337,6 @@ export default function NewAgentPanel({
   onBrowseProject,
   initialSelection,
   permissionPreset,
-  onChangePermissionPreset,
   debugMode,
   onChangeDebugMode,
   onLaunch,
@@ -567,17 +568,6 @@ export default function NewAgentPanel({
   const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
   const remoteMachineName = remoteTarget?.connection.machineName ?? null
   React.useEffect(() => {
-    // Keyed on the MACHINE, not the target object: the browse resolving
-    // replaces the object, and the move must happen once per pick.
-    if (!remoteMachineName) return
-    if (REMOTE_PERMISSION_PRESETS.has(permissionPreset)) return
-    const next = nearestRemotePermissionPreset(permissionPreset)
-    const from = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === permissionPreset)?.label ?? permissionPreset
-    const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
-    onChangePermissionPreset(next)
-    setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
-  }, [onChangePermissionPreset, permissionPreset, remoteMachineName])
-  React.useEffect(() => {
     if (!remoteTarget) setRemoteNote(null)
   }, [remoteTarget])
   // The picked project's checkout facts (checkout-and-branch-on-remote-create),
@@ -642,7 +632,6 @@ export default function NewAgentPanel({
 
   const [prompt, setPrompt] = React.useState(() => draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
-  const [accessOpen, setAccessOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
@@ -738,6 +727,31 @@ export default function NewAgentPanel({
   const engineNames = composer.engineNamesFor(selection)
   const model = launchCli ? composer.modelForSelection(selection, launchCli) : undefined
   const reasoning = launchCli ? composer.reasoningForSelection(selection, launchCli) : undefined
+  // Permissions are a property of the ROW (owner, 2026-09-05): the preset this
+  // launch runs on is the one stored against the picked model, and the host's
+  // `permissionPreset` is only the app-wide default a row nobody has set still
+  // resolves to. Everything the surface says about permissions — the
+  // command-line preview, the remote coercion, what the launch carries — reads
+  // THIS, never the prop. A terminal or a conversation has no row and no
+  // permission flag, so it simply reads the fallback and shows no control.
+  const effectivePreset = useModelPermissionPreset(launchCli, model ?? null, permissionPreset)
+  // A remote machine cannot take every preset. The moment one is picked, a
+  // preset it would refuse — or silently replace with its own default — moves
+  // to the nearest supported one and says so. It lives here, below the row
+  // derivations, because what it coerces is the PICKED ROW's preset.
+  React.useEffect(() => {
+    // Keyed on the MACHINE, not the target object: the browse resolving
+    // replaces the object, and the move must happen once per pick.
+    if (!remoteMachineName) return
+    if (REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
+    const next = nearestRemotePermissionPreset(effectivePreset)
+    const from = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === effectivePreset)?.label ?? effectivePreset
+    const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
+    // The move is written against the ROW the machine refused it for, so
+    // picking a local model back does not inherit the remote's narrowing.
+    setModelPermissionPreset(launchCli, model ?? null, next)
+    setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
+  }, [effectivePreset, launchCli, model, remoteMachineName])
 
   // ── The skill trigger ────────────────────────────────────────────────────
   const skillIntegration = React.useMemo(() => {
@@ -800,10 +814,10 @@ export default function NewAgentPanel({
       cli: launchCli,
       model,
       reasoning,
-      permissionPreset,
+      permissionPreset: effectivePreset,
       runtime: launchCli ? cliRuntimes?.[launchCli] : undefined,
     }),
-    [cliRuntimes, launchCli, model, permissionPreset, reasoning],
+    [cliRuntimes, effectivePreset, launchCli, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {
@@ -870,7 +884,7 @@ export default function NewAgentPanel({
       }
       // Never a value the gateway will refuse after a round-trip: the effect
       // above already moved the choice, and this is the belt to its braces.
-      if (!REMOTE_PERMISSION_PRESETS.has(permissionPreset)) return
+      if (!REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
       // A worktree the gate has since closed on (a scope read that came back
       // narrower, a project that turned out not to be a repo) never travels:
       // the pick falls back to the checkout it can have.
@@ -891,7 +905,7 @@ export default function NewAgentPanel({
         prompt: text.trim(),
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
-        permissionPreset,
+        permissionPreset: effectivePreset,
         checkout,
         branch: checkout.mode === 'current' ? remoteTarget.checkout?.branch ?? null : null,
         remoteRepository: remoteTarget.picked.repository,
@@ -973,9 +987,6 @@ export default function NewAgentPanel({
   // The Skills & MCPs trigger on the row is where skills are offered now; the
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
   const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
-  const accessLabel =
-    AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === permissionPreset)?.label ?? 'Permissions'
-  const accessShort = accessLabel.split(' ')[0]
 
   if (composer.noAgentCliInstalled) {
     return (
@@ -1212,6 +1223,10 @@ export default function NewAgentPanel({
                     ref={ref}
                     type="button"
                     onClick={togglePopover}
+                    // Named, not left to its contents: the chip is a mark plus a
+                    // truncated label, and it is the only way to the model,
+                    // effort and permissions the picker holds.
+                    aria-label={`Engine: ${engineNames.modelLabel ?? engineNames.cliLabel}`}
                     className={`interactive inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                     {...triggerProps}
                   >
@@ -1243,55 +1258,25 @@ export default function NewAgentPanel({
                   reasoningAriaLabel="Reasoning effort"
                   onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
                   onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
+                  // Permissions live in the picker rather than on a chip beside
+                  // it (owner, 2026-09-05). A preset is a property of the runtime
+                  // the row names — Claude Code's auto mode is not Codex's
+                  // sandbox, and the repo you trust one model in is not the one
+                  // you trust the next in — so it is chosen where the model is,
+                  // remembered against that row, and sits on the picker's one
+                  // trailing row beside the effort control.
+                  permissions={
+                    <SpawnPermissionFooter
+                      cli={launchCli}
+                      model={model ?? null}
+                      fallback={permissionPreset}
+                      {...(remotePresetReasons ? { disabledReasons: remotePresetReasons } : {})}
+                      onSelect={() => setRemoteNote(null)}
+                    />
+                  }
                 />
               </Popover>
             ) : null}
-
-            {/* Access: one control carrying its value, shield-marked. Bypass is
-                the only value that removes a safeguard, so it is the only one
-                that changes colour. */}
-            {selection.kind === 'terminal' ? null : (
-              <Popover
-                open={accessOpen}
-                onOpenChange={setAccessOpen}
-                ariaLabel={`Permissions: ${accessLabel}`}
-                popupRole="menu"
-                placement="bottom-start"
-                // One menu role: the surface IS the list (nesting a second
-                // `role="menu"` inside it announced two menus).
-                surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
-                onOpenAutoFocus={focusActivePresetRow}
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <button
-                    ref={ref}
-                    type="button"
-                    onClick={togglePopover}
-                    className={`interactive inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-meta ${
-                      permissionPreset === 'bypass'
-                        ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn-on-tint)]'
-                        : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-                    } ${FOCUS_RING_CLASS}`}
-                    {...triggerProps}
-                  >
-                    <ShieldGlyph />
-                    {accessShort}
-                    <ChevronGlyph />
-                  </button>
-                )}
-              >
-                {/* The same stacked rows the chat composer's pill opens
-                    (agentSpawnShared) — one choice, one rendering. */}
-                <PermissionPresetMenuRows
-                  value={permissionPreset}
-                  disabledReasons={remotePresetReasons}
-                  onSelect={(preset) => {
-                    onChangePermissionPreset(preset)
-                    setRemoteNote(null)
-                    setAccessOpen(false)
-                  }}
-                />
-              </Popover>
-            )}
 
             {/* Every pick is a chip; the one trigger opens the picker for more.
                 A terminal launches nothing that reads a skill or an MCP. */}
@@ -1488,13 +1473,6 @@ function ChevronGlyph() {
   )
 }
 
-function ShieldGlyph() {
-  return (
-    <svg className="icon-xs" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 1.8 2.8 4v4c0 2.7 2.2 4.7 5.2 5.4 3-0.7 5.2-2.7 5.2-5.4V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 function BranchGlyph() {
   return (

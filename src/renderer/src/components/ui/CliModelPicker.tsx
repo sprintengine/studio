@@ -208,6 +208,7 @@ export function CliModelPopoverSurface({
   noneRow,
   railExtras,
   footer,
+  permissions,
   composition,
 }: {
   ariaLabel: string
@@ -251,11 +252,21 @@ export function CliModelPopoverSurface({
   /** Non-model ways in, on the rail below a divider. See PickerRailExtra. */
   railExtras?: ReadonlyArray<PickerRailExtra>
   /**
-   * The host's trailing controls (the spawn footer: role, more, permissions).
-   * Withheld while a rail extra is active, because nothing it configures
-   * applies to a shell or a conversation.
+   * The host's own cluster at the LEADING end of the trailing row (the spawn
+   * picker's role and ⋯ controls). Bare controls, not a band: this surface owns
+   * the row's border and padding so permissions, effort and the host's controls
+   * cannot land on separate lines. Withheld while a rail extra is active,
+   * because nothing it configures applies to a shell or a conversation.
    */
   footer?: React.ReactNode
+  /**
+   * The permission control, seated at the TRAILING end immediately right of the
+   * effort control — its own slot rather than part of `footer` because the two
+   * dropdowns belong side by side in that order, and where they sit is this
+   * row's business, not each host's. Hosts that do not configure permissions (a
+   * roster row's flyout) pass none.
+   */
+  permissions?: React.ReactNode
   /** Opt-in model+role stars. See PickerComposition. */
   composition?: PickerComposition
 }): JSX.Element {
@@ -706,20 +717,35 @@ export function CliModelPopoverSurface({
               )}
         </div>
 
-        {/* The host's own trailing controls. Withheld under a rail extra:
-            nothing a spawn footer sets applies to a shell or a conversation,
-            and an inert row of controls reads as one that does. */}
-        {footer && !activeExtra ? footer : null}
+        {/* ONE trailing row, not a stack of them (owner, 2026-09-05). Permissions
+            and effort are both settings about the row above, and they used to sit
+            on two bordered bands — the permission chip alone on one, the effort
+            chip alone on the next. They belong on the same line, so this row owns
+            the chrome and the hosts pass bare controls into it: the host's own
+            cluster (role, ⋯) leads, then the two dropdowns that settle the row
+            above: effort on the left, permissions on its right. Same kind of
+            control, same line — which is the pairing the two-band layout broke.
 
-        {/* Two controls, not one composed trigger: context window and effort are
-            separate decisions about the chosen model, and "Auto · Standard" made
-            changing either one a menu-open away from knowing which half you were
-            reading. Context sits left of reasoning — it is a property of the
-            model above it, and effort is the thing changed more often. Each is
-            withheld unless the runtime actually offers that axis. */}
-        {showReasoning && hasReasoningAxes(reasoningAxes) ? (
-          <div className="flex items-center justify-end gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
-            {hasContextWindows(reasoningAxes) ? (
+            It wraps rather than truncates: both chips are as wide as the value
+            they carry, and a runtime with a long level name plus a permission
+            word can outgrow a narrow surface. A second line beats a clipped
+            one.
+
+            Everything here is withheld under a rail extra: nothing a spawn footer
+            sets applies to a shell or a conversation, and an inert row of
+            controls reads as one that does. */}
+        {!activeExtra && (footer || permissions || (showReasoning && hasReasoningAxes(reasoningAxes))) ? (
+          <div className="flex flex-wrap items-center gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
+            {footer}
+            <span className="flex-1" />
+            {/* Two controls, not one composed trigger: context window and effort
+                are separate decisions about the chosen model, and "Auto ·
+                Standard" made changing either one a menu-open away from knowing
+                which half you were reading. Context sits left of reasoning — it
+                is a property of the model above it, and effort is the thing
+                changed more often. Each is withheld unless the runtime actually
+                offers that axis. */}
+            {showReasoning && hasContextWindows(reasoningAxes) ? (
               <ReasoningSelector
                 scope="context"
                 ariaLabel="Context window"
@@ -733,7 +759,7 @@ export function CliModelPopoverSurface({
                 onSelectModel={(model) => onSelectModel(currentCli, model)}
               />
             ) : null}
-            {hasReasoningLevels(reasoningAxes) ? (
+            {showReasoning && hasReasoningLevels(reasoningAxes) ? (
               <ReasoningSelector
                 scope="reasoning"
                 ariaLabel={reasoningAriaLabel ?? 'Reasoning'}
@@ -747,6 +773,7 @@ export function CliModelPopoverSurface({
                 onSelectModel={(model) => onSelectModel(currentCli, model)}
               />
             ) : null}
+            {permissions}
           </div>
         ) : null}
       </div>

@@ -42,16 +42,21 @@ import type {
   AgentCli,
   AgentCliModelSelection,
   AgentExecution,
+  AgentId,
   AppNotification,
   FuturePlanWorkspaceSource,
   SpecialistActionId,
-  SprintEngineCliPermissionPreset,
   Workspace,
+  WorkspaceId,
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../../types/workspace'
 import { agentWorktreePaths, worktreeIdFromPath } from '../../utils/workspaceWorktree'
 import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
+import { resolveModelPermissionPreset } from '../ui'
+import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
+import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
+import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -527,9 +532,6 @@ export default function WorkspaceManager() {
   const lastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
   )
-  const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
-    (s) => s.setLastAgentSpawnPermissionPreset
-  )
   const specialistCliDefaults = useWorkspaceStore(
     (s) => s.appSettings.specialistCliDefaults ?? EMPTY_SPECIALIST_CLI_DEFAULTS
   )
@@ -679,9 +681,12 @@ export default function WorkspaceManager() {
   // the conversation runtime, not the terminal CLI plugin catalog. `null` means
   // "not loaded yet"; an `ok: false` result drives the unavailable row.
   const [conversationProviderResult, setConversationProviderResult] = useState<ConversationProviderListResult | null>(null)
-  const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SprintEngineCliPermissionPreset>(
-    lastAgentSpawnPermissionPreset
-  )
+  // The app-wide default preset, straight from settings. It used to be mirrored
+  // into local state so a spawn surface could edit it; a preset is remembered
+  // against a MODEL ROW now (ui/modelPermissionPresets), so nothing on a spawn
+  // surface writes this any more — it is the fallback a row nobody has set
+  // resolves to, and Settings is where it is changed.
+  const agentSpawnPermissionPreset = lastAgentSpawnPermissionPreset
   // Debug Mode is intentionally transient and never persisted (unlike the
   // permission preset): it defaults off and resets off after each spawn, so a
   // debug agent never silently leaves the next unrelated spawn in debug.
@@ -1308,7 +1313,7 @@ export default function WorkspaceManager() {
     // must already point at the worktree so resolveWorkspaceWorktree resolves the
     // Git view/glyph to it.
     worktree?: WorkspaceWorktree
-  }) => {
+  }): WorkspaceId | null => {
     if (!SOLO_CHAT_TEMPLATE) {
       publishDiagnosticSync({
         level: 'error',
@@ -1316,10 +1321,13 @@ export default function WorkspaceManager() {
         title: 'New chat unavailable',
         message: 'The Solo layout template is missing, so a one-agent chat cannot be created.',
       })
-      return
+      return null
     }
     const targetFolderPath = opts.folderPath === undefined ? activeWorkspace?.folderPath ?? null : opts.folderPath
-    addWorkspace(SOLO_CHAT_TEMPLATE, {
+    // The id is returned so a caller that must reach the agent it just seeded —
+    // the Backlog handoff, which records the item ↔ agent link — can find it
+    // without racing the mount. Every other caller ignores it.
+    const createdId = addWorkspace(SOLO_CHAT_TEMPLATE, {
       name: opts.name ?? pickNewChatName(targetFolderPath),
       folderPath: targetFolderPath,
       windowId: workspaceWindowId,
@@ -1334,6 +1342,7 @@ export default function WorkspaceManager() {
     runFirstRunAgentConfigAdoption(targetFolderPath)
     closeSettingsOverlay()
     setNotificationsOpen(false)
+    return createdId
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
@@ -1353,7 +1362,11 @@ export default function WorkspaceManager() {
     // The chat lives in a worktree the door just made: `folderPath` IS that
     // worktree, and the marker carries its branch for the Git view and row.
     worktree?: WorkspaceWorktree,
-  ) => {
+    // See addNewCliAgent: the model the caller just picked, when the chat must
+    // start on exactly the row that was clicked rather than on whatever the
+    // remembered default resolves to a tick later (the Backlog handoff).
+    selectedModel?: string | null,
+  ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
     // A plain New chat is a General agent, so it rides General's own remembered
     // CLI (falling back to the global default), never the reverse. The result is
@@ -1373,16 +1386,19 @@ export default function WorkspaceManager() {
     // (MC-2093). The install is the honest answer to "start a chat" instead.
     if (!resolveLaunchableAgentCli(templateAgentCli, agentCliCatalog)) {
       openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
-      return
+      return null
     }
     // Ride the remembered General model when it belongs to the spawning CLI —
     // the same mechanism as a specialist. Seeded via an agentPatch (no tabName,
     // so the layout is untouched). The patch always carries the composer's
     // permission preset and debug mode: a General chat honors the picked
     // Default/Auto/Bypass exactly like a specialist chat does.
-    const cliModel = resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    const cliModel =
+      selectedModel !== undefined
+        ? selectedModel ?? undefined
+        : resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     const cliReasoning = resolveCliReasoning(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
-    createSoloChatWorkspace({
+    const workspaceId = createSoloChatWorkspace({
       folderPath,
       templateAgentCli,
       ...(worktree ? { worktree } : {}),
@@ -1390,7 +1406,7 @@ export default function WorkspaceManager() {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
           ...(cliReasoning ? { cliReasoning } : {}),
-          cliPermissionPreset: agentSpawnPermissionPreset,
+          cliPermissionPreset: resolveModelPermissionPreset(templateAgentCli, cliModel, agentSpawnPermissionPreset),
           debugMode: agentSpawnDebugMode,
           ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
           ...skillsSpawnAgentPatch(skills ?? [], pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration),
@@ -1401,6 +1417,14 @@ export default function WorkspaceManager() {
     // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
+    // The solo template carries exactly one agent tab, and the seed patch above
+    // was merged onto it at creation, so the lone agent record IS this chat's
+    // agent. Read back rather than guessed: the id is the template's, not one
+    // this function minted.
+    if (!workspaceId) return null
+    const created = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
+    const agentId = Object.keys(created?.agents ?? {})[0]
+    return agentId ? { workspaceId, agentId } : null
   }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, openSettingsOverlay, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
   // The isolated connector-chat runtime (a worktree per connector, single-
@@ -1507,11 +1531,6 @@ export default function WorkspaceManager() {
       }),
     [closeGlobalSurface, openFuturePlanWorkspace, openNewSprintDialog],
   )
-
-  const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
-    setAgentSpawnPermissionPresetState(preset)
-    setLastAgentSpawnPermissionPreset(preset)
-  }
 
   useEffect(() => {
     // The one-shot startup tip. It used to wait for the onboarding wizard to
@@ -1715,10 +1734,6 @@ export default function WorkspaceManager() {
         || (activeWorkspace?.folderPath && projectKnowledgeRoots[activeWorkspace.folderPath])
       ),
   }), [activeWorkspace, projectKnowledgeRoots, terminalSessions.length])
-
-  useEffect(() => {
-    setAgentSpawnPermissionPresetState(lastAgentSpawnPermissionPreset)
-  }, [lastAgentSpawnPermissionPreset])
 
   useEffect(() => {
     if (!windowActiveWorkspaceId) return
@@ -2405,16 +2420,17 @@ export default function WorkspaceManager() {
       execution = created
     }
 
+    const cliModel =
+      selectedModel !== undefined
+        ? selectedModel ?? undefined
+        : resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id])
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel:
-        selectedModel !== undefined
-          ? selectedModel ?? undefined
-          : resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+      cliModel,
       cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
       ...(execution ? { execution } : {}),
-      cliPermissionPreset: agentSpawnPermissionPreset,
+      cliPermissionPreset: resolveModelPermissionPreset(cliForSpawn, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       kind: 'specialist',
       specialistId: specialist.id,
@@ -2471,16 +2487,17 @@ export default function WorkspaceManager() {
       execution = created
     }
 
+    const cliModel =
+      selectedModel !== undefined
+        ? selectedModel ?? undefined
+        : resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
-      cliModel:
-        selectedModel !== undefined
-          ? selectedModel ?? undefined
-          : resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
+      cliModel,
       cliReasoning: resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
-      cliPermissionPreset: agentSpawnPermissionPreset,
+      cliPermissionPreset: resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
@@ -2527,10 +2544,10 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       ...conversationAgentRuntimePatch(providerId, modelId),
-      // The composer's permission picker applies to a conversation spawn like
-      // every CLI spawn: the chat's session starts on the chosen preset instead
-      // of always asking per tool. AgentChatView reads this record field and
-      // lets the user change it mid-conversation.
+      // A conversation is not a model-picker row — it is a provider/model pair
+      // with no CLI — so there is no per-row preset stored against it and the
+      // app-wide default is what it starts on. AgentChatView reads this record
+      // field and lets the user change it mid-conversation.
       cliPermissionPreset: agentSpawnPermissionPreset,
       // The chat prefill is one sentence opener; with several skills the first
       // leads and the rest are named after it.
@@ -2608,6 +2625,7 @@ export default function WorkspaceManager() {
       routeToCliInstall()
       return
     }
+    const specialistChatModel = resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id])
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli: cliForSpawn,
@@ -2617,9 +2635,9 @@ export default function WorkspaceManager() {
         agentPatch: {
           name: tabName,
           cli: cliForSpawn,
-          cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+          cliModel: specialistChatModel,
           cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
-          cliPermissionPreset: agentSpawnPermissionPreset,
+          cliPermissionPreset: resolveModelPermissionPreset(cliForSpawn, specialistChatModel, agentSpawnPermissionPreset),
           debugMode: agentSpawnDebugMode,
           kind: 'specialist',
           specialistId: specialist.id,
@@ -2865,6 +2883,50 @@ export default function WorkspaceManager() {
     })
     return () => setExtensionsSurfaceHost(null)
   }, [])
+
+  // "Hand to agent" on a Backlog item (backlogHandoffHost). The item's detail
+  // pane is mounted by BOTH the workspace panel and the Backlog door, and
+  // neither of them creates agents — the shell does, so the route is registered
+  // here and the button reads it at click time.
+  //
+  // The chat is scoped to the ITEM'S OWN project, never the active workspace: an
+  // item handed off from the Backlog door — which lists every open project at
+  // once — has to land where its own repo is. Lifecycle is untouched, exactly as
+  // `backlog.work` and the drag-drop handoff leave it: the Backlog skill's
+  // contract owns status, and all this does is start the agent and record who is
+  // working the item.
+  const handBacklogItemToAgent = useCallback(async (request: BacklogHandoffRequest) => {
+    // Install the Backlog skill into the CLI's harness dir BEFORE the launch, so
+    // the invocation resolves when it lands (backlog.work's own order). A
+    // refused install is not fatal — the prompt falls back to the plain-language
+    // lifecycle block, which needs nothing on disk.
+    const ensured = await ensureSkillForAgent({
+      workspaceRoot: request.workspaceRoot,
+      skill: { id: BACKLOG_SKILL_ID },
+    })
+    const prompt = backlogHandoffPrompt({
+      relativePath: request.relativePath,
+      integration: ensured.ok
+        ? pluginCatalogEntries.find((entry) => entry.id === request.cli)?.skillIntegration
+        : undefined,
+    })
+    const started = createNewChat(request.workspaceRoot, request.cli, undefined, prompt, undefined, request.model)
+    // A launch that never happened (no installed CLI, missing solo template) has
+    // already said so through its own route; there is no agent to link to.
+    if (!started) return
+    await recordBacklogAgentHandoff({
+      workspaceId: started.workspaceId,
+      workspaceRoot: request.workspaceRoot,
+      agentId: started.agentId,
+      relativePath: request.relativePath,
+      title: request.title,
+    })
+  }, [createNewChat, pluginCatalogEntries])
+  useEffect(() => {
+    setBacklogHandoffHost({ handToAgent: handBacklogItemToAgent })
+    return () => setBacklogHandoffHost(null)
+  }, [handBacklogItemToAgent])
+
   // The panel's project chip: distinct folders across this window's open
   // workspaces, in rail order. Browse admits a folder Multicode doesn't know.
   const newChatProjectOptions = useMemo(() => {
@@ -3591,7 +3653,6 @@ export default function WorkspaceManager() {
         onRequestConversationCatalog={requestConversationCatalog}
         initialSelection={composerInitialSelection}
         permissionPreset={agentSpawnPermissionPreset}
-        onChangePermissionPreset={setAgentSpawnPermissionPreset}
         debugMode={agentSpawnDebugMode}
         onChangeDebugMode={setAgentSpawnDebugMode}
         onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt, agentName })}
@@ -4043,7 +4104,6 @@ export default function WorkspaceManager() {
                       onBrowseProject={() => void browseNewChatProject()}
                       initialSelection={lastNewChatAgent ?? { kind: 'general' }}
                       permissionPreset={agentSpawnPermissionPreset}
-                      onChangePermissionPreset={setAgentSpawnPermissionPreset}
                       debugMode={agentSpawnDebugMode}
                       onChangeDebugMode={setAgentSpawnDebugMode}
                       onLaunch={({ prompt, ...confirm }) => {

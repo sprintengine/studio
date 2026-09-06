@@ -30,6 +30,12 @@ export {
 } from './cliRuntimeCatalog'
 export type { CliModelFamily, CliRuntimeOption, ModelWindowVariant } from './cliRuntimeCatalog'
 export { modelFavouriteKey, parseModelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
+export {
+  resolveModelPermissionPreset,
+  setModelPermissionPreset,
+  storedModelPermissionPreset,
+  useModelPermissionPreset,
+} from './modelPermissionPresets'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'
