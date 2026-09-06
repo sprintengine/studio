@@ -1597,7 +1597,7 @@ async function main(): Promise<void> {
     'components/panels/AutomationsPanel/AutomationEditor.tsx',
     'components/panels/AutomationsPanel/TriggerFields.tsx',
     'components/panels/BacklogCreateDialog.tsx',
-    'components/panels/ConnectorsPanel/ConnectorsManage.tsx',
+    'components/panels/ConnectorsPanel/CustomMcpServerForm.tsx',
     'components/panels/ContentSearchPanel.tsx',
     'components/panels/FileExplorer.tsx',
     'components/panels/SprintEngineInspectorPanel.tsx',

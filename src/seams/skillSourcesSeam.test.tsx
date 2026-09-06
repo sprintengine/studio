@@ -336,9 +336,8 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   const React = await import('react')
   const { act } = React
   const { createRoot } = await import('react-dom/client')
-  const { sourceLayout } = await import('../shared/skills')
-  const { SkillsSurface } = await import(
-    '../renderer/src/components/workspace/globalSurface/extensions/skills/SkillsSurface'
+  const { SkillsCatalogue } = await import(
+    '../renderer/src/components/workspace/globalSurface/extensions/skills/SkillsCatalogue'
   )
   const { useSkillSources } = await import(
     '../renderer/src/components/workspace/globalSurface/extensions/skills/useSkillSources'
@@ -366,14 +365,28 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   dom.window.document.body.appendChild(container)
   const root = createRoot(container)
 
+  // The door's half of the surface, played by the smallest host that can: the
+  // open tab and the search live above the catalogue (source-tabs ruling,
+  // 2026-09-05) because the chosen source survives a switch to Plugins.
   function Host(): JSX.Element {
     const sources = useSkillSources(workspaceRoot)
+    const [tabId, setTabId] = React.useState<string | null>(null)
+    const [query, setQuery] = React.useState('')
     return (
-      <SkillsSurface
+      <SkillsCatalogue
         sources={sources}
         workspaceRoot={workspaceRoot}
-        onBrowseMcpServers={() => {}}
-        onConfigureGitHubToken={() => {}}
+        activeTabId={tabId}
+        onSelectTab={(next) => {
+          setTabId(next)
+          setQuery('')
+        }}
+        query={query}
+        onQueryChange={setQuery}
+        add={{ onAddFromFile: () => {}, onAddFromGitHub: () => {} }}
+        addNotice={null}
+        onDismissAddNotice={() => {}}
+        onUseSkillInNewAgent={() => {}}
       />
     )
   }
@@ -405,9 +418,8 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     return found
   }
   const buttonLabelled = (label: string): HTMLButtonElement => {
-    // The skill pick target is a native checkbox `<input>` since the kit `Checkbox` adoption (2026-09-02).
     const found = container.querySelector(`[aria-label="${label}"]`)
-    assert.ok(found, `no button labelled "${label}" is on screen`)
+    assert.ok(found, `no control labelled "${label}" is on screen`)
     return found as unknown as HTMLButtonElement
   }
   const click = async (button: HTMLButtonElement): Promise<void> => {
@@ -416,8 +428,24 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     })
     await settle(3)
   }
-  const openSource = async (railName: string): Promise<void> => {
-    await click(buttonWith(railName))
+  /** Open a source by its TAB — the sources are the tab row now, not a rail. */
+  const openSource = async (tabName: string): Promise<void> => {
+    const tab = [...container.querySelectorAll('[role="tab"]')].find((candidate) =>
+      (candidate.textContent ?? '').startsWith(tabName),
+    )
+    assert.ok(tab, `no tab for "${tabName}" is on screen`)
+    await click(tab as unknown as HTMLButtonElement)
+  }
+  /** Narrow the open tab to one skill, so a paged source can be acted on. */
+  const filterTo = async (needle: string): Promise<void> => {
+    const field = container.querySelector('input[type="search"]') as unknown as HTMLInputElement
+    assert.ok(field, 'the tab has a search field')
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+    await act(async () => {
+      setter?.call(field, needle)
+      field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await settle(3)
   }
 
   await act(async () => {
@@ -433,21 +461,19 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     return result.scan
   }
 
-  // 41 skills in six folders: a grouped, two-pane page that opens on the
-  // largest group rather than on the alphabetically first one.
+  // Every source lists in FULL now, one page of twelve at a time, under the
+  // headings its own folders give it. The four `sourceLayout()` shapes decided
+  // how much of a source to put on screen at once, which is the pager's job
+  // since the source-tabs ruling (2026-09-05); what survives of that rule is
+  // the grouping, and each repository's own shape of it is what this walks.
+
+  // 41 skills in six folders: six headings, and a pager that says 41.
   const mattpocock = await scanOf('github:mattpocock/skills')
   assert.equal(mattpocock.skills.length, 41)
   assert.equal(mattpocock.groupingSignal, 'folders')
-  assert.equal(sourceLayout(mattpocock), 'grouped')
   await openSource('mattpocock/skills')
-  assert.ok(markup().includes('aria-label="Groups"'), 'the grouped layout renders its group pane')
-  assert.ok(markup().includes('>Engineering<') && markup().includes('>Deprecated<'))
-  assert.ok(markup().includes('aria-label="Select prototype"'), 'the largest group is the one listed')
-  assert.equal(
-    markup().includes('aria-label="Select qa"'),
-    false,
-    'a grouped source lists one group at a time, never all 41 rows',
-  )
+  assert.ok(markup().includes('>Engineering<'), 'the repository’s folders are the headings')
+  assert.ok(markup().includes('Showing 1–12 of 41'), 'and one pager walks the whole source')
 
   // 17 skills the repository's own manifest authors three groups for — the
   // manifest wins over the (flat) folders, and drops the template the manifest
@@ -456,39 +482,41 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.equal(anthropics.skills.length, 17)
   assert.equal(anthropics.groupingSignal, 'manifest')
   assert.deepEqual(anthropics.groups, ['document-skills', 'example-skills', 'claude-api'])
-  assert.equal(sourceLayout(anthropics), 'grouped')
   await openSource('anthropics/skills')
-  assert.ok(markup().includes('>Document skills<') && markup().includes('>Claude api<'))
+  assert.ok(markup().includes('>Document skills<'), 'the manifest’s groups are the headings')
+  assert.ok(markup().includes('Showing 1–12 of 17'))
+  // The third group is on page 2 — the pager walks the source, so a group that
+  // does not fit is reached rather than hidden.
+  await click(buttonLabelled('Page 2'))
+  assert.ok(markup().includes('>Claude api<'), 'and page 2 carries the group page 1 ran out of room for')
 
-  // 103 skills: search-first, and empty until it is asked.
+  // 103 skills: listed like any other source, twelve at a time, rather than
+  // withheld behind a search box until it is asked.
   const browserAct = await scanOf('github:browser-act/skills')
   assert.equal(browserAct.skills.length, 103)
-  assert.equal(sourceLayout(browserAct), 'search')
   await openSource('browser-act/skills')
-  assert.ok(markup().includes('placeholder="Search 103 skills"'))
-  assert.ok(markup().includes('Pick a category, or search.'))
-  assert.equal(markup().includes('role="checkbox"'), false, 'no rows are rendered until it is asked')
+  assert.ok(markup().includes('Showing 1–12 of 103'))
+  assert.equal(markup().includes('Pick a category, or search.'), false)
 
   // One skill across 3,143 tree entries, mirrored per harness and collapsed to
-  // one: a source that IS a skill renders as the skill's page.
+  // one: a source of one is one row and one page.
   const impeccable = await scanOf('github:pbakaus/impeccable')
   assert.equal(impeccable.skills.length, 1)
-  assert.equal(sourceLayout(impeccable), 'solo')
   await openSource('pbakaus/impeccable')
-  assert.equal(markup().includes('role="checkbox"'), false, 'a list of one is not a list')
-  assert.ok(markup().includes('>impeccable<'), 'the solo skill has the page to itself')
+  assert.ok(markup().includes('Showing 1–1 of 1'))
+  assert.ok(markup().includes('>impeccable<'))
 
-  // The skills Multicode ships, read off disk by the same service: 12 skills at
-  // one level, so one flat list.
+  // The skills Multicode ships, read off disk by the same service, under the
+  // name the product goes by.
   const builtin = await scanOf('builtin')
-  assert.equal(sourceLayout(builtin), 'flat')
-  await openSource('Multicode')
-  assert.ok(markup().includes('aria-label="Select prototype"'), 'the builtin source lists its skills flat')
-  assert.equal(markup().includes('aria-label="Groups"'), false)
+  assert.equal(builtin.skills.length, 12)
+  await openSource('SprintEngine Studio')
+  assert.ok(markup().includes('Showing 1–12 of 12'), 'the bundled source lists its skills too')
 
   // ── The reader: a multi-file skill, and the links between its files ────────
 
   await openSource('mattpocock/skills')
+  await filterTo('prototype')
   const prototype = mattpocock.skills.find((skill) => skill.id === PROTOTYPE_ID)
   assert.ok(prototype, 'the prototype skill is in the scan')
   assert.deepEqual(
@@ -537,11 +565,15 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
 
   // ── Install: the whole directory, into every harness dir ──────────────────
 
+  // One control per row (the ruling's row idiom), so a row installs itself:
+  // the batch checkbox column and its footer "Install 2" are gone.
   await openSource('mattpocock/skills')
-  await click(buttonLabelled('Select prototype'))
-  await click(buttonLabelled('Select research'))
-  await click(buttonWith('Install 2'))
-  await settleUntil('the install', () => markup().includes('Installed 2 skills.'))
+  await filterTo('prototype')
+  await click(buttonLabelled('Install prototype'))
+  await settleUntil('the prototype install', () => markup().includes('Installed 1 skill.'))
+  await filterTo('research')
+  await click(buttonLabelled('Install research'))
+  await settleUntil('the research install', () => markup().includes('Installed 1 skill.'))
 
   const installed = (harness: string, ...rest: string[]): string =>
     join(workspaceRoot, harness, 'skills', ...rest)
@@ -558,11 +590,16 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
       `${harness} received the repository's own bytes, in its own subdirectory`,
     )
   }
-  assert.equal(
-    markup().match(/>Installed</g)?.length,
-    2,
-    'and both rows they came from say so — no more, no fewer',
-  )
+  // Both rows say so. A page holds twelve of the source's 41, so each is
+  // checked where it is: on the tab filtered to it.
+  for (const dirName of ['prototype', 'research']) {
+    await filterTo(dirName)
+    assert.ok(markup().includes('>Installed<'), `the ${dirName} row says it is installed`)
+  }
+  // A skill nobody installed keeps its one control, which is the offer.
+  await filterTo('qa')
+  assert.ok(container.querySelector('[aria-label="Install qa"]'), 'an uninstalled row still offers Install')
+  await filterTo('')
 
   // The installed copy is the one the agent-facing inventory reads, so a skill
   // installed from a source is a skill an agent can be handed.
@@ -957,9 +994,12 @@ async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
   // Skill packs are gone (T7 swept them, and this suite's `window.api` carries
   // no `skillPack*` member at all), but the deep links that named them are on
   // disk in older installs. Each must still land somewhere real.
+  // The target names one of the door's three VIEWS since the source-tabs
+  // ruling (2026-09-05); `browse` named a half of a surface that no longer
+  // exists, and the catalogue it meant is Plugins.
   for (const [tab, expected] of [
     ['skill-packs', 'skills'],
-    [EXTENSIONS_BROWSE_DEEPLINK, 'browse'],
+    [EXTENSIONS_BROWSE_DEEPLINK, 'plugins'],
   ] as const) {
     carrier.activeModalSurface = null
     carrier.activeGlobalSurface = null
@@ -970,10 +1010,10 @@ async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
 
     assert.equal(carrier.activeGlobalSurface, 'extensions', `${tab} opens the Plugins door`)
     assert.equal(carrier.settingsOverlay.open, false, `${tab} does not open a settings tab that no longer exists`)
-    assert.equal(
+    assert.deepEqual(
       consumePendingExtensionsSurfaceTarget(),
-      expected,
-      `${tab} lands on the rail row it was asking for`,
+      { view: expected },
+      `${tab} lands on the view it was asking for`,
     )
   }
 

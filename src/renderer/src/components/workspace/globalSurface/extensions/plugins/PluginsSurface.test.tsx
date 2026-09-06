@@ -3,13 +3,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { emptyPluginComponents, type ScanResult, type ScannedPlugin, type SkillSource } from '../../../../../../../shared/skills'
 import { PluginDetailPane, type PluginDetailPaneProps } from './PluginDetailPane'
-import { PluginRow } from './PluginRow'
-import { PluginsSurface } from './PluginsSurface'
 
-// What the rendered surface owes: a plugin row is one target, the pane
-// discloses every hook command verbatim and withholds Install until they are
-// acknowledged, a linked plugin says it has not been read, and the source page
-// states what else the source holds.
+// What the plugin DETAIL PANE owes: every hook command verbatim, Install
+// withheld until they are acknowledged, and a linked plugin that says it has
+// not been read rather than showing an empty component list.
+//
+// The rows and the source page left this file with the source-tabs ruling
+// (2026-09-05): a plugin renders on the shared connector row now — icon chip,
+// name and kind badge, one-line summary, one control — and the page around it
+// is the catalogue frame, covered in catalogue/extensionsCatalogue.test.tsx.
 
 function run(name: string, body: () => void): void {
   try {
@@ -141,69 +143,4 @@ run('an installed plugin offers Remove and says which key it enabled', () => {
   assert.ok(markup.includes('Installed from this source at 1111111'))
 })
 
-run('a plugin row is one target with its state in words', () => {
-  const markup = renderToStaticMarkup(
-    <PluginRow
-      item={{
-        pluginId: 'a',
-        name: 'a',
-        description: 'does a thing',
-        components: '4 skills · 1 MCP',
-        hasHooks: false,
-        linked: false,
-        install: { kind: 'installed', record: { workspaceRoot: '', sourceId: '', pluginId: 'a', pluginName: 'a', marketplaceName: '', claudePluginKey: '', skillDirNames: [], mcpServerIds: [], commitSha: '', installedAt: '' } },
-      }}
-      selected
-      onOpen={() => {}}
-    />,
-  )
-  assert.equal((markup.match(/<button/g) ?? []).length, 1)
-  assert.ok(markup.includes('aria-current="true"'))
-  assert.ok(markup.includes('Installed'))
-  assert.ok(markup.includes('4 skills · 1 MCP'))
-})
-
-run('the source page states the shape, the count, and what else the source holds', () => {
-  const scan = scanOf([plugin('a'), plugin('b')])
-  const markup = renderToStaticMarkup(
-    <PluginsSurface
-      sources={{
-        sources: [SOURCE],
-        sourcesLoad: { status: 'ready' },
-        scans: { [SOURCE.id]: { status: 'ready', scan } },
-        installedDirNames: new Set(),
-        installedRead: { status: 'ready' },
-        installedPlugins: [],
-        installedPluginsRead: { status: 'ready' },
-        refreshSources: () => {},
-        refreshScan: () => {},
-        refreshInstalled: () => {},
-        applySync: () => {},
-      }}
-      workspaceRoot="/ws"
-      harnesses={['claude']}
-      selectedSourceId={SOURCE.id}
-      onSelectSource={() => {}}
-      onBrowseSkills={() => {}}
-      onAddMcpServers={() => {}}
-      onRemoveMcpServers={() => {}}
-      onConfigureGitHubToken={() => {}}
-      registry={{
-        entries: [],
-        load: { status: 'ready' },
-        registryUrl: null,
-        mcpSettings: { syncEnabled: true, servers: {} },
-        onInstalled: () => {},
-        onUpsertMcpServer: () => {},
-      }}
-    />,
-  )
-  assert.ok(markup.includes('Claude Code plugin marketplace · 2 plugins · 85cce03'))
-  assert.ok(markup.includes('Also from this source:'))
-  assert.ok(markup.includes('1 skill'))
-  assert.ok(markup.includes('aria-label="Plugin sources"'), 'the sources rail is a nested nav')
-  assert.ok(markup.includes('Plugins on GitHub'), 'the Discover foot says what it searches')
-  assert.equal(markup.includes('Filter 2 plugins'), false, 'a short list is not filtered')
-})
-
-console.log('plugins surface: ok')
+console.log('plugin detail pane: ok')

@@ -7,7 +7,11 @@ import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
-import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import {
+  dispatchExtensionsSurfaceTarget,
+  EXTENSIONS_DRAWER_VIEWS,
+  type ExtensionsDrawerView,
+} from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { isExtensionsDrawerSurface } from '../../components/workspace/extensionsDrawer'
 import type {
   AgentCli,
@@ -1225,11 +1229,7 @@ export interface SettingsSliceActions {
   // command palette, Settings → Modules, the agent "Manage skills" footers —
   // lands on the modal with its deep-link latched. (Was the Extensions door
   // until doors→modals, 2026-09-01; MC-1847 B1 before that.)
-  openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
-  // The Roadmap door routes here; a named
-  // convenience over openGlobalSurface('roadmap') so every caller opens the same
-  // door-routed full-page surface (global-surfaces epic 1704).
-  openRoadmapSurface: () => void
+  openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // Open/close the door-routed full-page surface (global-surfaces epic 1704).
   // `openGlobalSurface` is the generic entry a module's door calls with its own
   // registered surface id; `closeGlobalSurface` returns the card region to the
@@ -1456,16 +1456,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       // dispatch stays outside the producer — its listeners run synchronously
       // and must never observe a mid-update store.
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
-        dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
-        set((state) => {
-          // Plugins is a door again (Extensions drawer ruling, 2026-09-05), so
-          // opening it from inside Settings routes the card region and leaves
-          // nothing of the Settings modal behind.
-          state.activeGlobalSurface = 'extensions'
-          state.activeModalSurface = null
-          state.sidebarSection = 'extensions'
-          clearSettingsRequest(state)
+        dispatchExtensionsSurfaceTarget({
+          view:
+            opts?.initialTab === SKILLS_SETTINGS_TAB
+              ? EXTENSIONS_DRAWER_VIEWS.skills
+              : EXTENSIONS_DRAWER_VIEWS.plugins,
         })
+        // Plugins is a door again (Extensions drawer ruling, 2026-09-05), so
+        // opening it from inside Settings routes the card region and leaves
+        // nothing of the Settings modal behind. Through the one opener, not a
+        // second copy of it: the section rule lives there.
+        openGlobalSurface('extensions')
+        set(clearSettingsRequest)
         return
       }
       set((state) => {
@@ -1501,33 +1503,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       // then open the door — the same order the automations deep-link uses.
       // The dispatch stays outside the producer so its synchronous listeners
       // never observe a mid-update store.
-      dispatchExtensionsSurfaceTarget(opts?.view ?? 'browse')
-      set((state) => {
-        // A door since the Extensions drawer ruling (2026-09-05), so this
-        // routes the card region and closes the modal that may be over it —
-        // callers sit inside the Settings modal (Settings → Modules "Browse
-        // marketplace"), and the settings request it was carrying goes with it.
-        state.activeGlobalSurface = 'extensions'
-        state.activeModalSurface = null
-        state.sidebarSection = 'extensions'
-        clearSettingsRequest(state)
+      dispatchExtensionsSurfaceTarget({
+        view: opts?.view ?? EXTENSIONS_DRAWER_VIEWS.plugins,
+        installed: opts?.installed,
       })
+      // Through `openGlobalSurface`, which owns "a door closes the modal over
+      // it" and "a drawer door moves the section". Restating those here is how
+      // the same door came to leave the sidebar in one state from a command and
+      // another from an id.
+      openGlobalSurface('extensions')
+      // Callers sit inside the Settings modal (Settings → Modules "Browse
+      // marketplace"), and the settings request it was carrying goes with it
+      // rather than surviving to re-open a category later.
+      set(clearSettingsRequest)
     },
-
-    // The Roadmap door routes to the
-    // door-routed full-page surface (global-surfaces epic 1704). A named
-    // convenience over openGlobalSurface('roadmap') so every caller opens the same
-    // surface; the legacy centered overlay + its store flag are retired (T2).
-    //
-    // It CALLS that action rather than restating it. Written out, it kept the
-    // unconditional `sidebarSection = 'extensions'` that the drawer ruling
-    // removed from the generic opener (2026-09-05) — so the same door left the
-    // sidebar in one state when opened from a command and another when opened
-    // by id, which is exactly the drift a named convenience is supposed to
-    // prevent. Roadmap is not one of the drawer's five rows, so under the one
-    // implementation it no longer drags the column into a section it does not
-    // belong to.
-    openRoadmapSurface: () => openGlobalSurface('roadmap'),
 
     openGlobalSurface,
 

@@ -2,6 +2,7 @@ import React from 'react'
 
 import type { RegisteredGlobalSurface, RegisteredModalSurface } from '../../../modules/renderer-host'
 import { DoorModuleNotInstalledSurface } from '../ModuleAbsenceSurfaces'
+import { EXTENSIONS_DRAWER_VIEWS, type ExtensionsDrawerView } from './extensions/extensionsSurfaceTarget'
 
 // Resolution for the active door surface (MC-1854). A persisted
 // `activeGlobalSurface` id whose surface never registered (module not
@@ -41,7 +42,7 @@ export function resolveActiveModalSurface(
   surfaceId: string,
   getSurface: (id: string) => RegisteredModalSurface | undefined,
   moduleEnabled: (moduleId: string) => boolean,
-  openExtensions: (view: 'browse' | 'installed') => void,
+  openExtensions: (target: { view: ExtensionsDrawerView; installed?: boolean }) => void,
 ): Pick<RegisteredModalSurface, 'id' | 'moduleId' | 'label' | 'Component'> {
   const entry = getSurface(surfaceId)
   if (entry && moduleEnabled(entry.moduleId)) return entry
@@ -55,7 +56,9 @@ export function resolveActiveModalSurface(
         <DoorModuleNotInstalledSurface
           label={entry?.label ?? doorLabelForSurfaceId(surfaceId)}
           installed={installed}
-          onOpenExtensions={() => openExtensions(installed ? 'installed' : 'browse')}
+          onOpenExtensions={() =>
+            openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
+          }
         />
       )
     },
@@ -66,12 +69,13 @@ export function resolveActiveDoorSurface(
   surfaceId: string,
   getSurface: (id: string) => RegisteredGlobalSurface | undefined,
   moduleEnabled: (moduleId: string) => boolean,
-  openExtensions: (view: 'browse' | 'installed') => void,
+  openExtensions: (target: { view: ExtensionsDrawerView; installed?: boolean }) => void,
 ): RegisteredGlobalSurface {
   const entry = getSurface(surfaceId)
   if (entry && moduleEnabled(entry.moduleId)) return entry
-  // Registered-but-disabled means the module is on the machine: the CTA lands
-  // on Installed, where its toggle lives; never-registered lands on Browse.
+  // Registered-but-disabled means the module is on the machine, so the CTA
+  // lands on the Plugins view's Installed tab, where what this machine has is
+  // listed; never-registered lands on the catalogue itself.
   const installed = entry !== undefined
   return {
     id: surfaceId,
@@ -88,7 +92,9 @@ export function resolveActiveDoorSurface(
         <DoorModuleNotInstalledSurface
           label={doorLabelForSurfaceId(surfaceId, entry?.label)}
           installed={installed}
-          onOpenExtensions={() => openExtensions(installed ? 'installed' : 'browse')}
+          onOpenExtensions={() =>
+            openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
+          }
         />
       )
     },

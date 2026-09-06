@@ -5,13 +5,9 @@ import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/m
 import type { McpServerConfig } from '../../../../../shared/electron-api'
 import {
   buildConnectorEntries,
-  catalogServerAsComposerConnector,
   connectorCanLaunch,
   connectorEntryAsComposerConnector,
   connectorFacet,
-  deriveConnectorsView,
-  facetCounts,
-  filterByFacet,
   installedServerAsCatalogEntry,
   launchableConnectors,
   registryEntriesForKinds,
@@ -135,10 +131,10 @@ assert.equal(connectorFacet(''), 'Other')
   const entries = buildConnectorEntries([railwaySkilled, ...others], [], new Set())
   const launchable = entries.filter((e) => e.canLaunch)
   assert.deepEqual(launchable.map((e) => e.id), ['railway'])
-  // Installing one of the skill-less entries promotes it (and Featured follows).
+  // Installing one of the skill-less entries promotes it.
   const withInstall = buildConnectorEntries([railwaySkilled, ...others], [], new Set(['vercel']))
   assert.deepEqual(
-    filterByFacet(withInstall, 'Featured').map((e) => e.id),
+    withInstall.filter((e) => e.canLaunch).map((e) => e.id),
     ['railway', 'vercel'],
   )
 }
@@ -233,8 +229,10 @@ assert.equal(connectorCanLaunch(undefined, false), false)
   assert.equal(searchConnectors(entries, 'finance').length, 1)
 }
 
-// --- facet filtering + counts ---------------------------------------------
-
+// --- the category bucket a row renders under -------------------------------
+// The facet TABS that filtered across every source went with the browse grid
+// (source-tabs ruling, 2026-09-05): a category is a group inside a source's own
+// tab now, so what an entry carries is the bucket, not a filter.
 {
   const entries = buildConnectorEntries(
     [
@@ -244,137 +242,52 @@ assert.equal(connectorCanLaunch(undefined, false), false)
     [plugin()],
     new Set(),
   )
-  // Featured is the launchable rail.
-  assert.deepEqual(filterByFacet(entries, 'Featured').map((e) => e.id), ['railway'])
-  // Named facet buckets by category.
-  assert.deepEqual(filterByFacet(entries, 'Data').map((e) => e.id), ['supabase'])
-  assert.deepEqual(filterByFacet(entries, 'Payments').map((e) => e.id), ['stripe-mcp'])
-  // All returns the full set.
-  assert.equal(filterByFacet(entries, 'All').length, 3)
-
-  const counts = facetCounts(entries)
-  assert.equal(counts.All, 3)
-  assert.equal(counts.Featured, 1)
-  assert.equal(counts.Infrastructure, 1) // railway/Deployments
-  assert.equal(counts.Data, 1)
-  assert.equal(counts.Payments, 1)
-  assert.equal(counts.Productivity, 0)
-}
-
-// --- view state machine ----------------------------------------------------
-
-// Both loading → loading.
-assert.equal(
-  deriveConnectorsView({ status: 'loading' }, { status: 'loading' }, new Set(), '', 'All').status,
-  'loading',
-)
-
-// One source still loading (the other ready) → still loading, no partial grid.
-assert.equal(
-  deriveConnectorsView(ready([server()]), { status: 'loading' }, new Set(), '', 'All').status,
-  'loading',
-)
-
-// Both failed → hard error carrying both messages.
-{
-  const view = deriveConnectorsView(
-    { status: 'error', message: 'catalog down.' },
-    { status: 'error', message: 'registry down.' },
-    new Set(),
-    '',
-    'All',
+  assert.deepEqual(
+    entries.map((entry) => [entry.id, entry.facet]),
+    [
+      ['railway', 'Infrastructure'],
+      ['supabase', 'Data'],
+      ['stripe-mcp', 'Payments'],
+    ],
   )
-  assert.equal(view.status, 'error')
-  assert.match(view.status === 'error' ? view.message : '', /catalog down\. registry down\./)
 }
 
-// One source down, the other ready → ready with a degradation notice, not empty.
-{
-  const view = deriveConnectorsView(
-    ready([server()]),
-    { status: 'error', message: 'offline.' },
-    new Set(),
-    '',
-    'All',
-  )
-  assert.equal(view.status, 'ready')
-  assert.equal(view.status === 'ready' ? view.total : -1, 1)
-  assert.match(view.status === 'ready' ? view.notice ?? '' : '', /Marketplace connectors are unavailable/)
-}
-
-// Both ready but empty → empty.
-assert.equal(deriveConnectorsView(ready([]), ready([]), new Set(), '', 'All').status, 'empty')
-
-// Search matches nothing → no-match (distinct from empty).
-{
-  const view = deriveConnectorsView(ready([server()]), ready([plugin()]), new Set(), 'zzz', 'All')
-  assert.equal(view.status, 'no-match')
-  assert.equal(view.status === 'no-match' ? view.query : '', 'zzz')
-}
-
-// A facet with no members → no-match for that facet even with no query.
-{
-  const view = deriveConnectorsView(ready([server()]), ready([]), new Set(), '', 'Payments')
-  assert.equal(view.status, 'no-match')
-}
 
 // --- category sections ------------------------------------------------------
 
-// All tab: one collapsed section per non-empty facet bucket, tab-strip order,
-// unmapped bucket last under a plain "More" heading. Empty buckets are dropped.
+// One section per non-empty bucket, in the declared order, with the unmapped
+// bucket last under a plain "More" heading. Empty buckets are dropped, and no
+// section hides half of itself: the pager walks the whole tab (source-tabs
+// ruling, 2026-09-05), which a section with its own cutoff could not be part of.
 {
   const entries = buildConnectorEntries(
     [server(), server({ id: 'weather', name: 'Weather', category: 'Weather' })],
     [plugin()],
     new Set(),
   )
-  const sections = sectionConnectors(entries, 'All')
+  const sections = sectionConnectors(entries)
   assert.deepEqual(
     sections.map((section) => section.title),
     ['Infrastructure', 'Payments', 'More'],
   )
-  assert.ok(sections.every((section) => !section.expanded))
   assert.deepEqual(sections[0].entries.map((entry) => entry.id), ['railway'])
   assert.deepEqual(sections[2].entries.map((entry) => entry.id), ['weather'])
 }
 
-// A specific facet tab renders as a single expanded section (no show-more cutoff).
-{
-  const entries = filterByFacet(buildConnectorEntries([server()], [plugin()], new Set()), 'Payments')
-  const sections = sectionConnectors(entries, 'Payments')
-  assert.equal(sections.length, 1)
-  assert.equal(sections[0].title, 'Payments')
-  assert.equal(sections[0].expanded, true)
-}
-
-// No entries → no sections (the panel's empty/no-match states own that copy).
-assert.deepEqual(sectionConnectors([], 'All'), [])
+// No entries → no sections (the tab's empty/no-match sentence owns that copy).
+assert.deepEqual(sectionConnectors([]), [])
 
 // "New chat" hands the host the connector itself, not a bare id: the composer's
 // attachment chip needs the display name at open, with no second catalog read.
 {
-  assert.deepEqual(catalogServerAsComposerConnector(server({ icon: 'railway.svg' })), {
-    id: 'railway',
-    name: 'Railway',
-    icon: 'railway.svg',
-  })
-
   const [entry] = buildConnectorEntries([server({ icon: 'railway.svg' })], [], new Set())
   assert.deepEqual(connectorEntryAsComposerConnector(entry), {
     id: 'railway',
     name: 'Railway',
     icon: 'railway.svg',
   })
-
-  // An installed-only connector has no catalog record, so it carries no icon —
-  // the chip falls back to the brand icon keyed off the id. It must still name
-  // the connector rather than dropping to the id.
-  const installed = installedServerAsCatalogEntry({ id: 'acme', name: 'Acme', enabled: true } as McpServerConfig)
-  const connector = catalogServerAsComposerConnector(installed)
-  assert.equal(connector.id, 'acme')
-  assert.equal(connector.name, 'Acme')
-  assert.equal(connector.icon, undefined)
 }
+
 
 // --- registry entries by kind (MC-1847 C2) ---------------------------------
 // Module/cli plugins browse on the door's own kind canvases; the connector grid
@@ -425,8 +338,7 @@ assert.deepEqual(sectionConnectors([], 'All'), [])
   assert.equal(entry.summary, 'Adds a calendar workspace type: time-block notes and schedule Backlog items.')
   assert.deepEqual(entry.componentLabels, ['Module'])
   assert.equal(entry.canLaunch, false)
-  assert.deepEqual(filterByFacet([entry], 'Featured'), [])
-  assert.equal(facetCounts([entry]).Featured, 0)
+  assert.equal(entry.canLaunch, false, 'a module-only plugin is never launchable')
   assert.deepEqual(buildConnectorEntries([], [calendar], new Set()), [])
   // A mixed bundle (mcp + module) is a connector too, but its connector row
   // never launches from the registry side — install still gates launch.

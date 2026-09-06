@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from 'react'
+import React, { useContext, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { CloseIconButton, IconButton } from '../../ui'
@@ -203,10 +203,26 @@ export function GlobalSurfaceShell({
     onBarPresence(rendersModalBar)
     return () => onBarPresence(false)
   }, [onBarPresence, rendersModalBar])
+  // Keyboard focus follows the surface that just mounted, but only when the
+  // click that opened it left focus nowhere. A tile on the Extensions home
+  // unmounts with the page it is on, so its click dropped focus to `<body>` and
+  // the next Tab restarted at the top of the window; a drawer row survives its
+  // own click and keeps focus, which is why it never showed the same fault. The
+  // region is a `tabIndex={-1}` landmark, so this is a programmatic focus that
+  // never draws a ring and never steals focus from a control the person moved
+  // to themselves.
+  const regionRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    regionRef.current?.focus({ preventScroll: true })
+  }, [ariaLabel])
   return (
     <section
+      ref={regionRef}
+      tabIndex={-1}
       aria-label={ariaLabel}
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-surface)]"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-surface)] outline-none"
     >
       {bar && modalChrome ? (
         // Titled by the host's label (the surface's name), never bar.title:

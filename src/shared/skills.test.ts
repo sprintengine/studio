@@ -101,6 +101,22 @@ function frontmatter(): void {
     description: '',
     allowedTools: [],
   })
+
+  // A folded description carries its text below the marker. Reading the marker
+  // as the value is how a catalogue row came to show ">" where its one line of
+  // description belongs — 1,723 of them, on the connector source's tab.
+  const folded = parseSkillFrontmatter(
+    '---\nname: 42crunch-audit\ndescription: >\n  Audit an OpenAPI file for security issues\n  and report what it found.\nallowed-tools: Read\n---\n',
+  )
+  assert.equal(folded.name, '42crunch-audit')
+  assert.equal(folded.description, 'Audit an OpenAPI file for security issues and report what it found.')
+  assert.deepEqual(folded.allowedTools, ['Read'])
+
+  // A literal block folds the same way; the marker itself is never the value.
+  assert.equal(
+    parseSkillFrontmatter('---\ndescription: |\n  One line.\n---\n').description,
+    'One line.',
+  )
 }
 
 function identifiers(): void {

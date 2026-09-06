@@ -1,0 +1,359 @@
+// Skills: Installed, then one tab per source, the repository's folders as the
+// groups inside it.
+//
+// Source-tabs ruling (2026-09-05). What went with the nested Sources rail:
+//
+//   - The four `sourceLayout()` shapes. Solo / flat / grouped / search-first
+//     existed to decide how much of a source to put on screen at once, which
+//     is the pager's job now. The rule they encoded — group by the folders the
+//     repository actually keeps its skills in — survives, in
+//     `deriveSkillCatalogueGroups`.
+//   - Batch selection. The row idiom the ruling names carries ONE control, so
+//     a row installs itself; a checkbox column and a footer "Install 6" is a
+//     second interaction model on the same rows.
+//
+// Reading a skill is unchanged: the row opens `SkillPage` in the detail pane
+// beside the list, which is where Install lives for the skill in hand.
+
+import React, { useCallback, useMemo, useState } from 'react'
+
+import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
+import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
+import { InstalledExtensionsInventory } from '../../../../panels/ConnectorsPanel/InstalledExtensionsInventory'
+import { useWorkspaceStore } from '../../../../../store/workspaceStore'
+import type { WorkspaceSkill } from '../../../../../../../shared/electron-api'
+import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
+import {
+  catalogueMonogram,
+  catalogueStateLine,
+  catalogueTabLabel,
+  deriveCatalogueTabs,
+  resolveCatalogueTab,
+  INSTALLED_TAB_ID,
+  type CatalogueCount,
+} from '../catalogue/catalogueTabs'
+import { SourceTabActions } from '../catalogue/SourceTabActions'
+import { SkillPage } from './SkillPage'
+import { SourceMonogram } from './SourceMonogram'
+import type { SkillSourcesState } from './useSkillSources'
+import {
+  deriveInstallAvailability,
+  deriveSkillCatalogueGroups,
+  findSkill,
+  summarizeInstallRun,
+  summarizeSyncRun,
+  type SkillListItem,
+} from './skillsSurfaceModel'
+
+const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
+
+export function SkillsCatalogue({
+  sources,
+  workspaceRoot,
+  activeTabId,
+  onSelectTab,
+  query,
+  onQueryChange,
+  add,
+  addNotice,
+  onDismissAddNotice,
+  onUseSkillInNewAgent,
+}: {
+  sources: SkillSourcesState
+  workspaceRoot: string | null
+  activeTabId: string | null
+  onSelectTab: (tabId: string) => void
+  query: string
+  onQueryChange: (value: string) => void
+  add: CatalogueAddMenu
+  /** A source that could not be added — stated where the person is looking. */
+  addNotice: string | null
+  onDismissAddNotice: () => void
+  onUseSkillInNewAgent: (skill: WorkspaceSkill) => void
+}): JSX.Element {
+  const [openSkillId, setOpenSkillId] = useState<string | null>(null)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [report, setReport] = useState<{ sourceId: string; outcome: string | null; error: string | null } | null>(null)
+  const [inventoryNonce, setInventoryNonce] = useState(0)
+  const [skillMessage, setSkillMessage] = useState<string | null>(null)
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+
+  const counts = useMemo<Record<string, CatalogueCount>>(() => {
+    const map: Record<string, CatalogueCount> = {}
+    for (const source of sources.sources) {
+      const load = sources.scans[source.id]
+      map[source.id] =
+        !load || load.status === 'loading'
+          ? { status: 'loading' }
+          : load.status === 'error'
+            ? { status: 'error', message: load.message }
+            : { status: 'ready', count: load.scan.skills.length }
+    }
+    return map
+  }, [sources.scans, sources.sources])
+
+  const tabs = deriveCatalogueTabs({
+    kind: 'skills',
+    sources: sources.sources,
+    // Installed skills are workspace-scoped and read over IPC by the inventory
+    // below; this is the count the same read already gave the door.
+    installedCount: sources.installedRead.status === 'ready' ? sources.installedDirNames.size : null,
+    counts,
+  })
+  const tabId = resolveCatalogueTab(tabs, activeTabId)
+  const activeSource = tabs.find((tab) => tab.id === tabId)?.source ?? null
+  const activeScan = activeSource ? sources.scans[activeSource.id] : undefined
+  const scan = activeScan && activeScan.status === 'ready' ? activeScan.scan : null
+
+  const installSkill = useCallback(
+    async (source: SkillSource, skillId: string): Promise<void> => {
+      if (!workspaceRoot) return
+      if (typeof window.api.skillsInstall !== 'function') {
+        setReport({ sourceId: source.id, outcome: null, error: MISSING_API_MESSAGE })
+        return
+      }
+      setInstalling(skillId)
+      setReport(null)
+      try {
+        const result = await window.api.skillsInstall({ sourceId: source.id, skillId, workspaceRoot })
+        setReport(
+          result.ok
+            ? { sourceId: source.id, outcome: summarizeInstallRun(1, []), error: null }
+            : { sourceId: source.id, outcome: null, error: summarizeInstallRun(0, [{ skillId, message: result.message }]) },
+        )
+      } catch (error) {
+        setReport({
+          sourceId: source.id,
+          outcome: null,
+          error: summarizeInstallRun(0, [{ skillId, message: describe(error) }]),
+        })
+      } finally {
+        setInstalling(null)
+        sources.refreshInstalled()
+      }
+    },
+    [sources, workspaceRoot],
+  )
+
+  // Removing an installed skill takes its directory back out of every harness
+  // dir that holds a copy. The outcome is stated: a removal that failed must
+  // never leave the row looking gone.
+  const removeSkill = useCallback(
+    async (dirName: string): Promise<void> => {
+      if (!workspaceRoot) return
+      setSkillMessage(null)
+      try {
+        const result = await window.api.skillsUninstall({ workspaceRoot, dirName })
+        setSkillMessage(result.ok ? `${dirName} removed.` : result.message)
+        if (result.ok) {
+          setInventoryNonce((count) => count + 1)
+          sources.refreshInstalled()
+        }
+      } catch (error) {
+        setSkillMessage(describe(error))
+      }
+    },
+    [sources, workspaceRoot],
+  )
+
+  const sections = useMemo<CatalogueSection<SkillListItem>[]>(
+    () =>
+      scan
+        ? deriveSkillCatalogueGroups({ scan, installedDirNames: sources.installedDirNames, query })
+        : [],
+    [query, scan, sources.installedDirNames],
+  )
+
+  const renderRow = useCallback(
+    (item: SkillListItem): React.ReactNode => (
+      <ConnectorRow
+        key={item.skillId}
+        icon={<SourceMonogram monogram={initials(item.name)} size="lg" />}
+        name={item.name}
+        summary={item.description || `${item.fileCount} file${item.fileCount === 1 ? '' : 's'}`}
+        chips={['Skill', ...(item.hasExecutables ? ['Runs scripts'] : [])]}
+        selected={openSkillId === item.skillId}
+        onOpen={() => setOpenSkillId(item.skillId)}
+        actions={
+          item.installed ? (
+            <span className="pr-1 text-meta font-medium text-[color:var(--accent-primary)]">Installed</span>
+          ) : (
+            <GhostButton
+              size="sm"
+              disabled={!workspaceRoot || installing !== null}
+              onClick={() => activeSource && void installSkill(activeSource, item.skillId)}
+              className="border border-[color:var(--border-default)]"
+              aria-label={`Install ${item.name}`}
+            >
+              {installing === item.skillId ? 'Installing…' : 'Install'}
+            </GhostButton>
+          )
+        }
+      />
+    ),
+    [activeSource, installSkill, installing, openSkillId, workspaceRoot],
+  )
+
+  const thisReport = report?.sourceId === activeSource?.id ? report : null
+
+  const head =
+    tabId === INSTALLED_TAB_ID ? (
+      <CatalogueHead
+        name="Installed"
+        stateLine={
+          workspaceRoot
+            ? 'The skills installed in this workspace, grouped by where they came from.'
+            : 'Open a workspace to see the skills installed in it — a skill installs into a workspace, not into the app.'
+        }
+      />
+    ) : activeSource ? (
+      <CatalogueHead
+        monogram={<SourceMonogram monogram={catalogueMonogram(activeSource)} size="lg" />}
+        name={catalogueTabLabel(activeSource)}
+        stateLine={[
+          catalogueStateLine(counts[activeSource.id] ?? { status: 'loading' }, 'skill'),
+          activeSource.blurb || null,
+          thisReport?.outcome ?? null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+        actions={
+          <SourceTabActions
+            source={activeSource}
+            workspaceRoot={workspaceRoot}
+            onSynced={(source, result) => {
+              sources.applySync(source, result.scan)
+              sources.refreshInstalled()
+              setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
+            }}
+            onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
+            onRemoved={() => {
+              sources.refreshSources()
+              onSelectTab(INSTALLED_TAB_ID)
+            }}
+          />
+        }
+      />
+    ) : null
+
+  const notices = (
+    <>
+      {thisReport?.error ? <InlineNotice tone="error" title="That did not complete." hint={thisReport.error} /> : null}
+      {addNotice ? (
+        <InlineNotice
+          tone="error"
+          title="That source was not added."
+          hint={addNotice}
+          action={<GhostButton onClick={onDismissAddNotice}>Dismiss</GhostButton>}
+        />
+      ) : null}
+      {skillMessage ? <InlineNotice tone="warn">{skillMessage}</InlineNotice> : null}
+    </>
+  )
+
+  const body = ((): React.ReactNode => {
+    if (tabId === INSTALLED_TAB_ID) {
+      return (
+        <InstalledExtensionsInventory
+          key={inventoryNonce}
+          mcpServers={[]}
+          moduleOverrides={moduleOverrides}
+          workspaceRoot={workspaceRoot}
+          kinds={['skill']}
+          sourceGrouping={{ sources: sources.sources, records: sources.installedPlugins }}
+          paging={{ noun: 'skill', query }}
+          onRemoveSkill={(dirName) => void removeSkill(dirName)}
+          onUseSkillInNewAgent={onUseSkillInNewAgent}
+        />
+      )
+    }
+    if (sources.sourcesLoad.status === 'error') {
+      return (
+        <InlineNotice
+          tone="error"
+          title="Your skill sources could not be read."
+          hint="Nothing was changed. Try again, or add a source to start a fresh list."
+          detail={sources.sourcesLoad.message}
+          action={<GhostButton onClick={sources.refreshSources}>Try again</GhostButton>}
+        />
+      )
+    }
+    if (!activeSource) return <LoadingLine label="Loading skill sources…" />
+    if (!activeScan || activeScan.status === 'loading') {
+      return <LoadingLine label={`Reading ${catalogueTabLabel(activeSource)}…`} />
+    }
+    if (activeScan.status === 'error') {
+      return (
+        <InlineNotice
+          tone="error"
+          title={`${catalogueTabLabel(activeSource)} could not be read.`}
+          hint="Its skills are not listed below — this is not an empty source."
+          detail={activeScan.message}
+          action={<GhostButton onClick={() => sources.refreshScan(activeSource.id)}>Try again</GhostButton>}
+        />
+      )
+    }
+    return null
+  })()
+
+  const openSkill = scan && openSkillId ? findSkill(scan, openSkillId) : null
+  const detail =
+    activeSource && openSkill ? (
+      <aside
+        aria-label={openSkill.name}
+        className="min-h-0 w-[420px] shrink-0 overflow-y-auto border-l border-[color:var(--border-subtle)] px-4 py-4"
+      >
+        <SkillPage
+          source={activeSource}
+          skill={openSkill}
+          installed={sources.installedDirNames.has(skillDirName(openSkill.id))}
+          installing={installing !== null}
+          availability={deriveInstallAvailability(workspaceRoot, 1)}
+          onInstall={() => void installSkill(activeSource, openSkill.id)}
+          onBack={() => setOpenSkillId(null)}
+        />
+      </aside>
+    ) : null
+
+  return (
+    <CatalogueSurface<SkillListItem>
+      title="Skills"
+      tabs={tabs}
+      activeTabId={tabId}
+      onSelectTab={(next) => {
+        setOpenSkillId(null)
+        onSelectTab(next)
+      }}
+      search={{ query, onQueryChange, placeholder: 'Search this tab' }}
+      add={add}
+      head={head}
+      notices={notices}
+      body={body}
+      sections={sections}
+      renderRow={renderRow}
+      noun="skill"
+      detail={detail}
+    />
+  )
+}
+
+function LoadingLine({ label }: { label: string }): JSX.Element {
+  return (
+    <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
+      <Spinner size={14} />
+      {label}
+    </div>
+  )
+}
+
+function initials(name: string): string {
+  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean)
+  if (words.length === 0) return '?'
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return `${words[0][0]}${words[1][0]}`.toUpperCase()
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

@@ -29,6 +29,7 @@ import type {
 } from '../../../../../../../shared/skills'
 import {
   Badge,
+  EmptyState,
   GhostButton,
   InboxSearchInput,
   InlineNotice,
@@ -39,7 +40,7 @@ import {
   StarGlyph,
 } from '../../../../ui'
 import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
-import { EmptyState } from './SkillSourceCanvas'
+
 import {
   createSkillSearchScheduler,
   describeSearchBudget,
@@ -252,7 +253,7 @@ export function DiscoverRepoList({
       )}
       <Section
         // `flush`: the hit rows draw from x=0, so the header takes no inset the
-        // rows do not have (see SkillSourceCanvas).
+        // rows do not have.
         inset="flush"
         level={4}
         title="Most starred"

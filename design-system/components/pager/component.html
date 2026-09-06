@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pager</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The pager sits at the foot of the list it walks; the demo stands in for
+     that list so the rule above it reads the way it does in place. */
+  .demo-list {
+    margin: 0 0 var(--sem-space-3xl);
+    border-top: 1px solid var(--sem-color-border-subtle);
+  }
+  .demo-list:last-child {
+    margin-bottom: 0;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a long source: first and last page always reachable, an elision between.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="Plugins in SprintEngine Studio">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 13–24 of 318</span>
+      <span class="ds-pager-controls">
+        <button type="button" class="ds-pager-step" aria-label="Previous page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <button type="button" class="ds-pager-step" aria-label="Page 1">1</button>
+        <button type="button" class="ds-pager-step" aria-current="page" aria-label="Page 2">2</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 3">3</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 4">4</button>
+        <span class="ds-pager-gap" aria-hidden="true">…</span>
+        <button type="button" class="ds-pager-step" aria-label="Page 27">27</button>
+        <button type="button" class="ds-pager-step" aria-label="Next page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+      </span>
+    </nav>
+  </div>
+  <p class="demo-label">One page — the numbers are gone; the sentence stays, because the count is still news.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="Skills in mattpocock/skills">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–8 of 8</span>
+    </nav>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — first page: previous is disabled rather than absent, so the strip never reflows.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="MCP servers in SprintEngine Studio">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–12 of 318</span>
+      <span class="ds-pager-controls">
+        <button type="button" class="ds-pager-step" aria-label="Previous page" disabled>
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <button type="button" class="ds-pager-step" aria-current="page" aria-label="Page 1">1</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 2">2</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 3">3</button>
+        <span class="ds-pager-gap" aria-hidden="true">…</span>
+        <button type="button" class="ds-pager-step" aria-label="Page 27">27</button>
+        <button type="button" class="ds-pager-step" aria-label="Next page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+      </span>
+    </nav>
+  </div>
+</div>
+</body>
+</html>

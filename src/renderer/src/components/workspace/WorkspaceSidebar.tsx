@@ -1234,16 +1234,11 @@ export default function WorkspaceSidebar({
     const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
     return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
   }, [activeGlobalSurface, moduleOverrides])
-  // Module-contributed top-nav doors (the sidebar-nav host contribution point).
-  // The Roadmap door now rides this registry rather than being hardcoded here:
-  // it registers unconditionally at boot and is filtered by its module's live
-  // enablement, so toggling Roadmap (or a Sprint-Engine/Automations dependency)
-  // shows/hides the door without a reload. Memoized on the enablement overrides
-  // so the array is stable between toggles.
-  const moduleNavEntries = useMemo(
-    () => getRendererHost().getSidebarNavEntries((id) => selectModuleEnabled(moduleOverrides, id)),
-    [moduleOverrides],
-  )
+  // Module-contributed top-nav doors used to be resolved here and handed to
+  // ExtensionsRail. They are resolved inside `useExtensionsDrawerRows` now: the
+  // memo here was keyed on module enablement alone, so a third-party module
+  // that finished loading after boot never appeared in the drawer even though
+  // the Extensions home — which uses the same resolver — listed it.
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
@@ -2516,7 +2511,7 @@ export default function WorkspaceSidebar({
           Unmounted rather than hidden — unlike the tree it keeps no fold or
           scroll state worth preserving across a section switch. */}
       {extensionsSection && !contextRailActive ? (
-        <ExtensionsRail collapsed={sidebarCollapsed} navEntries={moduleNavEntries} />
+        <ExtensionsRail collapsed={sidebarCollapsed} />
       ) : null}
       <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
         {/* Home's one control above the tree: New chat, the one way in (owner,

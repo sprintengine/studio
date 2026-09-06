@@ -98,16 +98,47 @@ export function deriveSkillsKindStateLine(
   sources: readonly SkillSource[],
   scans: Readonly<Record<string, SkillScanLoad>>,
 ): string {
-  if (sourcesLoad.status === 'loading') return 'Loading…'
-  if (sourcesLoad.status === 'error') return 'Sources unavailable'
-  const sourceLine = `${sources.length} source${sources.length === 1 ? '' : 's'}`
+  const total = skillsTotal(sourcesLoad, sources, scans)
+  if (total.state === 'loading') return 'Loading…'
+  if (total.state === 'error') return 'Sources unavailable'
+  const sourceLine = `${total.sourceCount} source${total.sourceCount === 1 ? '' : 's'}`
+  if (!total.ready) return sourceLine
+  return `${sourceLine} · ${pluralSkills(total.skillCount)}`
+}
+
+/**
+ * How many skills the app's sources hold, and whether that is knowable yet.
+ *
+ * One derivation, two readers: this state line and the Extensions home's
+ * Skills tile. The tile used to re-implement the sum, which is the setup for
+ * two places stating different totals of the same thing the day either rule
+ * moves.
+ */
+export function skillsTotal(
+  sourcesLoad: SkillSourcesLoad,
+  sources: readonly SkillSource[],
+  scans: Readonly<Record<string, SkillScanLoad>>,
+): { state: 'loading' | 'error' | 'ready'; ready: boolean; sourceCount: number; skillCount: number } {
+  if (sourcesLoad.status === 'loading') {
+    return { state: 'loading', ready: false, sourceCount: sources.length, skillCount: 0 }
+  }
+  if (sourcesLoad.status === 'error') {
+    return { state: 'error', ready: false, sourceCount: sources.length, skillCount: 0 }
+  }
   const loads = sources.map((source) => scans[source.id])
-  if (loads.some((load) => !load || load.status !== 'ready')) return sourceLine
-  const total = loads.reduce(
-    (sum, load) => sum + (load && load.status === 'ready' ? load.scan.skills.length : 0),
-    0,
-  )
-  return `${sourceLine} · ${pluralSkills(total)}`
+  // A total is only a total once EVERY source has answered: a partial sum
+  // presented as the total is a lie that settles into a different number a
+  // second later.
+  const ready = loads.every((load) => load && load.status === 'ready')
+  return {
+    state: 'ready',
+    ready,
+    sourceCount: sources.length,
+    skillCount: loads.reduce(
+      (sum, load) => sum + (load && load.status === 'ready' ? load.scan.skills.length : 0),
+      0,
+    ),
+  }
 }
 
 // ── The source page ──────────────────────────────────────────────────────────
@@ -274,6 +305,40 @@ function matchSkills(items: readonly SkillListItem[], query: string): SkillListI
   return items.filter((item) =>
     `${item.name} ${item.description} ${item.group} ${item.skillId}`.toLowerCase().includes(needle),
   )
+}
+
+/**
+ * A source's skills as the tab renders them: the repository's own folders as
+ * groups, in the order the scan found them, filtered by the tab's search.
+ *
+ * The `sourceLayout()` shapes — solo, flat, grouped, search-first — decided
+ * how much of a source to show at once, and the pager decides that now: every
+ * source lists in full, twelve rows at a time, so the only question left is
+ * how the rows are grouped. A source that carries no grouping signal lists
+ * under one heading rather than under a fake one.
+ */
+export function deriveSkillCatalogueGroups(input: {
+  scan: ScanResult
+  installedDirNames: ReadonlySet<string>
+  query: string
+}): { key: string; label: string; items: SkillListItem[] }[] {
+  const items = input.scan.skills.map((skill) => toListItem(skill, input.installedDirNames))
+  const matched = input.query.trim() ? matchSkills(items, input.query.trim()) : items
+  if (matched.length === 0) return []
+  const groups = input.scan.groups.filter((name) => matched.some((item) => item.group === name))
+  if (groups.length === 0) {
+    return [{ key: '(all)', label: 'Skills', items: matched }]
+  }
+  const grouped = groups.map((name) => ({
+    key: name,
+    label: skillGroupLabel(name),
+    items: matched.filter((item) => item.group === name),
+  }))
+  // A skill whose group the scan did not list still has to be reachable.
+  const ungrouped = matched.filter((item) => !groups.includes(item.group))
+  return ungrouped.length > 0
+    ? [...grouped, { key: '(ungrouped)', label: 'Everything else', items: ungrouped }]
+    : grouped
 }
 
 export function findSkill(scan: ScanResult, skillId: string): ScannedSkill | null {

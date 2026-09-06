@@ -2344,7 +2344,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                   onOpenChange={setSkillsMenuOpen}
                   workspaceRoot={workspaceRoot}
                   onPick={applySkillPick}
-                  onManageSkills={() => openExtensionsSurface({ view: 'installed' })}
+                  onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
                 />
               ) : null}
               <ModelPickerPill

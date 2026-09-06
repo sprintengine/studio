@@ -13,8 +13,14 @@
 // the source with its scan), so the footer offers Remove for a repository that
 // turned out to be the wrong one. Nothing installs here — adding a source and
 // taking skills from it stay separate acts.
+//
+// Discover lives inside this modal since the source-tabs ruling (2026-09-05)
+// retired the Sources rail that used to carry it in its foot. It is the same
+// question this modal asks — "which repository?" — for someone who does not
+// have one in mind, so it is a second panel of the same dialog rather than a
+// third item on a two-item menu.
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
 import {
   SOURCE_SHAPE_LABEL,
@@ -25,7 +31,10 @@ import {
   type SkillSource,
 } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Input, PrimaryButton, Spinner } from '../../../../ui'
+import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../../../ui/Modal'
+import { addedRepoKeys } from './discoverModel'
+import { SkillsDiscover } from './SkillsDiscover'
 import { pluralSkills } from './skillsSurfaceModel'
 
 type AddPhase =
@@ -37,29 +46,39 @@ type AddPhase =
 export function AddSkillSourceModal({
   open,
   initialRepo = '',
+  addedRepos = [],
   onClose,
   onAdded,
   onRemoved,
+  onConfigureGitHubToken,
 }: {
   open: boolean
   /** A candidate chosen in Discover. It arrives in the same field a pasted
    *  repository lands in, and takes the same path from there. */
   initialRepo?: string
+  /** Repositories already in the list, so Discover says "Added" rather than
+   *  offering a scan for one the person already has. */
+  addedRepos?: readonly string[]
   onClose: () => void
   /** A source landed in the list; the surface reloads and opens it. */
   onAdded: (source: SkillSource) => void
   /** The just-added source was removed again. */
   onRemoved: () => void
+  /** Discover's code search needs a GitHub token, which is set in Settings. */
+  onConfigureGitHubToken?: () => void
 }): JSX.Element {
   const [repo, setRepo] = useState(initialRepo)
   const [phase, setPhase] = useState<AddPhase>({ kind: 'idle' })
   const [removing, setRemoving] = useState(false)
+  const [discovering, setDiscovering] = useState(false)
+  const added = useMemo(() => addedRepoKeys([...addedRepos]), [addedRepos])
 
   useEffect(() => {
     if (!open) return
     setRepo(initialRepo)
     setPhase({ kind: 'idle' })
     setRemoving(false)
+    setDiscovering(false)
   }, [open, initialRepo])
 
   const scan = async (): Promise<void> => {
@@ -131,6 +150,31 @@ export function AddSkillSourceModal({
         ) : null}
 
         {phase.kind === 'added' ? <ScanSummary scan={phase.scan} /> : null}
+
+        {phase.kind === 'idle' ? (
+          <button
+            type="button"
+            onClick={() => setDiscovering((value) => !value)}
+            aria-expanded={discovering}
+            className={`self-start rounded-sm text-meta text-[color:var(--text-muted)] underline decoration-[color:var(--border-strong)] underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          >
+            {discovering ? 'Hide search' : "Don't have one in mind? Search GitHub"}
+          </button>
+        ) : null}
+        {phase.kind === 'idle' && discovering ? (
+          <div className="max-h-[320px] min-h-0 overflow-y-auto">
+            <SkillsDiscover
+              addedRepos={added}
+              // A candidate lands in the field above and takes the pasted
+              // repository's path from there — one way in, two ways to find it.
+              onScanRepo={(candidate) => {
+                setRepo(candidate)
+                setDiscovering(false)
+              }}
+              onConfigureToken={onConfigureGitHubToken ?? (() => undefined)}
+            />
+          </div>
+        ) : null}
       </ModalBody>
       <ModalFooter>
         {phase.kind === 'added' ? (

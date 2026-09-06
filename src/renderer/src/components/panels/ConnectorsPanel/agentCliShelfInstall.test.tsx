@@ -133,7 +133,13 @@ async function main(): Promise<void> {
   const React = await import('react')
   const { act, useState } = React
   const { createRoot } = await import('react-dom/client')
-  const { ExtensionKindCanvas } = await import('./ExtensionKindCanvas')
+  const { AgentCliRuntimeRows } = await import('./AgentCliShelfRows')
+  const { registryEntriesForKinds } = await import('./connectorsFacets')
+  // The rows the Agent CLIs catalogue hands one page of at a time. It used to
+  // be `ExtensionKindCanvas` reading the whole registry for itself; the
+  // source-tabs ruling (2026-09-05) moved the reading up to the catalogue, so
+  // the rows take the entries they are given.
+  const cliEntries = registryEntriesForKinds([cursorEntry, builtinEntry] as never, ['cli'])
 
   const setRuntimeCalls: Array<[string, unknown]> = []
 
@@ -144,21 +150,10 @@ async function main(): Promise<void> {
     const [availability, setAvailability] = useState<Record<string, unknown>>({
       cursor: { cli: 'cursor', installed: false, resolvedPath: null, version: null },
     })
-    return React.createElement(ExtensionKindCanvas, {
-      kind: 'cli',
-      sources: {
-        registryLoad: { status: 'ready', data: [cursorEntry, builtinEntry] },
-        catalogLoad: { status: 'ready', data: [] },
-        mcpSettings: { syncEnabled: true, servers: {} },
-        installedServerIds: new Set<string>(),
-        registryUrl: null,
-        loadRegistry: async () => {},
-        loadCatalog: async () => {},
-        upsertMcpServer: () => {},
-        toggleCatalogServer: () => {},
-      } as never,
-      workspaceRoot: '/repo',
-      cliRuntime: {
+    return React.createElement(AgentCliRuntimeRows, {
+      entries: cliEntries,
+      registryUrl: null,
+      runtime: {
         platform: 'darwin',
         availability: availability as never,
         availabilityStatus: 'ready',
@@ -185,7 +180,7 @@ async function main(): Promise<void> {
         },
         refreshCatalog: async () => {},
         setCliRuntime: (cli: string, update: unknown) => setRuntimeCalls.push([cli, update]),
-      },
+      } as never,
     })
   }
 

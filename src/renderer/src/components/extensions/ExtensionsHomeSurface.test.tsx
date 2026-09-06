@@ -134,26 +134,24 @@ assert.equal(
 )
 
 // ── A tile opens EXACTLY what the drawer row opens ───────────────────────────
-// The drawer's Sprints row is the sprint-engine module's own lazy component, so
-// it is stood in for here by a row that makes the call that component makes;
-// the other four rows are the real ones, resolved from the real registry.
-const sprintsRowEntry: RegisteredSidebarNavEntry = {
-  ...(getRendererHost().getSidebarNavEntries().find((entry) => entry.id === 'sprints') as RegisteredSidebarNavEntry),
-  Component: () =>
-    React.createElement(
-      'button',
-      { type: 'button', onClick: () => useWorkspaceStore.getState().openGlobalSurface('sprints') },
-      'Sprints',
-    ),
-}
-const drawer = mount(
-  React.createElement(ExtensionsRail, { collapsed: false, navEntries: [sprintsRowEntry] }),
-)
+// The drawer's Sprints row is the sprint-engine module's OWN lazy component,
+// which a Suspense boundary in this bundle has nothing to show for — so the
+// drawer draws four of the five rows here and the home draws all five (a tile
+// is built from the door's declared label and glyph, with no component to
+// load). The four the shell draws are the real ones, resolved from the real
+// registry by the function both surfaces call.
+const drawer = mount(React.createElement(ExtensionsRail, { collapsed: false }))
 const drawerRows = () => [...drawer.host.querySelectorAll('[role="listitem"] button')] as HTMLElement[]
+const SHELL_DRAWN = RULED_ORDER.filter((label) => label !== 'Sprints')
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
-  RULED_ORDER,
-  'the drawer and the home are the same five rows — they are resolved by one function',
+  SHELL_DRAWN,
+  'the drawer and the home are the same rows in the same order — they are resolved by one function',
+)
+assert.equal(
+  drawer.host.querySelectorAll('[role="listitem"]').length,
+  RULED_ORDER.length,
+  'and the Sprints slot is there, holding its module’s own row',
 )
 
 /** What clicking left behind: the routed surface, and the view it was latched to. */
@@ -169,7 +167,7 @@ function landing(click: () => void): { surface: string | null; view: string | nu
   }
 }
 
-for (const label of RULED_ORDER) {
+for (const label of SHELL_DRAWN) {
   const row = drawerRows().find((candidate) => candidate.textContent?.trim() === label)
   const tile = tilesIn(home.host).find((candidate) => nameOf(candidate) === label)
   assert.ok(row && tile, `${label}: both the drawer row and the tile exist`)
@@ -194,9 +192,9 @@ act(() => {
   tilesIn(home.host).find((tile) => nameOf(tile) === 'Skills')?.click()
 })
 assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'extensions')
-assert.equal(
+assert.deepEqual(
   consumePendingExtensionsSurfaceTarget(),
-  'skills',
+  { view: 'skills' },
   'a tile clicked over an open door latches its view first, like the row does',
 )
 act(() => {
@@ -216,7 +214,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
-  tilesIn(home.host).map(nameOf),
+  tilesIn(home.host).map(nameOf).filter((label) => label !== 'Sprints'),
   'and the drawer says the same thing at the same moment',
 )
 

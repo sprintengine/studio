@@ -1,0 +1,91 @@
+/* Pager — the foot of a list walked one page at a time
+ * (src/renderer/src/components/ui/Pager.tsx).
+ *
+ * Two halves on one line: the position said in words on the left, the page
+ * controls on the right. Nothing here is filled with the accent — the current
+ * page is a neutral luminance step plus an ink lift, the same treatment a
+ * selected segment gets, because "where I am" is a state display and the
+ * accent budget belongs to the view's one primary action. */
+
+.ds-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding-top: var(--sem-space-lg);
+}
+
+/* The position, in words. A live region in the shipped implementation: paging
+ * replaces the rows without moving focus, so this sentence is the only thing
+ * that announces the change. */
+.ds-pager-range {
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+}
+
+.ds-pager-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--sem-size-control-sm);
+  min-width: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-pager-step:hover:not(:disabled):not([aria-current='page']) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-pager-step[aria-current='page'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-pager-step:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-pager-step:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The elision. Decorative — the numbers on either side already say which
+ * pages are reachable — so it is aria-hidden in the markup. */
+.ds-pager-gap {
+  padding: 0 var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-pager-icon {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-pager-step {
+    transition: none;
+  }
+}

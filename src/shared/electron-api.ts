@@ -1191,6 +1191,19 @@ export type SkillAddSourceResult =
   | { ok: true; source: SkillSource; scan: ScanResult }
   | { ok: false; message: string }
 
+/**
+ * A folder on this machine, added as a source. Separate from
+ * `skillsAddSource` because the two take different identities — a repository
+ * reference and an absolute path — and a single field taking either would be
+ * a string the caller has to hope is parsed the way it meant.
+ */
+export type SkillAddLocalSourceInput = {
+  /** Absolute path to the folder to scan. */
+  path: string
+  /** Re-scan a folder already in the list instead of refusing it. */
+  replace?: boolean
+}
+
 export type SkillRemoveSourceInput = { sourceId: string }
 
 export type SkillRemoveSourceResult =
@@ -3686,6 +3699,7 @@ export type ElectronApi = {
   agentSkillRemove: (input: AgentSkillWriteInput) => Promise<AgentSkillWriteResult>
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
+  skillsAddLocalSource: (input: SkillAddLocalSourceInput) => Promise<SkillAddSourceResult>
   skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>
   skillsGetScan: (input: SkillScanInput) => Promise<SkillScanOutcome>
   skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>

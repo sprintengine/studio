@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import {
   BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
+  LOCAL_SKILL_SOURCE_ID_PREFIX,
+  localSourceFolderName,
   parseSkillFrontmatter,
   scanPlugins,
   SKILL_ENTRY_FILE,
@@ -24,6 +26,7 @@ import {
   type SkillSource,
 } from '../../shared/skills'
 import type {
+  SkillAddLocalSourceInput,
   SkillAddSourceInput,
   SkillAddSourceResult,
   SkillInstallInput,
@@ -103,6 +106,7 @@ export type SkillsServiceDeps = {
 export type SkillsService = {
   listSources(): Promise<SkillSourcesResult>
   addSource(input: SkillAddSourceInput): Promise<SkillAddSourceResult>
+  addLocalSource(input: SkillAddLocalSourceInput): Promise<SkillAddSourceResult>
   removeSource(input: SkillRemoveSourceInput): Promise<SkillRemoveSourceResult>
   getScan(input: SkillScanInput): Promise<SkillScanOutcome>
   readFile(input: SkillReadFileInput): Promise<SkillReadFileResult>
@@ -138,7 +142,13 @@ export function createSkillsService(
   })
 
   const localRootFor = (id: string): string | null =>
-    id === BUILTIN_SKILL_SOURCE_ID ? builtinRoot() : id === CONNECTORS_SKILL_SOURCE_ID ? connectorRoot() : null
+    id === BUILTIN_SKILL_SOURCE_ID
+      ? builtinRoot()
+      : id === CONNECTORS_SKILL_SOURCE_ID
+        ? connectorRoot()
+        : id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX)
+          ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length)
+          : null
 
   async function scanFor(sourceId: string): Promise<ScanResult | null> {
     if (sourceId === BUILTIN_SKILL_SOURCE_ID || sourceId === CONNECTORS_SKILL_SOURCE_ID) {
@@ -190,6 +200,44 @@ export function createSkillsService(
       }
     },
 
+    /**
+     * A folder on this machine as a source. It scans with the same rule a
+     * repository does — walk to SKILL.md, take the directory whole — over a
+     * filesystem listing instead of a git tree, which is exactly what the two
+     * bundled sources already do. It carries no commit, so nothing about it
+     * can claim an update is available and Sync re-reads the folder rather
+     * than fetching anything.
+     */
+    async addLocalSource(input) {
+      const path = input.path?.trim() ?? ''
+      if (!path) return { ok: false, message: 'Choose a folder to add as a source.' }
+      if (!existsSync(path)) return { ok: false, message: `${path} does not exist.` }
+      const id = `${LOCAL_SKILL_SOURCE_ID_PREFIX}${path}`
+      const existing = await store.getSource(id)
+      if (existing && input.replace !== true) {
+        return { ok: false, message: `${path} is already one of your sources.` }
+      }
+      try {
+        const scan = await scanLocalSkillSource(path)
+        const name = localSourceFolderName(path)
+        const source: SkillSource = {
+          id,
+          kind: 'local',
+          name,
+          repo: '',
+          path,
+          monogram: skillSourceMonogram(name),
+          blurb: path,
+          commitSha: '',
+          scannedAt: new Date().toISOString(),
+        }
+        await store.putSource(source, scan)
+        return { ok: true, source, scan }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
     async removeSource(input) {
       const id = input.sourceId ?? ''
       if (!isRemovableSkillSource(id)) {
@@ -214,6 +262,15 @@ export function createSkillsService(
       if (!source) return { ok: false, message: 'That source is not in your list.' }
       const scan = await scanFor(source.id)
       if (scan) return { ok: true, source, scan }
+      if (source.kind === 'local') {
+        const root = localRootFor(source.id)
+        if (!root || !existsSync(root)) {
+          return { ok: false, message: `${source.path ?? source.name} is no longer on this machine.` }
+        }
+        const rescanned = await scanLocalSkillSource(root)
+        await store.putSource(source, rescanned)
+        return { ok: true, source, scan: rescanned }
+      }
       if (source.kind !== 'github') {
         return { ok: false, message: `${source.name} is not available in this build.` }
       }
@@ -309,6 +366,7 @@ export function createSkillsService(
     async syncSource(input) {
       const source = await store.getSource(input.sourceId ?? '')
       if (!source) return { ok: false, message: 'That source is not in your list.' }
+      if (source.kind === 'local') return syncLocalSource(source, input.workspaceRoot ?? '')
       if (source.kind !== 'github') {
         return { ok: false, message: `${source.name} ships with Multicode and refreshes with the app.` }
       }
@@ -379,6 +437,44 @@ export function createSkillsService(
       deps.broadcastSourceUpdates?.(check)
       return check
     },
+  }
+
+  /**
+   * Sync a folder source: read the folder again and refresh what this
+   * workspace installed from it. Nothing is fetched, so the only failure is a
+   * folder that has gone away — and that is reported rather than left as a
+   * list wearing a fresh timestamp for bytes nobody re-read.
+   */
+  async function syncLocalSource(source: SkillSource, workspaceRootInput: string): Promise<SkillSyncSourceOutcome> {
+    const root = localRootFor(source.id)
+    if (!root || !existsSync(root)) {
+      return { ok: false, message: `${source.path ?? source.name} is no longer on this machine.` }
+    }
+    const previous = await store.getScan(source.id)
+    const scan = await scanLocalSkillSource(root)
+    const synced: SkillSource = { ...source, scannedAt: new Date().toISOString() }
+    await store.putSource(synced, scan)
+    const changes = diffScannedSkills(previous, scan)
+    const workspaceRoot = workspaceRootInput.trim()
+    const copied =
+      workspaceRoot && existsSync(workspaceRoot)
+        ? await refreshInstalledSkills({
+            workspaceRoot,
+            sourceId: source.id,
+            scan,
+            installedCopies: await installedSkillCopies(workspaceRoot),
+            readFile: (skill, file) => readSkillBytes(synced, skill, file),
+          })
+        : { refreshed: [], failures: [] }
+    return {
+      ok: true,
+      source: synced,
+      scan,
+      added: changes.added.length,
+      removed: changes.removed.length,
+      refreshed: copied.refreshed.length,
+      failures: copied.failures,
+    }
   }
 
   /**

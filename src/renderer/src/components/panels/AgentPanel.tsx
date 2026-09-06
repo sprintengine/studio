@@ -328,7 +328,7 @@ export default function AgentPanel({
                 workspaceRoot={workspaceFolderPath}
                 pluginId={cli}
                 onPick={(skill) => void useSkillInTerminal(skill)}
-                onManageSkills={() => openExtensionsSurface({ view: 'installed' })}
+                onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
                 placement="bottom-end"
                 renderTrigger={({ ref, triggerProps, togglePopover, open }) => (
                   <Tooltip content="Use a skill — inserts the invocation at the prompt" placement="bottom">

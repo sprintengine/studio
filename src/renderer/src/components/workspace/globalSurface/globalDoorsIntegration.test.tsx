@@ -302,20 +302,33 @@ async function main(): Promise<void> {
       [
         ['automations', 'Automations', 'sidebar'],
         ['design', 'Design', 'inline'],
-        ['extensions', 'Plugins', 'inline'],
+        ['extensions', 'Plugins', 'sidebar'],
         ['sprints', 'Sprints', 'sidebar'],
       ],
-      'every card-region destination is a door, and only the drawer rows keep their rail inline',
+      // Extensions reads `sidebar` — the default — and still leaves the drawer
+      // alone: it declares NO rail since the source-tabs ruling (2026-09-05),
+      // and GlobalSurfaceShell's contract for a surface that brings none is
+      // that the host keeps its own column. `inline` is for a drawer door that
+      // does bring one, which is Design.
+      'every card-region destination is a door, and the one drawer door that brings a rail keeps it inline',
     )
     // A drawer row that took the sidebar column would delete the drawer that
-    // opened it, so the two halves of the ruling are asserted together.
+    // opened it. There are two ways not to take it, and both are asserted:
+    // Design brings a rail and declares `inline`; Extensions brings none at all
+    // (its rail became the source tabs, 2026-09-05), which the shell already
+    // reads as "leave the host's column alone".
+    assert.equal(
+      host.getGlobalSurface('design')?.railPlacement,
+      'inline',
+      'the design door renders its rail beside its canvas, so the drawer survives it',
+    )
+    assert.equal(
+      host.getGlobalSurface('extensions')?.railPlacement,
+      undefined,
+      'the extensions door declares no rail, so there is nothing to take the drawer’s column',
+    )
     for (const id of ['design', 'extensions']) {
-      assert.equal(
-        host.getGlobalSurface(id)?.railPlacement,
-        'inline',
-        `the ${id} door leaves the Extensions drawer standing`,
-      )
-      assert.ok(host.getGlobalSurface(id)?.Icon, `and offers a glyph for its drawer row`)
+      assert.ok(host.getGlobalSurface(id)?.Icon, `the ${id} door offers a glyph for its drawer row`)
     }
     // One modal surface remains, and it is the shape a modal is for: a
     // pick-and-close task floated over work that stays put.
@@ -655,13 +668,12 @@ async function main(): Promise<void> {
   })
   console.log('ok - a door failure is contained: named fallback, Close and Reload both work')
 
-  // ═══ 7. The Plugins surface (MC-1847's Extensions door; a modal since
-  // doors→modals, 2026-09-01 — mounted here bare, which is exactly the
-  // inline anatomy the modal host mounts) ═════════════════════════════════════
-  // The catalog rail over the shared connector canvases: rail groups and
-  // honest counts, the facet ↔ rail-row projection, the deep-link latch, and
-  // the one-source-down degradation (a failed marketplace must never read as
-  // an empty one).
+  // ═══ 7. The Extensions door: three catalogues on source tabs ═══════════════
+  // Source-tabs ruling (2026-09-05). Installed first, then one tab per source
+  // with the app's own catalogue leading, a plus offering the two ways in, the
+  // registry's categories as the groups inside the app's tab, one pager at the
+  // foot, and the one-source-down degradation (a failed marketplace must never
+  // read as an empty one).
   {
     const { default: ExtensionsGlobalSurface } = await import('./extensions/ExtensionsGlobalSurface')
     const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } = await import(
@@ -670,9 +682,13 @@ async function main(): Promise<void> {
 
     // Latch semantics are load-bearing for every deep-link entry point:
     // the latest dispatch wins, and the latch drains exactly once.
-    dispatchExtensionsSurfaceTarget('browse')
-    dispatchExtensionsSurfaceTarget('installed')
-    assert.equal(consumePendingExtensionsSurfaceTarget(), 'installed', 'latest dispatch wins')
+    dispatchExtensionsSurfaceTarget({ view: 'plugins' })
+    dispatchExtensionsSurfaceTarget({ view: 'skills', installed: true })
+    assert.deepEqual(
+      consumePendingExtensionsSurfaceTarget(),
+      { view: 'skills', installed: true },
+      'latest dispatch wins',
+    )
     assert.equal(consumePendingExtensionsSurfaceTarget(), null, 'the latch drains once')
 
     api.mcpListCatalog = async () => ({
@@ -729,53 +745,55 @@ async function main(): Promise<void> {
         ],
       },
     })
-    // Skills is sourced, not catalogued: the rail row states how many sources
-    // answered, and only sums their skills once every scan has landed.
-    api.skillsListSources = async () => ({
-      ok: true,
-      sources: [
+    // Two sources: the app's own catalogue (always present, non-removable —
+    // its plugins are the registry's, not a scan's) and one repository. A tab
+    // each, the app's leading.
+    const acmeSource = {
+      id: 'github:acme/skills',
+      kind: 'github' as const,
+      name: 'skills',
+      repo: 'acme/skills',
+      monogram: 'AS',
+      blurb: '1 skill from acme/skills.',
+      commitSha: 'abc1234',
+      scannedAt: '2026-07-28T10:00:00.000Z',
+    }
+    const builtinSource = {
+      id: 'builtin',
+      kind: 'builtin' as const,
+      name: 'Multicode',
+      repo: '',
+      monogram: 'MC',
+      blurb: 'The skills Multicode ships.',
+      commitSha: '',
+      scannedAt: '',
+    }
+    api.skillsListSources = async () => ({ ok: true, sources: [builtinSource, acmeSource] })
+    const acmeScan = {
+      skills: [
         {
-          id: 'github:acme/skills',
-          kind: 'github' as const,
-          name: 'skills',
-          repo: 'acme/skills',
-          monogram: 'AS',
-          blurb: '1 skill from acme/skills.',
-          commitSha: 'abc1234',
-          scannedAt: '2026-07-28T10:00:00.000Z',
+          id: 'release-runbook',
+          name: 'Release runbook',
+          description: 'Cut, verify, and publish a release.',
+          group: '',
+          files: [{ path: 'SKILL.md', size: 120, blobSha: 'def5678', isEntry: true }],
+          allowedTools: [],
+          hasExecutables: false,
         },
       ],
-    })
-    api.skillsGetScan = async () => ({
-      ok: true,
-      source: {
-        id: 'github:acme/skills',
-        kind: 'github' as const,
-        name: 'skills',
-        repo: 'acme/skills',
-        monogram: 'AS',
-        blurb: '1 skill from acme/skills.',
-        commitSha: 'abc1234',
-        scannedAt: '2026-07-28T10:00:00.000Z',
-      },
-      scan: {
-        skills: [
-          {
-            id: 'release-runbook',
-            name: 'Release runbook',
-            description: 'Cut, verify, and publish a release.',
-            group: '',
-            files: [{ path: 'SKILL.md', size: 120, blobSha: 'def5678', isEntry: true }],
-            allowedTools: [],
-            hasExecutables: false,
-          },
-        ],
-        groups: [],
-        groupingSignal: 'none' as const,
-        fileCount: 1,
-        commitSha: 'abc1234',
-      },
-    })
+      groups: [],
+      groupingSignal: 'none' as const,
+      fileCount: 1,
+      commitSha: 'abc1234',
+    }
+    api.skillsGetScan = async ({ sourceId }: { sourceId: string }) =>
+      sourceId === 'builtin'
+        ? {
+            ok: true as const,
+            source: builtinSource,
+            scan: { skills: [], groups: [], groupingSignal: 'none' as const, fileCount: 0, commitSha: '' },
+          }
+        : { ok: true as const, source: acmeSource, scan: acmeScan }
     api.workspaceSkillsList = async () => ({ ok: true, skills: [] })
     // The Installed canvas's inventory sources. Modules resolves the real
     // list shape; the proxy's not-stubbed {ok:false} answers exercise the
@@ -789,81 +807,78 @@ async function main(): Promise<void> {
     })
     await settle()
 
-    // The catalog rail: both groups, all seven rows, the dashed affordance.
-    const railText = container.textContent ?? ''
-    for (const label of [
-      'Marketplace',
-      'On this machine',
-      'Featured',
-      'MCP servers',
-      'Skills',
-      'Modules',
-      'Agent CLIs',
-      'Installed',
-      'Automation server',
-      'Add a custom MCP',
-    ]) {
-      assert.ok(railText.includes(label), `the rail carries "${label}"`)
-    }
-    // Honest counts, pinned to the element that claims them: the RAIL row is
-    // where a count lives now — the bar is the door's name and nothing else, so
-    // the counts it used to repeat can no longer drift from these. Each kind row
-    // carries its own real count (a zeroed count on one row can't hide behind
-    // another's).
-    const railRow = (label: string): string => {
-      const row = Array.from(container.querySelectorAll('button')).find((button) =>
-        (button.textContent ?? '').includes(label),
-      )
-      assert.ok(row, `the ${label} rail row renders`)
-      return row.textContent ?? ''
-    }
-    const barText = container.querySelector('section > div')?.textContent ?? ''
-    assert.ok(!barText.includes('in marketplace'), 'the bar carries no counts line')
-    assert.ok(railRow('Featured').includes('1 ready to launch'), 'the Featured row counts launchables')
-    assert.ok(railRow('MCP servers').includes('2 available'), 'the MCP servers row counts the grid')
-    assert.ok(railRow('Skills').includes('1 source'), 'the Skills row counts its sources')
-    assert.ok(railRow('Modules').includes('1 available'), 'the Modules row counts module plugins')
-    assert.ok(railRow('Agent CLIs').includes('1 available'), 'the Agent CLIs row counts cli plugins')
-    // The door lands on Featured; the Ready-to-launch rail leads the canvas.
-    const currentRow = () =>
-      Array.from(container.querySelectorAll('button[aria-current="true"]')).map((b) => b.textContent ?? '').join(' ')
-    assert.ok(currentRow().includes('Featured'), 'a plain open lands on Featured')
-    assert.ok(railText.includes('Ready to launch'), 'the launchable rail renders')
-    assert.ok(railText.includes('Railway'), 'the launchable connector renders')
-
-    // Facet ↔ rail projection: picking the All facet moves the rail highlight
-    // to MCP servers — the two can never contradict each other.
-    const allTab = Array.from(container.querySelectorAll('[role="tab"]')).find(
-      (tab) => tab.textContent?.trim().startsWith('All'),
+    // ── The tab row: Installed first, then the sources, then the plus ────────
+    const tabLabels = (): string[] =>
+      Array.from(container.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent?.trim() ?? '')
+    assert.deepEqual(
+      tabLabels().map((label) => label.replace(/\d+$/, '')),
+      ['Installed', 'SprintEngine Studio', 'acme/skills'],
+      'Installed leads, the app’s own catalogue is the first source, and it is named for the product',
     )
-    assert.ok(allTab, 'the facet tabs render inside the door')
-    await act(async () => {
-      ;(allTab as HTMLElement).click()
-    })
-    assert.ok(currentRow().includes('MCP servers'), 'the All facet projects onto the MCP servers row')
+    const plus = container.querySelector('button[aria-label="Add source"]')
+    assert.ok(plus, 'the plus sits after the last tab')
 
-    // A live deep-link lands on Installed (the agent "Manage skills" route).
+    // ── Inside the app’s tab: the registry’s categories as the groups ────────
+    const bodyText = () => container.textContent ?? ''
+    assert.ok(bodyText().includes('Plugins'), 'the registry’s plugin list is a group of its own')
+    assert.ok(bodyText().includes('Stripe'), 'a registry plugin renders as a row')
+    assert.ok(bodyText().includes('Railway'), 'and so does an MCP catalogue server')
+    assert.ok(bodyText().includes('Infrastructure'), 'MCP servers keep the registry’s categories as headings')
+    assert.ok(bodyText().includes('Showing 1'), 'one pager walks the whole tab')
+    assert.ok(!bodyText().includes('Featured'), 'the Featured facet is gone')
+    assert.ok(!bodyText().includes('more'), 'and so is "Show N more"')
+
+    // ── Honest counts: a source with none of this kind still gets a tab ──────
+    const acmeTab = Array.from(container.querySelectorAll('[role="tab"]')).find((tab) =>
+      (tab.textContent ?? '').startsWith('acme/skills'),
+    )
+    assert.ok(acmeTab, 'a source that holds no plugins is still a tab — hiding is how a person loses a source')
     await act(async () => {
-      dispatchExtensionsSurfaceTarget('installed')
+      ;(acmeTab as HTMLElement).click()
     })
     await settle()
-    assert.ok(currentRow().includes('Installed'), 'a live installed deep-link selects the Installed row')
     assert.ok(
-      // The custom-MCP affordance is the manage view's own control; bundled
-      // skills left this canvas for the Skills surface (they were a duplicate
-      // of the Multicode source's list).
-      (container.textContent ?? '').includes('sync MCPs to terminal agents')
-        || (container.textContent ?? '').includes('Existing terminals keep their current config'),
-      'the Installed canvas is the manage view',
+      bodyText().includes('No plugins here') || bodyText().includes('Nothing'),
+      'and it says what it holds rather than rendering as an empty page',
     )
+
+    // ── The plus menu: two ways in, and only two ────────────────────────────
+    await act(async () => {
+      ;(plus as HTMLElement).click()
+    })
+    const menuItems = Array.from(document.querySelectorAll('[role="menu"] button')).map(
+      (item) => item.textContent?.trim() ?? '',
+    )
+    assert.deepEqual(
+      menuItems,
+      ['Add from file…', 'Add from GitHub…'],
+      'the plus offers a folder on this machine and a repository, and nothing else',
+    )
+    await act(async () => {
+      document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    // ── A live deep-link lands on a VIEW, and on its Installed tab ──────────
+    // "Manage skills" means the skills this workspace holds, which is a tab of
+    // the Skills catalogue rather than a fourth destination.
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget({ view: 'skills', installed: true })
+    })
+    await settle()
+    assert.ok(
+      container.querySelector('section[aria-label="Skills"]'),
+      'a live deep-link moves the door to the view it names',
+    )
+    const selectedTab = container.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ''
+    assert.ok(selectedTab.startsWith('Installed'), 'and lands on the Installed tab it asked for')
 
     await act(async () => {
       extRoot.unmount()
     })
 
     // One source down: the marketplace registry fails, the catalog stays up.
-    // The browse canvas discloses the failure and the kind rows say
-    // unavailable — never a silent zero.
+    // The app's tab discloses the failure rather than reading as an empty
+    // catalogue, and the healthy source still lists.
     api.readMarketplaceRegistry = async () => ({ ok: false, message: 'registry down.' })
     const degradedRoot = createRoot(container)
     await act(async () => {
@@ -871,17 +886,16 @@ async function main(): Promise<void> {
     })
     await settle()
     const degradedText = container.textContent ?? ''
-    assert.ok(
-      degradedText.includes('Marketplace connectors are unavailable'),
-      'the one-source-down notice names the failed source',
-    )
-    assert.ok(degradedText.includes('Marketplace unavailable'), 'kind rows read unavailable, not 0')
     assert.ok(degradedText.includes('Railway'), 'the healthy catalog still renders its connectors')
+    assert.ok(
+      !/SprintEngine Studio\s*0/.test(degradedText),
+      'a half-down catalogue never renders as a zero count',
+    )
     await act(async () => {
       degradedRoot.unmount()
     })
 
-    console.log('ok - the Plugins surface: catalog rail, facet projection, deep-links, degradation')
+    console.log('ok - the Extensions door: source tabs, the plus, groups and a pager, deep-links, degradation')
   }
 
   // ═══ 8. Every door replaces the projects rail — in EVERY load state ═══════
@@ -1013,7 +1027,11 @@ async function main(): Promise<void> {
     await act(async () => {
       cta.click()
     })
-    assert.deepEqual(extensionsOpens, ['browse'], 'an uninstalled module deep-links to Browse')
+    assert.deepEqual(
+      extensionsOpens,
+      [{ view: 'plugins', installed: false }],
+      'an uninstalled module deep-links to the Plugins catalogue, not to what is already installed',
+    )
     assert.equal(
       useWorkspaceStore.getState().activeGlobalSurface,
       'atlas',
@@ -1071,7 +1089,11 @@ async function main(): Promise<void> {
     await act(async () => {
       disabledCta.click()
     })
-    assert.deepEqual(disabledOpens, ['installed'], 'a disabled module deep-links to Installed')
+    assert.deepEqual(
+      disabledOpens,
+      [{ view: 'plugins', installed: true }],
+      'a disabled module deep-links to the Plugins view’s Installed tab, where what this machine has is listed',
+    )
     await act(async () => {
       disabledRoot.unmount()
     })

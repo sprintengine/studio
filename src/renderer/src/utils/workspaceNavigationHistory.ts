@@ -14,7 +14,19 @@
 
 export type NavHistoryEntry =
   | { readonly kind: 'workspace'; readonly id: string }
-  | { readonly kind: 'surface'; readonly id: string }
+  | {
+      readonly kind: 'surface'
+      readonly id: string
+      /**
+       * The VIEW of a multi-view door, when it has one — the Extensions door's
+       * Plugins / Skills / Agent CLIs. Without it a step into that door landed
+       * on whatever view its `onOpen` reset to, so Back out of Skills came
+       * back to Plugins and Skills was unreachable by history at all. It is
+       * part of the entry's identity, so moving between two views of one door
+       * is a visit like any other.
+       */
+      readonly view?: string
+    }
   | { readonly kind: 'new-chat'; readonly id: 'new-chat' }
 
 /** The one New chat location: a window has at most one New chat door. */
@@ -33,7 +45,10 @@ export const EMPTY_WORKSPACE_NAVIGATION_HISTORY: WorkspaceNavigationHistory = {
 export const WORKSPACE_NAVIGATION_HISTORY_CAP = 50
 
 function sameEntry(a: NavHistoryEntry | undefined, b: NavHistoryEntry): boolean {
-  return a !== undefined && a.kind === b.kind && a.id === b.id
+  if (a === undefined || a.kind !== b.kind || a.id !== b.id) return false
+  // Two views of one door are two places; a door with no views compares as it
+  // always did (both sides carry `undefined`).
+  return a.kind !== 'surface' || a.view === (b as { view?: string }).view
 }
 
 /**

@@ -11,6 +11,7 @@ import type {
   SkillSource,
 } from '../../../../../../../shared/skills'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
 import { SkillPage } from './SkillPage'
 import { SkillDocument, SkillReader } from './SkillReader'
@@ -20,18 +21,18 @@ import {
   SkillsDiscover,
   type DiscoverLoad,
 } from './SkillsDiscover'
-import { SkillSourceCanvas, type SkillSourceCanvasProps } from './SkillSourceCanvas'
-import { SkillsSurface } from './SkillsSurface'
 
 /** A clean answer: results, and nothing GitHub could not do. */
 function hitResult<T>(results: T[]): SkillDiscoveryResult<T> {
   return { results, rateLimit: null, degraded: null }
 }
 
-// What the rendered surface owes: two separate targets on a skill row (never a
-// button inside a button), an Install that states why it is unavailable rather
-// than doing nothing, and a search-first source that renders no rows until it
-// is asked.
+// The Skills surface's PIECES: the Add-a-source modal, the skill page, the
+// reader, and Discover. The source page itself is no longer one of them — the
+// source-tabs ruling (2026-09-05) replaced `SkillSourceCanvas`'s four layouts
+// and its nested Sources rail with the shared catalogue frame, which is
+// exercised in catalogue/extensionsCatalogue.test.tsx against a real DOM
+// (it reads the store, which a markup-only render cannot give it).
 
 function run(name: string, body: () => void): void {
   try {
@@ -79,125 +80,7 @@ const SOURCE: SkillSource = {
   scannedAt: '2026-07-28T09:00:00Z',
 }
 
-function canvas(over: Partial<SkillSourceCanvasProps> = {}): string {
-  const scan = over.scan ?? scanOf([skill('skills/tdd'), skill('skills/triage')])
-  return renderToStaticMarkup(
-    <SkillSourceCanvas
-      source={SOURCE}
-      scan={scan}
-      scanLoad={{ status: 'ready', scan }}
-      installedDirNames={new Set()}
-      installedError={null}
-      activeGroup={null}
-      onActiveGroupChange={() => {}}
-      query=""
-      onQueryChange={() => {}}
-      selected={new Set()}
-      onToggleSelect={() => {}}
-      onSelectAll={() => {}}
-      onClearSelection={() => {}}
-      onOpenSkill={() => {}}
-      availability={{ enabled: true, reason: null }}
-      installing={null}
-      onInstallSelected={() => {}}
-      sync={{ onSync: () => {}, syncing: false, outcome: null, error: null, onOpenHistory: () => {} }}
-      onBrowseMcpServers={() => {}}
-      renderSkillPage={(skillId) => <div data-skill-page={skillId} />}
-      {...over}
-    />,
-  )
-}
-
-/** A `<button>` inside another `<button>` — invalid, and one target where the
- *  design has two. */
-function hasNestedButton(markup: string): boolean {
-  return /<button(?:(?!<\/button>)[\s\S])*?<button/.test(markup)
-}
-
-run('a skill row carries two targets and never nests them', () => {
-  const markup = canvas()
-  // The select target is the kit's native checkbox (ui/Checkbox): a real
-  // `<input type="checkbox">` carries Space, the label association and the
-  // shared focus treatment — no `role="checkbox"` drawn by hand.
-  assert.ok(markup.includes('type="checkbox"'), 'the select target is a checkbox')
-  assert.ok(markup.includes('aria-label="Select tdd"'), 'the checkbox names the skill it selects')
-  assert.equal(markup.includes('role="checkbox"'), false, 'no hand-rolled checkbox beside the kit one')
-  assert.equal(markup.includes('checked=""'), false, 'neither row is selected')
-  assert.ok(markup.includes('>Read<'), 'the row body opens the skill to be read')
-  assert.equal(hasNestedButton(markup), false)
-  // The row clips its children, so an outset focus ring survives as a 1px
-  // sliver: the row body rings inward, and the checkbox's box takes the
-  // shared ring through its peer input.
-  assert.equal(markup.match(/focus-visible:focus-ring-inset/g)?.length, 2, 'the row body on both rows')
-  assert.equal(markup.match(/peer-focus-visible:focus-ring/g)?.length, 2, 'the checkbox on both rows')
-})
-
-run('a grouped source renders its group tree and one group of rows', () => {
-  const skills = [
-    skill('skills/engineering/tdd', { group: 'engineering' }),
-    skill('skills/engineering/triage', { group: 'engineering' }),
-    skill('skills/writing/teach', { group: 'writing' }),
-  ]
-  const scan = scanOf(skills, { groups: ['engineering', 'writing'], groupingSignal: 'folders' })
-  const markup = canvas({ scan })
-  assert.ok(markup.includes('aria-label="Groups"'), 'the groups are a list')
-  assert.ok(markup.includes('>Engineering<') && markup.includes('>Writing<'))
-  assert.ok(markup.includes('aria-label="Select tdd"'))
-  assert.ok(!markup.includes('aria-label="Select teach"'), 'only the active group renders rows')
-  assert.equal(hasNestedButton(markup), false)
-})
-
-run('a search-first source renders no rows until a category or query is chosen', () => {
-  const skills = Array.from({ length: 103 }, (_, index) =>
-    skill(`solutions/ecommerce/skill-${index}`, { group: 'ecommerce' }),
-  )
-  const scan = scanOf(skills, { groups: ['ecommerce'], groupingSignal: 'folders' })
-  const markup = canvas({ scan })
-  assert.ok(markup.includes('Pick a category, or search.'))
-  assert.ok(!markup.includes('type="checkbox"'), 'no rows are rendered yet')
-  assert.ok(markup.includes('placeholder="Search 103 skills"'))
-})
-
-run('a solo source renders the skill page, not a list of one', () => {
-  const markup = canvas({ scan: scanOf([skill('impeccable')]) })
-  assert.ok(markup.includes('data-skill-page="impeccable"'))
-  assert.ok(!markup.includes('type="checkbox"'))
-})
-
-run('the connector skills deflect to MCP servers', () => {
-  const skills = Array.from({ length: 194 }, (_, index) => skill(`skills/connector-${index}`))
-  const markup = canvas({
-    source: { ...SOURCE, id: 'connectors', kind: 'connectors', name: 'Connectors', repo: '' },
-    scan: scanOf(skills),
-  })
-  assert.ok(markup.includes('These 194 skills are paired with their MCP connectors.'))
-  assert.ok(markup.includes('Browse MCP servers'))
-  assert.ok(!markup.includes('type="checkbox"'), 'none of the 194 are listed here')
-})
-
-run('with no workspace the Install affordances are disabled and say why', () => {
-  const markup = canvas({
-    availability: {
-      enabled: false,
-      reason: 'Open a workspace to install skills — a skill installs into a workspace, not into the app.',
-    },
-  })
-  assert.ok(markup.includes('Open a workspace to install skills'), 'the reason is visible, not a tooltip')
-  const install = markup.slice(markup.lastIndexOf('<button', markup.indexOf('Install')))
-  assert.ok(install.includes('disabled'), 'Install is disabled rather than silently doing nothing')
-})
-
-run('a failed installed-skills read is disclosed, never rendered as "not installed"', () => {
-  const markup = canvas({ installedError: 'Workspace root does not exist.' })
-  assert.ok(markup.includes('Installed skills in this workspace could not be read'))
-})
-
-run('an installed skill says so on its row', () => {
-  const markup = canvas({ installedDirNames: new Set(['tdd']) })
-  assert.ok(markup.includes('>Installed<'))
-})
-
-run('Add a source is a centred modal with an accessible name', () => {
+run('Add a source is a centred modal with an accessible name, and carries Discover', () => {
   const markup = renderToStaticMarkup(
     <AddSkillSourceModal open onClose={() => {}} onAdded={() => {}} onRemoved={() => {}} />,
   )
@@ -205,39 +88,18 @@ run('Add a source is a centred modal with an accessible name', () => {
   assert.ok(markup.includes('id="add-skill-source-title"'))
   assert.ok(markup.includes('items-center justify-center'), 'the modal is centred over a scrim')
   assert.ok(markup.includes('>Add<'))
+  // Discover moved in here when the source-tabs ruling (2026-09-05) retired the
+  // Sources rail that used to carry it in its foot: it is the same question the
+  // modal asks, for someone with no repository in mind.
+  assert.ok(markup.includes('Search GitHub'), 'and offers the search for someone with no repository in mind')
   assert.equal(hasNestedButton(markup), false)
 })
 
-run('the surface opens on a nested source rail that keeps Add and Discover', () => {
-  const scan = scanOf([skill('skills/tdd'), skill('skills/triage')])
-  const markup = renderToStaticMarkup(
-    <SkillsSurface
-      workspaceRoot="/proj"
-      onBrowseMcpServers={() => {}}
-      onConfigureGitHubToken={() => {}}
-      sources={{
-        sources: [
-          { ...SOURCE, id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '', monogram: 'MC' },
-          SOURCE,
-        ],
-        sourcesLoad: { status: 'ready' },
-        scans: { builtin: { status: 'loading' }, [SOURCE.id]: { status: 'ready', scan } },
-        installedDirNames: new Set(),
-        installedRead: { status: 'ready' },
-        refreshSources: () => {},
-        refreshScan: () => {},
-        refreshInstalled: () => {},
-        applySync: () => {},
-      }}
-    />,
-  )
-  assert.ok(markup.includes('aria-label="Skill sources"'), 'the sources rail is a nested nav')
-  assert.ok(markup.includes('>Add a source<'), 'Add a source belongs to Skills, not the global rail')
-  assert.ok(markup.includes('>Discover<'), 'Discover belongs to Skills, at the rail foot')
-  assert.ok(markup.includes('>Multicode<') && markup.includes('>mattpocock/skills<'))
-  // The rail states each source's own read state; a pending scan is not a zero.
-  assert.ok(markup.includes('>Loading…<') && markup.includes('>2 skills<'))
-})
+/** A `<button>` inside another `<button>` — invalid, and one target where the
+ *  design has two. */
+function hasNestedButton(markup: string): boolean {
+  return /<button(?:(?!<\/button>)[\s\S])*?<button/.test(markup)
+}
 
 // ── The reader ───────────────────────────────────────────────────────────────
 
@@ -367,58 +229,44 @@ run('a file that could not be read says so and offers the read again', () => {
   assert.ok(markup.includes('Try again'))
 })
 
-run('a source offers Sync and the history that says what changed', () => {
-  const markup = canvas()
+// ── The source's own actions ─────────────────────────────────────────────────
+// Sync, Open on GitHub and Remove sat on the Sources rail's source page. With
+// the rail gone (source-tabs ruling, 2026-09-05) they are the head line under
+// the tab row: Sync stays outside the menu because it is the one a person does
+// repeatedly and it reports its own progress; the other two are behind an
+// overflow, because a tab is navigation and a Remove inside a navigation is a
+// click meant for "look at this" that deletes it.
+
+function actions(over: Partial<SkillSource> = {}): string {
+  return renderToStaticMarkup(
+    <SourceTabActions
+      source={{ ...SOURCE, ...over }}
+      workspaceRoot="/proj"
+      onSynced={() => {}}
+      onSyncFailed={() => {}}
+      onRemoved={() => {}}
+    />,
+  )
+}
+
+run('a repository source offers Sync, and the rest behind one overflow', () => {
+  const markup = actions()
   assert.ok(markup.includes('>Sync<'))
-  assert.ok(markup.includes('>Commit history<'), 'what changed is answered by the repository, not by us')
+  assert.ok(markup.includes('aria-label="More actions for mattpocock/skills"'))
   assert.ok(!/added|removed|changelog/i.test(markup), 'no diff or changelog view exists here')
-  assert.equal(hasNestedButton(markup), false)
 })
 
-run('a sync in flight says so on the control that started it', () => {
-  const markup = canvas({
-    sync: { onSync: () => {}, syncing: true, outcome: null, error: null, onOpenHistory: () => {} },
-  })
-  const sync = markup.slice(markup.lastIndexOf('<button', markup.indexOf('Syncing')))
-  assert.ok(sync.includes('disabled'), 'a second sync cannot be started over the first')
+run('a source the check has seen move on says so on the control that fixes it', () => {
+  const markup = actions({ headSha: 'ffffffff' })
+  assert.ok(
+    markup.includes('Sync — update available'),
+    'the mark rides the control that lands the update, not a badge beside it',
+  )
 })
 
-run('the sync outcome is one line of plain text in the header', () => {
-  const markup = canvas({
-    sync: {
-      onSync: () => {},
-      syncing: false,
-      outcome: 'Synced · 3 new skills',
-      error: null,
-      onOpenHistory: () => {},
-    },
-  })
-  assert.ok(markup.includes('Synced · 3 new skills'))
-  assert.ok(!markup.includes('role="dialog"'), 'the outcome is a line, never a modal')
-})
-
-run('a failed sync states the failure instead of looking freshly synced', () => {
-  const markup = canvas({
-    sync: {
-      onSync: () => {},
-      syncing: false,
-      outcome: null,
-      error: 'GitHub rate-limited this request.',
-      onOpenHistory: () => {},
-    },
-  })
-  assert.ok(markup.includes('mattpocock/skills could not be synced.'))
-  assert.ok(markup.includes('GitHub rate-limited this request.'), 'the real reason, not a generic failure')
-  assert.ok(!markup.includes('Synced ·'), 'nothing claims a sync that did not happen')
-})
-
-run('a source with nothing to re-read offers no Sync', () => {
-  const markup = canvas({
-    source: { ...SOURCE, id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '' },
-    sync: { onSync: null, syncing: false, outcome: null, error: null, onOpenHistory: null },
-  })
-  assert.ok(!markup.includes('>Sync<'))
-  assert.ok(!markup.includes('>Commit history<'))
+run('a bundled source has nothing to re-read and nothing to remove', () => {
+  const markup = actions({ id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '' })
+  assert.equal(markup, '', 'so it renders no actions at all rather than dead ones')
 })
 
 // ── Discover ─────────────────────────────────────────────────────────────────

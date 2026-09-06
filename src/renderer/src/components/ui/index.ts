@@ -78,6 +78,8 @@ export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'
 export type { TaskCardProps, TaskCardVariant } from './TaskCard'
 export { Switch } from './Switch'
+export { Pager, pagerSteps } from './Pager'
+export type { PagerStep } from './Pager'
 export { SegmentedControl } from './SegmentedControl'
 export type { SegmentedControlItem } from './SegmentedControl'
 // The ONE Field. `ui/Modal` used to export a second component under this name —

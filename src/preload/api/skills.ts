@@ -1,6 +1,7 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   ElectronApi,
+  SkillAddLocalSourceInput,
   SkillAddSourceInput,
   SkillAddSourceResult,
   SkillInstallInput,
@@ -34,6 +35,8 @@ export const skillsApi = {
   skillsListSources: (): Promise<SkillSourcesResult> => ipcRenderer.invoke('skills:list-sources'),
   skillsAddSource: (input: SkillAddSourceInput): Promise<SkillAddSourceResult> =>
     ipcRenderer.invoke('skills:add-source', input),
+  skillsAddLocalSource: (input: SkillAddLocalSourceInput): Promise<SkillAddSourceResult> =>
+    ipcRenderer.invoke('skills:add-local-source', input),
   skillsRemoveSource: (input: SkillRemoveSourceInput): Promise<SkillRemoveSourceResult> =>
     ipcRenderer.invoke('skills:remove-source', input),
   skillsGetScan: (input: SkillScanInput): Promise<SkillScanOutcome> =>
@@ -69,6 +72,7 @@ export const skillsApi = {
   ElectronApi,
   | 'skillsListSources'
   | 'skillsAddSource'
+  | 'skillsAddLocalSource'
   | 'skillsRemoveSource'
   | 'skillsGetScan'
   | 'skillsReadFile'

@@ -555,6 +555,8 @@ code {
 #ds-view-component-menu:checked ~ .ds-catalog #component-menu { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #component-modal { display: block; }
+#ds-view-component-pager:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-pager:checked ~ .ds-catalog #component-pager { display: block; }
 #ds-view-component-panel-header:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-panel-header:checked ~ .ds-catalog #component-panel-header { display: block; }
 #ds-view-component-popover:checked ~ .ds-catalog #components { display: block; }
@@ -633,6 +635,8 @@ code {
 #ds-view-component-menu:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-modal:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-modal:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-pager:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-pager"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-pager:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-pager"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-panel-header:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-panel-header"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-panel-header:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-panel-header"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-popover:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-popover"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -3093,6 +3097,99 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-modal .ds-button--danger {
   background: var(--sem-color-status-danger);
   color: var(--sem-color-text-on-accent);
+}
+
+/* components/pager/component.css */
+/* Pager — the foot of a list walked one page at a time
+ * (src/renderer/src/components/ui/Pager.tsx).
+ *
+ * Two halves on one line: the position said in words on the left, the page
+ * controls on the right. Nothing here is filled with the accent — the current
+ * page is a neutral luminance step plus an ink lift, the same treatment a
+ * selected segment gets, because "where I am" is a state display and the
+ * accent budget belongs to the view's one primary action. */
+
+.ds-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding-top: var(--sem-space-lg);
+}
+
+/* The position, in words. A live region in the shipped implementation: paging
+ * replaces the rows without moving focus, so this sentence is the only thing
+ * that announces the change. */
+.ds-pager-range {
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+}
+
+.ds-pager-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--sem-size-control-sm);
+  min-width: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-pager-step:hover:not(:disabled):not([aria-current='page']) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-pager-step[aria-current='page'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-pager-step:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-pager-step:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The elision. Decorative — the numbers on either side already say which
+ * pages are reachable — so it is aria-hidden in the markup. */
+.ds-pager-gap {
+  padding: 0 var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-pager-icon {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-pager-step {
+    transition: none;
+  }
 }
 
 /* components/panel-header/component.css */
@@ -5889,6 +5986,27 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     background: none;
     justify-content: flex-start;
   }
+.ds-embed-component-pager {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-pager .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-pager .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-pager .demo-list {
+    margin: 0 0 var(--sem-space-3xl);
+    border-top: 1px solid var(--sem-color-border-subtle);
+  }
+.ds-embed-component-pager .demo-list:last-child {
+    margin-bottom: 0;
+  }
 .ds-embed-component-panel-header {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -7478,6 +7596,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-liveness" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-menu" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-modal" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-pager" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-panel-header" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-popover" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-provider-row" />
@@ -7537,6 +7656,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-liveness">Liveness</label>
 <label class="catalog-nav-item" for="ds-view-component-menu">Menu</label>
 <label class="catalog-nav-item" for="ds-view-component-modal">Modal</label>
+<label class="catalog-nav-item" for="ds-view-component-pager">Pager</label>
 <label class="catalog-nav-item" for="ds-view-component-panel-header">Panel header</label>
 <label class="catalog-nav-item" for="ds-view-component-popover">Popover</label>
 <label class="catalog-nav-item" for="ds-view-component-provider-row">Provider row</label>
@@ -7812,7 +7932,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>One chrome band per region of content.</strong> Everything that is chrome for the same content shares a row: status on the left, controls on the right. Reaching for a second band means asking which band the new control belongs in, not where to put the new band.</p>
 <p><strong>The door surface</strong> — a full-page surface that takes over the content region (Backlog, Sprints, Reviews, Horizon, Automations, Extensions) — has an anatomy too, and it has exactly one band of chrome:</p>
 <p>1. <strong>The app's top strip is the door's title bar.</strong> The door's name and its controls ride the strip that is already there. A door that draws its own title row puts two title bars on one screen, with the first one empty. 2. <strong>The name sits on the content gutter (20px).</strong> The title, the leading edge of the tab row under it, and the canvas body share one vertical line. A title inset to the window chrome's 6px hangs off the left edge of its own page. 3. <strong>The bar is the name and the controls, nothing else.</strong> No status chip, no counts line: the page under the bar already shows its own state, and the rail row that opened the door already carries its glyph. 4. <strong>Nothing stacks between the bar and the content.</strong> A status sentence or a tools row under the strip is the second band this anatomy exists to prevent — the controls belong in the strip, and a status belongs to the thing that has it. A notice about the content (a stale change, a failed run) is not chrome and keeps its own band.</p>
-<p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Horizons&quot; over a field that already reads &quot;Search horizons…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
+<p><strong>Surfaces, not modals</strong> (ruled 2026-09-05, reversing the doors→modals ruling of 2026-09-01). A destination the shell's own chrome offers — anything an app rail square or a sidebar drawer row opens — is a DOOR: it takes the card region and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs and the Extensions home are doors. They spent four days as modals, and the modal was wrong for them twice over: a scrim put a dialog between the person and the very column they had just navigated with, and a float over the card region means back, forward and the window's history all step to a destination that mounts invisibly behind it.</p>
+<p>What stays a modal is the shape a modal is actually for — a <strong>pick-and-close task floated over work that stays put</strong>, reached from inside that work rather than from the chrome:</p>
+<ul><li><strong>Settings.</strong> Opened from the rail's foot, changed and dismissed; the workspace behind it is the thing being configured and must stay visible.</li><li><strong>The Diff popout.</strong> The pane's own Diff tab grown to workbench width, opened from the pane strip. Routing the region would hide the layout it is a bigger view OF.</li><li><strong>Reviews.</strong> A walkthrough is Monaco beside a transcript; the pane column is too narrow to read it in, so picking it there floats the surface instead of opening a pane tab.</li></ul>
+<p>Three tests, all of which a modal must pass. A destination that fails any of them is a door.</p>
+<p>1. <strong>The thing underneath is still the subject.</strong> The workspace being configured, the layout the diff is a bigger view of, the change being reviewed. If the surface replaces the subject rather than acting on it, it wants the region, not a scrim. 2. <strong>Nothing that names a PLACE leads to it.</strong> No section glyph, no drawer row, no history entry — a destination reached by navigation has to be somewhere the region can go, or back and forward step to a page that mounts invisibly behind the scrim. Note the test is about naming a place, not about being chrome: Settings is opened from the rail's FOOT, and the foot is deliberately not navigation — the account and the gear belong to the window rather than to any section of the product, so they route nothing and no history entry records them. 3. <strong>It is a task with an end.</strong> Opened, done, dismissed. A surface a person navigates around inside, or comes back to and expects to find as they left it, is a place, and places are doors.</p>
+<p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Rosters&quot; over a field that already reads &quot;Search rosters…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
+<p><strong>The app rail</strong> (ruled 2026-09-05; glyphs-only and then three-glyph, same day) — the window's far-left column of glyphs, the editor's tool stripe and the app's rail — is chrome, not a rail in the context-rail sense. It names AREAS of the product (Home, Extensions) and holds its one standing tool (Automations), never things inside an area; the sidebar column beside it lists the things, and a drilled-in surface still replaces that column's content rather than standing beside it. &quot;One rail, ever&quot; is unchanged: the app rail holds no list a person walks. Its anatomy:</p>
+<p>1. <strong>A fixed set of glyphs on <code>size.control.md</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.xs</code> gutter each side: 46px, and no wider. 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the five things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills, Agent CLIs — with the same <code>SidebarNavButton</code> chrome for all five. The order is the ruling's, not the registry's <code>order</code>; a module contributes a row's name, glyph and behaviour, never its place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same five rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band.</p>
 <p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
@@ -16731,6 +16858,267 @@ document.addEventListener('keydown', (event) =&gt; {
   }
 })
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-pager" class="catalog-view catalog-component">
+<h3>Pager</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-pager">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a long source: first and last page always reachable, an elision between.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="Plugins in SprintEngine Studio">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 13–24 of 318</span>
+      <span class="ds-pager-controls">
+        <button type="button" class="ds-pager-step" aria-label="Previous page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <button type="button" class="ds-pager-step" aria-label="Page 1">1</button>
+        <button type="button" class="ds-pager-step" aria-current="page" aria-label="Page 2">2</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 3">3</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 4">4</button>
+        <span class="ds-pager-gap" aria-hidden="true">…</span>
+        <button type="button" class="ds-pager-step" aria-label="Page 27">27</button>
+        <button type="button" class="ds-pager-step" aria-label="Next page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+      </span>
+    </nav>
+  </div>
+  <p class="demo-label">One page — the numbers are gone; the sentence stays, because the count is still news.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="Skills in mattpocock/skills">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–8 of 8</span>
+    </nav>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — first page: previous is disabled rather than absent, so the strip never reflows.</p>
+  <div class="demo-list">
+    <nav class="ds-pager" aria-label="MCP servers in SprintEngine Studio">
+      <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–12 of 318</span>
+      <span class="ds-pager-controls">
+        <button type="button" class="ds-pager-step" aria-label="Previous page" disabled>
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <button type="button" class="ds-pager-step" aria-current="page" aria-label="Page 1">1</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 2">2</button>
+        <button type="button" class="ds-pager-step" aria-label="Page 3">3</button>
+        <span class="ds-pager-gap" aria-hidden="true">…</span>
+        <button type="button" class="ds-pager-step" aria-label="Page 27">27</button>
+        <button type="button" class="ds-pager-step" aria-label="Next page">
+          <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+      </span>
+    </nav>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The foot of a list that is walked one page at a time: the position said in words on the left, the page controls on the right.</p>
+<p>Use a pager when a list is longer than a person will scroll and its order means something — a catalogue of 318 connectors kept in categories, a repository's skills kept in folders. Use progressive disclosure (&quot;Show N more&quot;) only for a short tail inside one section. Use infinite scroll for a feed, where position does not matter and there is no last page.</p>
+<p>A pager exists because the toggle it replaces cannot state a position. &quot;Show 25 more&quot; grows the page without ever saying how much is left, it forgets where you were the moment you leave, and three sections each expanded to a different depth is a list with no position at all.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-pager</code> | yes — <code>&lt;nav&gt;</code> with an <code>aria-label</code> naming what is paged | | Range | <code>.ds-pager-range</code> | yes — the position in words, tabular, a polite live region | | Controls | <code>.ds-pager-controls</code> | no — absent when there is only one page | | Step | <code>.ds-pager-step</code> | yes (with controls) — previous, each page number, next | | Elision | <code>.ds-pager-gap</code> | no — <code>…</code> standing for skipped numbers, <code>aria-hidden</code> | | Icon | <code>.ds-pager-icon</code> | no — the chevrons, <code>icon.size.xs</code>, <code>aria-hidden</code> |</p>
+<p>Steps sit <code>size.control.sm</code> (30px) tall and at least that wide, spaced by <code>space.3xs</code>, with <code>space.md</code> inline padding so a three-digit page still fits its box. The row is separated from the list above it by <code>space.lg</code> of top padding and nothing else — the list's own last row is the only edge it needs.</p>
+<h4>Variants</h4>
+<p>There is one pager. What changes is how much of it is there:</p>
+<ul><li><strong>Paged</strong> — the range plus the controls.</li><li><strong>Single page</strong> — the range alone. The count is still news (&quot;Showing 1–8 of 8&quot;); a strip of one number is not.</li><li><strong>Empty</strong> — the range says what is missing (&quot;Nothing matches “stripe”&quot;, &quot;No plugins here&quot;) and there are no controls. An empty list still gets its sentence, because the alternative is a blank region that reads as broken.</li></ul>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | <code>text.muted</code> on a transparent ground | | Hover | <code>bg.hover</code> and an ink lift to <code>text.primary</code> | | Current page | <code>bg.selected</code> + <code>text.primary</code> + <code>font.weight.medium</code>, marked <code>aria-current=&quot;page&quot;</code> | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> — previous on page 1, next on the last |</p>
+<h4>Usage</h4>
+<p><strong>The current page is neutral.</strong> <code>bg.selected</code> plus an ink lift, exactly as a selected segment. An accent-filled page number is a reject on sight: the accent is the view's one primary action, and &quot;which page am I on&quot; is a state display.</p>
+<p><strong>The ends stay reachable.</strong> Always draw page 1 and the last page, plus a window around the current one, and elide the rest. The strip's width must not grow with the source — a 27-page catalogue and a 3-page one draw the same number of buttons. A single skipped page is drawn rather than elided: <code>1 … 3</code> is wider than <code>1 2 3</code> and hides more.</p>
+<p><strong>Previous and next are disabled, not absent.</strong> Removing them at the ends reflows the strip under the pointer that is clicking it.</p>
+<p><strong>One pager per region.</strong> It walks the whole region, groups included: a group that does not fit continues onto the next page under a heading that says so. Two pagers, or a pager per group, is a list with two positions.</p>
+<p><strong>Say the position in words.</strong> &quot;Showing 13–24 of 318&quot; is the whole point. Numbers alone tell you where you can go, not where you are.</p>
+<p><strong>Paging replaces rows; it must not move focus.</strong> The clicked page button keeps focus, so the range sentence is a <code>role=&quot;status&quot;</code> live region — that announcement is the only signal a screen-reader user gets that the list changed.</p>
+<h4>Accessibility</h4>
+<ul><li>The root is <code>&lt;nav&gt;</code> with a required <code>aria-label</code> naming what is being paged (&quot;Plugins in SprintEngine Studio&quot;), so a page with several lists does not present several identical &quot;pagination&quot; landmarks.</li><li>Page numbers are <code>&lt;button&gt;</code>s; the current one carries <code>aria-current=&quot;page&quot;</code> and every one carries an <code>aria-label</code> (&quot;Page 3&quot;) so the number is not read as a bare digit.</li><li>Previous and next are <code>aria-label</code>led; their chevrons are <code>aria-hidden</code>.</li><li>The elision is <code>aria-hidden</code> — it names no page.</li><li>The range is <code>role=&quot;status&quot; aria-live=&quot;polite&quot;</code>, and it is the only live region in the pager.</li><li>Tab order is the natural one: the strip is a row of ordinary buttons, not a roving-tabindex composite. A pager is reached rarely and left immediately, so a person tabbing to page 4 should not first have to discover that arrow keys drive it.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/Pager.tsx</code>, exporting <code>Pager</code> (the row) and <code>pagerSteps</code> (which numbers to draw, given the page and the count). What a page CONTAINS is not the primitive's business: the consumer's own model slices its groups and hands over <code>page</code>, <code>pageCount</code> and the range sentence. The Extensions catalogues' model is <code>src/renderer/src/components/workspace/globalSurface/extensions/catalogue/cataloguePaging.ts</code>.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/pager/component.css</summary><pre><code>/* Pager — the foot of a list walked one page at a time
+ * (src/renderer/src/components/ui/Pager.tsx).
+ *
+ * Two halves on one line: the position said in words on the left, the page
+ * controls on the right. Nothing here is filled with the accent — the current
+ * page is a neutral luminance step plus an ink lift, the same treatment a
+ * selected segment gets, because &quot;where I am&quot; is a state display and the
+ * accent budget belongs to the view's one primary action. */
+
+.ds-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding-top: var(--sem-space-lg);
+}
+
+/* The position, in words. A live region in the shipped implementation: paging
+ * replaces the rows without moving focus, so this sentence is the only thing
+ * that announces the change. */
+.ds-pager-range {
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+}
+
+.ds-pager-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--sem-size-control-sm);
+  min-width: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-pager-step:hover:not(:disabled):not([aria-current='page']) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-pager-step[aria-current='page'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-pager-step:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-pager-step:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The elision. Decorative — the numbers on either side already say which
+ * pages are reachable — so it is aria-hidden in the markup. */
+.ds-pager-gap {
+  padding: 0 var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-pager-icon {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-pager-step {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/pager/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Pager&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The pager sits at the foot of the list it walks; the demo stands in for
+     that list so the rule above it reads the way it does in place. */
+  .demo-list {
+    margin: 0 0 var(--sem-space-3xl);
+    border-top: 1px solid var(--sem-color-border-subtle);
+  }
+  .demo-list:last-child {
+    margin-bottom: 0;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a long source: first and last page always reachable, an elision between.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;nav class=&quot;ds-pager&quot; aria-label=&quot;Plugins in SprintEngine Studio&quot;&gt;
+      &lt;span class=&quot;ds-pager-range&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Showing 13–24 of 318&lt;/span&gt;
+      &lt;span class=&quot;ds-pager-controls&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous page&quot;&gt;
+          &lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 1&quot;&gt;1&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-current=&quot;page&quot; aria-label=&quot;Page 2&quot;&gt;2&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 3&quot;&gt;3&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 4&quot;&gt;4&lt;/button&gt;
+        &lt;span class=&quot;ds-pager-gap&quot; aria-hidden=&quot;true&quot;&gt;…&lt;/span&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 27&quot;&gt;27&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next page&quot;&gt;
+          &lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/nav&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;One page — the numbers are gone; the sentence stays, because the count is still news.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;nav class=&quot;ds-pager&quot; aria-label=&quot;Skills in mattpocock/skills&quot;&gt;
+      &lt;span class=&quot;ds-pager-range&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Showing 1–8 of 8&lt;/span&gt;
+    &lt;/nav&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — first page: previous is disabled rather than absent, so the strip never reflows.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;nav class=&quot;ds-pager&quot; aria-label=&quot;MCP servers in SprintEngine Studio&quot;&gt;
+      &lt;span class=&quot;ds-pager-range&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Showing 1–12 of 318&lt;/span&gt;
+      &lt;span class=&quot;ds-pager-controls&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous page&quot; disabled&gt;
+          &lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-current=&quot;page&quot; aria-label=&quot;Page 1&quot;&gt;1&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 2&quot;&gt;2&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 3&quot;&gt;3&lt;/button&gt;
+        &lt;span class=&quot;ds-pager-gap&quot; aria-hidden=&quot;true&quot;&gt;…&lt;/span&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Page 27&quot;&gt;27&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next page&quot;&gt;
+          &lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/nav&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

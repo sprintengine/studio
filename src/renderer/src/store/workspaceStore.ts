@@ -47,6 +47,7 @@ import type { LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
+import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings, type SidebarSection } from './slices/settingsSlice'
@@ -193,14 +194,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   }
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
-  // Opens the Plugins modal on the requested view (was the Extensions door
-  // until doors→modals 2026-09-01; MC-1847 B1 before that).
-  openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
-  // The Roadmap door routes to the
-  // door-routed full-page surface (global-surfaces epic 1704) via activeGlobalSurface;
-  // a named convenience over openGlobalSurface('roadmap'). The legacy centered
-  // overlay + its store flag are retired (T2).
-  openRoadmapSurface: () => void
+  // Opens the Extensions door on one of its three views, optionally on that
+  // view's Installed tab (source-tabs ruling, 2026-09-05).
+  openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // The door-routed full-page surface for this window (global-surfaces epic
   // 1704): a registered surface id or null when a workspace owns the card
   // region. Transient/unsynced like roadmapSurface (absent from

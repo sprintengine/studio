@@ -25,22 +25,15 @@ import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
 export type ConnectorSource = 'catalog' | 'registry'
 
-// The six facet tabs from the surface mockup. `Featured` and `All` are computed
-// rails, not category buckets; the four middle tabs bucket by category.
-export type ConnectorFacet = 'Featured' | 'Infrastructure' | 'Payments' | 'Productivity' | 'Data' | 'All'
-
-export const CONNECTOR_FACETS: readonly ConnectorFacet[] = [
-  'Featured',
-  'Infrastructure',
-  'Payments',
-  'Productivity',
-  'Data',
-  'All',
-]
-
-// The category bucket an entry lands in. `Other` never matches a named tab; those
-// entries surface only under `All`, so an unmapped category is never silently
-// dropped from the surface.
+// The category an entry lands in, which is the heading it renders under.
+//
+// These were the facet TABS of the browse grid until the source-tabs ruling
+// (2026-09-05): the tab row belongs to the sources now, so a category is a
+// group inside a source rather than a filter across all of them. `Featured`
+// went with the tabs — it ranked the catalogue by "can this launch on this
+// machine right now", which is a fact about the machine, and it hid everything
+// else behind a tab nobody chose. `Other` is a real bucket rather than a
+// dropped one: an unmapped category still renders, under "More".
 export type NamedFacet = 'Infrastructure' | 'Payments' | 'Productivity' | 'Data' | 'Other'
 
 // One row/tile in the surface, normalized across both sources so the grid,
@@ -136,15 +129,10 @@ export function launchableConnectors(
   return result
 }
 
-// The connector "New chat" payload, from each shape the surface holds. Identity
-// plus the display bits the composer's attachment chip shows — the spawn still
-// resolves the server itself from the id. `icon` is optional: the chip falls back
-// to the brand icon keyed off the id, so an entry without a catalog record
-// (installed-only) still renders.
-export function catalogServerAsComposerConnector(server: McpCatalogServer): AgentComposerConnector {
-  return { id: server.id, name: server.name, icon: server.icon }
-}
-
+// The connector "New chat" payload. Identity plus the display bits the
+// composer's attachment chip shows — the spawn still resolves the server itself
+// from the id. `icon` is optional: the chip falls back to the brand icon keyed
+// off the id, so an entry without a catalog record still renders.
 export function connectorEntryAsComposerConnector(entry: ConnectorEntry): AgentComposerConnector {
   return { id: entry.id, name: entry.name, icon: entry.catalogServer?.icon }
 }
@@ -233,53 +221,25 @@ export function searchConnectors(entries: ConnectorEntry[], query: string): Conn
   })
 }
 
-export function filterByFacet(entries: ConnectorEntry[], facet: ConnectorFacet): ConnectorEntry[] {
-  if (facet === 'All') return entries
-  if (facet === 'Featured') return entries.filter((entry) => entry.canLaunch)
-  return entries.filter((entry) => entry.facet === facet)
-}
-
-// Per-tab counts over the search-filtered set, so the badges track the active
-// query. Every facet is present in the record (0 when empty) so the tab strip
-// renders a stable set.
-export function facetCounts(entries: ConnectorEntry[]): Record<ConnectorFacet, number> {
-  const counts: Record<ConnectorFacet, number> = {
-    Featured: 0,
-    Infrastructure: 0,
-    Payments: 0,
-    Productivity: 0,
-    Data: 0,
-    All: entries.length,
-  }
-  for (const entry of entries) {
-    if (entry.canLaunch) counts.Featured += 1
-    if (entry.facet !== 'Other') counts[entry.facet] += 1
-  }
-  return counts
-}
-
-// One category section of the browse list: a heading + its rows. `expanded`
-// sections render every row; collapsed ones cut off at the panel's per-section
-// limit behind a "Show N more" toggle.
+// One category section: a heading and the rows under it. It carries no
+// collapsed state any more — the "Show N more" toggle it used to hide rows
+// behind is the pager's job (source-tabs ruling, 2026-09-05), and a section
+// that hid half of itself could not be walked by one.
 export type ConnectorSection = {
   title: string
   entries: ConnectorEntry[]
-  expanded: boolean
 }
 
 const SECTION_ORDER: readonly NamedFacet[] = ['Infrastructure', 'Payments', 'Productivity', 'Data', 'Other']
 
-// Group the (already searched + faceted) entries into category sections. On the
-// All tab every non-empty facet bucket gets a collapsed section, in the tab-strip
-// order, with the unmapped bucket last; on a specific tab the entries are that
-// facet already, so they render as one expanded section.
-export function sectionConnectors(entries: ConnectorEntry[], facet: ConnectorFacet): ConnectorSection[] {
+// Group the (already searched) entries into category sections, in the declared
+// order, with the unmapped bucket last under "More" — so a category the rules
+// do not name is never silently dropped from the surface.
+export function sectionConnectors(entries: ConnectorEntry[]): ConnectorSection[] {
   if (entries.length === 0) return []
-  if (facet !== 'All') return [{ title: facet, entries, expanded: true }]
   return SECTION_ORDER.map((bucket) => ({
     title: bucket === 'Other' ? 'More' : bucket,
     entries: entries.filter((entry) => entry.facet === bucket),
-    expanded: false,
   })).filter((section) => section.entries.length > 0)
 }
 
@@ -290,73 +250,3 @@ export type SourceLoad<T> =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; data: T }
-
-export type ConnectorsView =
-  | { status: 'loading' }
-  // Both sources failed — an explicit error, never an empty grid.
-  | { status: 'error'; message: string }
-  // Both sources resolved and neither lists any connector.
-  | { status: 'empty'; notice?: string }
-  // Connectors exist but none match the active search + facet.
-  | { status: 'no-match'; query: string; facet: ConnectorFacet; notice?: string }
-  | {
-      status: 'ready'
-      entries: ConnectorEntry[]
-      counts: Record<ConnectorFacet, number>
-      total: number
-      // Present when exactly one source failed: the grid still renders the
-      // healthy source and discloses the degraded one.
-      notice?: string
-    }
-
-// Combine the two source loads with the active query + facet into one view. A
-// single failed source degrades to a `notice`, never to an error; only a total
-// failure (or a total failure while nothing else is still loading) is an error.
-export function deriveConnectorsView(
-  catalogLoad: SourceLoad<McpCatalogServer[]>,
-  registryLoad: SourceLoad<MarketplacePluginEntry[]>,
-  installedServerIds: ReadonlySet<string>,
-  query: string,
-  facet: ConnectorFacet,
-): ConnectorsView {
-  const catalogReady = catalogLoad.status === 'ready'
-  const registryReady = registryLoad.status === 'ready'
-  const catalogFailed = catalogLoad.status === 'error'
-  const registryFailed = registryLoad.status === 'error'
-
-  // Both down → hard error surfacing both causes.
-  if (catalogFailed && registryFailed) {
-    return { status: 'error', message: `${catalogLoad.message} ${registryLoad.message}`.trim() }
-  }
-  // Still waiting on a source that has not failed → keep loading rather than
-  // flashing a partial grid.
-  if ((catalogLoad.status === 'loading' && !registryFailed) || (registryLoad.status === 'loading' && !catalogFailed)) {
-    return { status: 'loading' }
-  }
-
-  const notice = catalogFailed
-    ? `Some connectors are unavailable: ${catalogLoad.message}`
-    : registryFailed
-      ? `Marketplace connectors are unavailable: ${registryLoad.message}`
-      : undefined
-
-  const entries = buildConnectorEntries(
-    catalogReady ? catalogLoad.data : [],
-    registryReady ? registryLoad.data : [],
-    installedServerIds,
-  )
-
-  if (entries.length === 0) {
-    return { status: 'empty', notice }
-  }
-
-  const searched = searchConnectors(entries, query)
-  const counts = facetCounts(searched)
-  const faceted = filterByFacet(searched, facet)
-
-  if (faceted.length === 0) {
-    return { status: 'no-match', query: query.trim(), facet, notice }
-  }
-
-  return { status: 'ready', entries: faceted, counts, total: faceted.length, notice }
-}

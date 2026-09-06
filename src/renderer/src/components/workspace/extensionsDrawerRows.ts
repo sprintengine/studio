@@ -59,13 +59,14 @@ export type ExtensionsDrawerRowView = {
 }
 
 /**
- * @param navEntries the sidebar's already-enablement-filtered nav entries. The
- * drawer passes the list it was handed; a caller with no such list (the
- * Extensions home) omits it and the host is read with the same filter.
+ * The nav entries are resolved HERE, not handed in. The drawer used to pass
+ * the list the sidebar had memoised on `moduleOverrides` alone, while this
+ * resolver bumps itself when third-party renderer modules finish loading late
+ * — so a module that registered a nav row after boot appeared on the Extensions
+ * home and never in the drawer beside it. One resolution, one generation
+ * counter, both callers.
  */
-export function useExtensionsDrawerRows(
-  navEntries?: readonly RegisteredSidebarNavEntry[],
-): ExtensionsDrawerRowView[] {
+export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
@@ -93,14 +94,13 @@ export function useExtensionsDrawerRows(
     () => getRendererHost().getSidebarNavEntries((id) => selectModuleEnabled(moduleOverrides, id)),
     [moduleOverrides, registryGeneration],
   )
-  const entries = navEntries ?? hostNavEntries
 
   return useMemo(() => {
     const surfaceById = new Map<string, RegisteredGlobalSurface>(
       globalSurfaces.map((surface) => [surface.id, surface]),
     )
     const entryById = new Map<string, RegisteredSidebarNavEntry>(
-      entries.map((entry) => [entry.id, entry]),
+      hostNavEntries.map((entry) => [entry.id, entry]),
     )
     return DRAWER_ROWS.flatMap((row): ExtensionsDrawerRowView[] => {
       if (row.kind === 'nav') {
@@ -168,5 +168,5 @@ export function useExtensionsDrawerRows(
         },
       ]
     })
-  }, [activeGlobalSurface, activeView, entries, globalSurfaces, openGlobalSurface])
+  }, [activeGlobalSurface, activeView, hostNavEntries, globalSurfaces, openGlobalSurface])
 }

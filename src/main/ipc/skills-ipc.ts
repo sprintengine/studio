@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
 import type {
+  SkillAddLocalSourceInput,
   SkillAddSourceInput,
   SkillAddSourceResult,
   SkillInstallInput,
@@ -35,6 +36,10 @@ export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): voi
   ipcMain.handle(
     'skills:add-source',
     (_, input: SkillAddSourceInput): Promise<SkillAddSourceResult> => service.addSource(input)
+  )
+  ipcMain.handle(
+    'skills:add-local-source',
+    (_, input: SkillAddLocalSourceInput): Promise<SkillAddSourceResult> => service.addLocalSource(input)
   )
   ipcMain.handle(
     'skills:remove-source',

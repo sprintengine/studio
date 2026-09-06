@@ -501,8 +501,8 @@ slice.openGlobalSurface('backlog')
 assert.equal(carrier.activeGlobalSurface, 'backlog')
 assert.equal(carrier.activeModalSurface, null, 'a door open closes the modal over it')
 slice.openModalSurface('settings')
-slice.openRoadmapSurface()
-assert.equal(carrier.activeModalSurface, null, 'openRoadmapSurface closes the modal too')
+slice.openExtensionsSurface()
+assert.equal(carrier.activeModalSurface, null, 'a named door convenience closes the modal too')
 slice.closeGlobalSurface()
 carrier.activeGlobalSurface = null
 
@@ -536,14 +536,12 @@ assert.equal(carrier.activeGlobalSurface, 'backlog', 'opening another door repla
 slice.closeGlobalSurface()
 assert.equal(carrier.activeGlobalSurface, null)
 
-// The Roadmap door routes to the full-page surface, NOT a
-// centered overlay: openRoadmapSurface sets activeGlobalSurface. The legacy
-// roadmapSurface.open store flag + its overlay are retired (T2).
-carrier.activeGlobalSurface = null
-slice.openRoadmapSurface()
-assert.equal(carrier.activeGlobalSurface, 'roadmap', 'openRoadmapSurface routes to the door-routed surface')
+// `openRoadmapSurface` is gone with the Roadmap door it named: a named
+// convenience for a surface nothing registers any more is an action whose only
+// caller is its own test. `openGlobalSurface('roadmap')` above is the whole
+// mechanism, and it is what the convenience had been reduced to.
+assert.equal('openRoadmapSurface' in slice, false, 'the retired door takes its named opener with it')
 assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
-slice.closeGlobalSurface()
 
 // The workspace pane column (browser-pane epic) took over the aside column
 // MC-1766 left vacant: the app-level width clamps to the column bounds, the
@@ -579,11 +577,13 @@ for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_
   assert.equal(carrier.activeModalSurface, null, `${foldedTab} leaves no modal floating over it`)
   assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
   // MC-1936: skill packs are gone, so the tab that named them lands on Skills —
-  // the surface's other deep-links still land on the marketplace grid.
-  assert.equal(
+  // the surface's other deep-links land on the Plugins catalogue, which is
+  // what `browse` used to mean before the views were named for themselves
+  // (source-tabs ruling, 2026-09-05).
+  assert.deepEqual(
     consumePendingExtensionsSurfaceTarget(),
-    foldedTab === 'skill-packs' ? 'skills' : 'browse',
-    `${foldedTab} lands on the rail row it was asking for`,
+    { view: foldedTab === 'skill-packs' ? 'skills' : 'plugins' },
+    `${foldedTab} lands on the view it was asking for`,
   )
 }
 

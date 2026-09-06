@@ -9,7 +9,7 @@
 // Renderer-safe on purpose (no node imports): the Extensions surface, the
 // reader, and the main-process scanner all speak these types.
 
-export type SkillSourceKind = 'builtin' | 'connectors' | 'github'
+export type SkillSourceKind = 'builtin' | 'connectors' | 'github' | 'local'
 
 /**
  * An agent CLI that reads workspace skills. Which directory each one reads is
@@ -24,6 +24,14 @@ export type SkillSource = {
   kind: SkillSourceKind
   name: string
   repo: string
+  /**
+   * Absolute folder path for a `local` source, '' for every other kind. A
+   * folder on this machine is a source you can point at (the source-tabs
+   * ruling, 2026-09-05: the plus offers "Add from file…" beside "Add from
+   * GitHub…"), and the path is the only identity it has — there is no
+   * repository to name it by.
+   */
+  path?: string
   /** 1-2 character badge shown in the source rail. */
   monogram: string
   blurb: string
@@ -232,6 +240,15 @@ export const SKILL_REPO_ROOT_GROUP = '(repo root)'
 
 export const BUILTIN_SKILL_SOURCE_ID = 'builtin'
 export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
+
+/** Every local source's id is this prefix plus its absolute path. */
+export const LOCAL_SKILL_SOURCE_ID_PREFIX = 'local:'
+
+/** The last path segment — what a folder source is called on screen. */
+export function localSourceFolderName(path: string): string {
+  const segments = path.split(/[\\/]/).filter((segment) => segment.length > 0)
+  return segments.length > 0 ? segments[segments.length - 1] : path
+}
 
 /**
  * How a source's skill list should be presented. Derived on read, never
@@ -482,7 +499,12 @@ export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
   for (let index = 0; index < lines.length; index += 1) {
     const scalar = lines[index].match(/^(name|description):\s*(.*)$/)
     if (scalar) {
-      const value = unquoteYamlScalar(scalar[2])
+      const inline = unquoteYamlScalar(scalar[2])
+      // A folded or literal block (`description: >`) carries its text on the
+      // indented lines below. Reading the marker as the value is how a row came
+      // to show ">" where its description belongs — `parseSkillFragment` has
+      // always folded these, and now both sides of the same file agree.
+      const value = isYamlBlockMarker(inline) ? foldedBlockValue(lines, index + 1) : inline
       if (scalar[1] === 'name' && !result.name) result.name = value
       if (scalar[1] === 'description' && !result.description) result.description = value
       continue

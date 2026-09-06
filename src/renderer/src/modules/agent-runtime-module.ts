@@ -130,16 +130,17 @@ export const agentRuntimeRendererModule: RendererModule = {
     // left behind (the surface drains the latch on mount, so a stale one would
     // reroute the open).
     //
-    // `railPlacement: 'inline'` because the three rows below ARE drawer rows:
-    // the drawer is what the person navigated with to get here and must stay in
-    // the sidebar column, so this surface's own rail renders beside its canvas
-    // instead. Stage 4 replaces that rail with the source tabs the ruling
-    // describes, at which point the surface brings no rail at all.
+    // No `railPlacement` any more. It said "this door's rail renders beside its
+    // canvas rather than replacing the sidebar column", which mattered while
+    // the door carried a nested Sources rail. The source-tabs ruling
+    // (2026-09-05) replaced that rail with the tab row, so the door declares no
+    // rail at all — and GlobalSurfaceShell's contract for a surface that brings
+    // none is exactly what is wanted: the host keeps its own column, which is
+    // the Extensions drawer the person arrived by.
     host.registerGlobalSurface({
       id: 'extensions',
       label: 'Plugins',
       Icon: PluginsGlyph,
-      railPlacement: 'inline',
       onOpen: () => {
         consumePendingExtensionsSurfaceTarget()
       },
@@ -149,27 +150,28 @@ export const agentRuntimeRendererModule: RendererModule = {
       // though one surface still renders all three, so each contributes its own
       // row here rather than the shell learning this module's sections. Each
       // opens by the deep-link latch the surface already drains, so the row and
-      // a notification's Open arrive by exactly one route. Stage 4 splits the
-      // surface into three catalogues; these rows do not change when it does.
+      // a notification's Open arrive by exactly one route. The latch names the
+      // view itself since the source-tabs ruling: `browse` used to stand in for
+      // Plugins and did not reach the Plugins catalogue at all once the surface
+      // grew one.
       views: [
         {
           id: EXTENSIONS_DRAWER_VIEWS.plugins,
           label: 'Plugins',
           Icon: McpGlyph,
-          // `browse` is the MCP-server catalogue — the full grid, not Featured.
-          open: () => dispatchExtensionsSurfaceTarget('browse'),
+          open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.plugins }),
         },
         {
           id: EXTENSIONS_DRAWER_VIEWS.skills,
           label: 'Skills',
           Icon: SkillsGlyph,
-          open: () => dispatchExtensionsSurfaceTarget('skills'),
+          open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills }),
         },
         {
           id: EXTENSIONS_DRAWER_VIEWS.agentClis,
           label: 'Agent CLIs',
           Icon: CliGlyph,
-          open: () => dispatchExtensionsSurfaceTarget('agent-clis'),
+          open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.agentClis }),
         },
       ],
       Component: ExtensionsGlobalSurface,

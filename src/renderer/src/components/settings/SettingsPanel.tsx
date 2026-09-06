@@ -6,6 +6,7 @@ import type {
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
+import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import type {
   SprintEngineRoleRegistry,
@@ -2520,6 +2521,14 @@ export default function SettingsPanel({
               ) : null}
             </div>
           ) : null}
+          {/* The MCP gateway every Studio-launched agent receives. It was a rail
+              row of the Plugins door until the source-tabs ruling (2026-09-05):
+              a catalogue is a list of things you can add, and this is a
+              read-only diagnostic about a service that is always on — so it
+              belongs beside the agents it serves rather than in a shelf of
+              things to install. There is no Automations settings tab to put it
+              in; if one is ever added, this is the section that moves. */}
+          <AutomationServerSettings />
         </div>
       ) : null}
 

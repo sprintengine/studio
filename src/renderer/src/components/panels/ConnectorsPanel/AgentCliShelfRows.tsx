@@ -1,74 +1,30 @@
-// The door's per-kind marketplace canvas (MC-1847 C2): capability modules and
-// agent CLIs get browsable for the first time — the connector grid keeps its
-// mcp/skills subset, and these render the registry's module/cli plugins with
-// the same normalized rows and the same storefront install flow (trust gates
-// included), no parallel machinery.
+// The agent-CLI rows, shared by the Extensions door's Agent CLIs catalogue and
+// the kind canvas this was extracted from.
 //
-// Automations (MC-2034) are the third kind here, on the same rows and the same
-// registry read. They differ in two ways the owner ruled on: the state a row
-// carries is whether it is in THIS project (which the app can see) rather than a
-// signing tier (which does not apply — an automation is a definition, never
-// code), and the only action is Get. Nothing about how an automation runs is
-// configured on this shelf; that is the Automations door's job.
-//
-// That kind's weight — the project read, the install, the band and the detail
-// aside — lives in `AutomationShelf.tsx` beside this file (item 2042), so this
-// one stays the canvas the three kinds genuinely share: the search box, the row
-// list, and the loading, unavailable and empty states.
+// Two row shapes, because there are two populations: the twelve CLIs the app
+// knows how to detect and install (runtime state, install in the row's own
+// disclosure) and a signed third-party CLI bundle (the storefront's Get flow).
+// They moved out of ExtensionKindCanvas when the source-tabs ruling
+// (2026-09-05) made Agent CLIs a catalogue of its own: the catalogue hands
+// them ONE PAGE of entries at a time, which a component that fetched its own
+// list could not do.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import type {
   AgentCli,
   AgentCliAvailabilityMap,
   CliInstallResult,
   CliRuntimeSettings,
 } from '../../../../../shared/electron-api'
-import {
-  CliProviderStateLine,
-  EmptyState,
-  GhostButton,
-  InboxSearchInput,
-  InlineNotice,
-  PrimaryButton,
-  ProviderRow,
-  Spinner,
-} from '../../ui'
+import { CliProviderStateLine, GhostButton, PrimaryButton, ProviderRow } from '../../ui'
 import type { CliProbeStatus } from '../../ui/cliProviderState'
 import { CliInstallControl } from '../../settings/CliInstallControl'
-import { PluginDetailPanel, PluginIcon, pluginTrust, resolveIconUrl } from '../../settings/BrowseStorefront'
+import { PluginIcon, pluginTrust, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { cliRuntimeForPlugin } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type { PluginCatalogEntry, PluginCatalogStatus } from '../../../types/workspace'
-import { AutomationShelfBand, AutomationShelfDetail, AutomationShelfRows, useAutomationShelf } from './AutomationShelf'
-import { ConnectorEntryRow, ConnectorSectionHeading } from './ConnectorRow'
 import { agentCliShelfRowState, type CliInstallMethodsLoad } from './agentCliShelfState'
-import { registryEntriesForKinds, searchConnectors } from './connectorsFacets'
 import type { ConnectorEntry } from './connectorsFacets'
-import type { ConnectorSources } from './useConnectorSources'
-
-export type ExtensionKind = 'module' | 'cli' | 'automation'
-
-const KIND_COPY: Record<ExtensionKind, { label: string; searchAria: string; placeholder: string; empty: string }> = {
-  module: {
-    label: 'Capability modules',
-    searchAria: 'Search capability modules by name, category, or tag',
-    placeholder: 'Search modules',
-    empty: 'No capability modules are in the marketplace yet.',
-  },
-  cli: {
-    label: 'Agent CLIs',
-    searchAria: 'Search agent CLIs by name, category, or tag',
-    placeholder: 'Search agent CLIs',
-    empty: 'No agent CLIs are in the marketplace yet.',
-  },
-  automation: {
-    label: 'Automations',
-    searchAria: 'Search automations by name, category, or tag',
-    placeholder: 'Search automations',
-    empty: 'No automations are in the marketplace yet.',
-  },
-}
 
 // An agent CLI in the marketplace, on the shared provider anatomy (item 1994).
 // Same row as the installed list in Settings → Agents, read from what this
@@ -78,10 +34,11 @@ const KIND_COPY: Record<ExtensionKind, { label: string; searchAria: string; plac
 // registry cannot see. Version is the registry's bundle version, so it is
 // labelled rather than dressed up as a semver.
 //
-// Capability modules deliberately keep `ConnectorEntryRow` for now: 1994 owns
-// the Agent CLIs list, and the modules list adopts this anatomy on its own item
-// rather than being converted as a side effect of this one.
-function AgentCliRegistryRow({
+// Nothing else in the marketplace wears this anatomy: item 1994 gave it to the
+// Agent CLIs list alone, and the capability-modules list it was measured
+// against has since left the door entirely (module switches live in Settings →
+// Modules, source-tabs ruling 2026-09-05).
+export function AgentCliRegistryRow({
   entry,
   registryUrl,
   selected,
@@ -170,7 +127,7 @@ export type CliShelfRuntime = {
 // per the 07-26 manage-canvas mockup), state from the shared probe reading, and
 // install through CliInstallControl in the row's own disclosure — never
 // PluginDetailPanel's bundle-download flow.
-function AgentCliRuntimeRows({
+export function AgentCliRuntimeRows({
   entries,
   registryUrl,
   runtime,
@@ -333,192 +290,3 @@ function AgentCliRuntimeRows({
   )
 }
 
-export function ExtensionKindCanvas({
-  kind,
-  sources,
-  workspaceRoot,
-  cliRuntime,
-  automationDefaultCli,
-  onOpenAutomation,
-  onAutomationAdded,
-}: {
-  kind: ExtensionKind
-  sources: ConnectorSources
-  workspaceRoot: string | null
-  /** Runtime state + installers for the `cli` kind (MC-1858), read from the
-   *  store by the door and passed down so this canvas stays store-free. Without
-   *  it, inline CLI entries fall back to the plain registry row. */
-  cliRuntime?: CliShelfRuntime
-  /** The CLI an agent-backed automation falls back to when its own config names
-   *  none. Only the app settings hold it, so the door reads it and passes it in;
-   *  an install that would need it and does not get it is refused by the
-   *  installer rather than creating a job that cannot launch. */
-  automationDefaultCli?: string | null
-  /** Hands an already-added automation to the Automations door, which owns
-   *  everything about how it runs. */
-  onOpenAutomation?: (definition: AutomationDefinition) => void
-  /** A Get just landed. The shelf configures nothing (MC-2035), so it hands the
-   *  new automation straight to the door that does — one navigation, not "it was
-   *  added somewhere, go and find it". Only the store-issued id is known here;
-   *  the door resolves it against its own index. */
-  onAutomationAdded?: (automationId: string) => void
-}): JSX.Element {
-  const copy = KIND_COPY[kind]
-  const isAutomation = kind === 'automation'
-  const [query, setQuery] = useState('')
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  // Everything the automation kind needs (item 2042). Called on every kind so
-  // the hook order never changes; inactive it reads nothing and ticks nothing.
-  const automations = useAutomationShelf({
-    active: isAutomation,
-    sources,
-    workspaceRoot,
-    automationDefaultCli,
-    onOpenAutomation,
-    onAutomationAdded,
-  })
-
-  const retry = (
-    <GhostButton
-      size="sm"
-      onClick={() => void sources.loadRegistry(true)}
-      className="border border-[color:var(--border-default)]"
-    >
-      Retry
-    </GhostButton>
-  )
-
-  const entries = useMemo(
-    () => (sources.registryLoad.status === 'ready' ? registryEntriesForKinds(sources.registryLoad.data, [kind]) : []),
-    [sources.registryLoad, kind],
-  )
-  const matched = useMemo(() => searchConnectors(entries, query), [entries, query])
-
-  // Kind canvases read the registry source alone — the MCP catalog carries no
-  // modules, CLIs or automations, so its state must not gate (or blank) this page.
-  if (sources.registryLoad.status === 'loading') {
-    return (
-      <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
-        <Spinner size={14} />
-        Loading the marketplace…
-      </div>
-    )
-  }
-  if (sources.registryLoad.status === 'error') {
-    return (
-      <div className="py-4">
-        <InlineNotice tone="error" action={retry}>
-          {`The marketplace is unavailable: ${sources.registryLoad.message}`}
-        </InlineNotice>
-      </div>
-    )
-  }
-
-  const selectedEntry = matched.find((entry) => entry.key === selectedKey) ?? null
-  const detailOpen = Boolean(selectedEntry?.plugin)
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <InboxSearchInput
-            value={query}
-            onChange={setQuery}
-            ariaLabel={copy.searchAria}
-            placeholder={copy.placeholder}
-          />
-        </div>
-      </div>
-
-      {isAutomation ? <AutomationShelfBand shelf={automations} count={matched.length} /> : null}
-
-      {/* The batch probe failing is one fact for the whole list (the settings
-          rule): stated here once, while each row reads "availability unknown"
-          without repeating the reason. */}
-      {kind === 'cli' && cliRuntime && cliRuntime.availabilityStatus === 'error' && cliRuntime.availabilityError ? (
-        <div className="mt-4">
-          <InlineNotice tone="warn">{`Agent CLIs could not be checked: ${cliRuntime.availabilityError}`}</InlineNotice>
-        </div>
-      ) : null}
-
-      {entries.length === 0 ? (
-        <EmptyState density="list" title={copy.empty} />
-      ) : matched.length === 0 ? (
-        <EmptyState density="list" title={`No ${copy.label.toLowerCase()} match “${query.trim()}”.`} />
-      ) : (
-        <div className="mt-4 flex gap-4">
-          <div className="min-w-0 flex-1 space-y-2">
-            {isAutomation ? null : <ConnectorSectionHeading label={copy.label} count={matched.length} />}
-            {kind === 'cli' ? (
-              <div>
-                {/* Inline entries (`cli.pluginId`, the bundled twelve) carry
-                    runtime state and install through the CLI runtime; signed
-                    third-party CLI bundles keep the storefront Get flow. */}
-                {cliRuntime ? (
-                  <AgentCliRuntimeRows
-                    entries={matched.filter((entry) => entry.plugin?.cli)}
-                    registryUrl={sources.registryUrl}
-                    runtime={cliRuntime}
-                  />
-                ) : null}
-                {matched
-                  .filter((entry) => !(cliRuntime && entry.plugin?.cli))
-                  .map((entry) => (
-                    <AgentCliRegistryRow
-                      key={entry.key}
-                      entry={entry}
-                      registryUrl={sources.registryUrl}
-                      selected={selectedKey === entry.key}
-                      onOpen={() => setSelectedKey(entry.key)}
-                    />
-                  ))}
-              </div>
-            ) : isAutomation ? (
-              <AutomationShelfRows
-                shelf={automations}
-                entries={matched}
-                selectedKey={selectedKey}
-                onSelect={setSelectedKey}
-              />
-            ) : (
-              <div className={`grid gap-2 ${detailOpen ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
-                {matched.map((entry) => (
-                  <ConnectorEntryRow
-                    key={entry.key}
-                    entry={entry}
-                    registryUrl={sources.registryUrl}
-                    selected={selectedKey === entry.key}
-                    onOpen={() => setSelectedKey(entry.key)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {selectedEntry?.plugin ? (
-            isAutomation ? (
-              <AutomationShelfDetail
-                key={selectedEntry.plugin.id}
-                shelf={automations}
-                entry={selectedEntry}
-                plugin={selectedEntry.plugin}
-                onClose={() => setSelectedKey(null)}
-              />
-            ) : (
-              <PluginDetailPanel
-                key={selectedEntry.plugin.id}
-                plugin={selectedEntry.plugin}
-                registryUrl={sources.registryUrl}
-                workspaceRoot={workspaceRoot}
-                mcpSettings={sources.mcpSettings}
-                onInstalled={() => void sources.loadRegistry(true)}
-                onUpsertMcpServer={sources.upsertMcpServer}
-                onClose={() => setSelectedKey(null)}
-              />
-            )
-          ) : null}
-        </div>
-      )}
-    </>
-  )
-}

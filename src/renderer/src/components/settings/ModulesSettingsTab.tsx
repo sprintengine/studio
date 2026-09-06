@@ -225,7 +225,7 @@ export function ModulesSettingsTab() {
             action={
               <GhostButton
                 size="md"
-                onClick={() => openExtensionsSurface({ view: 'browse' })}
+                onClick={() => openExtensionsSurface({ view: 'plugins' })}
                 className="h-control-md"
               >
                 Browse marketplace

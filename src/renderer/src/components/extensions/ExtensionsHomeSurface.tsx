@@ -10,6 +10,7 @@ import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { useSkillSources } from '../workspace/globalSurface/extensions/skills/useSkillSources'
+import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import { useSprintRunIndex } from '../workspace/globalSurface/sprints/useSprintRunIndex'
 import type { SurfaceIconComponent } from '../../modules/renderer-host'
 import {
@@ -135,6 +136,13 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
   const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
   // App-level sources, so no workspace: `null` skips the per-workspace
   // installed read this page has no use for.
+  //
+  // It costs a source list and one scan read per source, on every open of this
+  // page — deliberately, and documented rather than cached: the alternative is
+  // a door-level cache that this page and the Extensions door would both write
+  // to, and the tile would then be showing whatever the door last read rather
+  // than what is there. The reads are the main process's own cached scans, so
+  // they are IPC round-trips, not repository walks.
   const skills = useSkillSources(null)
   const designLibrary = useDesignSystemLibraryCount()
 
@@ -148,7 +156,10 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
         advisory?.status === 'behind_latest' &&
         Boolean(advisory.latestVersion),
     )
-    const scanLoads = skills.sources.map((source) => skills.scans[source.id])
+    // The Skills total is the Skills surface's own derivation (skillsTotal),
+    // not a second sum: the same fact derived twice is a pair of numbers that
+    // eventually disagree.
+    const skillTotals = skillsTotal(skills.sourcesLoad, skills.sources, skills.scans)
     return {
       sprints: sprintRunCountLine({
         ready: sprintRuns.loadState === 'ready',
@@ -161,16 +172,9 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
       // to be the same count.
       plugins: mcpServerCountLine(servers.filter((server) => server?.enabled).length),
       skills: skillsCountLine({
-        // A total is only a total once every source has answered; the Skills
-        // surface follows the same rule for the same reason.
-        ready:
-          skills.sourcesLoad.status === 'ready' &&
-          scanLoads.every((load) => load?.status === 'ready'),
-        sourceCount: skills.sources.length,
-        skillCount: scanLoads.reduce(
-          (sum, load) => sum + (load?.status === 'ready' ? load.scan.skills.length : 0),
-          0,
-        ),
+        ready: skillTotals.ready,
+        sourceCount: skillTotals.sourceCount,
+        skillCount: skillTotals.skillCount,
       }),
       'agent-clis': agentCliCountLine({
         ready: cliAvailabilityStatus === 'ready',

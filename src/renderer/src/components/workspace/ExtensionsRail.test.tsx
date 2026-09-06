@@ -10,11 +10,14 @@ import assert from 'node:assert/strict'
 // disabled module's row is simply absent.
 //
 // The drawer STAYING PUT is the other half of the ruling, and it is a property
-// of the surfaces the rows open rather than of this column: a drawer door
-// declares `railPlacement: 'inline'`, so the host withholds the sidebar column
-// and the door renders its rail beside its own canvas. Asserted here against
-// the live registry, because a door that forgot the declaration would delete
-// the very drawer that opened it.
+// of the surfaces the rows open rather than of this column. There are two ways
+// a door leaves the sidebar column alone, and both are asserted here against
+// the live registry, because a door that got this wrong would delete the very
+// drawer that opened it: it declares `railPlacement: 'inline'` (Design, which
+// brings a rail of its own and renders it beside its canvas), or it declares no
+// rail at all (Extensions, whose rail became the source tabs on 2026-09-05 —
+// GlobalSurfaceShell's contract for a surface that brings none is that the host
+// keeps its own column).
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -42,7 +45,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { ExtensionsRail } from './ExtensionsRail'
-import { getRendererHost } from '../../modules'
+import { ACTIVE_RENDERER_MODULE_MANIFESTS, getRendererHost } from '../../modules'
 import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SidebarNavButton } from './SidebarNavButton'
@@ -53,12 +56,12 @@ import {
   dispatchExtensionsSurfaceTarget,
 } from './globalSurface/extensions/extensionsSurfaceTarget'
 
-function render(navEntries: readonly RegisteredSidebarNavEntry[]): HTMLElement {
+function render(): HTMLElement {
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host as unknown as Element)
   act(() => {
-    root.render(React.createElement(ExtensionsRail, { collapsed: false, navEntries }))
+    root.render(React.createElement(ExtensionsRail, { collapsed: false }))
   })
   return host
 }
@@ -67,22 +70,32 @@ const rows = () => [...dom.window.document.querySelectorAll('[role="listitem"] b
 const rowLabels = () => rows().map((row) => row.textContent?.trim() ?? '')
 const row = (label: string) => rows().find((candidate) => candidate.textContent?.trim() === label)
 
-// A door row, as a module registers one. The declared `order` is deliberately
+// A door row, as a module registers one — on the HOST, which is where the
+// drawer reads them from (it stopped taking them as a prop: the sidebar's memo
+// missed a module that registered late, so the row appeared on the Extensions
+// home and not in the column beside it). The declared `order` is deliberately
 // absurd: the drawer's order is the ruling's, not the registry's.
-const doorEntry = (id: string, order: number, label: string): RegisteredSidebarNavEntry => ({
-  id,
-  order,
-  moduleId: 'sprint-engine',
-  Component: ({ collapsed }) =>
-    React.createElement(SidebarNavButton, {
-      collapsed,
-      label,
-      ariaLabel: label,
-      tooltip: label,
-      icon: React.createElement('svg'),
-      onClick: () => {},
-    }),
-})
+const registerDoorEntry = (id: string, order: number, label: string): void => {
+  getRendererHost()
+    .hostFor('sprint-engine')
+    .registerSidebarNavEntry({
+      id,
+      order,
+      Component: ({ collapsed }: { collapsed: boolean }) =>
+        React.createElement(SidebarNavButton, {
+          collapsed,
+          label,
+          ariaLabel: label,
+          tooltip: label,
+          icon: React.createElement('svg'),
+          onClick: () => {},
+        }),
+    })
+}
+// Sprints is the sprint-engine module's own row and is already on the host;
+// only the decoy needs registering. Its `order` of 1 would put it first if the
+// drawer took the registry's order — it does not.
+registerDoorEntry('roadmap', 1, 'Roadmap')
 
 // ── The registry says what a view row IS ─────────────────────────────────────
 // The shell holds the ORDER; the agent-runtime module holds what its three rows
@@ -104,13 +117,16 @@ assert.deepEqual(
 // A drawer door must not take the sidebar column: the drawer is the navigation
 // that reached it, and the host reads this declaration to decide whether to
 // offer the context-rail slot at all.
-for (const id of ['design', 'extensions']) {
-  assert.equal(
-    getRendererHost().getGlobalSurface(id)?.railPlacement,
-    'inline',
-    `the ${id} door renders its rail beside its canvas, so the drawer survives it`,
-  )
-}
+assert.equal(
+  getRendererHost().getGlobalSurface('design')?.railPlacement,
+  'inline',
+  'the design door renders its rail beside its canvas, so the drawer survives it',
+)
+assert.equal(
+  getRendererHost().getGlobalSurface('extensions')?.railPlacement,
+  undefined,
+  'the extensions door declares no rail at all, so the host keeps the drawer',
+)
 // Automations is not a drawer row, and its own list of automations IS the
 // navigation while it is open — so it keeps the swap every door used to make.
 assert.equal(
@@ -120,11 +136,31 @@ assert.equal(
 )
 
 // ── The five rows, in the ruled order ────────────────────────────────────────
-render([doorEntry('sprints', 900, 'Sprints'), doorEntry('roadmap', 1, 'Roadmap')])
+// Every module on, explicitly: the resolver filters nav entries by live
+// enablement, and a test store that has never been written to is not the same
+// thing as a machine with the modules turned on.
+const allModulesOn = Object.fromEntries(
+  ACTIVE_RENDERER_MODULE_MANIFESTS.map((manifest) => [manifest.id, true]),
+)
+act(() => {
+  useWorkspaceStore.setState((state) => ({
+    appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, ...allModulesOn } },
+  }))
+})
+render()
+assert.equal(
+  dom.window.document.querySelectorAll('[role="listitem"]').length,
+  5,
+  'the drawer is exactly the ruling’s five rows — an order-1 door that is not one of them does not appear',
+)
+// Four labels, not five: the Sprints slot renders the sprint-engine module's
+// OWN row component, which is lazy, and a Suspense boundary in this bundle has
+// nothing to show for it. Its slot is the first listitem above; the order of
+// the four the shell draws is what this asserts.
 assert.deepEqual(
   rowLabels(),
-  ['Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs'],
-  'the drawer is exactly the ruling’s five rows, in the ruling’s order — an order-1 door that is not one of them does not appear, and an order-900 Sprints still leads',
+  ['Design', 'Plugins', 'Skills', 'Agent CLIs'],
+  'the ruling’s order survives whatever `order` the modules declared',
 )
 assert.ok(!rowLabels().includes('Automations'), 'Automations stands on the app rail, not in the drawer')
 assert.ok(!rowLabels().includes('Reviews'), 'a registered surface the ruling did not list is not a drawer row')
@@ -136,16 +172,20 @@ act(() => {
 })
 assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'extensions', 'a view row opens the DOOR that owns it')
 assert.equal(useWorkspaceStore.getState().activeModalSurface, null, 'and nothing floats over it')
-assert.equal(
+assert.deepEqual(
   consumePendingExtensionsSurfaceTarget(),
-  'skills',
+  { view: 'skills' },
   'and latches the view first, so a surface that mounts a tick later still lands on the clicked row',
 )
 
 act(() => {
   row('Plugins')?.click()
 })
-assert.equal(consumePendingExtensionsSurfaceTarget(), 'browse', 'Plugins is the MCP-server catalogue')
+assert.deepEqual(
+  consumePendingExtensionsSurfaceTarget(),
+  { view: 'plugins' },
+  'the Plugins row latches the Plugins view itself — `browse` used to stand in for it and stopped reaching it',
+)
 
 // ── Exactly the row the surface stands on reads selected ─────────────────────
 // The REAL surface, mounted: the selected row is a contract between the surface
@@ -171,7 +211,7 @@ assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), null)
 // Moving WITH THE SURFACE (a live deep-link, the same seam its own rail uses)
 // moves the selection, and never through nothing on the way.
 act(() => {
-  dispatchExtensionsSurfaceTarget('agent-clis')
+  dispatchExtensionsSurfaceTarget({ view: 'agent-clis' })
 })
 assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), 'true', 'moving the surface moves the selection')
 assert.equal(row('Skills')?.getAttribute('aria-current'), null)
@@ -207,9 +247,14 @@ act(() => {
     appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, design: false } },
   }))
 })
-// No Sprints door either: the sidebar filters nav entries by enablement before
-// they reach the drawer, so a disabled sprint-engine hands over an empty list.
-render([])
+// No Sprints door either: the resolver filters nav entries by their own
+// module's live enablement, so turning sprint-engine off takes its row with it.
+act(() => {
+  useWorkspaceStore.setState((state) => ({
+    appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, 'sprint-engine': false } },
+  }))
+})
+render()
 assert.deepEqual(
   rowLabels(),
   ['Plugins', 'Skills', 'Agent CLIs'],

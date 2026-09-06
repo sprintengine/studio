@@ -14,10 +14,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
 import type {
   AgentCliAvailabilityMap,
+  InstalledPluginRecord,
   MarketplaceUpdateStatesResult,
   McpCatalogServer,
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
+import type { SkillSource } from '../../../../../shared/skills'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
@@ -28,6 +30,7 @@ import {
   EmptyState,
   GhostButton,
   InlineNotice,
+  Pager,
   MENU_LIST_CLASS,
   MenuDivider,
   MenuItem,
@@ -52,11 +55,18 @@ import { pluginTrust } from '../../settings/BrowseStorefront'
 import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
 import {
   deriveInstalledExtensions,
+  type ExtensionKind,
   type ExtensionsInstalledView,
   type InstalledExtension,
   type LoadedSource,
   type SourceNotice,
 } from '../../settings/extensionsInstalled'
+import {
+  CATALOGUE_PAGE_SIZE,
+  deriveCataloguePage,
+  stepCataloguePage,
+} from '../../workspace/globalSurface/extensions/catalogue/cataloguePaging'
+import { groupInstalledBySource } from '../../workspace/globalSurface/extensions/catalogue/installedGroups'
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
 import {
   ModuleUpdateBanner,
@@ -111,6 +121,9 @@ export function InstalledExtensionsInventory({
   mcpSettings,
   cliAvailability,
   onCliUpdated,
+  kinds,
+  sourceGrouping,
+  paging,
   ...actions
 }: {
   // MCP servers reflect the store live, so the inventory's MCP group updates
@@ -131,6 +144,22 @@ export function InstalledExtensionsInventory({
   // After a CLI update ran, the host force-reprobes availability so the row
   // reflects the binary the updater actually left behind.
   onCliUpdated?: () => void
+  /**
+   * Which primitives this mount is the inventory OF. The Extensions door's
+   * three catalogues each show one — the Plugins view's Installed tab lists
+   * MCP servers, Skills lists skills, Agent CLIs lists CLIs — because a tab
+   * that says "Installed" beside "Plugins" must not answer with skills.
+   * Omitted, every group renders, which is the whole-inventory mount.
+   */
+  kinds?: readonly ExtensionKind[]
+  /**
+   * Group by SOURCE rather than by kind (source-tabs ruling, 2026-09-05). The
+   * receipts say which source installed what; `sources` gives each one its tab
+   * name so the heading and the tab beside it read the same.
+   */
+  sourceGrouping?: { sources: readonly SkillSource[]; records: readonly InstalledPluginRecord[] }
+  /** Walk the rows a page at a time, with the shared pager at the foot. */
+  paging?: { noun: string; query?: string }
 } & InventoryActions) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skills, setSkills] = useState<LoadedSource<WorkspaceSkill[]>>({ status: 'loading' })
@@ -402,6 +431,9 @@ export function InstalledExtensionsInventory({
   return (
     <InstalledView
       view={view}
+      kinds={kinds}
+      sourceGrouping={sourceGrouping}
+      paging={paging}
       actions={actions}
       registryPlugins={registryPlugins}
       skillUse={{ workspaceRoot, clis: clis.status === 'ok' ? clis.value : [] }}
@@ -466,6 +498,9 @@ function NoticeList({ notices }: { notices: SourceNotice[] }) {
 
 function InstalledView({
   view,
+  kinds,
+  sourceGrouping,
+  paging,
   actions,
   skillUse,
   cliUpdate,
@@ -473,6 +508,9 @@ function InstalledView({
   moduleUpdateSlot,
 }: {
   view: ExtensionsInstalledView
+  kinds?: readonly ExtensionKind[]
+  sourceGrouping?: { sources: readonly SkillSource[]; records: readonly InstalledPluginRecord[] }
+  paging?: { noun: string; query?: string }
   actions: InventoryActions
   skillUse: SkillUseContext
   cliUpdate?: CliUpdateContext
@@ -482,6 +520,11 @@ function InstalledView({
   // never on the Skills surface.
   moduleUpdateSlot?: ReactNode
 }) {
+  // The page of a paged mount. Held here rather than by the caller because the
+  // rows arrive here — over IPC, after the caller has already rendered — and a
+  // page number owned by something that cannot see the rows is a number that
+  // outlives them.
+  const [position, setPosition] = useState({ key: '', page: 1 })
   if (view.status === 'loading') {
     return (
       <div className="flex items-center gap-2 py-6 text-body text-[color:var(--text-muted)]">
@@ -505,24 +548,81 @@ function InstalledView({
     return <NoticeList notices={view.notices} />
   }
 
-  if (view.status === 'empty') {
-    return (
+  const allGroups = view.status === 'ready' ? view.groups : []
+  const kinded = kinds ? allGroups.filter((group) => kinds.includes(group.kind)) : allGroups
+  // The search field in the chrome row says it filters the open tab, and
+  // Installed is a tab: a field that visibly narrowed every other tab and left
+  // this one alone would be the one place its own label is untrue.
+  const needle = (paging?.query ?? '').trim().toLowerCase()
+  const kindGroups = needle
+    ? kinded
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) =>
+            `${item.name} ${item.summary ?? ''} ${item.chips.join(' ')}`.toLowerCase().includes(needle),
+          ),
+        }))
+        .filter((group) => group.items.length > 0)
+    : kinded
+  // Rows carry their kind, so a source-grouped mount still knows where the CLI
+  // update line and the module banner belong.
+  const kindsPresent = new Set(kindGroups.map((group) => group.kind))
+  const groups = sourceGrouping
+    ? groupInstalledBySource({
+        rows: kindGroups.flatMap((group) => group.items),
+        sources: sourceGrouping.sources,
+        records: sourceGrouping.records,
+      }).map((group) => ({ key: group.key, label: group.label, items: group.items }))
+    : kindGroups.map((group) => ({ key: group.kind, label: group.label, items: group.items }))
+
+  if (groups.length === 0) {
+    return needle ? (
+      <EmptyState density="list" title={`Nothing installed matches “${paging?.query?.trim() ?? ''}”.`} />
+    ) : (
       <EmptyState
         density="list"
         title="Nothing installed yet."
-        body="Get MCP servers, skills, agent CLIs, or modules from the Browse view and they appear here."
+        body="Get MCP servers, skills, agent CLIs and plugins from a source tab and they appear here."
       />
     )
   }
 
+  const page = paging
+    ? deriveCataloguePage({
+        groups: groups.map((group) => ({ key: group.key, label: group.label, count: group.items.length })),
+        page: stepCataloguePage(position, paging.query ?? '').page,
+        pageSize: CATALOGUE_PAGE_SIZE,
+        query: paging.query,
+        noun: paging.noun,
+      })
+    : null
+  const visible = page
+    ? page.groups.map((slice) => {
+        const group = groups.find((candidate) => candidate.key === slice.key)
+        return {
+          key: slice.key,
+          label: slice.continued ? `${slice.label} (continued)` : slice.label,
+          count: slice.total,
+          kind: group?.items[0]?.kind,
+          items: (group?.items ?? []).slice(slice.start, slice.end),
+        }
+      })
+    : groups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.items.length,
+        kind: group.items[0]?.kind,
+        items: group.items,
+      }))
+
   return (
     <div className="space-y-5">
-      {view.notices.length > 0 ? <NoticeList notices={view.notices} /> : null}
+      {view.status === 'ready' && view.notices.length > 0 ? <NoticeList notices={view.notices} /> : null}
       <div className="space-y-5">
-        {view.groups.map((group) => (
-          <section key={group.kind} className="space-y-2">
-            <ConnectorSectionHeading label={group.label} count={group.items.length} />
-            {group.kind === 'module' ? moduleUpdateSlot : null}
+        {visible.map((group) => (
+          <section key={group.key} className="space-y-2">
+            <ConnectorSectionHeading label={group.label} count={group.count} />
+            {!sourceGrouping && group.kind === 'module' ? moduleUpdateSlot : null}
             {/* The Browse grid, row for row: two columns of the same card row
                 the marketplace renders, so Installed reads as the same surface
                 turned to face what is already here. */}
@@ -538,19 +638,32 @@ function InstalledView({
                 />
               ))}
             </div>
-            {group.kind === 'cli' && cliUpdate?.notice ? (
-              cliUpdate.notice.tone === 'good' ? (
-                <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
-                  <StatusDot tone="good" />
-                  <span>{cliUpdate.notice.message}</span>
-                </div>
-              ) : (
-                <InlineNotice tone={cliUpdate.notice.tone}>{cliUpdate.notice.message}</InlineNotice>
-              )
-            ) : null}
           </section>
         ))}
       </div>
+      {/* One line for the whole list, not one per group: the CLI updater's
+          outcome and the module update banner are facts about the mount, and a
+          source-grouped list has no single group to hang them on. */}
+      {sourceGrouping && kindsPresent.has('module') ? moduleUpdateSlot : null}
+      {kindsPresent.has('cli') && cliUpdate?.notice ? (
+        cliUpdate.notice.tone === 'good' ? (
+          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
+            <StatusDot tone="good" />
+            <span>{cliUpdate.notice.message}</span>
+          </div>
+        ) : (
+          <InlineNotice tone={cliUpdate.notice.tone}>{cliUpdate.notice.message}</InlineNotice>
+        )
+      ) : null}
+      {page ? (
+        <Pager
+          page={page.page}
+          pageCount={page.pageCount}
+          rangeLabel={page.rangeLabel}
+          onPageChange={(next) => setPosition({ key: paging?.query ?? '', page: next })}
+          ariaLabel={`Installed ${paging?.noun ?? 'item'}s`}
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react'
 
-import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
 
@@ -33,12 +32,13 @@ import { SidebarNavButton } from './SidebarNavButton'
 
 type ExtensionsRailProps = {
   collapsed: boolean
-  // The module-contributed door entries, enablement-filtered by the sidebar.
-  navEntries: readonly RegisteredSidebarNavEntry[]
 }
 
-export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
-  const drawerRows = useExtensionsDrawerRows(navEntries)
+export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
+  // The rows resolve themselves, nav entries included: the sidebar's own memo
+  // is keyed on module enablement alone and misses a third-party module that
+  // registers late, which put a row on the Extensions home and not here.
+  const drawerRows = useExtensionsDrawerRows()
 
   const rows = useMemo(
     () =>

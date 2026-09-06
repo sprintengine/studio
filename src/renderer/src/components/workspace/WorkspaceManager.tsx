@@ -103,6 +103,7 @@ import { SidebarChrome } from './SidebarChrome'
 import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import type { RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { useSurfaceView } from './surfaceView'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
 import { showToast, useToastStore } from '../../store/toastStore'
@@ -974,6 +975,10 @@ export default function WorkspaceManager() {
   // The persisted id is deliberately left intact: reinstalling or re-enabling
   // the module lands the user back on the door they were in.
   //
+  // Which view the open door is standing on, published by the surface itself
+  // (surfaceView.ts). The navigation history reads it so a multi-view door is
+  // as many history locations as it has views.
+  const activeSurfaceView = useSurfaceView(activeGlobalSurface ?? '')
   const activeGlobalSurfaceEntry = useMemo(() => {
     if (!activeGlobalSurface) return null
     // The Extensions home resolves from the app, never the registry: it is
@@ -984,7 +989,7 @@ export default function WorkspaceManager() {
       activeGlobalSurface,
       (id) => getRendererHost().getGlobalSurface(id),
       (moduleId) => selectModuleEnabled(moduleEnablement, moduleId),
-      (view) => openExtensionsSurface({ view }),
+      (target) => openExtensionsSurface(target),
     )
   }, [activeGlobalSurface, moduleEnablement, moduleRegistryGeneration, openExtensionsSurface])
 
@@ -1007,7 +1012,7 @@ export default function WorkspaceManager() {
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
       (moduleId) => selectModuleEnabled(moduleEnablement, moduleId),
-      (view) => openExtensionsSurface({ view }),
+      (target) => openExtensionsSurface(target),
     )
   }, [activeModalSurface, moduleEnablement, moduleRegistryGeneration, openExtensionsSurface])
 
@@ -3429,12 +3434,22 @@ export default function WorkspaceManager() {
       // open door as a side effect.
       setNewChatPanelState(null)
       if (step.entry.kind === 'surface') {
-        // A history step is a PLAIN open — it means "the room I was in", not
-        // "the row I clicked" — so it discards stale deep-link latches the way
-        // a rail glyph or a drawer row does. Without this a latch left by a
-        // dispatch that never mounted could reroute Back to a different view of
-        // the surface than the one the entry names.
-        getRendererHost().getGlobalSurface(step.entry.id)?.onOpen?.()
+        const entry = step.entry
+        const surface = getRendererHost().getGlobalSurface(entry.id)
+        const view = entry.view ? surface?.views?.find((candidate) => candidate.id === entry.view) : undefined
+        if (view) {
+          // The entry names a view, so the step latches THAT view — the same
+          // call the drawer row makes. Running `onOpen` here instead would
+          // discard the latch it just needs, which is exactly how Back out of
+          // Skills used to land on Plugins.
+          view.open()
+        } else {
+          // A plain open — "the room I was in", not "the row I clicked" — so it
+          // discards stale deep-link latches the way a rail glyph does. Without
+          // this a latch left by a dispatch that never mounted could reroute
+          // Back to a different view than the entry names.
+          surface?.onOpen?.()
+        }
         openGlobalSurface(step.entry.id)
       } else {
         setActiveWorkspaceForWindow(workspaceWindowId, step.entry.id)
@@ -3640,11 +3655,16 @@ export default function WorkspaceManager() {
   // leaving either is itself a visit. Resolves to null only before anything is
   // active.
   const currentNavLocation = useMemo<NavHistoryEntry | null>(() => {
-    if (activeGlobalSurfaceEntry && activeGlobalSurface) return { kind: 'surface', id: activeGlobalSurface }
+    if (activeGlobalSurfaceEntry && activeGlobalSurface) {
+      // The view is part of the location for a door that has views: the
+      // Extensions door's three catalogues are three places, and a history
+      // entry that named only the door could not step back into two of them.
+      return { kind: 'surface', id: activeGlobalSurface, ...(activeSurfaceView ? { view: activeSurfaceView } : {}) }
+    }
     if (newChatPanelOpen) return NEW_CHAT_NAV_ENTRY
     if (windowActiveWorkspaceId) return { kind: 'workspace', id: windowActiveWorkspaceId }
     return null
-  }, [activeGlobalSurfaceEntry, activeGlobalSurface, newChatPanelOpen, windowActiveWorkspaceId])
+  }, [activeGlobalSurfaceEntry, activeGlobalSurface, activeSurfaceView, newChatPanelOpen, windowActiveWorkspaceId])
 
   // Record every change of location, whatever caused it (sidebar click, palette,
   // switch commands, opening a door, sync events). Back/forward navigation moves

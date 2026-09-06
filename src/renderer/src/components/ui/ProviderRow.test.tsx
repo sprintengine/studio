@@ -548,7 +548,7 @@ const onboarding = readFileSync(
   'utf8',
 )
 const canvas = readFileSync(
-  join(repoRoot, 'src/renderer/src/components/panels/ConnectorsPanel/ExtensionKindCanvas.tsx'),
+  join(repoRoot, 'src/renderer/src/components/panels/ConnectorsPanel/AgentCliShelfRows.tsx'),
   'utf8',
 )
 
@@ -612,10 +612,15 @@ assert.match(
   /probeError=\{cliAvailabilityError\}/,
   'onboarding has no section band, so its rows keep the reason',
 )
-// Capability modules keep their existing row until their own item converts them.
-assert.match(canvas, /kind === 'cli' \?/, 'only the Agent CLIs list adopted the anatomy')
-assert.match(canvas, /<ConnectorEntryRow/, 'the modules canvas is untouched')
-
+// The agent-CLI rows are a file of their own since the source-tabs ruling
+// (2026-09-05) made Agent CLIs a catalogue rather than one kind of a shared
+// canvas — and they are still the ONLY marketplace list on this anatomy.
+assert.match(canvas, /export function AgentCliRuntimeRows\(/, 'the runtime rows live where the catalogue reads them')
+assert.equal(
+  /ConnectorEntryRow/.test(canvas),
+  false,
+  'and they never fall back to the connector row this anatomy replaced',
+)
 process.stdout.write('ProviderRow tests passed\n')
 }
 

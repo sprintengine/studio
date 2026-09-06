@@ -33,8 +33,11 @@ run('renders the full anatomy when every slot is supplied', () => {
     </GlobalSurfaceShell>,
   )
   // The surface is a labelled region landmark, not a dialog (no role="dialog",
-  // no aria-modal) — it is a page, so nothing here traps focus or scrims.
-  assert.match(html, /<section aria-label="Roadmap"/, 'the surface is a labelled region landmark')
+  // no aria-modal) — it is a page, so nothing here traps focus or scrims. It is
+  // programmatically focusable (`tabindex="-1"`, never in the tab order) so a
+  // surface that mounts from a control that unmounted with it — an Extensions
+  // home tile — can take the focus that click dropped on the floor.
+  assert.match(html, /<section tabindex="-1" aria-label="Roadmap"/, 'the surface is a labelled region landmark')
   assert.doesNotMatch(html, /role="dialog"|aria-modal/, 'the surface is a page, never a dialog')
   // Surface bar: heading + every optional bit.
   assert.match(html, /<h2[^>]*>summer26<\/h2>/, 'the bar renders the title as the region heading')
@@ -53,7 +56,7 @@ run('renders canvas-only when the bar and rail are omitted (the Roadmap T1 tenan
       <div data-testid="board">self-chromed board</div>
     </GlobalSurfaceShell>,
   )
-  assert.match(html, /<section aria-label="Roadmap"/, 'the region landmark is always present')
+  assert.match(html, /<section tabindex="-1" aria-label="Roadmap"/, 'the region landmark is always present')
   assert.doesNotMatch(html, /<h2/, 'no surface bar is rendered without bar content — the canvas self-chromes')
   assert.doesNotMatch(html, /<aside/, 'no rail is rendered when omitted')
   assert.match(html, /data-testid="board"/, 'the canvas hosts the surface content full-width')
