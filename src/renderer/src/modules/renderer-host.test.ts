@@ -523,6 +523,13 @@ assert.throws(
   /reserved for the app/,
   'the "settings" id is reserved — core Settings never registers here, so without this a module could claim it',
 )
+assert.throws(
+  () => modalHost.hostFor('acme.compass').registerModalSurface({
+    id: 'marketplace', order: 1, label: 'Marketplace', Icon: modalIcon, Component: modalComponent,
+  }),
+  /reserved for the app/,
+  'the "marketplace" id is reserved — the Extensions marketplace is the app\'s own, never a module\'s to claim',
+)
 assert.deepEqual(
   modalHost.getModalSurfaces().map((surface) => surface.id),
   ['compass', 'design'],

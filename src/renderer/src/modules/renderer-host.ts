@@ -1156,6 +1156,11 @@ export function createRendererHost(): RendererKernel {
           if (definition.id === 'diff') {
             throw new Error('Modal surface id "diff" is reserved for the app\'s own Diff popout.')
           }
+          // And for the Extensions marketplace (the app rail's Extensions
+          // glyph, 2026-09-05): core, never a module's to claim.
+          if (definition.id === 'marketplace') {
+            throw new Error('Modal surface id "marketplace" is reserved for the app\'s own Extensions marketplace.')
+          }
           if (definition.label.trim().length === 0) {
             throw new Error(`Modal surface "${definition.id}" must have a non-empty label.`)
           }

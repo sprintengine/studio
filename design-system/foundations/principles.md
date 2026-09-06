@@ -312,26 +312,38 @@ and do not render a group heading when there is only one group — "Recent"
 spanning every row groups nothing. Headings appear when there are at least two
 groups to tell apart; the list's accessible name carries the label otherwise.
 
-**The app rail** (ruled 2026-09-05) — the window's far-left column of section
-glyphs, the app's and the editor's idiom — is chrome, not a rail in the
-context-rail sense. It names AREAS of the product (Home, Extensions), never
-things inside one; the sidebar column beside it lists the things, and a
+**The app rail** (ruled 2026-09-05; glyphs-only, same day) — the window's
+far-left column of glyphs, the editor's tool stripe and the app's rail — is chrome,
+not a rail in the context-rail sense. It names AREAS of the product (Home,
+Extensions) and holds its two standing tools (Automations, Plugins), never
+things inside an area; the sidebar column beside it lists the things, and a
 drilled-in surface still replaces that column's content rather than standing
 beside it. "One rail, ever" is unchanged: the app rail holds no list a person
 walks. Its anatomy:
 
-1. **A fixed set of glyph-and-caption buttons**, each on a `size.control.md`
-   square with the caption always visible beneath — a rail this narrow cannot
-   spend width on a label beside the glyph, and a tooltip-only label makes a
-   person hover every glyph to learn the product.
-2. **Selection is `bg.selected` on the square and an ink lift on the caption.**
-   Never the accent, never a bar on the window's edge. Exactly one glyph is
-   selected; there is no "nothing selected" state.
-3. **The account and Settings cluster pins to its foot.** They belong to the
+1. **A fixed set of glyphs on `size.control.md` squares, no captions.** A
+   house and a tile grid do not need "Home" and "Extensions" written under
+   them, and the caption is what made the first cut 76px wide. The name is the
+   glyph's tooltip and accessible name — the idiom the sidebar's collapsed
+   rows already use. The column is one square plus a `space.xs` gutter each
+   side: 46px, and no wider.
+2. **Selection is `bg.selected` on the square.** Never the accent, never a
+   bar on the window's edge. A section glyph is current while its column
+   shows; a tool glyph is pressed while its surface floats. The two can light
+   together, and they say different things.
+3. **Automations and Plugins stand on the rail, not in the Extensions list.**
+   They are what the product does, not something added to it. Each is the
+   module's own registered surface, gated on the module's enablement, so a
+   turned-off module's glyph is simply absent.
+4. **Extensions opens the marketplace.** Choosing it lists the installed
+   extension doors in the sidebar column and floats the marketplace — what can
+   be installed, and what is — over the card region.
+5. **The account and Settings cluster pins to its foot.** They belong to the
    window, not to whichever section the sidebar is showing.
-4. **Its top reserves the title strip's height** on every platform, so its
-   first glyph sits below the chrome row beside it; on macOS that reserve is
-   where the native traffic lights land, so no other strip insets for them.
+6. **Its top reserves the title strip's height** on every platform, so its
+   first glyph sits below the chrome row beside it. On macOS the native
+   traffic lights start in that reserve and run past the rail's edge; the
+   sidebar's chrome row insets for the remainder.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.

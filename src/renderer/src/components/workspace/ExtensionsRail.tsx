@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { isRailSurface } from './AppRail'
 import { SidebarNavButton } from './SidebarNavButton'
 
 // The sidebar column's Extensions section (app shell, 2026-09-05): the
@@ -24,6 +25,10 @@ import { SidebarNavButton } from './SidebarNavButton'
 // for the door's visit (context-rail pattern); the host's back chevron or the
 // Home glyph brings the column back. A modal row floats its surface over
 // whatever owns the card region and stays pressed while it is open.
+//
+// Not every registered surface is an extension to the person: Automations and
+// Plugins stand on the app rail itself (AppRail, RAIL_SURFACE_IDS), so this
+// list leaves them out rather than offering the same surface from two places.
 
 type ExtensionsRailProps = {
   collapsed: boolean
@@ -46,7 +51,10 @@ export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
     [],
   )
   const modalSurfaces = useMemo(
-    () => getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
+    () =>
+      getRendererHost()
+        .getModalSurfaces((id) => selectModuleEnabled(moduleOverrides, id))
+        .filter((surface) => !isRailSurface(surface.id)),
     [moduleOverrides, registryGeneration],
   )
 

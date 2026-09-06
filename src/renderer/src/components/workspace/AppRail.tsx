@@ -1,40 +1,72 @@
 import React from 'react'
 
+import type { RegisteredModalSurface } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { Tooltip } from '../ui/Tooltip'
 import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 
-// The app rail (app shell, 2026-09-05): the narrow column of big glyphs
-// at the window's far left that decides what the sidebar column beside it
-// shows. Desktop apps commonly put this rail outside the sidebar rather than
-// inside it — the rail names AREAS of the product (Home, Extensions), the
-// sidebar lists the THINGS inside the chosen area, and the two never share a
-// column. That is what let the top-nav door band leave the workspaces sidebar:
-// Sprints, Reviews, Automations and their kin live under the Extensions glyph
-// now, and Home is only New chat plus the tree.
+// The app rail (app shell, 2026-09-05): the narrow column of glyphs at
+// the window's far left that decides what the sidebar column beside it shows,
+// and holds the product's two standing tools. Desktop apps commonly put this
+// rail outside the sidebar rather than inside it — the rail names AREAS of the
+// product, the sidebar lists the THINGS inside the chosen area, and the two
+// never share a column.
+//
+// Glyphs only (owner ruling, 2026-09-05, revising the captioned first cut): a
+// house and a tile grid do not need the words "Home" and "Extensions" under
+// them, and the caption was what made the rail 76px wide. One glyph column
+// keeps the name on hover and in the accessible name — the same idiom the
+// sidebar's collapsed rows already use.
+//
+// Four glyphs, top to bottom:
+//   Home        — the sidebar shows New chat and the workspaces tree.
+//   Automations — the Automations surface floats over the card region.
+//   Plugins     — the Plugins surface (MCPs, skills, CLIs) floats likewise.
+//   Extensions  — the sidebar lists the installed extension doors (Sprints,
+//                 Reviews, Design) and the marketplace opens over the card
+//                 region: what is installed, and what can be.
+// Automations and Plugins are rail-level because they are not extensions to
+// the person — they are what the product does — so they leave the Extensions
+// list (ExtensionsRail excludes RAIL_SURFACE_IDS) and stand here. They are
+// still the modules' own registered surfaces: the rail takes each one's glyph
+// and label from the registry and is gated on the module's enablement, so a
+// disabled module's glyph simply is not there.
 //
 // This is window chrome, not a rail in the context-rail sense
 // (`design-system/patterns/context-rail.html`, "one rail, ever"). That ruling is
 // about NAVIGATION columns — a list a person walks — and it still holds for the
 // sidebar column: a door's rail replaces the sidebar's content, never sits
-// beside it. The app rail holds no list. It is a fixed set of section glyphs,
-// the way the title strip is a fixed set of window controls, and it stays put
-// while everything to its right swaps.
+// beside it. The app rail holds no list. It is a fixed set of glyphs, the way
+// the title strip is a fixed set of window controls, and it stays put while
+// everything to its right swaps.
 //
 // Geometry. The rail is a layout measure like SIDEBAR_DEFAULT_WIDTH, not a
-// token: wide enough for a glyph square and its caption, and on macOS wide
-// enough to hold the native traffic lights, which the hiddenInset frame pins at
-// x:12 (window-factory.ts) — three 12px lights ending at 64px. The rail's top
-// reserves the title strip's height on every platform so its first glyph sits
-// below the chrome row beside it, and on macOS that reserve is also where the
-// lights land, which is why the sidebar's own chrome row no longer insets for
-// them.
-export const APP_RAIL_WIDTH = 76
+// token: a `size.control.md` square plus a `space.xs` gutter each side, which
+// is also the narrowest the collapsed account cluster at its foot fits in. Its
+// top reserves the title strip's height on every platform so the first glyph
+// sits below the chrome row beside it. On macOS the native traffic lights,
+// which the hiddenInset frame pins at x:12 (window-factory.ts), start in that
+// reserve and run past the rail's edge — the sidebar's chrome row insets for
+// the remainder (SidebarChrome, TRAFFIC_LIGHT_RESERVE − APP_RAIL_WIDTH).
+export const APP_RAIL_WIDTH = 46
+// Where the three lights end, as AppTitleBar's own reserve measures it.
+export const TRAFFIC_LIGHT_RESERVE = 78
 
-type AppRailItem = {
-  section: SidebarSection
-  label: string
-  Glyph: (props: { className?: string }) => JSX.Element
+// The registered modal surfaces that stand on the rail, in rail order. Ids,
+// not modules: `extensions` is the agent-runtime module's Plugins surface.
+export const RAIL_SURFACE_IDS = ['automations', 'extensions'] as const
+
+export function isRailSurface(id: string): boolean {
+  return (RAIL_SURFACE_IDS as readonly string[]).includes(id)
+}
+
+/** The rail's surfaces, picked from the host's enablement-filtered list and put in rail order. */
+export function railSurfacesOf(surfaces: readonly RegisteredModalSurface[]): RegisteredModalSurface[] {
+  return RAIL_SURFACE_IDS.flatMap((id) => {
+    const surface = surfaces.find((candidate) => candidate.id === id)
+    return surface ? [surface] : []
+  })
 }
 
 // A house: the workspaces tree, where every chat lives.
@@ -53,7 +85,7 @@ function HomeGlyph({ className }: { className?: string }) {
 
 // Four tiles identify additions to the product beyond chat, drawn in the
 // icon family's 16-box round-stroke idiom.
-function ExtensionsGlyph({ className }: { className?: string }) {
+export function ExtensionsGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
@@ -64,60 +96,59 @@ function ExtensionsGlyph({ className }: { className?: string }) {
   )
 }
 
-const RAIL_ITEMS: readonly AppRailItem[] = [
-  { section: 'home', label: 'Home', Glyph: HomeGlyph },
-  { section: 'extensions', label: 'Extensions', Glyph: ExtensionsGlyph },
-]
-
 type AppRailProps = {
   section: SidebarSection
   onSelectSection: (section: SidebarSection) => void
+  // The module surfaces promoted onto the rail (railSurfacesOf), already
+  // enablement-filtered by the host.
+  surfaces: readonly RegisteredModalSurface[]
+  activeModalSurface: string | null
+  onOpenSurface: (surface: RegisteredModalSurface) => void
   // The account + Settings cluster stays at the rail's foot across sections.
   // Owned by the host; the rail only places it.
   accountSlot?: React.ReactNode
 }
 
-// One rail item: a glyph on a control-md square with its caption beneath.
-// Selection is the neutral `bg-selected` fill on the square and an ink lift on
-// the caption — never the accent (principles, "Selection is neutral"). The
-// caption is always visible: a rail this narrow has no room for the label
-// beside the glyph, and a tooltip-only label makes a person hover every glyph
-// to learn the product.
-function AppRailButton({
-  item,
+// One rail glyph on a control-md square, named by its tooltip and accessible
+// name. Selection is the neutral `bg-selected` fill — never the accent, never a
+// bar on the window's edge (principles, "Selection is neutral"). A section
+// glyph is `aria-current` while its section shows; a surface glyph is
+// `aria-pressed` while its surface floats — the two can light together, and
+// they say different things: which column, and what is over it.
+function RailGlyph({
+  label,
   active,
-  onSelect,
+  current,
+  onClick,
+  children,
 }: {
-  item: AppRailItem
+  label: string
   active: boolean
-  onSelect: () => void
+  current: 'section' | 'surface'
+  onClick: () => void
+  children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active ? 'page' : undefined}
-      className={`app-no-drag group/rail flex w-full flex-col items-center gap-0.5 rounded-md py-1 text-micro font-medium leading-none ${FOCUS_RING_CLASS} ${
-        active
-          ? 'text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-      }`}
-    >
-      <span
-        className={`flex size-control-md items-center justify-center rounded-md transition-colors ${
+    <Tooltip content={label} placement="right" wrapperClassName="flex">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-current={current === 'section' && active ? 'page' : undefined}
+        aria-pressed={current === 'surface' ? active : undefined}
+        className={`app-no-drag flex size-control-md items-center justify-center rounded-md transition-colors ${FOCUS_RING_CLASS} ${
           active
-            ? 'bg-[color:var(--bg-selected)]'
-            : 'group-hover/rail:bg-[color:var(--bg-hover)]'
+            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
         }`}
       >
-        <item.Glyph className="size-icon-md" />
-      </span>
-      <span>{item.label}</span>
-    </button>
+        {children}
+      </button>
+    </Tooltip>
   )
 }
 
-export function AppRail({ section, onSelectSection, accountSlot }: AppRailProps) {
+export function AppRail({ section, onSelectSection, surfaces, activeModalSurface, onOpenSurface, accountSlot }: AppRailProps) {
   return (
     <nav
       aria-label="App rail"
@@ -127,17 +158,31 @@ export function AppRail({ section, onSelectSection, accountSlot }: AppRailProps)
       className="app-drag flex shrink-0 flex-col items-stretch border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-canvas)]"
     >
       {/* The title strip's height, reserved: the first glyph sits below the
-          chrome row beside it, and on macOS the native traffic lights sit here. */}
+          chrome row beside it, and on macOS the native traffic lights start here. */}
       <div aria-hidden="true" className={`${TITLE_BAR_HEIGHT} shrink-0`} />
-      <div className="flex flex-col gap-1 px-1.5 pt-1">
-        {RAIL_ITEMS.map((item) => (
-          <AppRailButton
-            key={item.section}
-            item={item}
-            active={section === item.section}
-            onSelect={() => onSelectSection(item.section)}
-          />
+      <div className="flex flex-col items-center gap-1.5 px-1.5 pt-1">
+        <RailGlyph label="Home" current="section" active={section === 'home'} onClick={() => onSelectSection('home')}>
+          <HomeGlyph className="icon-md" />
+        </RailGlyph>
+        {surfaces.map((surface) => (
+          <RailGlyph
+            key={surface.id}
+            label={surface.label}
+            current="surface"
+            active={activeModalSurface === surface.id}
+            onClick={() => onOpenSurface(surface)}
+          >
+            <surface.Icon className="icon-md" />
+          </RailGlyph>
         ))}
+        <RailGlyph
+          label="Extensions"
+          current="section"
+          active={section === 'extensions'}
+          onClick={() => onSelectSection('extensions')}
+        >
+          <ExtensionsGlyph className="icon-md" />
+        </RailGlyph>
       </div>
       <div className="flex-1" />
       {accountSlot}

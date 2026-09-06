@@ -68,7 +68,20 @@ if (!host.getModalSurface('compass-test')) {
   })
 }
 
+// A surface that stands on the app rail (RAIL_SURFACE_IDS) is not an
+// extension to the person and is not offered here a second time.
+if (!host.getModalSurface('automations')) {
+  host.hostFor('design').registerModalSurface({
+    id: 'automations',
+    order: 1,
+    label: 'Automations',
+    Icon: ({ className }: { className?: string }) => React.createElement('svg', { className }),
+    Component: () => null,
+  })
+}
+
 render([])
+assert.ok(!rowLabels().includes('Automations'), 'a rail-level surface (Automations) is left out of the Extensions list')
 const compass = rows().find((row) => row.textContent?.includes('Compass'))
 assert.ok(compass, 'a registered modal surface renders as a row of the Extensions list')
 assert.equal(compass?.getAttribute('aria-current'), null, 'the row reads unselected while its modal is closed')

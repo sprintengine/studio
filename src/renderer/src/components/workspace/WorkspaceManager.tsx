@@ -21,6 +21,7 @@ import type { CliVersionAdvisory } from '../../../../shared/electron-api'
 import { cliUpdateNotice, newModelsNotice, retiredModelNotices, updateReadyNotice } from '../../utils/feedNotifications'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
+import type { RegisteredModalSurface } from '../../modules/renderer-host'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
   deriveWorkspaceIdleSince,
@@ -80,7 +81,7 @@ import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
-import { AppRail } from './AppRail'
+import { AppRail, railSurfacesOf } from './AppRail'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
@@ -226,6 +227,18 @@ const CORE_DIFF_MODAL_SURFACE = {
   moduleId: 'core',
   label: 'Diff',
   Component: DiffPopoutSurface,
+} as const
+// The Extensions marketplace (the app rail's Extensions glyph, 2026-09-05):
+// what is installed and what can be, floated over the card region while the
+// sidebar lists the installed extension doors beside it. Core like Settings —
+// it is where modules are managed, so no module may gate it — and reserved in
+// the registry the same way.
+const ExtensionsMarketplaceSurface = React.lazy(() => import('../extensions/ExtensionsMarketplaceSurface'))
+const CORE_MARKETPLACE_MODAL_SURFACE = {
+  id: 'marketplace',
+  moduleId: 'core',
+  label: 'Extensions',
+  Component: ExtensionsMarketplaceSurface,
 } as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
@@ -976,6 +989,7 @@ export default function WorkspaceManager() {
     if (!activeModalSurface) return null
     if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
     if (activeModalSurface === 'diff') return CORE_DIFF_MODAL_SURFACE
+    if (activeModalSurface === 'marketplace') return CORE_MARKETPLACE_MODAL_SURFACE
     return resolveActiveModalSurface(
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
@@ -1052,13 +1066,38 @@ export default function WorkspaceManager() {
   // whose rail would otherwise keep the column. Choosing the section already
   // showing is a no-op rather than a toggle, so the rail always has a
   // selected section.
+  //
+  // Extensions is the one section with a surface of its own: choosing it also
+  // opens the marketplace over the card region (owner, 2026-09-05 — "opening
+  // Extensions brings you to the marketplace"), while the column beside it
+  // lists the installed extension doors. Choosing it again with the
+  // marketplace closed reopens it — the glyph's promise is the surface.
   const selectSidebarSection = useCallback(
     (section: SidebarSection) => {
       if (activeGlobalSurface) leaveGlobalSurface()
       setSidebarSection(section)
       if (sidebarCollapsed) setSidebarCollapsed(false)
+      if (section === 'extensions') openModalSurface('marketplace')
     },
-    [activeGlobalSurface, leaveGlobalSurface, setSidebarCollapsed, setSidebarSection, sidebarCollapsed],
+    [activeGlobalSurface, leaveGlobalSurface, openModalSurface, setSidebarCollapsed, setSidebarSection, sidebarCollapsed],
+  )
+
+  // The module surfaces that stand on the app rail (Automations, Plugins):
+  // the host's enablement-filtered list, in rail order. Same registry, same
+  // gating and same late-loader bump as the Extensions list's rows.
+  const railSurfaces = useMemo(
+    () => railSurfacesOf(getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleEnablement, id))),
+    [moduleEnablement, moduleRegistryGeneration],
+  )
+  const openRailSurface = useCallback(
+    (surface: RegisteredModalSurface) => {
+      // A plain open lands on the surface's default view: the surface discards
+      // any stale deep-link latch in `onOpen` first (the Extensions list's rows
+      // do the same).
+      surface.onOpen?.()
+      openModalSurface(surface.id)
+    },
+    [openModalSurface],
   )
 
   // The same trigger-focus restore, offered to the door itself. The bar chevron
@@ -3855,6 +3894,9 @@ export default function WorkspaceManager() {
       <AppRail
         section={sidebarSection}
         onSelectSection={selectSidebarSection}
+        surfaces={railSurfaces}
+        activeModalSurface={activeModalSurface}
+        onOpenSurface={openRailSurface}
         accountSlot={
           <SidebarAccountBar
             collapsed
