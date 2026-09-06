@@ -1,0 +1,433 @@
+// What `Go` does. One press on a card on the Extensions home runs the card's
+// ordered actions and the person lands in a chat that is already working
+// (backlog/2026-09-06-go-runs-a-cards-actions.md, item 2469).
+//
+// **Go goes** (owner ruling R4, 2026-09-06). There is no consent screen here,
+// no plan, no progress modal and no "are you sure": the card said what it was,
+// the person pressed the button that said Go, and `open.chat` carries `send`
+// because an unstated send would leave the reader guessing. So this module is
+// deliberately quiet — it returns what happened, and the surface says it in a
+// toast if anything went wrong.
+//
+// **It composes; it never re-implements.** Every install goes through the
+// module that already owns that concern and already records provenance:
+// `mcpConfigService` for a catalogue server, `skills/install.ts` (through the
+// skills service) for a skill, `skills/install-plugin.ts` for a plugin,
+// `git-clone.ts` for a clone. Nothing here writes a file and nothing here
+// spawns a process — the acceptance criterion is that no shell command is
+// spawned *by this file*, and the way that is kept true is that this file has
+// no `child_process` import and no `fs` write in it at all. What the installers
+// it calls do inside themselves is their own contract, tested in their own
+// suites.
+//
+// **Actions run in order, and the first failure stops the rest.** There is no
+// `Promise.all` anywhere below, on purpose: a card that installs a server and
+// then opens a chat against it has an ordering the person can see, and racing
+// the two would open a chat against a server that is not there yet. Everything
+// after a failure is reported as `skipped`, so the toast can say what did not
+// run rather than only what broke.
+//
+// **An already-satisfied action is a no-op, not an error.** Pressing Go twice
+// must not install twice: a server already in the settings, a skill directory
+// already carrying this source's provenance marker, a plugin already in the
+// install receipts, a CLI already on the machine and a clone target that is
+// already a directory all report `already` and the run carries on. That is what
+// makes the second press land the person in the chat again instead of in a
+// toast about a duplicate.
+//
+// **Workspace scope is the app's, never the card's.** No `CardAction` carries a
+// workspace, by design (`src/shared/hosted-card-feed.ts`): a card that could
+// name one could reach into a project the person was not looking at. The
+// executor is handed the workspace the person is in, and `clone.repo` is the
+// one verb that makes a new one — everything after it in the same card runs in
+// that clone, which is why `workspaceRoot` below is a `let` that only
+// `clone.repo` reassigns and why the result hands the final value back.
+//
+// **Nothing a feed says is trusted as a path, a URL or an argument.** Every id
+// is resolved against something this app already holds before it is used: a CLI
+// against the registered agent-CLI plugin ids, an MCP server against
+// `listCatalog()`, a skill and a plugin against that source's own scan, and a
+// repository against the `owner/name` shape re-checked here rather than taken
+// on the parser's word. `clone.repo`'s URL is built from a fixed
+// `https://github.com/` prefix and the two validated segments, so a card names
+// a repository and can never name a host. The whole of what a card contributes
+// to a filesystem path is one already-single-segment folder name, re-checked
+// below and joined onto a parent directory the app chose.
+//
+// **`open.chat` and `open.surface` are not run here.** Main cannot open a chat
+// or move a door; the renderer can. Both verbs are validated in the same switch
+// as the rest and returned as a hand-off for the surface to perform once every
+// install before them has succeeded. That is also why `open.chat` must be the
+// last action or the card is refused outright: a chat attached to a server that
+// failed to install is worse than no chat.
+
+import type {
+  CardActionOutcome,
+  CardActionStatus,
+  CardChatHandoff,
+  CardRunInput,
+  CardRunResult,
+  CardSurfaceHandoff,
+  GitHubCloneResult,
+  McpCatalogResult,
+  McpServerConfig,
+  McpSettings,
+  McpSyncResult,
+  SkillInstallOutcome,
+  SkillInstalledPluginsOutcome,
+  SkillPluginInstallOutcome,
+  SkillScanOutcome,
+} from '../../shared/electron-api'
+import type { CardAction, CardSurfaceView } from '../../shared/hosted-card-feed'
+import { mcpServerFromCatalog } from '../../shared/connector-launch'
+import { scanPlugins, skillDirName } from '../../shared/skills'
+
+/**
+ * The installers the executor composes, injected so the test can watch the
+ * order and stand in for machines it does not have. Production binds every one
+ * of these to the real service in `src/main/ipc/cards-ipc.ts`.
+ */
+export type CardRunDeps = {
+  /** `mcpConfigService.listCatalog()` — the one bundled file an MCP server comes from. */
+  listMcpCatalog: () => McpCatalogResult | Promise<McpCatalogResult>
+  /** `mcpConfigService.sync()` — writes the merged settings into every CLI's config. */
+  syncMcp: (input: { workspaceRoot: string; settings: McpSettings }) => McpSyncResult | Promise<McpSyncResult>
+  /** `skillsService.getScan()` — how a source id resolves to what that source holds. */
+  getSkillScan: (input: { sourceId: string }) => Promise<SkillScanOutcome>
+  /** `skillsService.install()`. */
+  installSkill: (input: { sourceId: string; skillId: string; workspaceRoot: string }) => Promise<SkillInstallOutcome>
+  /**
+   * `skillsService.installPlugin()`. `marketplaceName`, `marketplaceRepo` and
+   * `commitSha` are resolved from the scan inside it, at run time, which is why
+   * the card carries none of them: a commitSha on a card goes stale the moment
+   * the marketplace is republished, and a stale one installs the wrong bytes.
+   */
+  installPlugin: (input: { sourceId: string; pluginId: string; workspaceRoot: string }) => Promise<SkillPluginInstallOutcome>
+  /** `skillsService.listInstalledPlugins()` — the receipts that make a second Go a no-op. */
+  listInstalledPlugins: (input: { workspaceRoot: string }) => Promise<SkillInstalledPluginsOutcome>
+  /** `skills/sync.ts` `installedSkillCopies()`, keyed by directory name. */
+  installedSkillCopies: (workspaceRoot: string) => Promise<Map<string, readonly { sourceId: string }[]>>
+  /** The plugin ids of the agent CLIs this build registers — the only legal `require.cli` values. */
+  listAgentCliIds: () => string[] | Promise<string[]>
+  /** The CLI availability probe (`cli-availability.ts`). */
+  detectCli: (cli: string) => Promise<{ installed: boolean }>
+  /** `git-clone.ts` `cloneGitHubRepo()`, with the token already resolved on the main side. */
+  cloneRepo: (input: { url: string; parentDir: string; folderName: string }) => Promise<GitHubCloneResult>
+  /** Whether a path is already there. Only used to make a repeated clone a no-op. */
+  pathExists: (path: string) => boolean | Promise<boolean>
+  /** `path.join`, injected so the test can assert the join without a platform in it. */
+  joinPath: (...segments: string[]) => string
+}
+
+/** `owner/name` and nothing else, re-checked here rather than taken on the parser's word. */
+const REPO_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
+
+const SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
+
+/**
+ * Refuse the whole card before anything runs.
+ *
+ * `open.chat` is the only ordering rule the schema cannot express, and it is
+ * the one that matters: the chat is the payoff, so it goes last or the card is
+ * not run at all. A second `open.chat` is refused for the same reason — the
+ * first one would open a chat with installs still pending behind it.
+ */
+export function refuseCard(actions: readonly CardAction[]): string | null {
+  const chats = actions.filter((action) => action.verb === 'open.chat')
+  if (chats.length > 1) return 'This card opens more than one chat, so it was not run.'
+  if (chats.length === 1 && actions[actions.length - 1]?.verb !== 'open.chat') {
+    return 'This card opens its chat before it has finished setting up, so it was not run.'
+  }
+  return null
+}
+
+export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<CardRunResult> {
+  const actions = [...input.actions]
+  const outcomes: CardActionOutcome[] = actions.map((action, index) => ({
+    index,
+    verb: action.verb,
+    status: 'skipped' as CardActionStatus,
+    message: 'Did not run.',
+  }))
+
+  const refusal = refuseCard(actions)
+  if (refusal) {
+    return {
+      ok: false,
+      outcomes,
+      workspaceRoot: input.workspaceRoot,
+      mcpServers: [],
+      chat: null,
+      surface: null,
+      message: refusal,
+    }
+  }
+
+  // The one mutable piece of scope in this file, and only `clone.repo` moves
+  // it: everything after a clone in the same card runs in that clone.
+  let workspaceRoot = input.workspaceRoot
+  // The settings as this run has them so far. Started from what the renderer
+  // sent, added to by `install.mcp` and by the servers a plugin declares, and
+  // handed back at the end for the store to persist.
+  let servers: Record<string, McpServerConfig> = {}
+  for (const server of input.mcpServers) servers[server.id] = server
+  let serversChanged = false
+
+  let chat: CardChatHandoff | null = null
+  let surface: CardSurfaceHandoff | null = null
+  let failure: string | null = null
+
+  for (const [index, action] of actions.entries()) {
+    const step = await runAction(action)
+    outcomes[index] = { index, verb: action.verb, ...step }
+    if (step.status === 'failed') {
+      failure = step.message
+      break
+    }
+  }
+
+  return {
+    ok: failure === null,
+    outcomes,
+    workspaceRoot,
+    mcpServers: serversChanged ? Object.values(servers) : [],
+    chat: failure === null ? chat : null,
+    surface: failure === null ? surface : null,
+    ...(failure === null ? {} : { message: failure }),
+  }
+
+  /**
+   * One action. The switch is CLOSED: every arm returns, and there is no
+   * `default` — `exhausted()` below takes a `never`, so adding a verb to the
+   * shared union without an arm here is a compile error rather than a runtime
+   * surprise.
+   */
+  async function runAction(action: CardAction): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    switch (action.verb) {
+      case 'require.cli':
+        return requireCli(action)
+      case 'install.mcp':
+        return installMcp(action)
+      case 'install.skill':
+        return installSkill(action)
+      case 'install.plugin':
+        return installPlugin(action)
+      case 'open.chat':
+        return openChat(action)
+      case 'open.surface':
+        return openSurface(action)
+      case 'clone.repo':
+        return cloneRepo(action)
+    }
+    return exhausted(action)
+  }
+
+  async function requireCli(
+    action: Extract<CardAction, { verb: 'require.cli' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    // The id is resolved against the plugin ids this build registers before it
+    // is passed anywhere: a `cli` is a plugin id under `resources/plugins/`,
+    // never a vendor name and never a binary path, and a value that is not one
+    // of them never reaches the probe.
+    const known = await deps.listAgentCliIds()
+    if (!known.includes(action.cli)) {
+      return { status: 'failed', message: `${action.cli} is not an agent CLI this build knows.` }
+    }
+    const detected = await deps.detectCli(action.cli)
+    if (detected.installed) return { status: 'already', message: `${action.cli} is already installed.` }
+    // Deliberately a refusal and not an install. Installing a CLI runs a shell
+    // command on the person's machine, and `CliInstallMethodInfo` says in its
+    // own type why that command is shown first: it is "surfaced to the UI for
+    // transparency before the user consents to run it". R4 removes the consent
+    // screen the CARD would otherwise need; it does not repeal a gate another
+    // module states in its own contract, and picking an install method on
+    // somebody's behalf from a hosted feed is exactly the thing that gate is
+    // there to stop. So Go says which CLI is missing and where to get it.
+    return {
+      status: 'failed',
+      message: `${action.cli} is not installed. Install it from Extensions → Agent CLIs, then press Go again.`,
+    }
+  }
+
+  async function installMcp(
+    action: Extract<CardAction, { verb: 'install.mcp' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    if (!workspaceRoot) return { status: 'failed', message: noWorkspace('an MCP server') }
+    // Already there is not an error: a second Go must not write the row again
+    // and must not overwrite the env and header edits the person has since made.
+    if (servers[action.id]) return { status: 'already', message: `${action.id} is already installed.` }
+    const catalog = await deps.listMcpCatalog()
+    if (!catalog.ok) return { status: 'failed', message: catalog.message }
+    // Exact match against the one bundled catalogue. There is no source
+    // dimension and nowhere else an MCP server comes from, so an id that is not
+    // in this list is an id this build cannot honour.
+    const entry = catalog.servers.find((server) => server.id === action.id)
+    if (!entry) return { status: 'failed', message: `${action.id} is not in this build's MCP catalogue.` }
+    const next = { ...servers, [entry.id]: mcpServerFromCatalog(entry) }
+    const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled: true, servers: next } })
+    if (!synced.ok) return { status: 'failed', message: synced.message }
+    servers = next
+    serversChanged = true
+    return { status: 'done', message: `${entry.name} installed.` }
+  }
+
+  async function installSkill(
+    action: Extract<CardAction, { verb: 'install.skill' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    if (!workspaceRoot) return { status: 'failed', message: noWorkspace('a skill') }
+    // The source has to be one the app already holds: `getScan` answers from
+    // the source store, so an id nobody added resolves to nothing and the
+    // install is never attempted.
+    const scan = await deps.getSkillScan({ sourceId: action.source })
+    if (!scan.ok) return { status: 'failed', message: scan.message }
+    const skill = scan.scan.skills.find((candidate) => candidate.id === action.id)
+    if (!skill) return { status: 'failed', message: `${action.id} is not in ${action.source}.` }
+    const dirName = skillDirName(skill.id)
+    const copies = await deps.installedSkillCopies(workspaceRoot)
+    if ((copies.get(dirName) ?? []).some((copy) => copy.sourceId === action.source)) {
+      return { status: 'already', message: `${skill.name} is already installed.` }
+    }
+    const installed = await deps.installSkill({
+      sourceId: action.source,
+      skillId: skill.id,
+      workspaceRoot,
+    })
+    if (!installed.ok) return { status: 'failed', message: installed.message }
+    return { status: 'done', message: `${skill.name} installed.` }
+  }
+
+  async function installPlugin(
+    action: Extract<CardAction, { verb: 'install.plugin' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    if (!workspaceRoot) return { status: 'failed', message: noWorkspace('a plugin') }
+    const receipts = await deps.listInstalledPlugins({ workspaceRoot })
+    if (receipts.ok && receipts.plugins.some((row) => row.sourceId === action.source && row.pluginId === action.id)) {
+      return { status: 'already', message: `${action.id} is already installed.` }
+    }
+    const scan = await deps.getSkillScan({ sourceId: action.source })
+    if (!scan.ok) return { status: 'failed', message: scan.message }
+    const plugin = scanPlugins(scan.scan).find((candidate) => candidate.id === action.id)
+    if (!plugin) return { status: 'failed', message: `${action.id} is not in ${action.source}.` }
+    // `acknowledgedHooks` is not passed, and never will be from here. A plugin
+    // that declares hooks runs shell commands on this machine, and the skills
+    // service refuses one until a person has seen them. R4 is about the card's
+    // own ceremony; it does not hand a hosted feed the answer to somebody
+    // else's disclosure.
+    const installed = await deps.installPlugin({
+      sourceId: action.source,
+      pluginId: plugin.id,
+      workspaceRoot,
+    })
+    if (!installed.ok) {
+      return {
+        status: 'failed',
+        message: installed.needsHookAcknowledgement
+          ? `${plugin.name} runs hook commands, so it installs from Extensions → Plugins where you can read them first.`
+          : installed.message,
+      }
+    }
+    // The servers a plugin declares are shaped for the settings store and go
+    // back the same way `install.mcp`'s do — through one sync, so the CLI
+    // configs and the store agree.
+    if (installed.mcpServers.length > 0) {
+      const next = { ...servers }
+      for (const server of installed.mcpServers) next[server.id] = server
+      const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled: true, servers: next } })
+      if (!synced.ok) return { status: 'failed', message: synced.message }
+      servers = next
+      serversChanged = true
+    }
+    return { status: 'done', message: `${plugin.name} installed.` }
+  }
+
+  function openChat(
+    action: Extract<CardAction, { verb: 'open.chat' }>,
+  ): Omit<CardActionOutcome, 'index' | 'verb'> {
+    const prompt = action.prompt.trim()
+    if (prompt.length === 0) return { status: 'failed', message: 'This card has no prompt to send.' }
+    // Names, not paths: `skills` are installed skill directory names and
+    // `mcpServers` are catalogue ids, and the renderer attaches them by
+    // matching what the workspace already has. Neither is joined onto anything
+    // here or there, which is why a list this build does not recognise is a
+    // chat with one fewer chip rather than a refusal.
+    chat = {
+      prompt,
+      send: action.send,
+      skills: [...(action.skills ?? [])],
+      mcpServers: [...(action.mcpServers ?? [])],
+    }
+    return { status: 'done', message: action.send ? 'Chat opened, prompt sent.' : 'Chat opened.' }
+  }
+
+  function openSurface(
+    action: Extract<CardAction, { verb: 'open.surface' }>,
+  ): Omit<CardActionOutcome, 'index' | 'verb'> {
+    // Re-checked against the same four views the shared parser knows, because
+    // this value ends up selecting a door and a value from outside that set
+    // would open nothing at all.
+    if (!SURFACE_VIEWS.includes(action.view)) {
+      return { status: 'failed', message: `${action.view} is not a view this build knows.` }
+    }
+    surface = { view: action.view, installed: action.installed === true }
+    return { status: 'done', message: `Opened ${action.view}.` }
+  }
+
+  async function cloneRepo(
+    action: Extract<CardAction, { verb: 'clone.repo' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    // The parser already applied this rule; it is applied again here because
+    // the value crossed a process boundary in between and this is the last
+    // place before it becomes a path and a URL.
+    const repo = action.repo.trim()
+    if (!REPO_NAME.test(repo) || repo.split('/').some((segment) => segment === '.' || segment === '..')) {
+      return { status: 'failed', message: `${action.repo} is not a repository name.` }
+    }
+    const [, repoName = ''] = repo.split('/')
+    const folderName = (action.folderName ?? repoName).trim()
+    if (
+      folderName.length === 0
+      || folderName === '.'
+      || folderName === '..'
+      || /[/\\]/.test(folderName)
+      || folderName.includes('\0')
+    ) {
+      return { status: 'failed', message: 'That card asks to clone into a folder name this app will not use.' }
+    }
+    const parentDir = input.cloneParentDir?.trim() ?? ''
+    if (parentDir.length === 0) {
+      return { status: 'failed', message: 'There is nowhere to clone into yet — open a project first.' }
+    }
+    const target = deps.joinPath(parentDir, folderName)
+    // A second Go finds the clone it made the first time and adopts it as the
+    // workspace rather than failing on an occupied path.
+    if (await deps.pathExists(target)) {
+      workspaceRoot = target
+      return { status: 'already', message: `${folderName} is already here.` }
+    }
+    // The URL is built, never carried. A card names `owner/name`; the host is
+    // this line.
+    const cloned = await deps.cloneRepo({
+      url: `https://github.com/${repo}.git`,
+      parentDir,
+      folderName,
+    })
+    if (!cloned.ok) return { status: 'failed', message: cloned.message }
+    // Everything after this in the same card runs in the clone.
+    workspaceRoot = cloned.path
+    return { status: 'done', message: `Cloned ${repo}.` }
+  }
+}
+
+function noWorkspace(what: string): string {
+  return `Open a project first — ${what} installs into a project, not into the app.`
+}
+
+/**
+ * The closed end of the switch. It takes `never`, so a verb added to
+ * `CardAction` without an arm above fails to compile here; it still throws at
+ * runtime because a build that got past the type check has been fed something
+ * the type says cannot exist.
+ */
+function exhausted(action: never): never {
+  throw new Error(`Unhandled card action: ${JSON.stringify(action)}`)
+}

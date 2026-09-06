@@ -234,7 +234,7 @@ function parseCard(raw: unknown): { ok: true; card: HostedCard } | { ok: false; 
 
   const go: CardAction[] = []
   for (const [index, entry] of raw.go.entries()) {
-    const action = parseAction(entry)
+    const action = parseCardAction(entry)
     // An action this build cannot read makes the whole card untrustworthy: half
     // of Go is worse than none of it, so the row goes rather than the step.
     if (!action.ok) return { ok: false, message: `"${slug}" go[${index}]: ${action.message}` }
@@ -248,7 +248,15 @@ function parseCard(raw: unknown): { ok: true; card: HostedCard } | { ok: false; 
   return { ok: true, card }
 }
 
-function parseAction(raw: unknown): { ok: true; action: CardAction } | { ok: false; message: string } {
+/**
+ * One action, parsed and copied out of whatever it was read from.
+ *
+ * Exported because the feed is not the only place an action is read: `cards:run`
+ * gets its list back from the renderer and puts it through this same function
+ * again before the executor touches it (item 2469). One parser, two boundaries —
+ * a second hand-written check on the main side would be the thing that drifts.
+ */
+export function parseCardAction(raw: unknown): { ok: true; action: CardAction } | { ok: false; message: string } {
   if (!isObject(raw)) return { ok: false, message: 'action must be an object.' }
   const verb = text(raw.verb)
   switch (verb) {

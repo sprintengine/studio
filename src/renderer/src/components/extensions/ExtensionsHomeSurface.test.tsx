@@ -51,6 +51,7 @@ import { getRendererHost } from '../../modules'
 import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { consumePendingExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 
 const RULED_ORDER = ['Workflows', 'Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs']
 
@@ -437,12 +438,59 @@ for (const poster of cardsIn(home.host)) {
   assert.ok(stretched, `${titleOf(poster)}: something stretches over the card, so the card is the target`)
 }
 
-// Pressing Go, and pressing the card, do nothing at all until item 2469 wires
-// the verbs up. What must not happen is a throw, or a press that runs twice.
+// ── `Go` runs the card once, and never twice (item 2469) ────────────────────
+// The run itself belongs to the shell: this page asks the Extensions host to do
+// it, because a page that installed things would be a second implementation of
+// every installer. So what is asserted here is the half that IS this page's —
+// one press, one run — plus the two states around it.
+//
+// With no host registered (no WorkspaceManager mounted), a press is a no-op
+// that must not throw: the same guard every reader on this page already has.
 act(() => {
   goButtons()[0]?.click()
   cardsIn(home.host)[1]?.click()
 })
+
+// With one registered, a double click starts ONE run. A state flag alone could
+// not promise this — two clicks in the same tick read the same render — so the
+// page holds a ref, and this is the assertion that would catch its loss.
+{
+  let settle: (() => void) | null = null
+  const ran: string[] = []
+  setExtensionsSurfaceHost({
+    onLaunchConnector: () => {},
+    onUseInAutomation: () => {},
+    onUseSkillInNewAgent: () => {},
+    onRunCard: (card) => {
+      ran.push(card.slug)
+      return new Promise<void>((resolve) => {
+        settle = resolve
+      })
+    },
+  })
+  act(() => {
+    goButtons()[0]?.click()
+    goButtons()[0]?.click()
+    // …and the other card too: one run at a time on the page, not one per card.
+    goButtons()[1]?.click()
+  })
+  assert.deepEqual(ran.length, 1, 'a double click — on one card or on two — starts exactly one run')
+  // Every Go is disabled while it is in flight, because a button that looks
+  // pressable and does nothing is worse than one that says it cannot be pressed.
+  for (const go of goButtons()) {
+    assert.equal((go as HTMLButtonElement).disabled, true, 'every Go is disabled while a run is in flight')
+  }
+  assert.equal(
+    goButtons()[0]?.getAttribute('aria-busy'),
+    'true',
+    'and the card that is actually working says so, without a spinner on a poster',
+  )
+  // Settled so the page's own `finally` re-enables the buttons. Not asserted
+  // here: this bundle has no top-level await to flush the microtask on, and the
+  // re-enable is one `finally` on the same promise this block already holds.
+  settle?.()
+  setExtensionsSurfaceHost(null)
+}
 
 // ── The tiles are still there, and they are underneath ───────────────────────
 assert.ok(tilesIn(home.host).length > 0, 'the tiles keep their place on the page')

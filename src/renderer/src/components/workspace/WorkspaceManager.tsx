@@ -58,7 +58,8 @@ import { resolveModelPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
-import type { WorkspaceSkill } from '../../../../shared/electron-api'
+import type { CardRunResult, WorkspaceSkill } from '../../../../shared/electron-api'
+import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -88,6 +89,8 @@ import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
 import { EXTENSIONS_HOME_SURFACE_ID, surfaceTakesSidebarColumn } from './extensionsDrawer'
+import { dispatchExtensionsSurfaceTarget, EXTENSIONS_DRAWER_VIEWS } from './globalSurface/extensions/extensionsSurfaceTarget'
+import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
@@ -544,6 +547,9 @@ export default function WorkspaceManager() {
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   const closeGlobalSurface = useWorkspaceStore((s) => s.closeGlobalSurface)
+  // Written back after a card's `install.mcp`: main synced the CLI configs, and
+  // the settings store is where the app's own list of servers lives.
+  const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
@@ -2970,6 +2976,165 @@ export default function WorkspaceManager() {
     writeNewChatDraft(workspaceWindowId, { folderPath: newChatPanelFolderPath })
   }, [newChatPanelFolderPath, workspaceWindowId])
 
+  /**
+   * `Go` on a card on the Extensions home (item 2469, owner ruling R4: "Go
+   * goes"). One press installs what the card names and lands the person in the
+   * chat with the prompt SENT — no consent screen, no plan, no progress modal.
+   *
+   * The whole of the run happens in main, in one call: `cards:run` composes the
+   * installers that already own each concern, in the card's own order, stopping
+   * at the first failure. Nothing here installs anything, so there is no second
+   * implementation of "install a skill" living in the renderer to drift from the
+   * first. What comes back is a report and, at most, two things to do — open a
+   * door, open a chat — because those are the two a main process cannot do.
+   *
+   * The three facts the request carries that a card does not are all the app's:
+   * the workspace the person is in (a card carries none by design), where this
+   * app puts projects, and the MCP servers this machine has configured, which
+   * live in this store rather than on disk in main. They are read at press time
+   * from `getState()`, never from a value captured at render, because the run is
+   * a round trip and a settings object from the last render can be minutes old.
+   *
+   * It never rejects: a failure is a toast, named and specific, and the promise
+   * settles either way so the card's one button can re-enable itself.
+   */
+  const runCardGo = useCallback(async (card: HostedCard): Promise<void> => {
+    if (typeof window.api?.cardsRun !== 'function') return
+    const state = useWorkspaceStore.getState()
+    const workspaceRoot =
+      state.workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)?.folderPath ?? null
+    const result = await window.api
+      .cardsRun({
+        slug: card.slug,
+        actions: card.go,
+        workspaceRoot,
+        // Where a `clone.repo` lands: the same smart parent the New chat
+        // selector's own clone uses. A card names a repository and never a
+        // place — this is the place.
+        cloneParentDir: resolveDefaultParentPath({
+          folderPath: workspaceRoot,
+          recentFolders: state.appSettings.recentWorkspaceFolders ?? [],
+        }),
+        mcpServers: Object.values(state.appSettings.mcp?.servers ?? {}),
+      })
+      .catch((error: unknown): CardRunResult => ({
+        ok: false,
+        outcomes: [],
+        workspaceRoot,
+        mcpServers: [],
+        chat: null,
+        surface: null,
+        message: error instanceof Error ? error.message : String(error),
+      }))
+
+    // Written back BEFORE the ok check, and deliberately. A run that installed
+    // a server and then failed on the next action has already written that
+    // server to disk; leaving it out of the settings would be the one outcome
+    // the review focus names — a workspace in a state the person cannot see and
+    // cannot undo. Whatever main reports is what the store now says.
+    for (const server of result.mcpServers) upsertMcpServer(server)
+
+    if (!result.ok) {
+      const notRun = result.outcomes.filter((outcome) => outcome.status === 'skipped').length
+      // A toast, not a modal and not a stack trace: it names what failed and,
+      // when there was more to do, how much of it did not run.
+      showToast({
+        tone: 'warn',
+        title: `${card.title} did not finish`,
+        description: notRun > 0
+          ? `${result.message ?? 'Something went wrong.'} ${notRun} later ${notRun === 1 ? 'step' : 'steps'} did not run.`
+          : (result.message ?? 'Something went wrong.'),
+      })
+      return
+    }
+
+    if (result.surface) {
+      // `home` is the app's own surface and the other three are views of the
+      // Extensions door, which is exactly the split `CardSurfaceView` states.
+      if (result.surface.view === 'home') {
+        openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID)
+      } else {
+        // Latch first, open second — the order every deep-link opener in this
+        // file uses, so an already-open door and a cold one both land on the
+        // row the card named.
+        dispatchExtensionsSurfaceTarget({
+          view: EXTENSIONS_DRAWER_VIEWS[
+            result.surface.view === 'agent-clis' ? 'agentClis' : result.surface.view
+          ],
+          ...(result.surface.installed ? { installed: true } : {}),
+        })
+        openGlobalSurface('extensions')
+      }
+    }
+
+    if (!result.chat) return
+    const chat = result.chat
+    const chatRoot = result.workspaceRoot
+    // The skills the card named, as the workspace actually holds them. A name
+    // this workspace does not have is a chip that is not attached rather than a
+    // refusal: the install that would have put it there has already reported
+    // for itself, and dropping the whole chat over a stale name would throw
+    // away the run that succeeded.
+    const skills =
+      chatRoot && chat.skills.length > 0 && typeof window.api.workspaceSkillsList === 'function'
+        ? await window.api
+            .workspaceSkillsList({ workspaceRoot: chatRoot })
+            .then((listed) => (listed.ok ? listed.skills.filter((skill) => chat.skills.includes(skill.id)) : []))
+            .catch(() => [] as WorkspaceSkill[])
+        : []
+
+    // The card's MCP servers need no attaching here: `install.mcp` wrote them
+    // into this workspace's `.mcp.json` through `mcpConfigService.sync` on the
+    // way past, so the agent launched below already reads them.
+    const movedWorkspace = chatRoot !== null && chatRoot !== workspaceRoot
+    if (chat.send && !movedWorkspace) {
+      // R4, kept: a general agent on the General-engine default CLI, with the
+      // skills attached and the prompt as its startup prompt — which is the
+      // launch path that SENDS. The door closes first or the new tab lands
+      // behind it.
+      closeGlobalSurface()
+      closeModalSurface()
+      void addNewCliAgent(
+        resolveTemplateAgentCli(
+          specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+          lastSelectedCli,
+          agentCliCatalog,
+        ),
+        skills,
+        undefined,
+        undefined,
+        { prompt: chat.prompt },
+      )
+      return
+    }
+    // Two cases land here, and both go through the New chat door.
+    //
+    // `send: false` is the card saying so, and the composer is where a prompt
+    // waits for somebody to press Start.
+    //
+    // A `clone.repo` that moved the workspace is the other, and it is a limit
+    // rather than a choice: `addNewCliAgent` spawns into the ACTIVE workspace,
+    // and the clone is not one yet — this app makes a folder into a project
+    // through the New chat door (`cloneNewChatProject` above does exactly this
+    // with the same folder). Spawning into the workspace the person happened to
+    // be in would run the card's prompt against the wrong repository, which is
+    // worse than a prompt that waits one press.
+    openNewChatPanel(chatRoot ?? undefined)
+    writeNewChatDraft(workspaceWindowId, { prompt: chat.prompt, skills })
+  }, [
+    addNewCliAgent,
+    agentCliCatalog,
+    closeGlobalSurface,
+    closeModalSurface,
+    lastSelectedCli,
+    openGlobalSurface,
+    openNewChatPanel,
+    specialistCliDefaults,
+    upsertMcpServer,
+    windowActiveWorkspaceId,
+    workspaceWindowId,
+  ])
+
   // The Extensions door's host-action seam (MC-1847 B1): the door is a
   // zero-prop registered surface, so the shell's three connector routes are
   // registered into the extensionsSurfaceHost singleton instead of riding
@@ -3001,6 +3166,7 @@ export default function WorkspaceManager() {
         [skill],
       )
     },
+    onRunCard: (card) => runCardGo(card),
     onUseInAutomation: () => {
       // The route to author a connector automation is the Automations door
       // (Extensions drawer ruling, 2026-09-05; a modal before that); the
@@ -3025,6 +3191,7 @@ export default function WorkspaceManager() {
       onLaunchConnector: (connector) => extensionsHostRef.current?.onLaunchConnector(connector),
       onUseInAutomation: (serverId) => extensionsHostRef.current?.onUseInAutomation(serverId),
       onUseSkillInNewAgent: (skill) => extensionsHostRef.current?.onUseSkillInNewAgent(skill),
+      onRunCard: (card) => extensionsHostRef.current?.onRunCard(card) ?? Promise.resolve(),
     })
     return () => setExtensionsSurfaceHost(null)
   }, [])

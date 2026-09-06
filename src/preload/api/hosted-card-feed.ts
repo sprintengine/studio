@@ -1,7 +1,16 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { ElectronApi, HostedCardFeedReadInput, HostedCardFeedReadResult } from '../../shared/electron-api'
+import type {
+  CardRunInput,
+  CardRunResult,
+  ElectronApi,
+  HostedCardFeedReadInput,
+  HostedCardFeedReadResult,
+} from '../../shared/electron-api'
 
-// The card feed's three channels, the model feed's three channels' sibling.
+// The card feed's channels, the model feed's three channels' siblings — plus
+// `cards:run`, which is the one that does something rather than reads
+// something. It rides here rather than in a file of its own because Go is the
+// card's own verb and the feed is where the card came from (item 2469).
 // `onHostedCardFeedChanged` returns the unsubscribe rather than relying on the
 // caller to remember the handler: the home page mounts and unmounts with the
 // Extensions door, and a listener left behind on every open would push a feed
@@ -16,4 +25,5 @@ export const hostedCardFeedApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-} satisfies Pick<ElectronApi, 'hostedCardFeedGet' | 'hostedCardFeedRefresh' | 'onHostedCardFeedChanged'>
+  cardsRun: (input: CardRunInput): Promise<CardRunResult> => ipcRenderer.invoke('cards:run', input),
+} satisfies Pick<ElectronApi, 'hostedCardFeedGet' | 'hostedCardFeedRefresh' | 'onHostedCardFeedChanged' | 'cardsRun'>

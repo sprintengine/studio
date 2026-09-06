@@ -31,6 +31,7 @@ import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
 import { registerHostedModelFeedIpc } from './ipc/hosted-feed-ipc'
 import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
+import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
@@ -142,6 +143,13 @@ export function registerCoreIpc(
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedModelFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)
+  // Go, on a card on the Extensions home. Registered after the skills and MCP
+  // services it composes, because it is those services said in one press.
+  registerCardsIpc(ipcMain, {
+    skillsService: services.skillsService,
+    mcpConfigService: services.mcpConfigService,
+    githubTokenStore: services.githubTokenStore,
+  })
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)

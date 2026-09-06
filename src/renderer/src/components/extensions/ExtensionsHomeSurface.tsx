@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
+import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Badge } from '../ui/Badge'
 import { EmptyState } from '../ui/EmptyState'
@@ -12,6 +13,7 @@ import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { CardPoster } from '../workspace/globalSurface/extensions/home/CardPoster'
+import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useSkillSources } from '../workspace/globalSurface/extensions/skills/useSkillSources'
 import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import { useSprintRunIndex } from '../workspace/globalSurface/sprints/useSprintRunIndex'
@@ -377,16 +379,44 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   const loading = cardFeedStatus === 'loading' && drawable === 0
   const hasCardRegion = loading || drawable > 0
 
-  // 2469 owns what Go does: it installs what the card names, points the CLI at
-  // it, opens the chat and sends the prompt. Until then the button is drawn and
-  // pressing it does nothing — a card that half-ran its actions would be worse
-  // than a card that waits for the item that owns them.
+  // What `Go` does (item 2469, owner ruling R4: "Go goes"). The run itself is
+  // the shell's — `onRunCard` installs what the card names in the workspace the
+  // person is in and lands them in the chat with the prompt sent — because this
+  // page knows nothing about workspaces, settings stores or spawning agents.
+  // What is this page's is the button: one run at a time, and never two.
   //
-  // Which makes this item unreleasable on its own, and the spec says so: 2468
-  // must not reach users ahead of 2469. Shipping the card feed with an inert
-  // `Go` shows a person an advert, invites the one press it offers, and answers
-  // with nothing at all.
-  const onGo = () => {}
+  // The REF is what makes it non-re-entrant, and the state is only what draws
+  // it. Two clicks in the same tick both read the same render's `runningSlug`,
+  // so a state check alone would start two runs; the ref is written
+  // synchronously, before anything is awaited, so the second press finds it set.
+  // Every card's button is disabled while any run is in flight, because a Go
+  // that looks pressable and does nothing is worse than one that says it cannot
+  // be pressed yet.
+  const runningRef = useRef<string | null>(null)
+  const [runningSlug, setRunningSlug] = useState<string | null>(null)
+  // Set to false on unmount: the run outlives this page on the happy path — the
+  // chat that opens is what closes the door — so the settle handler must not
+  // write state into a component that has gone.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const onGo = useCallback((card: HostedCard) => {
+    if (runningRef.current !== null) return
+    // Null only when no WorkspaceManager is mounted (tests), and then this is a
+    // press that does nothing rather than a throw.
+    const host = getExtensionsSurfaceHost()
+    if (!host) return
+    runningRef.current = card.slug
+    setRunningSlug(card.slug)
+    void host.onRunCard(card).finally(() => {
+      runningRef.current = null
+      if (mounted.current) setRunningSlug(null)
+    })
+  }, [])
 
   return (
     <GlobalSurfaceShell
@@ -440,11 +470,23 @@ export default function ExtensionsHomeSurface(): JSX.Element {
           >
             {grid.hero ? (
               <div className="@[736px]:col-span-2">
-                <CardPoster card={grid.hero} shape="hero" onGo={onGo} />
+                <CardPoster
+                  card={grid.hero}
+                  shape="hero"
+                  running={runningSlug === grid.hero.slug}
+                  disabled={runningSlug !== null}
+                  onGo={() => onGo(grid.hero as HostedCard)}
+                />
               </div>
             ) : null}
             {grid.rest.map((card) => (
-              <CardPoster key={card.slug} card={card} onGo={onGo} />
+              <CardPoster
+                key={card.slug}
+                card={card}
+                running={runningSlug === card.slug}
+                disabled={runningSlug !== null}
+                onGo={() => onGo(card)}
+              />
             ))}
           </CardGrid>
         ) : null}

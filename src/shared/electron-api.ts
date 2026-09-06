@@ -6,8 +6,8 @@ import type { ObservedCheckout } from './observed-checkout'
 import type { AgentLaunchRecord } from './agent-launch'
 import type { HostedModelFeed } from './hosted-model-feed'
 export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
-import type { HostedCardFeed } from './hosted-card-feed'
-export type { CardAction, CardActionVerb, HostedCard, HostedCardFeed, HostedCardKind } from './hosted-card-feed'
+import type { CardAction, CardActionVerb, CardSurfaceView, HostedCardFeed } from './hosted-card-feed'
+export type { CardAction, CardActionVerb, CardSurfaceView, HostedCard, HostedCardFeed, HostedCardKind } from './hosted-card-feed'
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
@@ -790,6 +790,67 @@ export type HostedCardFeedReadResult =
       statusCode?: number
       message: string
     }
+
+// Running a card's actions — `cards:run`, the one press the Extensions home
+// offers (backlog/2026-09-06-go-runs-a-cards-actions.md, item 2469). The
+// executor is `src/main/cards/run-card.ts`; these are the envelopes.
+//
+// Nothing in the request comes from the feed except `actions` and `slug`. The
+// workspace, the place clones go and the MCP servers this machine has
+// configured are all the app's own facts, sent in because a card carries no
+// workspace by design and because MCP settings live in the renderer's store
+// rather than on disk in main.
+export type CardRunInput = {
+  /** The card's slug, for the messages. Never used as a path or an id. */
+  slug: string
+  actions: CardAction[]
+  /** The workspace the person is in; null when none is open. */
+  workspaceRoot: string | null
+  /** Where this app puts projects — `clone.repo`'s parent directory. */
+  cloneParentDir: string | null
+  mcpServers: McpServerConfig[]
+}
+
+/** `already` is a no-op that succeeded; `skipped` is an action a failure before it stopped. */
+export type CardActionStatus = 'done' | 'already' | 'failed' | 'skipped'
+
+export type CardActionOutcome = {
+  index: number
+  verb: CardActionVerb
+  status: CardActionStatus
+  /** One sentence, in the words a toast can show. */
+  message: string
+}
+
+/**
+ * What the renderer must do once every install before it has succeeded. Main
+ * can neither open a chat nor move a door, so both verbs are validated in the
+ * executor's switch and performed on the other side of the wire.
+ */
+export type CardChatHandoff = {
+  prompt: string
+  send: boolean
+  /** Installed skill directory names. */
+  skills: string[]
+  /** MCP catalogue ids. */
+  mcpServers: string[]
+}
+
+export type CardSurfaceHandoff = { view: CardSurfaceView; installed: boolean }
+
+export type CardRunResult = {
+  ok: boolean
+  /** One entry per action, in the card's own order. */
+  outcomes: CardActionOutcome[]
+  /** The workspace the run ended in — `clone.repo` moves it. */
+  workspaceRoot: string | null
+  /** The MCP servers as they now stand, for the surface to write back. Empty when untouched. */
+  mcpServers: McpServerConfig[]
+  chat: CardChatHandoff | null
+  surface: CardSurfaceHandoff | null
+  /** The sentence a failure toast leads with; absent on success. */
+  message?: string
+}
 
 export type MarketplaceRegistryReadInput = {
   forceRefresh?: boolean
@@ -3650,6 +3711,10 @@ export type ElectronApi = {
   hostedCardFeedGet: () => Promise<HostedCardFeedReadResult>
   hostedCardFeedRefresh: (input?: Pick<HostedCardFeedReadInput, 'forceRefresh'>) => Promise<HostedCardFeedReadResult>
   onHostedCardFeedChanged: (cb: (result: HostedCardFeedReadResult) => void) => () => void
+  // Pressing Go on a card on the Extensions home. One call runs the card's
+  // ordered actions in the workspace the person is in and hands back what to
+  // open; the renderer never runs an installer of its own (item 2469).
+  cardsRun: (input: CardRunInput) => Promise<CardRunResult>
   // CLI version advisories: installed version against the package registry's
   // newest. `set-enabled` mirrors the Settings switch into main so the
   // background check can be turned off; `changed` fires from the poller.

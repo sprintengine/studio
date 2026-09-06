@@ -113,16 +113,29 @@ function CardGo({
   title,
   accent,
   stretch,
+  running,
+  disabled,
   onGo,
 }: {
   title: string
   accent: boolean
   /** Own the card-wide hit area as a pseudo-element. The ordinary card only. */
   stretch: boolean
+  /** This card's own run is in flight. */
+  running: boolean
+  /** A run is in flight — this card's or another's. */
+  disabled: boolean
   onGo: () => void
 }): JSX.Element {
   const props = {
     'aria-label': `Go — ${title}`,
+    // Disabled for exactly as long as a run is in flight, which is the whole of
+    // what this card shows about a run in progress: `Go` goes, and R4 rules out
+    // a plan, a progress modal and any other ceremony between the press and the
+    // work. `aria-busy` says the same thing to a reader without putting a
+    // spinner on a poster.
+    disabled,
+    'aria-busy': running || undefined,
     // `focus-visible:outline-none` discharged by the card, not left dangling:
     // `SHELL` above draws the shared ring on the article whenever this button is
     // focus-visible, which is one indicator on one tab stop rather than two.
@@ -156,10 +169,16 @@ function CardGo({
 export function CardPoster({
   card,
   shape = 'card',
+  running = false,
+  disabled = false,
   onGo,
 }: {
   card: HostedCard
   shape?: 'card' | 'hero'
+  /** This card's own run is in flight. */
+  running?: boolean
+  /** A run is in flight somewhere on the page, so no card may start a second. */
+  disabled?: boolean
   onGo: () => void
 }): JSX.Element {
   const stamp = cardStampLabel(card.kind)
@@ -184,7 +203,14 @@ export function CardPoster({
                   </p>
                 ) : null}
               </div>
-              <CardGo title={card.title} accent stretch={false} onGo={onGo} />
+              <CardGo
+                title={card.title}
+                accent
+                stretch={false}
+                running={running}
+                disabled={disabled}
+                onGo={onGo}
+              />
             </div>
           </CardSplashTitle>
           <CardSplashStamp label={stamp} />
@@ -203,7 +229,10 @@ export function CardPoster({
             exactly what the button runs, and the hover a person sees is the
             card's ground and hairline moving, which is the whole of the hover
             the task-card family allows anyway. */}
-        <span aria-hidden="true" className={HERO_OVERLAY} onClick={() => onGo()} />
+        {/* Disabled with the button it fronts. The glass is the card's hit
+            area, so a run already in flight must not be startable through it
+            either — the button below is where the one press lives. */}
+        <span aria-hidden="true" className={HERO_OVERLAY} onClick={() => { if (!disabled) onGo() }} />
       </article>
     )
   }
@@ -232,7 +261,14 @@ export function CardPoster({
             </span>
           ) : null}
           <span className="ml-auto flex shrink-0">
-            <CardGo title={card.title} accent={false} stretch onGo={onGo} />
+            <CardGo
+              title={card.title}
+              accent={false}
+              stretch
+              running={running}
+              disabled={disabled}
+              onGo={onGo}
+            />
           </span>
         </div>
       </div>

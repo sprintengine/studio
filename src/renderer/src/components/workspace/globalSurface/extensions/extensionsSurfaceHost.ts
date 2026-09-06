@@ -1,5 +1,5 @@
 // The host-action seam for the Extensions door (MC-1847 B1/B2). The door is a
-// zero-prop registered surface, but three of its actions belong to the shell:
+// zero-prop registered surface, but four of its actions belong to the shell:
 // "New chat" opens the new-chat composer with the connector attached, "Use in
 // automation" opens the automation-authoring flow, and "Use in agent → New
 // agent…" spawns a fresh agent with a skill attached. WorkspaceManager owns
@@ -8,6 +8,7 @@
 // surface-target latch: no store, no React, nothing in the eager module graph.
 
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
+import type { HostedCard } from '../../../../../../shared/hosted-card-feed'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 
 export type ExtensionsSurfaceHostPorts = {
@@ -18,6 +19,19 @@ export type ExtensionsSurfaceHostPorts = {
   onUseInAutomation: (serverId: string) => void
   /** Spawn a fresh agent with this skill ensure-installed and prefilled. Closes the door. */
   onUseSkillInNewAgent: (skill: WorkspaceSkill) => void
+  /**
+   * `Go` on a card on the Extensions home (item 2469): run the card's ordered
+   * actions in the workspace the person is in, then land them where the card
+   * said — a chat with the prompt SENT, or a door.
+   *
+   * It is here for the same reason the three above are: the surface knows
+   * nothing about the open workspace, the MCP settings store, where projects
+   * live or how an agent is spawned, and all four are the shell's. The promise
+   * settles when the run is over — which is what lets the card's one button
+   * disable itself for exactly as long as it is working — and it never rejects:
+   * a failure is a toast the shell has already shown.
+   */
+  onRunCard: (card: HostedCard) => Promise<void>
 }
 
 let ports: ExtensionsSurfaceHostPorts | null = null
