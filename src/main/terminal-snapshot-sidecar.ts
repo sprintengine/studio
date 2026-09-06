@@ -1,4 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
+import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
 import type { AgentCli, AgentExecutionMode, TerminalKind } from '../shared/electron-api'
 
@@ -52,6 +53,10 @@ export type TerminalSnapshotSidecar = {
   // When the agent's last turn ended, so rehydration idles the placeholder
   // from the finish rather than from `savedAt` (one quit stamps every sidecar).
   lastTurnEndedAt?: number
+  // The checkout the session's hooks last observed (MC-2440), so a parked
+  // agent keeps saying where it is across suspend / resume / an app restart.
+  // Read back through parseObservedCheckout — the file is untrusted input.
+  observedCheckout?: ObservedCheckout
   // Exactly one of these carries the painted content: `snapshot` is a
   // headless-xterm serialized screen (replays faithfully, incl. alt-screen
   // TUIs); `rawReplay` is the retained pty byte stream captured on the quit

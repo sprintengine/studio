@@ -57,6 +57,25 @@ jobs:
             echo "publish=never" >> "$GITHUB_OUTPUT"
           fi
 
+      # A tag release publishes to another repo, so the only credential that can
+      # do it is RELEASES_TOKEN. When that secret is absent `${{ secrets.X }}`
+      # expands to an empty string, electron-builder throws `GitHub Personal
+      # Access Token is not set` -- but only in the LAST step of a 12-minute
+      # matrix job, four times over. Check it here, before anything is built.
+      - name: Confirm the releases token is present
+        if: steps.publish.outputs.publish == 'always'
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "${RELEASES_TOKEN}" ]; then
+            echo "RELEASES_TOKEN is not set on this repository." >&2
+            echo "It is a fine-grained PAT with Contents read/write on" >&2
+            echo "sprintengine/studio-releases only. Add it under" >&2
+            echo "Settings -> Secrets and variables -> Actions, then re-run." >&2
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -161,3 +180,54 @@ jobs:
             !dist/**/mac/**
             !dist/**/mac-*/**
             !dist/**/linux-unpacked/**
+
+  # v0.3.0 is why this job exists. That run went green on all five jobs and
+  # published nothing to studio-releases: at that commit build.publish still
+  # named the PRIVATE studio repo, so electron-builder happily uploaded four
+  # installers where neither the updater nor the website can read them, and
+  # said so only in a line of packaging log nobody reads. A release that
+  # publishes to the wrong place, or to no place, must not report success.
+  verify-published:
+    name: Verify published release
+    needs: [validate, package]
+    if: needs.validate.outputs.publish == 'always'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm the release exists on studio-releases with its installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          REPO="sprintengine/studio-releases"
+
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "No release ${TAG} on ${REPO}." >&2
+            echo "The packaging jobs went green, so electron-builder either" >&2
+            echo "published somewhere else (check build.publish in package.json)" >&2
+            echo "or did not publish at all." >&2
+            exit 1
+          fi
+
+          ASSETS="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
+          echo "Assets on ${TAG}:"
+          echo "${ASSETS}" | sed 's/^/  /'
+
+          # The updater reads latest*.yml; the website matches installers by
+          # extension. Missing either is a release nobody can actually install.
+          MISSING=""
+          for want in "latest.yml" "latest-mac.yml"; do
+            echo "${ASSETS}" | grep -qx "${want}" || MISSING="${MISSING} ${want}"
+          done
+          echo "${ASSETS}" | grep -qE '\.dmg$'      || MISSING="${MISSING} a .dmg"
+          echo "${ASSETS}" | grep -qE '\.exe$'      || MISSING="${MISSING} a .exe"
+          echo "${ASSETS}" | grep -qE '\.AppImage$' || MISSING="${MISSING} an .AppImage"
+
+          if [ -n "${MISSING}" ]; then
+            echo "Release ${TAG} is missing:${MISSING}" >&2
+            exit 1
+          fi
+
+          echo "Release ${TAG} is complete on ${REPO}."

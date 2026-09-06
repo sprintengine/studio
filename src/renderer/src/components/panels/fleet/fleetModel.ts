@@ -1,14 +1,10 @@
-import type {
-  FleetBrowse,
-  FleetConnection,
-  FleetLinkState,
-  FleetTerminal,
-  FleetTerminalAccess,
-} from '../../../../../shared/tailnet-fleet'
+import type { FleetLinkState, FleetTerminal, FleetTerminalAccess } from '../../../../../shared/tailnet-fleet'
 import type { Tone } from '../../ui'
 
-// The Fleet surface's view model, DOM-free so the rules that matter can be
-// tested without mounting anything.
+// The remote pane's view model, DOM-free so the rules that matter can be
+// tested without mounting anything. (The Fleet panel this once also served was
+// retired on 2026-09-05 — remote-sessions-in-the-sidebar; its list helpers
+// went with it.)
 //
 // Two rules carry the weight:
 //
@@ -78,81 +74,6 @@ export function fleetInputState(access: FleetTerminalAccess, link: FleetLinkStat
   if (link === 'live') return { canType: true, label: null }
   if (link === 'closed') return { canType: false, label: 'This terminal has ended.' }
   return { canType: false, label: 'Not connected — keystrokes are not being sent.' }
-}
-
-/** A machine row's secondary line: what it grants, and when we last reached it. */
-export function fleetConnectionSummary(
-  connection: FleetConnection,
-  formatDate: (value: string) => string
-): string {
-  const terminals =
-    connection.scopes.includes('terminal:control')
-      ? 'terminals: control'
-      : connection.scopes.includes('terminal:observe')
-        ? 'terminals: watch only'
-        : 'no terminal access'
-  const seen = connection.lastConnectedAt ? `Last reached ${formatDate(connection.lastConnectedAt)}` : 'Not reached yet'
-  return `${connection.endpoint} · ${terminals} · ${seen}`
-}
-
-export type FleetBrowseView = {
-  /** What the machine's contents area says instead of a list. Null when there is one to show. */
-  emptyMessage: string | null
-  /** True when the remote refused our credential — the one failure re-pairing fixes. */
-  needsRepair: boolean
-  workspaces: FleetBrowse['workspaces']
-  terminals: FleetTerminal[]
-  /** Parts this pairing may not read, as sentences to show beside what it can. */
-  gapMessages: string[]
-}
-
-/**
- * One machine's contents, and what to say when part of it is missing.
- *
- * A scope gap is shown NEXT TO the parts that did load rather than replacing
- * them: a device paired for terminals alone should still see its terminals, and
- * be told plainly why there are no workspaces beside them.
- */
-export function fleetBrowseView(browse: FleetBrowse | null, loading: boolean): FleetBrowseView {
-  if (!browse) {
-    return {
-      emptyMessage: loading ? 'Reading that machine.' : 'Open this machine to see what it holds.',
-      needsRepair: false,
-      workspaces: [],
-      terminals: [],
-      gapMessages: [],
-    }
-  }
-  if (!browse.reachable) {
-    return {
-      emptyMessage:
-        browse.unreachableReason ?? 'That machine did not answer. It may be asleep or off the tailnet.',
-      needsRepair: browse.unauthorized,
-      workspaces: [],
-      terminals: [],
-      gapMessages: [],
-    }
-  }
-  const gapMessages = browse.gaps.map((gap) => gap.message)
-  if (browse.workspaces.length === 0 && browse.terminals.length === 0) {
-    return {
-      emptyMessage:
-        gapMessages.length > 0
-          ? gapMessages.join(' ')
-          : 'That machine has no workspaces open and no terminals running.',
-      needsRepair: false,
-      workspaces: [],
-      terminals: [],
-      gapMessages: [],
-    }
-  }
-  return {
-    emptyMessage: null,
-    needsRepair: false,
-    workspaces: browse.workspaces,
-    terminals: browse.terminals,
-    gapMessages,
-  }
 }
 
 /** A terminal row's title: the agent's name where it has one, else the shell it is. */

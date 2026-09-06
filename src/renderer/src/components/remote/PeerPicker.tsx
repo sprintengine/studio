@@ -1,12 +1,12 @@
 import React from 'react'
 
-import type { TailnetScope } from '../../../../shared/tailnet'
+import type { TailnetDevice, TailnetScope } from '../../../../shared/tailnet'
 import type { FleetConnection, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { Checkbox, OutlineButton, PrimaryButton, StatusDot, Tooltip } from '../ui'
 import { RemoteMachineGlyph } from '../AppIcons'
 import { connectDirectionNote, peerPickerView } from './peerPickerModel'
-import { PAIR_SCOPE_ROWS } from './PairRequestCard'
+import { DEFAULT_PAIR_SCOPES } from './pairRequestAnswer'
 
 // The one machine picker (pair-from-the-scan-and-stay-paired, phase 1),
 // rendered by Settings → Remote and the Fleet alike. Scan, see every machine
@@ -20,6 +20,7 @@ export function PeerPicker({
   scanning,
   connections,
   reachability,
+  devices,
   now,
   onScan,
   onConnect,
@@ -34,6 +35,8 @@ export function PeerPicker({
   scanning: boolean
   connections: readonly FleetConnection[]
   reachability: ReadonlyMap<string, FleetMachineReachability>
+  /** Devices paired to this machine, so a paired phone is not read as a missing Studio. */
+  devices?: readonly TailnetDevice[]
   now: number
   onScan: () => void
   onConnect: (endpoint: string, reverseScopes: TailnetScope[] | null) => void
@@ -43,17 +46,14 @@ export function PeerPicker({
   intro?: string
 }) {
   const view = React.useMemo(
-    () => peerPickerView({ scan, scanning, connections, reachability, now }),
-    [scan, scanning, connections, reachability, now]
+    () => peerPickerView({ scan, scanning, connections, reachability, devices, now }),
+    [scan, scanning, connections, reachability, devices, now]
   )
   // The reverse offer, chosen once for the list: the structured families by
   // default, the terminal tier never — arbitrary shell on THIS machine is a
   // grant nobody ticked by default, in either direction.
   const [reverse, setReverse] = React.useState(true)
-  const reverseScopes = React.useMemo(
-    () => PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).flatMap((row) => row.scopes),
-    []
-  )
+  const reverseScopes = DEFAULT_PAIR_SCOPES
   const offerReverse = canOfferReverse && reverse
 
   return (

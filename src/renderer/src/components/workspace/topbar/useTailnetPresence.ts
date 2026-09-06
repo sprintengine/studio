@@ -62,6 +62,29 @@ export function fleetLiveSessionsOf(
   return next
 }
 
+/**
+ * The terminal sessions a paired device is looking at right now.
+ *
+ * The gateway already announces every terminal attach and detach with its
+ * session id (`onActivity`, kind `terminal`), and the service already folds
+ * that into `attachedTerminalSessions` per device — so "is a phone watching
+ * this agent" is a set membership, not new plumbing.
+ *
+ * A Set rather than the device list, because the caller is a tab render that
+ * asks the question once per agent: a scan of every device's array per tab is
+ * the same answer computed n times.
+ */
+export function useRemoteAttachedSessions(): ReadonlySet<string> {
+  const presence = useTailnetPresence()
+  return useMemo(() => {
+    const sessions = new Set<string>()
+    for (const device of presence.live.devices) {
+      for (const sessionId of device.attachedTerminalSessions) sessions.add(sessionId)
+    }
+    return sessions
+  }, [presence.live])
+}
+
 export function useTailnetPresence(): TailnetPresence {
   const [status, setStatus] = useState<TailnetRemoteStatus | null>(null)
   const [live, setLive] = useState<TailnetLiveState>(EMPTY_LIVE_STATE)

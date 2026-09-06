@@ -1,3 +1,4 @@
+import type { TailnetDevice } from '../../../../shared/tailnet'
 import type { FleetConnection, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { TailnetPeer, TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import type { Tone } from '../ui'
@@ -17,6 +18,17 @@ export type PeerRowState =
   | 'connectable'
   /** Already in the fleet; the row reports reachability instead of offering Connect. */
   | 'paired'
+  /**
+   * A device already paired TO this machine — a phone, or anything else that
+   * connects here rather than hosting a Studio of its own.
+   *
+   * Distinct from `no-studio`, which is the same silence read as a problem.
+   * A phone will never answer on 8471 and has no Remote setting to turn on, so
+   * telling someone to go and enable one is advice about a machine that is not
+   * broken (owner, 2026-09-05, seeing his own phone in this list under "turn
+   * on Remote in its Settings").
+   */
+  | 'device'
   /** Tailscale says online, but nothing answered on the probed port. */
   | 'no-studio'
   /** Tailscale says asleep or off. */
@@ -46,6 +58,12 @@ export function peerPickerView(input: {
   scanning: boolean
   connections: readonly FleetConnection[]
   reachability: ReadonlyMap<string, FleetMachineReachability>
+  /**
+   * Devices paired to THIS machine. They are matched to peers by the node name
+   * whois resolved at their last request, which is the only identity the two
+   * sides share.
+   */
+  devices?: readonly TailnetDevice[]
   now: number
 }): PeerPickerView {
   const { scan, scanning } = input
@@ -67,6 +85,13 @@ export function peerPickerView(input: {
     }
   }
   const byEndpoint = new Map(input.connections.map((connection) => [connection.endpoint, connection]))
+  const devicesByNode = new Map<string, TailnetDevice>()
+  for (const device of input.devices ?? []) {
+    const node = normalizeNode(device.lastPeerNode)
+    // A device that has never connected has no node to match on, and must not
+    // claim a peer row on the strength of its name alone.
+    if (node) devicesByNode.set(node, device)
+  }
   const rows = others.map((peer): PeerRow => {
     const endpoint = `${peer.address}:${scan.probedPort}`
     const connection = byEndpoint.get(endpoint) ?? null
@@ -76,6 +101,21 @@ export function peerPickerView(input: {
     }
     if (peer.studio) {
       return { peer, state: 'connectable', endpoint, connection: null, label: `Studio on port ${scan.probedPort}`, tone: 'good' }
+    }
+    // Checked after `studio`, so a Mac that both runs Studio and has paired a
+    // device from here still offers Connect: hosting is the more useful fact.
+    const device = matchDevice(devicesByNode, peer)
+    if (device) {
+      return {
+        peer,
+        state: 'device',
+        endpoint,
+        connection: null,
+        label: peer.online
+          ? `Paired with this Mac as ${device.name}`
+          : `Paired with this Mac as ${device.name} — asleep or off`,
+        tone: peer.online ? 'good' : 'neutral',
+      }
     }
     if (!peer.online) {
       return { peer, state: 'offline', endpoint, connection: null, label: 'Offline — Tailscale says it is asleep or off', tone: 'neutral' }
@@ -94,7 +134,7 @@ export function peerPickerView(input: {
   })
   // Connectable first, then paired, then the rest; alphabetical within each,
   // matching the scan's own reachable-before-sleeping order.
-  const rank: Record<PeerRowState, number> = { connectable: 0, paired: 1, 'no-studio': 2, offline: 3 }
+  const rank: Record<PeerRowState, number> = { connectable: 0, paired: 1, device: 2, 'no-studio': 3, offline: 4 }
   rows.sort((left, right) => rank[left.state] - rank[right.state] || left.peer.hostName.localeCompare(right.peer.hostName))
   return {
     emptyMessage: null,
@@ -103,11 +143,45 @@ export function peerPickerView(input: {
   }
 }
 
+/**
+ * Node names are compared lower-cased and without the trailing dot MagicDNS
+ * sometimes carries, because the two sides learn the name by different routes:
+ * the scan reads Tailscale's own listing, the device record keeps whatever
+ * whois answered at its last request.
+ */
+function normalizeNode(value: string | null): string | null {
+  const trimmed = value?.trim().toLowerCase().replace(/\.$/u, '') ?? ''
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * The device paired from this peer, or null.
+ *
+ * Matched on the full DNS name first and the short host name second: a tailnet
+ * with MagicDNS off reports no `dnsName` at all, and the device record then
+ * holds whatever short name whois gave.
+ */
+function matchDevice(devicesByNode: ReadonlyMap<string, TailnetDevice>, peer: TailnetPeer): TailnetDevice | null {
+  for (const candidate of [normalizeNode(peer.dnsName), normalizeNode(peer.hostName)]) {
+    if (!candidate) continue
+    const device = devicesByNode.get(candidate)
+    if (device) return device
+    // A short name matching the first label of a stored FQDN, for the reverse
+    // of the case above.
+    for (const [node, stored] of devicesByNode) {
+      if (node.split('.')[0] === candidate) return stored
+    }
+  }
+  return null
+}
+
 function pairedLabel(reach: FleetMachineReachability | null, now: number): { label: string; tone: Tone } {
   if (!reach || reach.checkedAt === null) return { label: 'Paired', tone: 'neutral' }
   if (reach.unauthorized) return { label: 'Paired here, but revoked there — pair again', tone: 'error' }
   if (reach.reachable) return { label: 'Paired · reachable', tone: 'good' }
-  return { label: `Paired · not answering${reach.lastReachedAt ? ` · last reached ${ago(reach.lastReachedAt, now)}` : ''}`, tone: 'neutral' }
+  // How long it has been silent, in the same words the Remote popover's rows
+  // use (owner ruling 2026-09-05): one vocabulary for one fact.
+  return { label: `Paired · not answering${reach.lastReachedAt ? ` · ${since(reach.lastReachedAt, now)}` : ''}`, tone: 'neutral' }
 }
 
 /**
@@ -122,6 +196,23 @@ export function connectDirectionNote(peerName: string, reverse: boolean): string
 }
 
 /** Coarse "2 h ago" for a row's secondary line; the chrome's finer clock is not needed here. */
+/**
+ * How long something has been true, without the "ago" — "8 min", "2 h". A row
+ * that already says what the state IS ("not answering") wants the duration of
+ * that state, not a second sentence about when it last was not (owner ruling
+ * 2026-09-05).
+ */
+export function since(thenMs: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((nowMs - thenMs) / 1000))
+  if (seconds < 60) return 'under a min'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h`
+  const days = Math.round(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'}`
+}
+
 export function ago(thenMs: number, nowMs: number): string {
   const seconds = Math.max(0, Math.round((nowMs - thenMs) / 1000))
   if (seconds < 45) return 'just now'

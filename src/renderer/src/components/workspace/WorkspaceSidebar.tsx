@@ -3,6 +3,7 @@ import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon }
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -53,6 +54,9 @@ import {
   type TabDragPayload,
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useRemoteSessions } from './remoteBand/useRemoteSessions'
+import { buildRemoteBand, openSpecOf, type RemoteSessionOpenSpec, type RemoteSessionRow } from './remoteBand/remoteSessionsModel'
+import { MACHINE_PHASE_DOT, machinePhaseText, shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
 import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
@@ -106,6 +110,11 @@ type WorkspaceSidebarProps = {
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   onSelectWorkspace: (id: WorkspaceId) => void
+  // Open a session that lives on a paired machine (the Remote band): focus
+  // the workspace here that already is it, or attach a new one. Absent in a
+  // host with no fleet (partial harnesses); the band then draws its rows
+  // and opens nothing.
+  onOpenRemoteSession?: (spec: RemoteSessionOpenSpec) => void
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
   onMoveWorkspaceToMainWindow: (id: WorkspaceId) => void
   onCloseWorkspace: (id: WorkspaceId) => void
@@ -142,6 +151,75 @@ type FolderGroup = {
 }
 
 const NULL_FOLDER_KEY = '__no_folder__'
+
+/**
+ * Which header each row files under, with repository identity applied
+ * (one-project-across-machines): a remote-born row whose machine reported
+ * the same repository as an OPEN local folder files under that folder's
+ * header — the person's project is one thing wherever its clones live — and
+ * wears the machine mark on its own line, since the header no longer says
+ * it. Everything else keeps `groupKeyOf`: local folders group by path
+ * exactly as before (two local clones of one repository stay two folders —
+ * a local worktree is deliberately its own header), and a remote row with no
+ * local twin keeps its machine · project header.
+ *
+ * Returned as a map rather than a function of one workspace because the
+ * answer depends on which OTHER folders are open.
+ */
+export function resolveGroupKeys(workspaces: readonly Workspace[], identities: FolderIdentityMap): Map<string, string> {
+  return resolveGroups(workspaces, identities).keys
+}
+
+/**
+ * The header facts a merged group takes from its local folder (the row that
+ * founds the group may be the remote one, which has no folder of its own).
+ */
+export type LocalGroupHeader = { key: string; folderPath: string; missing: boolean }
+
+export function resolveGroups(
+  workspaces: readonly Workspace[],
+  identities: FolderIdentityMap
+): { keys: Map<string, string>; headers: Map<string, LocalGroupHeader> } {
+  // The local twin per repository, chosen by a rule that does not move when
+  // rows are reordered or a chat is added: a plain checkout over a worktree
+  // (a worktree shares its checkout's remote, and is its own header), then
+  // the lexically first folder. Otherwise a remote row hopped between the
+  // two headers on unrelated actions.
+  const localByIdentity = new Map<string, { key: string; folder: string; worktree: boolean }>()
+  const keys = new Map<string, string>()
+  for (const workspace of workspaces) {
+    const key = groupKeyOf(workspace)
+    keys.set(workspace.id, key)
+    const folder = workspace.folderPath?.trim()
+    if (!folder || workspace.remoteOrigin) continue
+    const identity = identities.get(folderIdentityKey(folder))
+    if (!identity?.canonicalKey) continue
+    const candidate = {
+      key,
+      folder: folderIdentityKey(folder),
+      worktree: Boolean(workspace.worktree) || /\/\.multicode-worktrees\//u.test(folderIdentityKey(folder)),
+    }
+    const current = localByIdentity.get(identity.canonicalKey)
+    const better =
+      !current
+      || (current.worktree && !candidate.worktree)
+      || (current.worktree === candidate.worktree && candidate.folder < current.folder)
+    if (better) localByIdentity.set(identity.canonicalKey, candidate)
+  }
+  for (const workspace of workspaces) {
+    const repository = workspace.remoteOrigin?.repository
+    if (!repository?.canonicalKey) continue
+    const local = localByIdentity.get(repository.canonicalKey)
+    if (local) keys.set(workspace.id, local.key)
+  }
+  const headers = new Map<string, LocalGroupHeader>()
+  for (const workspace of workspaces) {
+    const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
+    if (workspace.remoteOrigin || !workspace.folderPath || headers.has(key)) continue
+    headers.set(key, { key, folderPath: workspace.folderPath, missing: workspace.folderMissing === true })
+  }
+  return { keys, headers }
+}
 
 // Folded (older/history) rows reveal in pages of this size — pressing the
 // "Show N older" row repeatedly pages through the remainder.
@@ -205,22 +283,31 @@ function remoteGroupDisplayName(workspace: Workspace): string {
   return fleetMachineNamesOf(workspace)[0] ?? 'No folder'
 }
 
-function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
+function buildFolderGroups(
+  workspaces: Workspace[],
+  keyOf: (workspace: Workspace) => string = groupKeyOf,
+  headers: ReadonlyMap<string, LocalGroupHeader> = new Map()
+): FolderGroup[] {
   const groupOrder: string[] = []
   const groups = new Map<string, FolderGroup>()
 
   for (const workspace of workspaces) {
-    const key = groupKeyOf(workspace)
+    const key = keyOf(workspace)
     if (!groups.has(key)) {
       groupOrder.push(key)
-      const remote = remoteGroupOf(workspace)
+      // A remote row filed under a local folder never founds the group with
+      // its own machine header: the header is the local folder's, read off
+      // the header map whatever row happens to come first in the list.
+      const merged = key !== groupKeyOf(workspace) ? headers.get(key) ?? null : null
+      const remote = merged ? null : remoteGroupOf(workspace)
+      const folderPath = merged ? merged.folderPath : workspace.folderPath
       groups.set(key, {
         key,
-        displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(workspace.folderPath),
+        displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(folderPath),
         // A remote group has no LOCAL path: nothing here may reveal, forget,
         // or create into a folder that lives on another machine.
-        fullPath: remote ? null : workspace.folderPath,
-        missing: remote ? false : workspace.folderMissing === true,
+        fullPath: remote ? null : folderPath,
+        missing: remote ? false : merged ? merged.missing : workspace.folderMissing === true,
         workspaces: [],
         remote,
       })
@@ -233,13 +320,35 @@ function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
   return groupOrder.map((key) => groups.get(key)!)
 }
 
-// No `shadow` member: the active row used to wear a 1px border box drawn as an
-// inset shadow on top of its fill, and `patterns/selection` is the fill and the
-// ink lift, nothing else (audit, sidebar-selected-row-wears-a-border-box).
+// No `shadow` member: the row's edge is not an accent's to carry. Selection's
+// 2px accent edge is drawn once by `SELECTION_EDGE_CLASS` below, on top of
+// whatever fill the row has — a neutral one, a highlight hue, or a status wash
+// — so no accent needs to ship an edge of its own.
 type RowAccent = {
   bg: string
   text: string
 }
+
+// Selection's edge: the 2px accent border the row of the pane you are driving
+// wears (owner ruling 2026-09-05; design-system/patterns/selection.html and
+// components/list-row).
+//
+// The complaint it answers, verbatim: "I'm finding it a little bit difficult to
+// really see which terminal I'm in control of." The selected row was a neutral
+// fill and an ink lift, which is one step of grey; the rows around it wearing
+// `needs-input` gold or `unseen-done` green were a hue, a whole-row wash AND a
+// ring. The loudest row on the rail was reliably not the one the person was in,
+// and the green ring in particular read as "you are here" because it is the
+// same mark the FOCUSED TERMINAL wears (`terminal-focus-ring`, a 2px
+// --border-focus border). So the two vocabularies are now split down the
+// middle: a tint says what happened on a row, an edge says which row you are
+// in, and the rail and the terminal it drives wear that edge together.
+//
+// `--selection-edge` rather than `--accent-primary` directly: the resting-tier
+// rules in assets/index.css rebind it to `transparent` on a pane that is not
+// holding focus, the same way they rebind the fill and the ink lift. Naming the
+// accent here would opt the sidebar out of tiering.
+const SELECTION_EDGE_CLASS = 'ring-2 ring-inset ring-[color:var(--selection-edge)]'
 
 // No `glyph` member either, and no per-mode entry left to hold one: the row
 // carries no icon since 2026-09-02 (the logo moved to the folder header, the
@@ -285,12 +394,13 @@ function highlightRailClass(workspace: Workspace): string {
   return `border-l-[4px] ${getHighlightSwatch(workspace.highlight!.color!).border}`
 }
 
-// The selected row is its fill and its ink lift — no left bar of its own. The
-// base row keeps `border-l-[4px] border-l-transparent`, so a highlight rail
-// appears and disappears without shifting the row's content sideways.
+// The selected row is its fill, its ink lift and the selection edge — no left
+// bar of its own. The base row keeps `border-l-[4px] border-l-transparent`, so
+// a highlight rail appears and disappears without shifting the row's content
+// sideways, and the edge is a ring so it never moves the row either.
 function activeRowClass(workspace: Workspace): string {
   const accent = rowAccent(workspace)
-  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text}`
+  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text} ${SELECTION_EDGE_CLASS}`
 }
 
 // Class fragment applied to inactive rows that have a highlight color set, so
@@ -345,9 +455,10 @@ function reorderFolders(
   workspaces: Workspace[],
   draggedKey: string,
   targetKey: string,
-  position: 'before' | 'after'
+  position: 'before' | 'after',
+  keyOf: (workspace: Workspace) => string = groupKeyOf
 ): WorkspaceId[] {
-  const groups = buildFolderGroups(workspaces)
+  const groups = buildFolderGroups(workspaces, keyOf)
   const draggedGroup = groups.find((g) => g.key === draggedKey)
   if (!draggedGroup) return workspaces.map((w) => w.id)
   const remaining = groups.filter((g) => g.key !== draggedKey)
@@ -599,39 +710,43 @@ export function isHookSettledSession(session: { processAlive: boolean; agentStat
   return state.phase === 'idle' || state.phase === 'awaiting_input'
 }
 
-// Needs-input is the loudest thing a row can say, so it now takes the row's
-// whole surface rather than a 6px dot in its corner (owner ruling 2026-09-04):
-// a gold tint, a gold edge all the way round, and the title in warn ink. The
-// dot is gone with it — status-dot's own spec calls a dot beside a surface
-// already saying the same thing a reject-on-sight, and a dot is the weakest
-// possible carrier for the one state that actually wants you to look.
+// Needs-input is the loudest thing a row can say, so it takes the row's whole
+// surface rather than a 6px dot in its corner (owner ruling 2026-09-04): a gold
+// tint and the title in warn ink. The dot is gone with it — status-dot's own
+// spec calls a dot beside a surface already saying the same thing a
+// reject-on-sight, and a dot is the weakest possible carrier for the one state
+// that actually wants you to look.
 //
-// The edge is a RING, not a left rail. A tone-coloured left bar is a ruled
-// rejection in this system (designSystemAxes' LEFT_TONE_BAR), and the 4px left
-// slot already belongs to a different vocabulary here — the user's highlight
-// colour, which is identity rather than severity. The base row's transparent
-// 4px border is left untouched so nothing shifts sideways.
+// The gold RING that used to close the tint is gone too (owner ruling
+// 2026-09-05). The edge belongs to selection now, and a status state may not
+// borrow it: while both drew edges, the loudest row on the rail was whichever
+// one had a status, never the one the person was actually in. A tint says what
+// happened here; the edge says where you are. A row that is both wears the wash
+// and, from `activeRowClass`, the accent edge — two marks answering two
+// questions instead of two spellings of one.
 //
-// Selection still reads underneath: an attention row that is also the active
-// one carries the heavier edge, so the pane's one selected row stays findable
-// without inventing a second gold.
+// A left rail was never on the table for either: a tone-coloured left bar is a
+// ruled rejection in this system (designSystemAxes' LEFT_TONE_BAR), and the 4px
+// left slot already belongs to a different vocabulary here — the user's
+// highlight colour, which is identity rather than severity.
 function attentionRowClass(active: boolean): string {
   return [
     'bg-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn-soft)]',
-    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
-    'ring-[color:var(--tone-warn)]',
+    // The wash is the same either way: what changes when the row is the active
+    // one is the accent edge, and that is selection's to add, not status's.
+    active ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-warn-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 // The unseen-done row is the same treatment in the good tone (owner ruling
-// 2026-09-04, replacing the bordered "Done" micro chip): a green fill, a green
-// ring all the way round, the title in good ink, and the same one-shot flash
-// on arrival — list-row's `--finished`. One notch under the gold by
-// construction (owner, same day: the first cut at full strength read heavy):
-// the fill is the 10% wash rather than the 18% soft, and the ring is the tone
-// at edge strength rather than full — a hairline at full emerald around a
-// whole row reads as a wire. It holds until the row is opened — `deriveUnseenCompletions`
+// 2026-09-04, replacing the bordered "Done" micro chip): a green fill, the
+// title in good ink, and the same one-shot flash on arrival — list-row's
+// `--finished`. One notch under the gold by construction (owner, same day: the
+// first cut at full strength read heavy): the fill is the 10% wash rather than
+// the 18% soft. It holds until the row is opened — `deriveUnseenCompletions`
 // clears the mark the moment the workspace becomes the active one — so the
 // surface, not a word in the corner, is what says "finished while you were
 // away". A chip was the wrong carrier for the same reason the dot was for
@@ -639,14 +754,21 @@ function attentionRowClass(active: boolean): string {
 // thing on the row. Needs-input still outranks it — a row that is both draws
 // gold, because that one needs an answer rather than a look.
 //
-// Exported for the row-meta suite, which pins the three good-tone channels.
+// The green ring this used to close with is gone (owner ruling 2026-09-05).
+// It was the single worst offender in the whole rail: a 2px green border around
+// a row is EXACTLY the mark the focused terminal wears, so the row that had
+// finished while you were away was the one row on screen that looked like the
+// one you were typing into. The wash stays; the edge went to selection.
+//
+// Exported for the row-meta suite, which pins the good-tone channels.
 export function doneRowClass(active: boolean): string {
   return [
     'bg-[color:var(--tone-good-faint)] hover:bg-[color:var(--tone-good-faint)]',
-    active ? 'ring-2 ring-inset' : 'ring-1 ring-inset',
-    'ring-[color:var(--tone-good-edge)]',
+    active ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-good-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -885,6 +1007,7 @@ export default function WorkspaceSidebar({
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
   onSelectWorkspace,
+  onOpenRemoteSession,
   onMoveWorkspaceToNewWindow,
   onMoveWorkspaceToMainWindow,
   onCloseWorkspace,
@@ -1004,6 +1127,7 @@ export default function WorkspaceSidebar({
   // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
   const [revealedStaleFolders, setRevealedStaleFolders] = useState<Record<string, number>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
+  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
@@ -1043,13 +1167,16 @@ export default function WorkspaceSidebar({
   }, [contextRailActive])
 
   const handleTreeRowKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId) => {
+    (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId | null, activate?: () => void) => {
       // Only the row itself steers the tree; keys from a focused child control
       // (rename input, row-action buttons) keep their own behavior.
       if (event.target !== event.currentTarget) return
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
-        onSelectWorkspace(workspaceId)
+        // A Remote band row with no workspace here yet activates by attaching
+        // (`activate`); every other row selects its workspace.
+        if (activate) activate()
+        else if (workspaceId) onSelectWorkspace(workspaceId)
         return
       }
       if (
@@ -1219,7 +1346,51 @@ export default function WorkspaceSidebar({
     [workspaces]
   )
 
-  const groups = useMemo(() => buildFolderGroups(railWorkspaces), [railWorkspaces])
+  // Rows born on a paired machine (`workspace.remoteOrigin`) are the Remote
+  // band's and only the band's (remote-sessions-in-the-sidebar, decision 1):
+  // they never file under a folder header, so the folder groups are built
+  // from the local rows alone. Starred stays additive — a starred remote row
+  // appears there too, as a starred local row appears beside its folder.
+  const localRailWorkspaces = useMemo(
+    () => railWorkspaces.filter((workspace) => !workspace.remoteOrigin),
+    [railWorkspaces]
+  )
+
+  // Repository identity per open local folder (one-project-across-machines),
+  // read once per folder. It no longer moves rows between headers — the band
+  // holds every remote row — but the reads stay: New chat's "Run on" is what
+  // still keys on which repository a local folder is.
+  const folderIdentities = useFolderRepositoryIdentities(
+    useMemo(() => localRailWorkspaces.map((workspace) => workspace.folderPath), [localRailWorkspaces])
+  )
+  // Resolved over the rail's rows, not every workspace: a local folder whose
+  // rows are all hidden or archived is not a header a remote row can join.
+  const resolvedGroups = useMemo(() => resolveGroups(localRailWorkspaces, folderIdentities), [localRailWorkspaces, folderIdentities])
+  const keyOf = useCallback(
+    (workspace: Workspace) => resolvedGroups.keys.get(workspace.id) ?? groupKeyOf(workspace),
+    [resolvedGroups]
+  )
+  const groups = useMemo(
+    () => buildFolderGroups(localRailWorkspaces, keyOf, resolvedGroups.headers),
+    [localRailWorkspaces, keyOf, resolvedGroups]
+  )
+
+  // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
+  // paired machine's sessions, read only while the band is open and this rail
+  // is the one showing; a machine that is asleep is drawn from its last read.
+  const remoteSessions = useRemoteSessions({ enabled: !remoteCollapsed && !contextRailActive })
+  const { presence: remotePresence, browses: remoteBrowses } = remoteSessions
+  const remoteGroups = useMemo(
+    () =>
+      buildRemoteBand({
+        connections: remotePresence.fleet,
+        browses: remoteBrowses,
+        attachments: remotePresence.fleetAttachments,
+        reachability: remotePresence.fleetReachability,
+        workspaces: railWorkspaces,
+      }),
+    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
+  )
 
   // A workspace is "live" while it shows a status dot — working, failed, or
   // waiting on input. Live rows sort above idle ones in the activity ordering.
@@ -1392,7 +1563,7 @@ export default function WorkspaceSidebar({
     const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
     if (drag.id === targetWorkspace.id) return
 
-    const folderWorkspaces = workspaces.filter((w) => groupKeyOf(w) === fKey)
+    const folderWorkspaces = workspaces.filter((w) => keyOf(w) === fKey)
     const localOrderedIds = reorderWithinFolder(folderWorkspaces, drag.id, targetWorkspace.id, position)
 
     // Stitch: rebuild the global workspace order, replacing the contiguous block
@@ -1439,7 +1610,7 @@ export default function WorkspaceSidebar({
     if (drag.folderKey === fKey) return
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
-    const newOrder = reorderFolders(workspaces, drag.folderKey, fKey, position)
+    const newOrder = reorderFolders(workspaces, drag.folderKey, fKey, position, keyOf)
     reorderWorkspaces(newOrder)
   }
 
@@ -1697,7 +1868,10 @@ export default function WorkspaceSidebar({
     const rowIsLive = rowSessions.length > 0
     const fleetMachines = rowIsLive ? provenanceMachinesOf(workspace) : []
     const gitSummary = rowIsLive ? gitSummaries[workspace.id] : undefined
-    const rowBranch = gitSummary?.branch ?? null
+    // A remote-born row's checkout is on another disk, so its branch is the
+    // one stamped at the create (checkout-and-branch-on-remote-create); the
+    // poll cannot read it and would otherwise leave the segment empty.
+    const rowBranch = gitSummary?.branch ?? (rowIsLive ? workspace.remoteOrigin?.checkout?.branch ?? null : null)
     const rowAdditions = gitSummary?.additions ?? 0
     const rowDeletions = gitSummary?.deletions ?? 0
     // How much the ±lines may claim (the-diff-an-agent-made): 'worktree' this
@@ -1974,6 +2148,51 @@ export default function WorkspaceSidebar({
     )
   }
 
+  // A session on a paired machine that no workspace here is attached to
+  // (remote-sessions-in-the-sidebar): the same two-line shape as a workspace
+  // row — title, then heads · machine · branch · diff with the status in the
+  // seat — and opening it attaches here. No drag, rename, or close: those are
+  // a workspace's, and this row has none until it is opened.
+  const renderRemoteSessionRow = (row: RemoteSessionRow) => {
+    const rowKey = `remote-session-${row.key}`
+    const open = () => onOpenRemoteSession?.(openSpecOf(row))
+    return (
+      <div
+        key={rowKey}
+        data-row-key={rowKey}
+        data-remote-session={row.sessionId}
+        tabIndex={rovingKey === rowKey ? 0 : -1}
+        onFocus={() => setRovingKey(rowKey)}
+        onKeyDown={(event) => handleTreeRowKeyDown(event, null, open)}
+        onClick={open}
+        // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        role="treeitem"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            {/* Weight marks a running pty, the way residency bolds a local row. */}
+            <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.live ? 'font-semibold' : ''}`} />
+            <span className="sr-only"> (on {row.machineName}, not open here)</span>
+          </span>
+        </div>
+        <WorkspaceRowMeta
+          sessions={[{ sessionId: row.sessionId, ...(row.cli ? { cli: row.cli } : {}), remote: true }]}
+          fleetMachines={[row.machineName]}
+          branch={row.branch}
+          additions={row.additions}
+          deletions={row.deletions}
+          diffScope={row.diffScope}
+          trailing={
+            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+              <StatusDot tone={row.status.tone} pulse={row.status.tone === 'good' && row.live} label={row.status.label} />
+            </span>
+          }
+        />
+      </div>
+    )
+  }
+
   // Renders a folder's workspace rows. Rows untouched for 5+ days collapse
   // behind a single "Show N older" disclosure at the bottom of the folder,
   // Cursor-style. Manual order is preserved within both the recent and folded
@@ -2245,8 +2464,91 @@ export default function WorkspaceSidebar({
             <div id="ws-starred-body" hidden={starredCollapsed}>
               {!starredCollapsed
                 ? starredWorkspaces.map((workspace) =>
-                    renderWorkspaceRow(workspace, groupKeyOf(workspace), { keyPrefix: 'starred-' })
+                    renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' })
                   )
+                : null}
+            </div>
+          </section>
+        ) : null}
+        {/* The Remote band (remote-sessions-in-the-sidebar): the sessions that
+            live on paired machines, one machine line each, placed like Starred
+            — above the folders, one icon slot, collapsible. Machine management
+            is not here (epic decision 3): Settings → Remote and the top bar's
+            Remote glyph add, forget, and revoke. */}
+        {remoteGroups.length > 0 ? (
+          <section className="relative pt-1" aria-label="Remote sessions">
+            <button
+              type="button"
+              onClick={() => setRemoteCollapsed((prev) => !prev)}
+              aria-expanded={!remoteCollapsed}
+              aria-controls="ws-remote-body"
+              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+            >
+              {/* Starred's one-slot idiom: the machine glyph at rest, the
+                  collapse chevron swapped in on hover. */}
+              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+                <RemoteMachineGlyph className="icon-sm shrink-0 text-[color:var(--text-muted)] transition-opacity group-hover/folder:opacity-0" />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                    remoteCollapsed ? '-rotate-90' : ''
+                  }`}
+                >
+                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+                Remote
+              </span>
+            </button>
+            <div id="ws-remote-body" hidden={remoteCollapsed}>
+              {!remoteCollapsed
+                ? remoteGroups.map((group) => {
+                    const dot = group.phase ? MACHINE_PHASE_DOT[group.phase.phase] : null
+                    const phaseText = group.phase
+                      ? machinePhaseText(group.machineName, group.phase, now)
+                      : `${group.machineName} is no longer paired here`
+                    const empty = group.rows.length === 0 && group.parked.length === 0
+                    return (
+                      <div key={group.key} data-remote-machine={group.machineName}>
+                        {/* design-tokens-allow: alignment — the machine line shares the rows' 26px inset so its name sits on the content column */}
+                        <div
+                          className="flex h-control-xs min-w-0 items-center gap-1.5 pl-[26px] pr-2 text-meta text-[color:var(--text-muted)]"
+                          title={phaseText}
+                        >
+                          {dot ? <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} /> : null}
+                          <span className="min-w-0 truncate font-medium text-[color:var(--text-default)]">
+                            {shortMachineName(group.machineName)}
+                          </span>
+                          {group.loading && empty ? <span className="shrink-0">reading…</span> : null}
+                        </div>
+                        {/* Rows from an earlier read on a machine that is not
+                            answering now: kept, drawn quieter, still openable
+                            — the attach itself says whether it answers. */}
+                        <div className={group.stale ? 'opacity-60' : ''}>
+                          {group.rows.map((row) => {
+                            const attached = row.attachedWorkspaceId ? workspaceById.get(row.attachedWorkspaceId) : undefined
+                            return attached
+                              ? renderWorkspaceRow(attached, `remote:${group.key}`, { keyPrefix: 'remote-' })
+                              : renderRemoteSessionRow(row)
+                          })}
+                          {group.parked.map((workspace) =>
+                            renderWorkspaceRow(workspace, `remote:${group.key}`, { keyPrefix: 'remote-' })
+                          )}
+                        </div>
+                        {empty && !group.loading ? (
+                          <>
+                            {/* design-tokens-allow: alignment — the notice takes the rows' 26px inset */}
+                            <p className="pl-[26px] pr-2 py-1 text-meta text-[color:var(--text-subtle)]">
+                              {group.notice ?? 'No sessions open.'}
+                            </p>
+                          </>
+                        ) : null}
+                      </div>
+                    )
+                  })
                 : null}
             </div>
           </section>
@@ -2596,7 +2898,10 @@ export default function WorkspaceSidebar({
         {confirmForget ? (
           (() => {
             const group = groups.find((g) => g.fullPath === confirmForget)
-            const count = group?.workspaces.length ?? 0
+            // Forgetting a folder closes its LOCAL rows; a paired machine's
+            // clone filed under it keeps its own machine header afterwards,
+            // so it is not counted as something this closes.
+            const count = group?.workspaces.filter((workspace) => !workspace.remoteOrigin).length ?? 0
             return (
               <>
                 <ModalHeader

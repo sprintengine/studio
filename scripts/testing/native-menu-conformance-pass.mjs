@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 
 const run = promisify(execFile)
 const require = createRequire(import.meta.url)
@@ -164,7 +165,7 @@ async function main() {
   }
 
   try {
-    await app.firstWindow().catch(() => {})
+    await resolveMainWindow(app).catch(() => {})
     const page = await primaryWindow()
     page.on('console', (m) => {
       if (m.type() === 'error') console.error(`[renderer] ${m.text()}`)
@@ -179,12 +180,10 @@ async function main() {
     })
     await page.waitForTimeout(1500)
 
-    // --- New Standard workspace over the seeded folder. `MULTICODE_TEST_OPEN_DIR`
-    // makes the folder picker resolve to it without a native dialog. ---
-    await domClick(page, page.locator('button').filter({ hasText: /^Workspace$/ }))
-    await domClick(page, page.locator('button').filter({ hasText: /^Browse$/ }))
-    await page.waitForTimeout(1200)
-    await domClick(page, page.locator('button').filter({ hasText: /^Create workspace$/ }))
+    // --- A workspace over the seeded folder, through New chat — the product's
+    // one door (MC-2436). `MULTICODE_TEST_OPEN_DIR` makes Browse… resolve to it
+    // without a native dialog. ---
+    await createWorkspaceThroughNewChat(page, { folder: workspaceDir })
     await page.waitForFunction(() => document.querySelectorAll('[role="treeitem"]').length > 0, null, {
       timeout: 30000,
     })

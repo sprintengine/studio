@@ -1,4 +1,5 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type { ObservedCheckout } from './observed-checkout'
 // Type-only both ways (agent-launch.ts imports this module's McpSettings /
 // permission-preset vocabulary), so the cycle erases at compile time and no
 // runtime import exists in either direction.
@@ -85,11 +86,14 @@ import type {
   TailnetScope,
 } from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
+import type { RepositoryIdentity } from './repository-identity'
 import type {
   FleetAttachResult,
   FleetBrowse,
   FleetConnection,
   FleetCreateTerminalResult,
+  FleetCheckoutRequest,
+  FleetWorkspaceCheckoutResult,
   FleetEvent,
   FleetLiveState,
   FleetPairResult,
@@ -706,8 +710,9 @@ export type HostedModelFeedReadResult =
       fetchedAt: string
       etag?: string
       notModified?: boolean
-      // True when this read replaced the previous copy with a different one —
-      // what fires `hostedModelFeed:changed` and the new-models notice.
+      // True when this read wrote a different copy to the disk cache (the first
+      // live copy after install counts, even if it equals the bundled seed).
+      // Fires `hostedModelFeed:changed`; the renderer decides whether it is news.
       changed: boolean
       feed: HostedModelFeed
       message?: string
@@ -1402,6 +1407,13 @@ export type TerminalSessionSnapshot = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
+  // Where the session's own hooks last saw it, resolved through git into the
+  // checkout containing that cwd (MC-2440). Distinct from the launch-intent
+  // fields above (`cwd`, `worktreePath`): an agent that creates a worktree and
+  // moves into it, or is launched by hand into one the app did not make, is
+  // only describable here. Absent for plain terminals and for CLIs whose hooks
+  // carry no cwd; `resolved: false` until git has answered.
+  observedCheckout?: ObservedCheckout
   agentSession?: AgentSessionIdentity
   // Present only on sessions the main-process AgentLaunchService composed
   // (MC-2159): the launch decisions main made — name, CLI, model, permission
@@ -3247,7 +3259,15 @@ export type ElectronApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    /**
+     * Where the chat runs there (checkout-and-branch-on-remote-create): the
+     * workspace's current checkout, or a fresh worktree branched from
+     * `baseRef`. The current checkout when absent.
+     */
+    checkout?: FleetCheckoutRequest
   }) => Promise<FleetCreateTerminalResult>
+  /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
+  fleetWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<FleetWorkspaceCheckoutResult>
   /**
    * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`
    * on the same `attachId` FIRST — the replay is the first thing that arrives.
@@ -3490,6 +3510,11 @@ export type ElectronApi = {
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage) => Promise<GitFileStageResult>
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
+  /**
+   * Which repository a folder is a clone of — its primary remote, normalised
+   * (one-project-across-machines). Null for a non-repo or a remote-less one.
+   */
+  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentity | null>
   getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflicts: (repoRoot: string) => Promise<GitConflictSnapshot>

@@ -10,7 +10,6 @@ import {
   LifecycleGlyph,
   MenuItem,
   OverflowMenu,
-  PanelHeader,
   Popover,
   PrimaryButton,
   RefreshIcon,
@@ -1398,10 +1397,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
 
 
-  // Refresh sits in this menu rather than beside the plus: PanelHeader carries
-  // ONE primary action, and stacking a second glyph in that slot is what gave
+  // Refresh sits in this menu rather than beside the plus: the band carries
+  // ONE primary action, and stacking a second glyph beside it is what gave
   // every panel a different action cluster (2112). Creating an item is the
-  // action the panel exists for, so the plus keeps the slot and re-scanning —
+  // action the panel exists for, so the plus keeps its place and re-scanning —
   // still one click away — moves in here.
   const backlogOverflowItems: OverflowMenuItem[] = folderPath
     ? [
@@ -1476,7 +1475,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     }))
   }, [items])
 
-  // The header count is the visible row count. The two whole-set views — Active
+  // The band's count is the visible row count. The two whole-set views — Active
   // (the default working set) and All items (the firehose) — read as "the
   // backlog" and carry no scope word; every narrowing lens (Completed, Archived,
   // the triage presets) labels its scope so a bare number never reads as the
@@ -1760,18 +1759,25 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       className="flex h-full min-h-0 flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-default)]"
       aria-label="Backlog"
     >
-      <PanelHeader
-        title="Backlog"
-        count={filtered.length}
-        subtitle={headerScopeLabel}
-        primaryAction={newPlanButton}
-        overflow={backlogOverflow}
-        divider={false}
-      />
-
-      <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      {/*
+       * The panel's one chrome row: search on the left, the count, the filter
+       * glyph and the actions on the right (owner, 2026-09-05).
+       *
+       * It used to be a PanelHeader reading "Backlog · 297" with the search
+       * band on a second row below it. The word was already on screen — the
+       * pane tab this panel lives in is labelled "Backlog" — so the identity
+       * row was a band of chrome that said nothing the surface did not,
+       * stacked above the band that did. Same ruling, same geometry as the Git
+       * pane's band, so the three pane tabs start their content level.
+       *
+       * The count is the visible row count and keeps its scope word: the two
+       * whole-set views (Active, All) read as "the backlog" and carry a bare
+       * number; every narrowing lens labels its scope so the number never
+       * reads as the whole backlog (T16 AC3).
+       */}
+      <div className="flex h-[36px] shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] pl-2 pr-1.5">
         <div
-          className="flex min-w-0 flex-1 basis-[10rem]"
+          className="flex min-w-0 flex-1"
           onKeyDown={(event) => {
             // Esc clears the query while the search field is focused (design §8).
             if (event.key === 'Escape' && search) {
@@ -1800,6 +1806,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           onGroupChange={handleGroupChange}
           className="shrink-0"
         />
+        <span className="shrink-0 px-1 text-micro tabular-nums text-[color:var(--text-muted)]">
+          {filtered.length}
+          {headerScopeLabel ? ` ${headerScopeLabel}` : null}
+        </span>
+        {newPlanButton}
+        {backlogOverflow}
       </div>
 
       {actionError ? (

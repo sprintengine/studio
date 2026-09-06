@@ -1,9 +1,10 @@
 /* List row — the pick-an-item worklist row, and the most repeated surface in
  * the product: rails, sources, inboxes, categories, search results.
  *
- * Family contract: neutral selection (never the accent), two selection tiers
- * so a multi-pane surface has one focused selection, background-only hover,
- * and trailing actions that stay hidden until pointed at or focused. */
+ * Family contract: a neutral selection FILL plus an accent EDGE on the pane
+ * being driven, two selection tiers so a multi-pane surface has one such row,
+ * background-only hover, and trailing actions that stay hidden until pointed
+ * at or focused. */
 
 .ds-list-row {
   /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
@@ -49,11 +50,29 @@
 
 /* ── Selection ───────────────────────────────────────────────────────────
  * Two tiers. `--selected` is the pane the user is driving; `--resting` is
- * every other pane's remembered choice. Selection is neutral in both: the
- * accent is reserved for the primary action, so a chosen row never outranks
- * the one thing worth clicking. */
+ * every other pane's remembered choice.
+ *
+ * `--selected` is a neutral fill PLUS a 2px inset accent edge (owner ruling
+ * 2026-09-05). The fill alone lost: one step of neutral grey is the quietest
+ * mark on the surface, and any row wearing a status tint — which is a hue,
+ * a whole-row wash and an ink change — read as the chosen one instead. The
+ * person could not find the row their keyboard was driving.
+ *
+ * The edge, not the fill: an accent FILL would still be wrong, because the
+ * accent's other job is "this is the action worth clicking" and a filled row
+ * outranks the button beside it. An edge marks the row without claiming that
+ * weight. It is also the same 2px accent border the focused terminal wears
+ * (`terminal-focus-ring`), so the row in the rail and the surface it drives
+ * carry one mark between them — which is the question this treatment exists
+ * to answer.
+ *
+ * `--resting` takes the fill and NOT the edge. That is the whole two-tier
+ * rule made visible: exactly one edge on screen, on the pane with focus.
+ *
+ * Still ruled out, unchanged: an accent fill, a left bar, a glow. */
 .ds-list-row--selected {
   background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
   color: var(--sem-color-text-primary);
 }
 
@@ -257,30 +276,35 @@
 }
 
 /* ── Attention ───────────────────────────────────────────────────────────
- * The two things a row can say that outrank selection: an agent on it is
- * waiting for the person (`--needs-input`), or it finished while they were
- * looking elsewhere and they have not opened it since (`--finished`). Each
- * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
- * the title in the tone's ink — because a dot or a chip beside an otherwise
- * quiet row is the weakest possible carrier for the one state that actually
- * wants the person to look (owner ruling 2026-09-04, twice: first the
- * needs-input dot, then the "Done" chip).
+ * The two things a row can say on its own: an agent on it is waiting for the
+ * person (`--needs-input`), or it finished while they were looking elsewhere
+ * and they have not opened it since (`--finished`). Each takes the WHOLE row
+ * — a tinted fill and the title in the tone's ink — because a dot or a chip
+ * beside an otherwise quiet row is the weakest possible carrier for the one
+ * state that actually wants the person to look (owner ruling 2026-09-04,
+ * twice: first the needs-input dot, then the "Done" chip).
  *
- * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
- * in this system (the leading gutter belongs to the cursor and to identity),
- * and `box-shadow` inset draws it without shifting the row's geometry.
+ * A FILL, and only a fill. The edge is selection's channel and status may not
+ * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).
+ * A green ring around a finished row is indistinguishable from the accent
+ * edge on the row being driven — and because the ring is the louder of the
+ * two marks, a row saying "I finished while you were out" was read as "this
+ * is the one you are in". The two questions are answered by two channels:
+ * status is the wash, selection is the edge, and a row can wear both at once
+ * without either being mistaken for the other.
+ *
+ * A left bar remains a ruled rejection for both: the leading gutter belongs
+ * to the cursor and to identity.
  *
  * `--finished` is one notch under `--needs-input` by construction: it asks
  * for a look, not an answer, so its fill is `status.good-faint` rather than
- * `-soft` and its ring is `status.good-edge` rather than the full tone.
- * When a row is both, needs-input wins.
+ * `-soft`. When a row is both, needs-input wins.
  *
  * Both hold until the person opens the row — a finished row clears the moment
  * it becomes the selected one — and both are colour PLUS words: the trailing
  * slot or a visually-hidden clause says "needs input" / "finished" in text. */
 .ds-list-row--needs-input {
   background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
   color: var(--sem-color-status-warn);
 }
 
@@ -290,7 +314,6 @@
 
 .ds-list-row--finished {
   background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
   color: var(--sem-color-status-good);
 }
 
@@ -298,19 +321,10 @@
   background: var(--sem-color-status-good-faint);
 }
 
-/* Selection reads underneath: the pane's one selected row keeps a heavier
- * edge, so it stays findable without inventing a second gold or green. */
-.ds-list-row--needs-input.ds-list-row--selected {
-  background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
-  color: var(--sem-color-status-warn);
-}
-
-.ds-list-row--finished.ds-list-row--selected {
-  background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
-  color: var(--sem-color-status-good);
-}
+/* Nothing to restate for the selected case: these rules declare no
+ * `box-shadow`, so the accent edge set by `--selected` survives underneath a
+ * status wash untouched. That composition IS the contract — the tint says
+ * what happened, the edge says where you are. */
 
 .ds-list-row--needs-input .ds-list-row-supporting,
 .ds-list-row--finished .ds-list-row-supporting,

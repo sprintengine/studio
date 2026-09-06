@@ -192,8 +192,12 @@ export class HostedModelFeedClient {
 
     const etag = response.headers.get('etag') ?? undefined
     const fetchedAt = this.now().toISOString()
-    const previous = cache?.feed ?? seed
-    const changed = !previous || JSON.stringify(previous) !== JSON.stringify(parsed.feed)
+    // `changed` is "the cache on disk is now different", measured against the
+    // cache alone. The first live fetch after install (no cache yet) counts even
+    // when its body matches the bundled seed: the renderer booted on the seed,
+    // and this is the read that tells it the live copy is in hand. Whether that
+    // is news is the renderer's rule (seed -> live is not), not the client's.
+    const changed = !cache || JSON.stringify(cache.feed) !== JSON.stringify(parsed.feed)
     await this.writeCache({ schemaVersion: 1, feedUrl, ...(etag ? { etag } : {}), fetchedAt, feed: parsed.feed })
     this.lastFailureAtMs = null
     return { ok: true, state: 'ok', feedUrl, source: 'network', fetchedAt, ...(etag ? { etag } : {}), changed, feed: parsed.feed }

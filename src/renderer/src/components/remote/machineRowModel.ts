@@ -1,6 +1,6 @@
 import type { FleetLiveAttachment, FleetLinkState, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { StatusTone } from '../ui/tokens'
-import { ago } from './peerPickerModel'
+import { ago, since } from './peerPickerModel'
 
 // A paired machine's row, wherever one is drawn (the Remote popover, the
 // Fleet, Settings): its phase from the links this app holds to it, and —
@@ -72,7 +72,10 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
     case 'reachable':
       return `reachable · checked ${ago(phase.checkedAt, now)}`
     case 'unreachable':
-      return phase.lastReachedAt ? `not answering · last reached ${ago(phase.lastReachedAt, now)}` : 'not answering · never reached'
+      // How long it has been silent, not a second clause about when it last
+      // was not: the state is already named, and the row has a Retry and a
+      // Disconnect to fit beside it.
+      return phase.lastReachedAt ? `not answering · ${since(phase.lastReachedAt, now)}` : 'not answering · never reached'
     case 'revoked':
       return 'revoked there — pair again to reconnect'
   }
@@ -83,4 +86,54 @@ export function machineRowAction(phase: FleetMachinePhase): 'retry' | 'pair-agai
   if (phase.phase === 'revoked') return 'pair-again'
   if (phase.phase === 'unreachable' || phase.phase === 'offline') return 'retry'
   return null
+}
+
+/**
+ * The name a row shows for a machine. A tailnet FQDN
+ * (`dev-macbook-air.tail1234.ts.net`) is one machine's name plus a tail
+ * that is the same on every row — it pushes the part a person reads out of a
+ * narrow row and into an ellipsis. The first label is the name; anything
+ * without a dotted tail is left exactly as it was typed.
+ */
+export function shortMachineName(name: string): string {
+  const trimmed = name.trim()
+  // Only a hostname is shortened, and only when the whole string is one:
+  // "Conal's MacBook Air. Studio" is a typed name with a full stop in it, and
+  // "100.106.119.1" is an address — a first label from either would be a lie.
+  if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(trimmed)) return trimmed
+  if (/^\d+(?:\.\d+)+$/u.test(trimmed)) return trimmed
+  return trimmed.split('.')[0] ?? trimmed
+}
+
+/** The shape the driven-terminal lookup needs from a terminal-session snapshot. */
+export type DrivenTerminalSession = {
+  sessionId: string
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+}
+
+/**
+ * What a phone is driving, in words a person can act on: the agent's name and
+ * the tab to open, resolved from the terminal session id the gateway reports.
+ *
+ * The id itself is never the answer — `ae260b2f-…` is the one thing on the row
+ * nobody can read (owner ruling 2026-09-05). A session the app cannot place
+ * (a plain terminal, or one already gone) still gets a line: what it says is
+ * "a terminal", not a truncated uuid pretending to be a name.
+ */
+export function drivenTerminalView(
+  sessionId: string,
+  sessions: readonly DrivenTerminalSession[],
+  agentName: (workspaceId: string, agentId: string) => string | null
+): { label: string; target: { workspaceId: string; agentId: string } | null } {
+  const session = sessions.find((candidate) => candidate.sessionId === sessionId)
+  if (!session?.workspaceId || !session.agentId) {
+    return { label: session?.agentName?.trim() || 'a terminal', target: null }
+  }
+  const named = agentName(session.workspaceId, session.agentId)?.trim()
+  return {
+    label: named || session.agentName?.trim() || 'an agent',
+    target: { workspaceId: session.workspaceId, agentId: session.agentId },
+  }
 }

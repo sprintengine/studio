@@ -25,6 +25,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -190,7 +191,7 @@ async function launch(electron, electronPath) {
   proc.stdout?.on('data', (chunk) => process.stdout.write(`[app] ${chunk}`))
   proc.stderr?.on('data', (chunk) => process.stderr.write(`[app] ${chunk}`))
   step('waiting for first window')
-  const page = await app.firstWindow()
+  const page = await resolveMainWindow(app)
   await page.waitForLoadState('domcontentloaded')
   step('window ready')
   return { app, page }

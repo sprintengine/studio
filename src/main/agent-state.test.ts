@@ -128,6 +128,13 @@ async function run(): Promise<void> {
   assert.equal(resolvePhase(claudeSpec, 'UserPromptSubmit'), 'thinking')
   assert.equal(resolvePhase(claudeSpec, 'PreToolUse'), 'tool_use')
   assert.equal(resolvePhase(claudeSpec, 'PostToolUse'), 'thinking')
+  // Claude's CwdChanged is deliberately NOT registered (MC-2440): older
+  // `claude` builds skip a settings value they cannot validate, so an unknown
+  // hook event name could cost the whole hooks block, and the cwd it would
+  // carry already rides the PostToolUse frame of the tool call that moved it.
+  // An unregistered frame for it (a stale registration) drops like any other.
+  assert.equal(resolvePhase(claudeSpec, 'CwdChanged'), null)
+  assert.ok(!registeredAgentStateEvents(claudeSpec).some((e) => e.event === 'CwdChanged'))
   assert.equal(resolvePhase(claudeSpec, 'Stop'), 'idle')
   // A subagent starting or stopping is the PARENT doing work: never idle.
   assert.equal(resolvePhase(claudeSpec, 'SubagentStart'), 'tool_use')
@@ -309,6 +316,27 @@ async function run(): Promise<void> {
       999
     )?.notificationType,
     undefined
+  )
+  // …the observed cwd (MC-2440) must be absolute on some platform and capped;
+  // a bad value drops the field, never the frame…
+  const cwdOf = (cwd: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd }, 999)?.cwd
+  assert.equal(cwdOf('/Users/me/proj'), '/Users/me/proj')
+  assert.equal(cwdOf('/Users/me/proj\n'), '/Users/me/proj', 'a newline-terminated cwd is trimmed')
+  assert.equal(cwdOf('C:\\Users\\me\\proj'), 'C:\\Users\\me\\proj', 'Windows drive path')
+  assert.equal(cwdOf('C:/Users/me/proj'), 'C:/Users/me/proj', 'forward-slashed Windows drive path')
+  assert.equal(cwdOf('\\\\server\\share\\proj'), '\\\\server\\share\\proj', 'UNC path')
+  assert.equal(cwdOf('proj/sub'), undefined, 'relative cwd is dropped')
+  assert.equal(cwdOf('./proj'), undefined, 'dot-relative cwd is dropped')
+  assert.equal(cwdOf('~/proj'), undefined, 'tilde cwd is dropped (not absolute)')
+  assert.equal(cwdOf(''), undefined)
+  assert.equal(cwdOf('   '), undefined)
+  assert.equal(cwdOf(42), undefined)
+  assert.equal(cwdOf('/' + 'x'.repeat(5000)), undefined, 'oversized cwd is dropped')
+  assert.equal(
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd: 'relative' }, 999)?.event,
+    'PostToolUse',
+    'a bad cwd never drops the frame'
   )
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(

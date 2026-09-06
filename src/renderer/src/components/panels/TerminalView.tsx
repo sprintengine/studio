@@ -466,9 +466,30 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       }
     }
 
+    /**
+     * Take the pty's size back for this screen.
+     *
+     * A pty has ONE size and every attached client shares it, so a phone
+     * opening this thread resizes it to about 40 columns and the terminal here
+     * reflows to match (owner, 2026-09-05: "how do I get it to resize to the
+     * correct size again on the computer?"). Focusing it here is the answer —
+     * the same last-writer-wins rule, driven from the side you are actually
+     * working on.
+     *
+     * It sends the dimensions this terminal already has rather than re-fitting:
+     * nothing about THIS window changed, so a fit would compute the same
+     * numbers it already holds. What has to change is the pty's idea of them.
+     */
+    const reclaimPtySize = () => {
+      if (term.cols > 0 && term.rows > 0) {
+        void window.api.terminalResize(sessionId, term.cols, term.rows)
+      }
+    }
+
     const focusTerminal = () => {
       terminalDiagnostics.recordFocus()
       term.focus()
+      reclaimPtySize()
     }
     focusTerminalRef.current = focusTerminal
 
@@ -500,6 +521,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     term.open(container)
     fitTerminal()
     focusTerminal()
+
+    // Clicking the terminal focuses xterm's own textarea directly, so the
+    // reclaim rides THAT rather than `focusTerminal`, which only runs on the
+    // programmatic paths (mount, and a drop onto the pane).
+    const textarea = term.textarea
+    textarea?.addEventListener('focus', reclaimPtySize)
 
     const linkExecutionRoot = resolveAgentExecutionRoot(
       currentContext().agent?.execution,
@@ -1277,6 +1304,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     return () => {
       disposed = true
+      textarea?.removeEventListener('focus', reclaimPtySize)
       if (shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
       } else {

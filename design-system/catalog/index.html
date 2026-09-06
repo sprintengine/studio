@@ -2330,9 +2330,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 /* List row — the pick-an-item worklist row, and the most repeated surface in
  * the product: rails, sources, inboxes, categories, search results.
  *
- * Family contract: neutral selection (never the accent), two selection tiers
- * so a multi-pane surface has one focused selection, background-only hover,
- * and trailing actions that stay hidden until pointed at or focused. */
+ * Family contract: a neutral selection FILL plus an accent EDGE on the pane
+ * being driven, two selection tiers so a multi-pane surface has one such row,
+ * background-only hover, and trailing actions that stay hidden until pointed
+ * at or focused. */
 
 .ds-list-row {
   /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
@@ -2378,11 +2379,29 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 /* ── Selection ───────────────────────────────────────────────────────────
  * Two tiers. `--selected` is the pane the user is driving; `--resting` is
- * every other pane's remembered choice. Selection is neutral in both: the
- * accent is reserved for the primary action, so a chosen row never outranks
- * the one thing worth clicking. */
+ * every other pane's remembered choice.
+ *
+ * `--selected` is a neutral fill PLUS a 2px inset accent edge (owner ruling
+ * 2026-09-05). The fill alone lost: one step of neutral grey is the quietest
+ * mark on the surface, and any row wearing a status tint — which is a hue,
+ * a whole-row wash and an ink change — read as the chosen one instead. The
+ * person could not find the row their keyboard was driving.
+ *
+ * The edge, not the fill: an accent FILL would still be wrong, because the
+ * accent's other job is "this is the action worth clicking" and a filled row
+ * outranks the button beside it. An edge marks the row without claiming that
+ * weight. It is also the same 2px accent border the focused terminal wears
+ * (`terminal-focus-ring`), so the row in the rail and the surface it drives
+ * carry one mark between them — which is the question this treatment exists
+ * to answer.
+ *
+ * `--resting` takes the fill and NOT the edge. That is the whole two-tier
+ * rule made visible: exactly one edge on screen, on the pane with focus.
+ *
+ * Still ruled out, unchanged: an accent fill, a left bar, a glow. */
 .ds-list-row--selected {
   background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
   color: var(--sem-color-text-primary);
 }
 
@@ -2586,30 +2605,35 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* ── Attention ───────────────────────────────────────────────────────────
- * The two things a row can say that outrank selection: an agent on it is
- * waiting for the person (`--needs-input`), or it finished while they were
- * looking elsewhere and they have not opened it since (`--finished`). Each
- * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
- * the title in the tone's ink — because a dot or a chip beside an otherwise
- * quiet row is the weakest possible carrier for the one state that actually
- * wants the person to look (owner ruling 2026-09-04, twice: first the
- * needs-input dot, then the "Done" chip).
+ * The two things a row can say on its own: an agent on it is waiting for the
+ * person (`--needs-input`), or it finished while they were looking elsewhere
+ * and they have not opened it since (`--finished`). Each takes the WHOLE row
+ * — a tinted fill and the title in the tone's ink — because a dot or a chip
+ * beside an otherwise quiet row is the weakest possible carrier for the one
+ * state that actually wants the person to look (owner ruling 2026-09-04,
+ * twice: first the needs-input dot, then the "Done" chip).
  *
- * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
- * in this system (the leading gutter belongs to the cursor and to identity),
- * and `box-shadow` inset draws it without shifting the row's geometry.
+ * A FILL, and only a fill. The edge is selection's channel and status may not
+ * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).
+ * A green ring around a finished row is indistinguishable from the accent
+ * edge on the row being driven — and because the ring is the louder of the
+ * two marks, a row saying "I finished while you were out" was read as "this
+ * is the one you are in". The two questions are answered by two channels:
+ * status is the wash, selection is the edge, and a row can wear both at once
+ * without either being mistaken for the other.
+ *
+ * A left bar remains a ruled rejection for both: the leading gutter belongs
+ * to the cursor and to identity.
  *
  * `--finished` is one notch under `--needs-input` by construction: it asks
  * for a look, not an answer, so its fill is `status.good-faint` rather than
- * `-soft` and its ring is `status.good-edge` rather than the full tone.
- * When a row is both, needs-input wins.
+ * `-soft`. When a row is both, needs-input wins.
  *
  * Both hold until the person opens the row — a finished row clears the moment
  * it becomes the selected one — and both are colour PLUS words: the trailing
  * slot or a visually-hidden clause says "needs input" / "finished" in text. */
 .ds-list-row--needs-input {
   background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
   color: var(--sem-color-status-warn);
 }
 
@@ -2619,7 +2643,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 .ds-list-row--finished {
   background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
   color: var(--sem-color-status-good);
 }
 
@@ -2627,19 +2650,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   background: var(--sem-color-status-good-faint);
 }
 
-/* Selection reads underneath: the pane's one selected row keeps a heavier
- * edge, so it stays findable without inventing a second gold or green. */
-.ds-list-row--needs-input.ds-list-row--selected {
-  background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
-  color: var(--sem-color-status-warn);
-}
-
-.ds-list-row--finished.ds-list-row--selected {
-  background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
-  color: var(--sem-color-status-good);
-}
+/* Nothing to restate for the selected case: these rules declare no
+ * `box-shadow`, so the accent edge set by `--selected` survives underneath a
+ * status wash untouched. That composition IS the contract — the tint says
+ * what happened, the edge says where you are. */
 
 .ds-list-row--needs-input .ds-list-row-supporting,
 .ds-list-row--finished .ds-list-row-supporting,
@@ -3257,6 +3271,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   left: var(--ds-popover-left, auto);
   z-index: var(--sem-z-popover);
   box-sizing: border-box;
+  /* The vertical half of the 8px viewport clamp: a surface taller than the
+   * window is bounded to it and scrolls, never pinned to the top edge and
+   * run off the bottom. */
+  max-height: calc(100vh - 2 * var(--sem-space-sm));
+  overflow-y: auto;
   border: 1px solid var(--sem-color-border-strong);
   border-radius: var(--sem-radius-overlay);
   background: var(--sem-color-bg-surface-raised);
@@ -4986,6 +5005,66 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   .ds-toast {
     background: var(--sem-color-bg-surface-raised);
   }
+}
+
+/* The action-row variant (owner ruling 2026-09-04): ONE toast in
+ * the system carries buttons — "Update available: Codex 0.153.3" with
+ * Settings and Update — and an agent CLI's glyph in place of the tone dot.
+ * Every other toast stays button-free; a second consumer of this variant is a
+ * design decision, not a styling choice. Persistence follows the buttons: a
+ * toast asking for an action never auto-dismisses. */
+.ds-toast-glyph {
+  flex: none;
+  /* ds-lint-allow: the glyph is the app's 16px small icon; the system has no icon-size token and one belongs in the token source, not here */
+  width: 16px;
+  height: 16px;
+  margin-top: 1px; /* ds-lint-allow: optical alignment of a 16px glyph with the title's cap height; no space token is one pixel */
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-md);
+}
+
+/* The answer-in-place variant (owner ruling 2026-09-05): the incoming pair
+ * request is the ONE toast in the system carrying a field. Its whole answer is
+ * six digits read off the screen of the machine asking, and every other route
+ * to typing them — a popover, a settings tab — sends the person away from the
+ * thing they are looking at. The row is the field, then the refusal, then the
+ * answer; the help line under it carries the instruction and, in the danger
+ * ink, whatever the comparison refused. Persistence follows the field: a toast
+ * holding a half-typed code never dismisses itself. A second consumer of this
+ * variant is a design decision to record in component.md, not a styling
+ * choice — a toast is still not a form, and anything with more than one field
+ * is a modal. */
+.ds-toast-answer {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-sm);
+}
+
+/* The field takes its measure from the six digits it holds and pushes the two
+ * answers to the trailing edge. */
+.ds-toast-code {
+  width: 92px;
+  margin-right: auto;
+  text-align: center;
+  font-family: var(--sem-font-family-mono);
+  letter-spacing: 0.2em;
+}
+
+.ds-toast-help {
+  margin: var(--sem-space-3xs) 0 0;
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+}
+
+.ds-toast-help[data-state='refused'] {
+  color: var(--sem-color-status-danger);
 }
 
 /* components/tooltip/component.css */
@@ -7361,6 +7440,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 .ds-embed-pattern-selection .pat-wrong .ds-list-row--selected {
     background: var(--sem-color-accent-soft);
+    
+    box-shadow: none;
     border-left: 3px solid var(--sem-color-accent-primary);
     border-radius: var(--sem-radius-control);
     padding-left: var(--sem-space-sm);
@@ -7712,7 +7793,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Motion</h4>
 <ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. The toast card is the one sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned to the toast by the conformance lint.</li></ul>
 <h4>Accessibility</h4>
-<p>A gate, not a preference. No design system supplies it for you. The toast card is the one sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned to the toast by the conformance lint.</p>
+<p>A gate, not a preference. No design system supplies it for you.</p>
 <ul><li>WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.</li><li>Body text clears AA on its own surface. <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone. The ink ramp orders identically in both modes — <code>default</code> darker than <code>muted</code> darker than <code>subtle</code> darker than <code>disabled</code> — so a token means the same thing in either theme.</li><li>Visible focus on everything focusable, in a sensible order, never removed.</li><li>Status conveyed by shape or label, never by color alone.</li><li>Real labels on controls; <code>aria-label</code> on every icon-only button. Icons that duplicate adjacent text are <code>aria-hidden</code>.</li><li>Overlays: Escape closes the topmost surface only, focus is restored to the trigger, and a modal traps focus while open.</li><li>Design the states, not the happy path. Every data surface distinguishes populated, empty, loading, error, unavailable, and permission-denied. A failed dependency must never render identically to an empty list.</li></ul>
 <h4>Modes</h4>
 <ul><li>Light and dark ship from the same semantic tokens. Consumers style with <code>--sem-*</code> only and never write a per-mode override.</li><li>Dark surfaces are neutral to slightly warm. Blue-shifted darks (<code>#0a0d18</code>, <code>#0c1020</code>) read as generated-dashboard defaults and are out.</li><li>Dark values keep the anti-dither discipline: solid channel values, no pure black surfaces.</li></ul>
@@ -14454,17 +14535,18 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — | | Flash | <code>.ds-list-row-flash</code> | only as a row enters an attention state — a one-shot overlay, <code>aria-hidden</code> |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
-<p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving.</p>
-<p>Selection is never the accent colour, and never carries a left bar, a border box, or a glow. See <code>patterns/selection</code>.</p>
+<ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, a 2px inset <code>accent.primary</code> edge, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, <strong>no edge</strong>, title stays at <code>text.default</code>.</li></ul>
+<p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving. The edge is what makes that legible: one accent edge on screen, on the pane with focus.</p>
+<p>The accent appears as an <strong>edge, never a fill</strong> (owner ruling 2026-09-05). A neutral fill on its own lost to every row wearing a status tint, so the person could not find the row they were driving; an accent *fill* would have fixed that by making a chosen row outrank the primary button beside it, which is the accent's other job. Selection still never carries a left bar or a glow. See <code>patterns/selection</code>.</p>
 <h5>Attention</h5>
-<p>Two states outrank selection, and each takes the <strong>whole row</strong> — a tinted fill, a 1px inset ring all the way round, and the title in the tone's ink:</p>
-<ul><li><strong><code>--needs-input</code></strong> — an agent on this row is waiting for the person. <code>status.warn-soft</code> fill, <code>status.warn</code> ring and ink. The loudest thing a row can say.</li><li><strong><code>--finished</code></strong> — a turn on this row finished while the person was looking elsewhere, and they have not opened it since. <code>status.good-faint</code> fill, <code>status.good-edge</code> ring, <code>status.good</code> ink. One notch under needs-input by construction: it asks for a look, not an answer.</li></ul>
-<p>When a row is both, needs-input wins. Both hold until the person opens the row and clear the moment it becomes the selected one; a selected attention row keeps a 2px edge so the pane's one selection stays findable.</p>
+<p>Two states a row can say on its own, each taking the <strong>whole row</strong> — a tinted fill and the title in the tone's ink:</p>
+<ul><li><strong><code>--needs-input</code></strong> — an agent on this row is waiting for the person. <code>status.warn-soft</code> fill, <code>status.warn</code> ink. The loudest thing a row can say.</li><li><strong><code>--finished</code></strong> — a turn on this row finished while the person was looking elsewhere, and they have not opened it since. <code>status.good-faint</code> fill, <code>status.good</code> ink. One notch under needs-input by construction: it asks for a look, not an answer.</li></ul>
+<p><strong>Status is the fill; selection is the edge.</strong> Neither attention state draws a ring (owner ruling 2026-09-05, removing the one they used to carry). A green ring around a finished row is the same mark as the accent edge on the row being driven, and it was the louder of the two — so &quot;I finished while you were out&quot; was read as &quot;this is the one you are in&quot;. Two questions, two channels: a row can wear a status wash and the selection edge at once, and neither is mistaken for the other.</p>
+<p>When a row is both attention states, needs-input wins. Both hold until the person opens the row and clear the moment it becomes the selected one.</p>
 <p>Both are colour <strong>plus words</strong>: the trailing slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. Never a dot or a chip beside an otherwise quiet row — that was ruled out twice (2026-09-04): the one state that wants the person to look must not be the quietest thing on the row.</p>
 <p>A row <strong>entering</strong> either state plays <code>.ds-list-row-flash</code> once: the &quot;just changed&quot; mark from [liveness](../liveness/component.md), in the tone the row is already wearing. It never loops — what keeps a waiting row loud is ink, not motion.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Needs input | <code>--needs-input</code>: <code>status.warn-soft</code> fill, 1px inset <code>status.warn</code> ring, <code>status.warn</code> ink; 2px ring when also selected. One-shot flash on entry | | Finished, unseen | <code>--finished</code>: <code>status.good-faint</code> fill, 1px inset <code>status.good-edge</code> ring, <code>status.good</code> ink; 2px ring when also selected. One-shot flash on entry. Clears on open | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> fill + 2px inset <code>accent.primary</code> edge + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> fill, no edge, + <code>text.default</code> | | Cursored | <code>.ds-list-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter. Only for a list that is one tab stop and walks with <code>aria-activedescendant</code> | | Needs input | <code>--needs-input</code>: <code>status.warn-soft</code> fill, <code>status.warn</code> ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry | | Finished, unseen | <code>--finished</code>: <code>status.good-faint</code> fill, <code>status.good</code> ink, no ring. Keeps the selection edge underneath when also selected. One-shot flash on entry. Clears on open | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
 <p><strong>The cursor is a third channel, not a third selection.</strong> A list that walks with <code>aria-activedescendant</code> keeps DOM focus on one element, so it has a row the keyboard is *on* that is neither the row a person picked nor the element they are typing in. It cannot borrow either treatment: it must stay visible on a row that is already selected and stay distinct from one that is merely hovered. A gutter mark composes over both fills, which neither fill can do over the other.</p>
 <p>It takes <code>text.primary</code>, not the accent: <code>border.focus</code> and <code>accent.primary</code> are the same value in all but one theme, so an accent bar in the gutter reads as a focus ring that has slipped. And a list that *does* move real DOM focus with its cursor renders no mark at all — there the focus ring is already the answer, and one idiom beats two.</p>
 <p>Added 2026-09-02, after a conformance sweep replaced two lists' private cursor outlines with <code>bg.hover</code> and made the cursor invisible on every row a person had already picked.</p>
@@ -14483,9 +14565,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <details class="catalog-source"><summary>components/list-row/component.css</summary><pre><code>/* List row — the pick-an-item worklist row, and the most repeated surface in
  * the product: rails, sources, inboxes, categories, search results.
  *
- * Family contract: neutral selection (never the accent), two selection tiers
- * so a multi-pane surface has one focused selection, background-only hover,
- * and trailing actions that stay hidden until pointed at or focused. */
+ * Family contract: a neutral selection FILL plus an accent EDGE on the pane
+ * being driven, two selection tiers so a multi-pane surface has one such row,
+ * background-only hover, and trailing actions that stay hidden until pointed
+ * at or focused. */
 
 .ds-list-row {
   /* Positioned so `.ds-list-row-cursor` can hang in the leading gutter. The
@@ -14531,11 +14614,29 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
 /* ── Selection ───────────────────────────────────────────────────────────
  * Two tiers. `--selected` is the pane the user is driving; `--resting` is
- * every other pane's remembered choice. Selection is neutral in both: the
- * accent is reserved for the primary action, so a chosen row never outranks
- * the one thing worth clicking. */
+ * every other pane's remembered choice.
+ *
+ * `--selected` is a neutral fill PLUS a 2px inset accent edge (owner ruling
+ * 2026-09-05). The fill alone lost: one step of neutral grey is the quietest
+ * mark on the surface, and any row wearing a status tint — which is a hue,
+ * a whole-row wash and an ink change — read as the chosen one instead. The
+ * person could not find the row their keyboard was driving.
+ *
+ * The edge, not the fill: an accent FILL would still be wrong, because the
+ * accent's other job is &quot;this is the action worth clicking&quot; and a filled row
+ * outranks the button beside it. An edge marks the row without claiming that
+ * weight. It is also the same 2px accent border the focused terminal wears
+ * (`terminal-focus-ring`), so the row in the rail and the surface it drives
+ * carry one mark between them — which is the question this treatment exists
+ * to answer.
+ *
+ * `--resting` takes the fill and NOT the edge. That is the whole two-tier
+ * rule made visible: exactly one edge on screen, on the pane with focus.
+ *
+ * Still ruled out, unchanged: an accent fill, a left bar, a glow. */
 .ds-list-row--selected {
   background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
   color: var(--sem-color-text-primary);
 }
 
@@ -14739,30 +14840,35 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 }
 
 /* ── Attention ───────────────────────────────────────────────────────────
- * The two things a row can say that outrank selection: an agent on it is
- * waiting for the person (`--needs-input`), or it finished while they were
- * looking elsewhere and they have not opened it since (`--finished`). Each
- * takes the WHOLE row — a tinted fill, an inset ring all the way round, and
- * the title in the tone's ink — because a dot or a chip beside an otherwise
- * quiet row is the weakest possible carrier for the one state that actually
- * wants the person to look (owner ruling 2026-09-04, twice: first the
- * needs-input dot, then the &quot;Done&quot; chip).
+ * The two things a row can say on its own: an agent on it is waiting for the
+ * person (`--needs-input`), or it finished while they were looking elsewhere
+ * and they have not opened it since (`--finished`). Each takes the WHOLE row
+ * — a tinted fill and the title in the tone's ink — because a dot or a chip
+ * beside an otherwise quiet row is the weakest possible carrier for the one
+ * state that actually wants the person to look (owner ruling 2026-09-04,
+ * twice: first the needs-input dot, then the &quot;Done&quot; chip).
  *
- * A ring, never a left bar: a tone-coloured left rail is a ruled rejection
- * in this system (the leading gutter belongs to the cursor and to identity),
- * and `box-shadow` inset draws it without shifting the row's geometry.
+ * A FILL, and only a fill. The edge is selection's channel and status may not
+ * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).
+ * A green ring around a finished row is indistinguishable from the accent
+ * edge on the row being driven — and because the ring is the louder of the
+ * two marks, a row saying &quot;I finished while you were out&quot; was read as &quot;this
+ * is the one you are in&quot;. The two questions are answered by two channels:
+ * status is the wash, selection is the edge, and a row can wear both at once
+ * without either being mistaken for the other.
+ *
+ * A left bar remains a ruled rejection for both: the leading gutter belongs
+ * to the cursor and to identity.
  *
  * `--finished` is one notch under `--needs-input` by construction: it asks
  * for a look, not an answer, so its fill is `status.good-faint` rather than
- * `-soft` and its ring is `status.good-edge` rather than the full tone.
- * When a row is both, needs-input wins.
+ * `-soft`. When a row is both, needs-input wins.
  *
  * Both hold until the person opens the row — a finished row clears the moment
  * it becomes the selected one — and both are colour PLUS words: the trailing
  * slot or a visually-hidden clause says &quot;needs input&quot; / &quot;finished&quot; in text. */
 .ds-list-row--needs-input {
   background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-warn);
   color: var(--sem-color-status-warn);
 }
 
@@ -14772,7 +14878,6 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
 .ds-list-row--finished {
   background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 1px var(--sem-color-status-good-edge);
   color: var(--sem-color-status-good);
 }
 
@@ -14780,19 +14885,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   background: var(--sem-color-status-good-faint);
 }
 
-/* Selection reads underneath: the pane's one selected row keeps a heavier
- * edge, so it stays findable without inventing a second gold or green. */
-.ds-list-row--needs-input.ds-list-row--selected {
-  background: var(--sem-color-status-warn-soft);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-warn);
-  color: var(--sem-color-status-warn);
-}
-
-.ds-list-row--finished.ds-list-row--selected {
-  background: var(--sem-color-status-good-faint);
-  box-shadow: inset 0 0 0 2px var(--sem-color-status-good-edge);
-  color: var(--sem-color-status-good);
-}
+/* Nothing to restate for the selected case: these rules declare no
+ * `box-shadow`, so the accent edge set by `--selected` survives underneath a
+ * status wash untouched. That composition IS the contract — the tint says
+ * what happened, the edge says where you are. */
 
 .ds-list-row--needs-input .ds-list-row-supporting,
 .ds-list-row--finished .ds-list-row-supporting,
@@ -17059,7 +17155,7 @@ document.addEventListener('keydown', (event) =&gt; {
 <p>The shell decides the border, radius, background, shadow, layer, and entrance. It deliberately carries <strong>no padding</strong>: a menu list wants full-bleed rows with vertical inset, a dialog-role body wants an even inset, and neither should fight a default. Content padding belongs to the content.</p>
 <p>Position is written by the consumer as viewport coordinates into the custom properties <code>--ds-popover-top</code>, <code>--ds-popover-right</code>, <code>--ds-popover-bottom</code>, and <code>--ds-popover-left</code> — set the one or two edges that anchor the surface and leave the rest <code>auto</code>. Anchor by the edge nearest the trigger (left for a <code>start</code> placement, right for <code>end</code>; bottom when flipped above) so the surface's measured size never enters the math on its anchored axis: the glued edge cannot drift by a surface-width when a measurement is momentarily stale. The consumer also mirrors the trigger's width into <code>--ds-popover-trigger-width</code> so width-coupled surfaces (a select's listbox) can set <code>min-width: var(--ds-popover-trigger-width)</code> without an inline width clobbering their own floor.</p>
 <h4>Variants</h4>
-<ul><li><strong>Placement</strong> — <code>bottom-start</code> (default), <code>bottom-end</code>, <code>top-start</code>, <code>top-end</code>. A placement is a preference, not a promise: the surface flips to the other vertical side when its preferred side has no room, and clamps <code>8px</code> inside the viewport on both axes. The gap between trigger and surface is <code>4px</code>.</li><li><code>.ds-popover--pointer</code> — coordinate-anchored instead of trigger-anchored: opens at a viewport point (a right-click, a text caret, a drop location) and clamps inside the viewport. It sits at <code>z.menu</code>, one layer above the trigger-anchored surface, because a context menu is summoned *over* whatever is already open — including an open popover. Same shell, same chrome; only the anchor and the layer differ. In the shipped kit this is <code>PointerPopover</code> (rich coordinate-anchored content) and the surface <code>ContextMenu</code> shares.</li></ul>
+<ul><li><strong>Placement</strong> — <code>bottom-start</code> (default), <code>bottom-end</code>, <code>top-start</code>, <code>top-end</code>. A placement is a preference, not a promise: the surface flips to the other vertical side when its preferred side has no room, and clamps <code>8px</code> inside the viewport on both axes. The clamp bounds height as well as position: a surface taller than the viewport is capped to it and scrolls its content, so the last rows of a long menu are never off-screen. The gap between trigger and surface is <code>4px</code>.</li><li><code>.ds-popover--pointer</code> — coordinate-anchored instead of trigger-anchored: opens at a viewport point (a right-click, a text caret, a drop location) and clamps inside the viewport. It sits at <code>z.menu</code>, one layer above the trigger-anchored surface, because a context menu is summoned *over* whatever is already open — including an open popover. Same shell, same chrome; only the anchor and the layer differ. In the shipped kit this is <code>PointerPopover</code> (rich coordinate-anchored content) and the surface <code>ContextMenu</code> shares.</li></ul>
 <p>There is no arrow variant. A caret pointing at the trigger is decoration the 4px gap already does the work of, and it forces the surface to track the trigger horizontally instead of clamping freely.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Closed | Not in the document (or <code>hidden</code>) — out of view and out of the accessibility tree | | Open | Entrance: a 4px drop-and-fade at <code>motion.duration.normal</code> / <code>motion.ease.standard</code> — the one sanctioned popover entrance; removed under reduced motion | | Open, trigger scrolled | The surface <strong>repositions</strong> to track its trigger (scroll in the capture phase, and resize) — unlike a tooltip, which dismisses, because a popover holds state a scroll must not throw away | | Stacked | A popover opened from inside another stacks above it; each keeps its own surface |</p>
@@ -17103,6 +17199,11 @@ document.addEventListener('keydown', (event) =&gt; {
   left: var(--ds-popover-left, auto);
   z-index: var(--sem-z-popover);
   box-sizing: border-box;
+  /* The vertical half of the 8px viewport clamp: a surface taller than the
+   * window is bounded to it and scrolls, never pinned to the top edge and
+   * run off the bottom. */
+  max-height: calc(100vh - 2 * var(--sem-space-sm));
+  overflow-y: auto;
   border: 1px solid var(--sem-color-border-strong);
   border-radius: var(--sem-radius-overlay);
   background: var(--sem-color-bg-surface-raised);
@@ -22735,6 +22836,20 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
         <div class="ds-toast-title">Workspace synced</div>
       </div>
     </div>
+    <div class="ds-toast ds-toast--neutral" role="status" aria-live="polite">
+      <svg class="ds-toast-glyph" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="3" fill="currentColor" opacity="0.15"/><path d="M4 8h8M8 4v8" stroke="currentColor" stroke-width="1.5"/></svg>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Update available: Codex 0.153.3</div>
+        <div class="ds-toast-description">Install the update now or review settings.</div>
+        <div class="ds-toast-actions">
+          <button type="button" class="ds-button ds-button--ghost ds-button--sm">Settings</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--sm">Update</button>
+        </div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
     <div class="ds-toast ds-toast--good" role="status" aria-live="polite">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
@@ -22757,6 +22872,21 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       <div class="ds-toast-content">
         <div class="ds-toast-title">Tracker write-back paused</div>
         <div class="ds-toast-description">Changes queue locally until the connection returns.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Pair request from dev-macbook-air</div>
+        <div class="ds-toast-answer">
+          <input class="ds-input ds-toast-code" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="Code shown on dev-macbook-air" aria-describedby="pair-help-light" />
+          <button type="button" class="ds-button ds-button--ghost ds-button--sm">Decline</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--sm">Allow</button>
+        </div>
+        <p class="ds-toast-help" id="pair-help-light">Type the code it is showing.</p>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -22794,6 +22924,21 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       </button>
     </div>
+    <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Pair request from android-phone</div>
+        <div class="ds-toast-answer">
+          <input class="ds-input ds-toast-code" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="Code shown on android-phone" aria-describedby="pair-help-dark" />
+          <button type="button" class="ds-button ds-button--ghost ds-button--sm">Decline</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--sm">Allow</button>
+        </div>
+        <p class="ds-toast-help" id="pair-help-dark">Type the code it is showing.</p>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
     <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
@@ -22817,9 +22962,9 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 </div>
 <div class="catalog-doc">
 <p>The transient report. A toast announces the result of something the person just did — or a failure they must not miss — from the viewport's corner, without taking focus and without asking anything back. It is the answer to &quot;did it work?&quot; in one line: a count, a name, a state. Extracted from the source product's <code>Toast</code> primitive (<code>src/renderer/src/components/ui/</code>).</p>
-<p>A toast never carries a question (that is a modal), never carries the only route to an action (a surface that must be acted on is a banner or an inline notice, which stay put), and never dumps the operation's inventory — file counts, hashes, byte sizes are stored, not displayed.</p>
+<p>A toast never carries a question (that is a modal), never carries the only route to an action (a surface that must be acted on is a banner or an inline notice, which stay put), and never dumps the operation's inventory — file counts, hashes, byte sizes are stored, not displayed. The one crack in the first rule is the answer-in-place variant below, held to a single field and a persistent surface the request is also readable behind.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Region | <code>.ds-toast-region</code> | yes — the fixed corner stack at <code>z.toast</code>; one per document | | Surface | <code>.ds-toast</code> | yes — <code>role</code> and <code>aria-live</code> chosen by tone (below) | | Tone dot | <code>.ds-toast-dot</code> | yes — the 6px status idiom, <code>aria-hidden</code> | | Content | <code>.ds-toast-content</code> | yes — title <code>.ds-toast-title</code>, optional description <code>.ds-toast-description</code> | | Dismiss | <code>.ds-toast-dismiss</code> | no — trailing icon button, <code>aria-label=&quot;Dismiss&quot;</code> |</p>
+<p>| Part | Class | Required | |---|---|---| | Region | <code>.ds-toast-region</code> | yes — the fixed corner stack at <code>z.toast</code>; one per document | | Surface | <code>.ds-toast</code> | yes — <code>role</code> and <code>aria-live</code> chosen by tone (below) | | Tone dot | <code>.ds-toast-dot</code> | yes — the 6px status idiom, <code>aria-hidden</code> | | Content | <code>.ds-toast-content</code> | yes — title <code>.ds-toast-title</code>, optional description <code>.ds-toast-description</code> | | Answer row | <code>.ds-toast-answer</code> + <code>.ds-toast-code</code> + <code>.ds-toast-help</code> | no — the answer-in-place variant's one field and its two answers | | Dismiss | <code>.ds-toast-dismiss</code> | no — trailing icon button, <code>aria-label=&quot;Dismiss&quot;</code> |</p>
 <p>The surface is <strong>glass</strong> (owner ruling 2026-09-04): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, a <code>border.default</code> hairline, and <code>shadow.popover</code> drawing the edge over whatever shows through. Where <code>backdrop-filter</code> is unsupported the card is solid <code>bg.surface-raised</code>.</p>
 <p>This is the one surface in the system allowed to blur. The blur ban (<code>principles.md</code>, the modal and drawer specs) exists because a full-viewport scrim re-samples every terminal pane under it every frame; a toast's area is a corner, a fraction of that cost. The conformance lint pins the glass to this component — any other surface that blurs, or borrows the toast's utility, is a violation.</p>
 <p>The tone is carried by the dot's shape-plus-color and by the words — never by tinting the surface. A toast that survives greyscale is the test.</p>
@@ -22827,7 +22972,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>Five tones, each deciding color, politeness, and persistence:</p>
 <p>| Tone | Dot | Role / live | Auto-dismiss | |---|---|---|---| | <code>--neutral</code> | <code>status.neutral</code> | <code>status</code> / <code>polite</code> | 5 s | | <code>--good</code> | <code>status.good</code> | <code>status</code> / <code>polite</code> | 5 s | | <code>--accent</code> | <code>accent.primary</code> | <code>status</code> / <code>polite</code> | 5 s | | <code>--warn</code> | <code>status.warn</code> | <code>alert</code> / <code>assertive</code> | never | | <code>--danger</code> | <code>status.danger</code> | <code>alert</code> / <code>assertive</code> | never |</p>
 <p><strong>Warn and danger stay until dismissed.</strong> An auto-dismissing error is a failure the operator can miss by looking away for five seconds; a persistent success is furniture. The policy is the point — consumers may override the duration, not the split. (The shipped kit names the danger tone <code>error</code>; the class here follows the token grammar, <code>status.danger</code>.)</p>
-<p>There is no action-button variant. &quot;Undo&quot; in a toast is an action on a timer, racing its own surface's dismissal — the undo belongs where the change is visible.</p>
+<p><strong>The action row, one consumer.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone dot. It never auto-dismisses: a toast asking for an action waits for the answer or the dismiss. This is the only toast in the system with buttons. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a second consumer of the action row is a design decision to record here, not a styling choice.</p>
+<p><strong>The answer-in-place row, one consumer.</strong> Owner ruling 2026-09-05: the incoming pair-request toast carries <code>.ds-toast-answer</code> — a six-digit <code>.ds-input</code>, then Decline (ghost) and Allow (primary) — with <code>.ds-toast-help</code> under it holding the instruction, or the refusal in <code>status.danger</code> ink. It is the one toast in the system with a field, and it earns it: the answer IS six digits, read off the screen of the machine asking to pair, and every other route to typing them (a popover, a settings tab) walks the person away from the screen they are reading. The toast never auto-dismisses — a surface holding a half-typed code that vanishes on a timer is worse than no surface — and the request stays answerable on its own persistent card, so a dismissed toast loses nothing. Everything the field cannot express stays on that card: this variant grants the request's DEFAULT authority and nothing a checkbox would have chosen. A second consumer, or a second field, is a modal.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Entering | An 8px rise-and-fade at <code>motion.duration.normal</code> / <code>motion.ease.standard</code> — a *just-changed* motion composing the sanctioned pair, removed under reduced motion | | Resting | Static; no pulse, no progress ring counting down the dismissal | | Dismissed | Removed. No exit animation: leaving quietly is the whole job |</p>
 <h4>Usage</h4>
@@ -22841,6 +22987,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <h4>Known drift</h4>
 <p>None. Both entries that stood here were spent on 2026-08-05 (<strong>MC-2138</strong>):</p>
 <ul><li>The dismiss target was 20px, under <code>--sem-size-hit-target-min</code>. <code>Toast.tsx</code> now takes its floor from that token directly, keeping the 10px glyph and the flow advance the smaller target had.</li><li>The placement note pointed at <strong>MC-2110</strong>, which had already shipped.</li></ul>
+<p>*2026-09-05:* the answer-in-place variant, above, was ruled and consumed in the same breath — the remote epic's pair-request toast stopped pointing at the Remote glyph and started taking the code. Its <code>content</code> slot is one rendered body between the description and the action row; the shipped kit's store documents the same single-consumer rule the action row carries.</p>
 <p>*2026-09-04:* the corner region is consumed. The remote-sessions-ux epic's <code>toast-host-region</code> child shipped <code>.ds-toast-region</code>'s product counterpart — one bottom-trailing stack at <code>z.toast</code>, newest at the bottom, <code>space.sm</code> apart — and every producer (pair requests, remote-create failures, stranded attachments) routes through it. The older in-flow toast host at the top of a scrolling pane remains where a toast belongs to the panel that produced it; it stacks nothing and is not the region.</p>
 </div>
 </div>
@@ -22998,6 +23145,66 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     background: var(--sem-color-bg-surface-raised);
   }
 }
+
+/* The action-row variant (owner ruling 2026-09-04): ONE toast in
+ * the system carries buttons — &quot;Update available: Codex 0.153.3&quot; with
+ * Settings and Update — and an agent CLI's glyph in place of the tone dot.
+ * Every other toast stays button-free; a second consumer of this variant is a
+ * design decision, not a styling choice. Persistence follows the buttons: a
+ * toast asking for an action never auto-dismisses. */
+.ds-toast-glyph {
+  flex: none;
+  /* ds-lint-allow: the glyph is the app's 16px small icon; the system has no icon-size token and one belongs in the token source, not here */
+  width: 16px;
+  height: 16px;
+  margin-top: 1px; /* ds-lint-allow: optical alignment of a 16px glyph with the title's cap height; no space token is one pixel */
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-md);
+}
+
+/* The answer-in-place variant (owner ruling 2026-09-05): the incoming pair
+ * request is the ONE toast in the system carrying a field. Its whole answer is
+ * six digits read off the screen of the machine asking, and every other route
+ * to typing them — a popover, a settings tab — sends the person away from the
+ * thing they are looking at. The row is the field, then the refusal, then the
+ * answer; the help line under it carries the instruction and, in the danger
+ * ink, whatever the comparison refused. Persistence follows the field: a toast
+ * holding a half-typed code never dismisses itself. A second consumer of this
+ * variant is a design decision to record in component.md, not a styling
+ * choice — a toast is still not a form, and anything with more than one field
+ * is a modal. */
+.ds-toast-answer {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-sm);
+}
+
+/* The field takes its measure from the six digits it holds and pushes the two
+ * answers to the trailing edge. */
+.ds-toast-code {
+  width: 92px;
+  margin-right: auto;
+  text-align: center;
+  font-family: var(--sem-font-family-mono);
+  letter-spacing: 0.2em;
+}
+
+.ds-toast-help {
+  margin: var(--sem-space-3xs) 0 0;
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+}
+
+.ds-toast-help[data-state='refused'] {
+  color: var(--sem-color-status-danger);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/toast/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
@@ -23007,6 +23214,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 &lt;title&gt;Toast&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../input/component.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
@@ -23049,6 +23257,20 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
         &lt;div class=&quot;ds-toast-title&quot;&gt;Workspace synced&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
+    &lt;div class=&quot;ds-toast ds-toast--neutral&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;
+      &lt;svg class=&quot;ds-toast-glyph&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect width=&quot;16&quot; height=&quot;16&quot; rx=&quot;3&quot; fill=&quot;currentColor&quot; opacity=&quot;0.15&quot;/&gt;&lt;path d=&quot;M4 8h8M8 4v8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot;/&gt;&lt;/svg&gt;
+      &lt;div class=&quot;ds-toast-content&quot;&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Update available: Codex 0.153.3&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;Install the update now or review settings.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost ds-button--sm&quot;&gt;Settings&lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--sm&quot;&gt;Update&lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
+        &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
     &lt;div class=&quot;ds-toast ds-toast--good&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
@@ -23071,6 +23293,21 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       &lt;div class=&quot;ds-toast-content&quot;&gt;
         &lt;div class=&quot;ds-toast-title&quot;&gt;Tracker write-back paused&lt;/div&gt;
         &lt;div class=&quot;ds-toast-description&quot;&gt;Changes queue locally until the connection returns.&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
+        &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-toast ds-toast--warn&quot; role=&quot;alert&quot; aria-live=&quot;assertive&quot;&gt;
+      &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;div class=&quot;ds-toast-content&quot;&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Pair request from dev-macbook-air&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-answer&quot;&gt;
+          &lt;input class=&quot;ds-input ds-toast-code&quot; inputmode=&quot;numeric&quot; maxlength=&quot;6&quot; placeholder=&quot;000000&quot; aria-label=&quot;Code shown on dev-macbook-air&quot; aria-describedby=&quot;pair-help-light&quot; /&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost ds-button--sm&quot;&gt;Decline&lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--sm&quot;&gt;Allow&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;p class=&quot;ds-toast-help&quot; id=&quot;pair-help-light&quot;&gt;Type the code it is showing.&lt;/p&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -23103,6 +23340,21 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       &lt;div class=&quot;ds-toast-content&quot;&gt;
         &lt;div class=&quot;ds-toast-title&quot;&gt;Sprint archived&lt;/div&gt;
         &lt;div class=&quot;ds-toast-description&quot;&gt;Its board left the rail; the run branch stays.&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
+        &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-toast ds-toast--warn&quot; role=&quot;alert&quot; aria-live=&quot;assertive&quot;&gt;
+      &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;div class=&quot;ds-toast-content&quot;&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Pair request from android-phone&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-answer&quot;&gt;
+          &lt;input class=&quot;ds-input ds-toast-code&quot; inputmode=&quot;numeric&quot; maxlength=&quot;6&quot; placeholder=&quot;000000&quot; aria-label=&quot;Code shown on android-phone&quot; aria-describedby=&quot;pair-help-dark&quot; /&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost ds-button--sm&quot;&gt;Decline&lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--sm&quot;&gt;Allow&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;p class=&quot;ds-toast-help&quot; id=&quot;pair-help-dark&quot;&gt;Type the code it is showing.&lt;/p&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -25663,8 +25915,16 @@ measureAll()
   <p class="pat-lede">
     Selection answers “what did I pick?”. Focus answers “where am I typing?”.
     They are different questions and never share a treatment. Selection is a
-    neutral fill in two tiers — the accent is reserved for the primary action,
+    neutral fill in two tiers, and the tier with focus adds a 2px accent
+    <em>edge</em> — the accent’s fill is still reserved for the primary action,
     so a chosen row never outranks the one thing worth clicking.
+  </p>
+  <p class="pat-lede">
+    The edge is also the channel status may not borrow: a tinted row says
+    <em>what happened here</em>, the edge says <em>where you are</em>. A row
+    can wear both at once, which is the point — before the split, a green
+    “finished while you were away” ring outshouted the neutral fill on the row
+    the person was actually driving.
   </p>
 
   <p class="pat-heading">The rule: one focused selection per surface</p>
@@ -25711,9 +25971,56 @@ measureAll()
     </div>
   </div>
   <p class="pat-caption">
-    One pane has focus and shows <code>--selected</code>. The other two show
-    <code>--resting</code>: they remember the choice without competing, so the
-    eye lands on the list the keyboard is driving.
+    One pane has focus and shows <code>--selected</code> — the neutral fill
+    plus the accent edge. The other two show <code>--resting</code>: the fill
+    alone, no edge. They remember the choice without competing, so the eye
+    lands on the list the keyboard is driving.
+  </p>
+
+  <p class="pat-heading">Status and selection compose</p>
+  <p class="pat-verdict">DO</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Workspaces</span><em>focus</em></p>
+      <button type="button" class="ds-list-row ds-list-row--needs-input ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">auth rewrite</span></span>
+        <span class="ds-list-row-trailing">needs input</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--finished">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">model updates</span></span>
+        <span class="ds-list-row-trailing">finished</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">popover touchups</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">remote chats</span></span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Left: two rows are tinted and a third carries the edge — the tints say
+    what happened, the edge says which one you are in. Right: the row you are
+    in is also the one waiting on you, so it wears the gold wash and the edge
+    together. Neither reading is ambiguous, because no status state draws an
+    edge of its own.
   </p>
 
   <p class="pat-heading">The failure this prevents</p>
@@ -25760,10 +26067,11 @@ measureAll()
     </div>
   </div>
   <p class="pat-caption">
-    Three panes shouting at once, each with an accent fill and a left bar.
-    Nothing says which list has focus, three signals carry one state, and the
-    accent no longer means “this is the action”. Selection never uses the
-    accent, and never carries a left bar.
+    Three panes shouting at once, each with an accent <em>fill</em> and a left
+    bar. Nothing says which list has focus, three signals carry one state, and
+    the accent no longer means “this is the action”. Selection takes the
+    accent as an edge on one pane only, never as a fill, and never as a left
+    bar.
   </p>
 
   <p class="pat-heading">Where a left bar is still correct</p>
@@ -25775,7 +26083,7 @@ measureAll()
 
 <div class="pat-stage" data-mode="light">
   <p class="pat-title">Selection — light</p>
-  <p class="pat-lede">The same two tiers, from the same tokens.</p>
+  <p class="pat-lede">The same two tiers and the same edge, from the same tokens.</p>
   <div class="pat-panes">
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
@@ -25905,6 +26213,9 @@ measureAll()
      Never copy these rules into a component. */
   .pat-wrong .ds-list-row--selected {
     background: var(--sem-color-accent-soft);
+    /* The edge is cancelled here on purpose: the anti-pattern is the accent
+       arriving as a fill and a left bar instead. */
+    box-shadow: none;
     border-left: 3px solid var(--sem-color-accent-primary);
     border-radius: var(--sem-radius-control);
     padding-left: var(--sem-space-sm);
@@ -25919,8 +26230,16 @@ measureAll()
   &lt;p class=&quot;pat-lede&quot;&gt;
     Selection answers “what did I pick?”. Focus answers “where am I typing?”.
     They are different questions and never share a treatment. Selection is a
-    neutral fill in two tiers — the accent is reserved for the primary action,
+    neutral fill in two tiers, and the tier with focus adds a 2px accent
+    &lt;em&gt;edge&lt;/em&gt; — the accent’s fill is still reserved for the primary action,
     so a chosen row never outranks the one thing worth clicking.
+  &lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;
+    The edge is also the channel status may not borrow: a tinted row says
+    &lt;em&gt;what happened here&lt;/em&gt;, the edge says &lt;em&gt;where you are&lt;/em&gt;. A row
+    can wear both at once, which is the point — before the split, a green
+    “finished while you were away” ring outshouted the neutral fill on the row
+    the person was actually driving.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The rule: one focused selection per surface&lt;/p&gt;
@@ -25967,9 +26286,56 @@ measureAll()
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    One pane has focus and shows &lt;code&gt;--selected&lt;/code&gt;. The other two show
-    &lt;code&gt;--resting&lt;/code&gt;: they remember the choice without competing, so the
-    eye lands on the list the keyboard is driving.
+    One pane has focus and shows &lt;code&gt;--selected&lt;/code&gt; — the neutral fill
+    plus the accent edge. The other two show &lt;code&gt;--resting&lt;/code&gt;: the fill
+    alone, no edge. They remember the choice without competing, so the eye
+    lands on the list the keyboard is driving.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-heading&quot;&gt;Status and selection compose&lt;/p&gt;
+  &lt;p class=&quot;pat-verdict&quot;&gt;DO&lt;/p&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Workspaces&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;auth rewrite&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;model updates&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;popover touchups&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;remote chats&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Workspaces&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--needs-input ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;auth rewrite&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;needs input&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--finished&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;model updates&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;finished&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;popover touchups&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;remote chats&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    Left: two rows are tinted and a third carries the edge — the tints say
+    what happened, the edge says which one you are in. Right: the row you are
+    in is also the one waiting on you, so it wears the gold wash and the edge
+    together. Neither reading is ambiguous, because no status state draws an
+    edge of its own.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The failure this prevents&lt;/p&gt;
@@ -26016,10 +26382,11 @@ measureAll()
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    Three panes shouting at once, each with an accent fill and a left bar.
-    Nothing says which list has focus, three signals carry one state, and the
-    accent no longer means “this is the action”. Selection never uses the
-    accent, and never carries a left bar.
+    Three panes shouting at once, each with an accent &lt;em&gt;fill&lt;/em&gt; and a left
+    bar. Nothing says which list has focus, three signals carry one state, and
+    the accent no longer means “this is the action”. Selection takes the
+    accent as an edge on one pane only, never as a fill, and never as a left
+    bar.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;Where a left bar is still correct&lt;/p&gt;
@@ -26031,7 +26398,7 @@ measureAll()
 
 &lt;div class=&quot;pat-stage&quot; data-mode=&quot;light&quot;&gt;
   &lt;p class=&quot;pat-title&quot;&gt;Selection — light&lt;/p&gt;
-  &lt;p class=&quot;pat-lede&quot;&gt;The same two tiers, from the same tokens.&lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;The same two tiers and the same edge, from the same tokens.&lt;/p&gt;
   &lt;div class=&quot;pat-panes&quot;&gt;
     &lt;div class=&quot;pat-pane&quot;&gt;
       &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Marketplace&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;

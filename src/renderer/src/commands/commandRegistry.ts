@@ -287,20 +287,10 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'gitPanelActive'],
     handlerPath: { kind: 'panel-event', eventId: 'git.commit' },
   }),
-  // The Fleet (MC-2167) has no RAIL glyph — the rail is the navigational core
-  // (Files / Git / Backlog). The "no glyph anywhere" half of that ruling was
-  // consciously superseded by remote-sessions-ux decision 5: the TOP BAR's
-  // Remote glyph (WorkspaceActions → RemotePopover) is now the discoverable
-  // front door, with "Open Fleet" in its footer. This command stays as the
-  // palette/keyboard entry point. Ships unbound.
-  command({
-    id: 'panel.fleet.toggle',
-    title: 'Toggle Fleet',
-    category: 'panel',
-    scopes: ['workspace'],
-    availability: ['activeWorkspace'],
-    handlerPath: { kind: 'workspace-manager', handler: "focusOrAddComponentTab(windowActiveWorkspaceId, 'fleet', 'Fleet')" },
-  }),
+  // No Fleet command: the Fleet panel (MC-2167) was retired on 2026-09-05
+  // (remote-sessions-in-the-sidebar). Paired machines' sessions are rows in
+  // the sidebar's Remote band; machine management is Settings → Remote and
+  // the top bar's Remote glyph (WorkspaceActions → RemotePopover).
   command({
     id: 'terminal.new',
     title: 'Open Plain Terminal',

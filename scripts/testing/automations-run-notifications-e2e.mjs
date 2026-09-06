@@ -17,6 +17,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
+import { createWorkspaceThroughNewChat, resolveMainWindow } from './newChatWorkspace.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -122,40 +123,22 @@ async function createStandardWorkspace(page) {
   if (await startupTipClose.count()) {
     await domClick(page, startupTipClose)
   }
-  await domClick(page, page.getByRole('button', { name: /^New workspace$/i }).first())
-  await page.getByPlaceholder('my-workspace').fill('T13 Scheduled Notifications')
-  await domClick(page, page.locator('button').filter({ hasText: 'Browse existing folder' }))
-  await waitForBodyText(page, workspaceDir)
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Choose a mode')
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Pick MCP servers')
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Pick skill packs')
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Connect a knowledge graph')
-  await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-  await waitForBodyText(page, 'Pick an IDE layout')
-  await domClick(page, page.getByRole('button', { name: /^Create workspace$/i }))
+  // Through New chat — the product's one door (MC-2436); Browse… resolves to
+  // MULTICODE_TEST_OPEN_DIR. The chat is a solo workspace on the folder.
+  await createWorkspaceThroughNewChat(page, { folder: workspaceDir })
 
   await waitForWorkspace(
     page,
     (state, expectedWorkspaceDir) => state.workspaces.some((workspace) =>
-      workspace.name === 'T13 Scheduled Notifications' &&
-      workspace.mode === 'standard' &&
       workspace.folderPath === expectedWorkspaceDir
     ),
-    'Standard workspace was not persisted',
+    'The New chat workspace was not persisted',
     workspaceDir,
   )
 
   const registry = await readWorkspaceRegistry(page)
-  const workspace = registry.workspaces.find((candidate) =>
-    candidate.name === 'T13 Scheduled Notifications' &&
-    candidate.folderPath === workspaceDir
-  )
-  assert.ok(workspace, 'standard workspace exists')
-  assert.equal(workspace.mode, 'standard')
+  const workspace = registry.workspaces.find((candidate) => candidate.folderPath === workspaceDir)
+  assert.ok(workspace, 'the New chat workspace exists on the folder')
   return workspace
 }
 
@@ -217,7 +200,7 @@ async function main() {
   })
 
   try {
-    const page = await app.firstWindow()
+    const page = await resolveMainWindow(app)
     await page.waitForLoadState('domcontentloaded')
     if (page.url().startsWith('http://localhost:')) {
       throw new Error(`Expected built file renderer, got dev-server URL: ${page.url()}`)

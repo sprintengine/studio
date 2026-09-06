@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { create } from 'zustand'
 
 import type { Tone } from '../components/ui/tokens'
@@ -35,6 +36,9 @@ export type AppToast = {
   actions?: ToastAction[]
   /** An agent CLI's glyph in place of the tone dot (the CLI-update toast). */
   cli?: string
+  /** The acting body, under the description: the pair-request toast's code
+   *  field and its two answers, and nothing else (see `ShowToastInput`). */
+  content?: ReactNode
   /** Override the tone's auto-dismiss: `false` keeps the toast until acted on. */
   autoDismissMs?: number | false
 }
@@ -54,6 +58,16 @@ export type ShowToastInput = {
   id?: string
   actions?: ToastAction[]
   cli?: string
+  /**
+   * A rendered body between the description and the action row. ONE producer
+   * has one (owner ruling 2026-09-05, recorded in the design system's toast
+   * spec): the incoming pair request, whose whole answer is six digits typed
+   * while looking at the screen that shows them — sending the person to
+   * another surface to type them was the friction the ruling spent. A second
+   * consumer is a design decision to record there, not a styling choice; a
+   * toast is still not a form.
+   */
+  content?: ReactNode
   autoDismissMs?: number | false
 }
 

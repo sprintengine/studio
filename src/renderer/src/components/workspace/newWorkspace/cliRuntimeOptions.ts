@@ -417,7 +417,29 @@ function mergeModelCatalog(
   const options = [...byId.values()].filter(
     (row) => !(retired.has(row.id) && (row.origin === 'manifest' || row.origin === 'hosted')),
   )
-  return { options, allowCustomId: declared.allowCustomId }
+  return { options: newestFirst(options), allowCustomId: declared.allowCustomId }
+}
+
+// Newest first. The feed dates every model (releasedAt is required there), so
+// a dated row sorts by its date, latest at the top, and the rows without one —
+// aliases that float, manifest-only ids on a build the feed has not reached,
+// discovered and user-added ids — follow in the order the layers put them.
+// The sort is stable, so two models shipped the same day keep the feed's order.
+function newestFirst(options: MergedCliModelOption[]): MergedCliModelOption[] {
+  const releasedMs = (row: MergedCliModelOption): number | null => {
+    if (!row.releasedAt) return null
+    const ms = Date.parse(row.releasedAt)
+    return Number.isNaN(ms) ? null : ms
+  }
+  return options
+    .map((row, index) => ({ row, index, ms: releasedMs(row) }))
+    .sort((a, b) => {
+      if (a.ms !== null && b.ms !== null) return b.ms - a.ms || a.index - b.index
+      if (a.ms !== null) return -1
+      if (b.ms !== null) return 1
+      return a.index - b.index
+    })
+    .map((entry) => entry.row)
 }
 
 // Effective model for a launch surface: the surface's own override only when

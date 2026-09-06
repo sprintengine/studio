@@ -969,6 +969,33 @@ export type WorkspaceRemoteOrigin = {
   workspaceId: string
   workspaceName: string
   workspaceRoot: string | null
+  /**
+   * The remote session this workspace's pane attaches to
+   * (remote-band-in-the-sidebar): how the sidebar's Remote band knows that a
+   * session the machine lists is THIS row, and focuses it rather than opening
+   * a second attachment. Absent on rows born before the band existed, which
+   * the band matches by the fleet pane still in their layout instead.
+   */
+  sessionId?: string
+  /**
+   * Where the chat runs there (checkout-and-branch-on-remote-create): the
+   * remote workspace's own checkout, or a worktree the create minted, and
+   * the branch either is on as of the create. The row's branch reads from
+   * here — the local git poll has no path on this disk to ask. Absent on
+   * rows born before the choice existed.
+   */
+  checkout?: {
+    mode: 'current' | 'worktree'
+    branch: string | null
+    worktreePath: string | null
+  } | null
+  /**
+   * Which repository the remote workspace is a clone of, as its machine's
+   * `workspace.list` served it (one-project-across-machines). The sidebar
+   * files the row under a local clone of the same repository when one is
+   * open. Null when the remote had no identity to give.
+   */
+  repository?: import('../../../shared/repository-identity').RepositoryIdentity | null
 }
 
 export type Workspace = {

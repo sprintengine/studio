@@ -21,8 +21,15 @@ export type AgentTabIdentity = {
   sessionId: string | null
   /** Sprint task id the agent is claimed on, when applicable. */
   taskId: string | null
-  /** Worktree the agent runs on, or null when it's on the main checkout. */
-  worktree: { branch: string | null; cwd: string | null } | null
+  /**
+   * Where the agent runs (MC-2440). `observed: true` comes from the session's
+   * own lifecycle hooks, resolved through git — a worktree the agent created
+   * mid-run, the primary checkout it went back to, or a folder outside any
+   * repository. `observed: false` is the app's launch intent, shown until the
+   * first hook frame answers. Null means launch intent says the main checkout
+   * and nothing has been observed yet.
+   */
+  checkout: AgentTabCheckout | null
   status: { tone: Tone; pulse: boolean; label: string }
   /**
    * The last message sent to this agent, when one was captured. It belongs on
@@ -32,6 +39,16 @@ export type AgentTabIdentity = {
    */
   lastMessage: { text: string; at: number } | null
 }
+
+export type AgentTabCheckout =
+  | { kind: 'worktree'; branch: string | null; cwd: string | null; observed: boolean }
+  | { kind: 'main'; branch: string | null; cwd: string | null; observed: true }
+  | { kind: 'folder'; cwd: string; observed: true }
+  // The observed directory no longer exists (a worktree pruned under the agent).
+  | { kind: 'missing'; cwd: string; observed: true }
+  // A cwd was observed but git could not answer for it on this host (no git,
+  // a WSL-internal path on a Windows main): say where, claim nothing more.
+  | { kind: 'unverified'; cwd: string; observed: true }
 
 // Hover opens after a beat so a quick sweep across the tab strip never flickers
 // cards open; focus opens immediately so keyboard users don't wait. The close
@@ -66,6 +83,48 @@ const CopyGlyph = ({ done }: { done: boolean }) =>
 const BranchGlyph = () => (
   <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
 )
+
+// The Checkout row. A worktree names its branch behind the branch glyph (the
+// same mark the tab carries); the primary checkout says so plainly and adds
+// its branch once the hooks have reported one; a folder outside any repository
+// says that rather than pretending to be a checkout; a removed directory and
+// an unverifiable cwd each say exactly that. The full path rides the hover
+// title in every case it is known.
+function CheckoutValue({ checkout }: { checkout: AgentTabCheckout | null }) {
+  if (!checkout) return <>Main checkout</>
+  if (checkout.kind === 'worktree') {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5" title={checkout.cwd ?? undefined}>
+        <BranchGlyph />
+        <span className="truncate font-mono">{checkout.branch ?? 'worktree'}</span>
+      </span>
+    )
+  }
+  if (checkout.kind === 'folder' || checkout.kind === 'unverified') {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5" title={checkout.cwd}>
+        <span>{checkout.kind === 'folder' ? 'Folder' : 'Unverified'}</span>
+        <span className="truncate font-mono text-[color:var(--text-muted)]">{checkout.cwd}</span>
+      </span>
+    )
+  }
+  if (checkout.kind === 'missing') {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5" title={`Removed — ${checkout.cwd}`}>
+        <span className="text-[color:var(--tone-error)]">Removed</span>
+        <span className="truncate font-mono text-[color:var(--text-muted)]">{checkout.cwd}</span>
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5" title={checkout.cwd ?? undefined}>
+      <span>Main checkout</span>
+      {checkout.branch ? (
+        <span className="truncate font-mono text-[color:var(--text-muted)]">{checkout.branch}</span>
+      ) : null}
+    </span>
+  )
+}
 
 function IdentityRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -122,14 +181,7 @@ export function AgentTabIdentityCard({
           </IdentityRow>
         ) : null}
         <IdentityRow label="Checkout">
-          {identity.worktree ? (
-            <span className="inline-flex max-w-full items-center gap-1.5" title={identity.worktree.cwd ?? undefined}>
-              <BranchGlyph />
-              <span className="truncate font-mono">{identity.worktree.branch ?? 'worktree'}</span>
-            </span>
-          ) : (
-            'Main checkout'
-          )}
+          <CheckoutValue checkout={identity.checkout} />
         </IdentityRow>
         {identity.taskId ? (
           <IdentityRow label="Task">

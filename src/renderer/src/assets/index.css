@@ -145,6 +145,25 @@
      from their own ramp — one rung below their `--bg-selected`, which is
      exactly where the bundle puts it in dark. */
   --bg-selected-resting: var(--sem-color-bg-selected-resting);
+  /* The selection EDGE: the 2px accent border worn by the selected row of the
+     pane the keyboard is driving (design-system/patterns/selection.html, owner
+     ruling 2026-09-05). The neutral fill alone could not be found on a rail
+     where other rows carry status tints — a whole-row wash in a hue beats one
+     step of grey every time — and the row that had "finished while you were
+     away" read as the row you were in. The fill is now WHAT HAPPENED and the
+     edge is WHERE YOU ARE; no status state draws an edge any more.
+
+     It is the same 2px accent the focused terminal wears (`terminal-focus-ring`
+     below), on purpose: the row in the rail and the terminal it drives carry
+     one mark between them, which is the question the treatment exists to
+     answer.
+
+     Declared once here and resolved against each theme's own --accent-primary
+     through the cascade, so a theme that re-tints the accent re-tints the edge
+     with it. The resting tier rebinds it to `transparent` near the end of this
+     file, exactly as it rebinds the fill and the ink — so a pane that is not
+     holding focus keeps its remembered choice and gives up the edge. */
+  --selection-edge: var(--accent-primary);
   /* Agent conversation panel canvas. Anchored to --bg-app — the same darkest ink
      the terminal content area sits on — so the chat reads as a working surface
      like the terminal, with the composer (--bg-surface) and the user's message
@@ -2555,8 +2574,10 @@ samp,
  * `--bg-selected` at once, so nothing said which one had focus.
  *
  * A pane opts in with `data-selection-pane`. The selected row of a pane that
- * is resting rebinds the two selection tokens on itself, so the fill drops to
- * `--bg-selected-resting` and the ink lift drops back to `--text-default`.
+ * is resting rebinds the three selection tokens on itself, so the fill drops
+ * to `--bg-selected-resting`, the ink lift drops back to `--text-default`, and
+ * the accent edge goes to `transparent` — leaving exactly one edge on screen,
+ * on the pane with focus.
  * Rebinding the variables rather than restyling the row is what lets every
  * list in the product tier from the markup it already has: sidebar rows, rail
  * rows, tree rows and listbox options all read these two variables already,
@@ -2579,6 +2600,7 @@ body:has([data-selection-pane]:focus-within)
   :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
+  --selection-edge: transparent;
 }
 
 /* A third case the two above cannot express: one rail carrying two LEVELS of
@@ -2595,6 +2617,7 @@ body:has([data-selection-pane]:focus-within)
   :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
+  --selection-edge: transparent;
 }
 
 /* ── Context rail swap ──────────────────────────────────────────────────────

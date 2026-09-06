@@ -1,3 +1,4 @@
+import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetScope } from './tailnet'
 
 // The Fleet: another machine's Studio, mounted in this one (MC-2167).
@@ -53,6 +54,56 @@ export type FleetWorkspace = {
   name: string
   mode: string | null
   folderPath: string | null
+  /**
+   * Which repository the folder is a clone of, as the remote read it off its
+   * own `git remote` (one-project-across-machines). Null when the remote is
+   * an older build, the folder is not a repository, or it has no remote —
+   * three different facts with one consequence: no grouping across machines.
+   */
+  repository: RepositoryIdentity | null
+}
+
+/**
+ * A workspace's checkout facts on the remote machine, as `workspace.checkout`
+ * reports them (checkout-and-branch-on-remote-create). `git: false` is a real
+ * answer — the folder is not a repository, so there is no branch to show and
+ * no worktree to make — and is distinct from a gap, which is "this pairing
+ * may not ask".
+ */
+export type FleetWorkspaceCheckout = {
+  workspaceId: string
+  git: boolean
+  /** The branch the workspace's own checkout is on; null when detached or not a repo. */
+  branch: string | null
+  /** The trunk the remote resolves (origin/HEAD, upstream, main/master), or null. */
+  defaultBranch: string | null
+  branches: Array<{ name: string; current: boolean }>
+  worktrees: Array<{ path: string; branch: string | null; isMain: boolean }>
+}
+
+export type FleetWorkspaceCheckoutResult =
+  | { ok: true; checkout: FleetWorkspaceCheckout }
+  | { ok: false; code: string; message: string }
+
+/**
+ * Where a remote chat runs, chosen at the launch: the current checkout or a
+ * new worktree. `current` opens the agent in the
+ * workspace's own checkout, on whatever branch it is on — this machine never
+ * moves another machine's checkout. `worktree` asks the remote to branch a
+ * fresh worktree off `baseRef` (its current branch when absent) and start
+ * the agent there; it is served by `agent.launch`, the audited
+ * `workspace:operate` mutation that already owns worktree creation.
+ */
+export type FleetCheckoutRequest =
+  | { mode: 'current' }
+  | { mode: 'worktree'; name?: string; baseRef?: string }
+
+/** What a create actually landed on, reported back so the row can say so. */
+export type FleetCreatedCheckout = {
+  mode: 'current' | 'worktree'
+  branch: string | null
+  /** The worktree's absolute path on the remote; null on the current checkout. */
+  worktreePath: string | null
 }
 
 /** A Sprint Engine run on the remote machine, as `sprint.list` reports it. */
@@ -76,6 +127,26 @@ export type FleetTerminal = {
   suspended: boolean
   /** Hook-reported agent phase where the CLI reports one. */
   phase: string | null
+  /**
+   * The remote workspace's display name, as `terminal.list` serves it beside
+   * the id (remote-band-in-the-sidebar) — so a pairing granted terminals alone,
+   * which may not call `workspace.list`, still has a name for the row. Null on
+   * an older remote.
+   */
+  workspaceName: string | null
+  /**
+   * The checkout the session works in, summarised the way the sidebar row is:
+   * branch, ±lines, and whose changes they are (`worktree` this chat's own,
+   * `branch` the branch's, `folder` only what is uncommitted). Null when the
+   * remote could not read it, or predates the field — never a confident zero.
+   */
+  git: {
+    branch: string | null
+    additions: number
+    deletions: number
+    changedFiles: number
+    scope: 'worktree' | 'branch' | 'folder'
+  } | null
 }
 
 /**
@@ -145,7 +216,7 @@ export type FleetPairResult =
 export type FleetAttachResult = { ok: true } | { ok: false; code: string; message: string }
 
 export type FleetCreateTerminalResult =
-  | { ok: true; sessionId: string; workspaceId: string; agentId: string; title: string }
+  | { ok: true; sessionId: string; workspaceId: string; agentId: string; title: string; checkout: FleetCreatedCheckout }
   | { ok: false; code: string; message: string }
 
 /** Terminal access a set of granted scopes carries, in the Fleet's vocabulary. */
@@ -297,6 +368,8 @@ export const FLEET_FORGET_CHANNEL = 'fleet:forget'
 export const FLEET_BROWSE_CHANNEL = 'fleet:browse'
 export const FLEET_LIST_RUNS_CHANNEL = 'fleet:list-runs'
 export const FLEET_CREATE_TERMINAL_CHANNEL = 'fleet:create-terminal'
+/** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
+export const FLEET_WORKSPACE_CHECKOUT_CHANNEL = 'fleet:workspace-checkout'
 export const FLEET_ATTACH_TERMINAL_CHANNEL = 'fleet:attach-terminal'
 export const FLEET_DETACH_TERMINAL_CHANNEL = 'fleet:detach-terminal'
 export const FLEET_TERMINAL_INPUT_CHANNEL = 'fleet:terminal-input'

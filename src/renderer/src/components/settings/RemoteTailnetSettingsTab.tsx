@@ -8,7 +8,7 @@ import {
   type TailnetScope,
 } from '../../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
-import { FOCUS_RING_CLASS, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { FOCUS_RING_CLASS, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { MetaCell, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
 import { deviceSummary, outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
 import { PeerPicker } from '../remote/PeerPicker'
@@ -44,6 +44,9 @@ export function RemoteTailnetSettingsTab() {
   const [scan, setScan] = useState<TailnetPeerScan | null>(null)
   const [scanning, setScanning] = useState(false)
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
+  // A pairing link carried from a machine nobody is sitting at (the Fleet
+  // panel's fallback, moved here when that panel was retired).
+  const [pairingLink, setPairingLink] = useState('')
   const [action, setAction] = useState<ActionState>({ tone: 'idle', message: '' })
   const [now, setNow] = useState(() => Date.now())
   // The newest pushed revision applied, so a read that resolves after a push
@@ -173,6 +176,22 @@ export function RemoteTailnetSettingsTab() {
         return
       }
     })
+
+  // Pair by a carried link: the possession-based path for a machine with
+  // nobody in front of it to approve a request — a server, a headless box.
+  const pairByLink = (): Promise<void> => {
+    const link = pairingLink.trim()
+    if (!link) return Promise.resolve()
+    return run('Pairing with that machine.', async () => {
+      const result = await window.api.fleetPair(link)
+      if (!result.ok) {
+        setAction({ tone: 'error', message: result.message })
+        return
+      }
+      setPairingLink('')
+      setAction({ tone: 'idle', message: `Paired with ${result.connection.machineName}.` })
+    })
+  }
 
   const toggleNotifications = (next: boolean): Promise<void> =>
     run(next ? 'Turning notifications on.' : 'Turning notifications off.', async () => {
@@ -357,6 +376,7 @@ export function RemoteTailnetSettingsTab() {
           scanning={scanning}
           connections={presence.fleet}
           reachability={presence.fleetReachability}
+          devices={status?.devices ?? []}
           now={now}
           onScan={() => void scanPeers()}
           onConnect={(endpoint, reverseScopes) => void connect(endpoint, reverseScopes)}
@@ -364,6 +384,27 @@ export function RemoteTailnetSettingsTab() {
           busy={busy}
           waitingOn={presence.fleetRequests[0]?.machineName ?? null}
         />
+        {/* The carried code stays: a machine with nobody in front of it
+            cannot approve anything, which is the normal case for a server. */}
+        <details className="mt-3 border-t border-[color:var(--border-subtle)] pt-2">
+          <summary className={`cursor-pointer text-meta text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}>
+            Nobody at that machine? Paste a pairing link instead
+          </summary>
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              value={pairingLink}
+              onChange={(event) => setPairingLink(event.target.value)}
+              placeholder="multicode-tailnet://pair?…"
+              aria-label="Pairing link"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void pairByLink()
+              }}
+            />
+            <PrimaryButton size="md" onClick={() => void pairByLink()} disabled={!pairingLink.trim() || busy}>
+              Pair
+            </PrimaryButton>
+          </div>
+        </details>
       </section>
     </div>
   )

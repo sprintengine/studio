@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import type { TailnetDevice } from '../../../../shared/tailnet'
 import type { FleetConnection, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { TailnetPeer, TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { ago, connectDirectionNote, peerPickerView } from './peerPickerModel'
@@ -75,7 +76,7 @@ assert.match(String(view(scanOf([peer({ isSelf: true })])).emptyMessage), /only 
   assert.equal(paired.connection?.id, 'tnc_1')
   assert.match(paired.label, /Paired · reachable/u)
   const asleep = view(scanOf([peer()]), [connection], new Map([['tnc_1', reach({ reachable: false, lastReachedAt: NOW - 2 * 3_600_000 })]])).rows[0]
-  assert.match(asleep.label, /not answering · last reached 2 h ago/u)
+  assert.match(asleep.label, /not answering · 2 h/u)
   const revoked = view(scanOf([peer()]), [connection], new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).rows[0]
   assert.match(revoked.label, /revoked there — pair again/u)
   assert.equal(revoked.tone, 'error')
@@ -129,7 +130,7 @@ const live = new Map([['pane', { attachId: 'pane', connectionId: 'tnc_1', machin
 assert.equal(fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase, 'connected')
 
 assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), 'reachable · checked just now')
-assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · last reached 2 h ago')
+assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · 2 h')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW), 'not answering · never reached')
 assert.equal(machinePhaseText('air', { phase: 'revoked', detail: 'x' }, NOW), 'revoked there — pair again to reconnect')
 
@@ -141,3 +142,77 @@ assert.equal(machineRowAction({ phase: 'reachable', checkedAt: NOW }), null)
 assert.equal(machineRowAction({ phase: 'connected', liveSessions: 1 }), null)
 
 console.log('peer picker + machine row contracts ok')
+
+
+// ── A paired device is not a missing Studio ─────────────────────────────────
+//
+// The owner's own phone sat in this list under "Online, but no Studio is
+// listening on port 8471 — turn on Remote in its Settings" (2026-09-05). A
+// phone never answers on that port and has no Remote setting to turn on, so
+// the row was advice about a machine that was not broken — while the same
+// screen, six rows above, listed it as paired.
+
+const device = (over: Partial<TailnetDevice> = {}): TailnetDevice => ({
+  id: 'tnd_phone',
+  name: 'Sprint Engine Android',
+  scopes: ['terminal:control'],
+  createdAt: '2026-09-02T21:02:06.952Z',
+  lastSeenAt: '2026-09-03T07:51:15.438Z',
+  lastPeerNode: 'android-phone.tail1234.ts.net',
+  origin: { kind: 'unknown', by: null },
+  ...over,
+})
+const phone = peer({ id: 'n-phone', hostName: 'android-phone', dnsName: 'android-phone.tail1234.ts.net', os: 'android', studio: null })
+const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
+  peerPickerView({ scan: scanOf(peers), scanning: false, connections: [], reachability: new Map(), devices, now: NOW })
+
+{
+  const [row] = withDevices([phone], [device()]).rows
+  assert.equal(row.state, 'device', 'a paired phone is its own state, not no-studio')
+  assert.match(row.label, /Paired with this Mac as Sprint Engine Android/u)
+  assert.doesNotMatch(row.label, /turn on Remote/u, 'never tell someone to fix a phone')
+  assert.equal(row.tone, 'good')
+}
+
+{
+  // Offline says so, and still does not accuse the phone of missing a Studio.
+  const [row] = withDevices([{ ...phone, online: false }], [device()]).rows
+  assert.equal(row.state, 'device')
+  assert.match(row.label, /asleep or off/u)
+}
+
+{
+  // MagicDNS off on one side, on on the other: the short name still matches.
+  const shortNamed = withDevices([{ ...phone, dnsName: null }], [device({ lastPeerNode: 'android-phone' })])
+  assert.equal(shortNamed.rows[0].state, 'device')
+  const longStored = withDevices([{ ...phone, dnsName: null }], [device()])
+  assert.equal(longStored.rows[0].state, 'device', 'a short peer name matches a stored FQDN')
+  const trailingDot = withDevices([phone], [device({ lastPeerNode: 'android-phone.tail1234.ts.net.' })])
+  assert.equal(trailingDot.rows[0].state, 'device', 'case and the trailing dot are not identity')
+}
+
+{
+  // A device that has never connected has no node to match on, and must not
+  // claim someone else's row on the strength of its name.
+  const unmatched = withDevices([phone], [device({ lastPeerNode: null })])
+  assert.equal(unmatched.rows[0].state, 'no-studio', 'a device that has never connected must not claim a peer row')
+}
+
+{
+  // Hosting wins: a Mac that runs Studio AND paired a device from here is
+  // still somewhere you can connect to.
+  const both = withDevices([peer({ hostName: 'mini', dnsName: 'mini.tail1234.ts.net' })], [device({ lastPeerNode: 'mini.tail1234.ts.net' })])
+  assert.equal(both.rows[0].state, 'connectable')
+  assert.equal(both.connectableCount, 1)
+}
+
+{
+  // Order: connectable, paired, devices, then the rest.
+  const ordered = withDevices(
+    [peer({ id: 'a', hostName: 'zed-studio' }), phone, peer({ id: 'b', hostName: 'quiet', studio: null })],
+    [device()]
+  )
+  assert.deepEqual(ordered.rows.map((row) => row.state), ['connectable', 'device', 'no-studio'])
+}
+
+console.log('peerPickerModel.test.ts: paired devices ok')

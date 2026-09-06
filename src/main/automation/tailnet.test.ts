@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -20,6 +20,7 @@ import {
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
+import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
 import {
   isAllowedTailnetBindAddress,
   isTailnetAddress,
@@ -57,7 +58,7 @@ import { createAutomationTools } from './automation-tools'
 // real TCP socket on loopback — the transport, the auth, and the audit are the
 // thing under test, so a fake would prove nothing about any of them.
 
-const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'tailnet.offer_pairing'])
+const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
 
 function testTools(calls: string[] = []): McpToolRegistration[] {
   const tool = (name: string): McpToolRegistration => ({
@@ -75,8 +76,10 @@ function testTools(calls: string[] = []): McpToolRegistration[] {
     'backlog.list',
     'backlog.update',
     'workspace.list',
+    'workspace.checkout',
     'terminal.list',
     'terminal.create',
+    'agent.launch',
   ].map(tool)
 }
 
@@ -567,6 +570,221 @@ export async function testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingE
   }
 }
 
+export async function testTheListenerBindsWhenTailscaleComesUpAfterTheApp(): Promise<void> {
+  // The boot race the owner hit on 2026-09-05: Studio launched from a login
+  // item before Tailscale was up, the listener refused to bind, and nothing
+  // ever looked again — the setting read `enabled: true` for hours while the
+  // phone got "the desktop did not answer" from a machine that was running
+  // fine. The refusal must be a "not yet", not a verdict.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-late-'))
+  try {
+    // A port nothing else holds, and loopback as the "interface": the bind
+    // guard allows loopback, and a real 100.64/10 address cannot be bound on a
+    // machine that does not actually have it (EADDRNOTAVAIL). The setting file
+    // is written directly because the port must be free BEFORE the service
+    // reads it — `isUsablePort` refuses 0, so there is no ephemeral escape.
+    const port = await freePort()
+    writeFileSync(
+      join(userDataDir, 'tailnet-remote-settings.json'),
+      JSON.stringify({ enabled: false, port, notifications: true })
+    )
+
+    let tailscaleIsUp = false
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => (tailscaleIsUp ? '127.0.0.1' : null),
+      interfaceWatchMs: 5,
+    })
+
+    const refused = await service.setEnabled(true)
+    assert.equal(refused.running, false, 'nothing binds while there is no interface')
+    assert.match(refused.lastError ?? '', /no Tailscale interface was found/u)
+
+    tailscaleIsUp = true
+    await waitFor(() => service.getStatus().running, 'the listener to bind once an interface appears')
+    const bound = service.getStatus()
+    assert.equal(bound.running, true, 'the watcher binds once an interface appears')
+    assert.equal(bound.endpoint, `127.0.0.1:${port}`, 'bound somewhere unexpected')
+    assert.equal(bound.lastError, null, 'the stale refusal is cleared once it stops being true')
+
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+export async function testTheListenerStandsDownWhenTailscaleGoesAway(): Promise<void> {
+  // The other half of the late-Tailscale watch. Quitting Tailscale takes the
+  // address off the interface, but the socket bound to it stays open as far as
+  // Node is concerned — so `isRunning()` kept answering true and every surface
+  // said "Serving" against a machine nothing could reach. Reported by the
+  // owner on 2026-09-05, having disconnected Tailscale and watched the glyph
+  // stay green.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-away-'))
+  try {
+    const port = await freePort()
+    writeFileSync(
+      join(userDataDir, 'tailnet-remote-settings.json'),
+      JSON.stringify({ enabled: false, port, notifications: true })
+    )
+    let tailscaleIsUp = true
+    const events: Array<{ running: boolean; error: string | null }> = []
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => (tailscaleIsUp ? '127.0.0.1' : null),
+      interfaceWatchMs: 5,
+      onEvent: (payload) => {
+        if (payload.event.kind === 'listener') {
+          events.push({ running: payload.event.running, error: payload.event.running ? null : payload.event.error })
+        }
+      },
+    })
+
+    const serving = await service.setEnabled(true)
+    assert.equal(serving.running, true, 'bound while Tailscale is up')
+
+    tailscaleIsUp = false
+    await waitFor(() => !service.getStatus().running, 'the listener to stand down when the interface goes away')
+    const down = service.getStatus()
+    assert.equal(down.running, false, 'not serving, because nothing can reach it')
+    assert.equal(down.endpoint, null, 'and no endpoint is claimed')
+    assert.match(down.lastError ?? '', /Tailscale is no longer up/u, 'the reason is said, not left blank')
+    assert.ok(
+      events.some((event) => !event.running && /no longer up/u.test(event.error ?? '')),
+      'every window is told over the push channel, not on next open'
+    )
+
+    // And the same beat brings it back: standing down is not a verdict either.
+    tailscaleIsUp = true
+    await waitFor(() => service.getStatus().running, 'the listener to bind again when Tailscale returns')
+    assert.equal(service.getStatus().lastError, null, 'the stale reason is cleared once it stops being true')
+
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+/** A port that is free right now, for a test that must really bind one. */
+async function freePort(): Promise<number> {
+  const net = await import('node:net')
+  return await new Promise<number>((resolve, reject) => {
+    const probe = net.createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      const value = typeof address === 'object' && address ? address.port : 0
+      probe.close(() => resolve(value))
+    })
+  })
+}
+
+export async function testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff(): Promise<void> {
+  // The watch must not outlive the setting: a machine that never runs
+  // Tailscale, with remote turned back off, should be enumerating nothing.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-watch-'))
+  try {
+    let looks = 0
+    const service = createTailnetRemoteService({
+      resolveUserDataDir: () => userDataDir,
+      serverName: 'sprintengine-studio',
+      serverVersion: '9.9.9',
+      resolveTools: () => [],
+      isMutation: () => false,
+      resolveBindAddress: () => {
+        looks += 1
+        return null
+      },
+      interfaceWatchMs: 5,
+    })
+    await service.setEnabled(true)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await service.setEnabled(false)
+    const afterOff = looks
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    assert.equal(looks, afterOff, 'the watch kept polling after remote control was turned off')
+    await service.shutdown()
+  } finally {
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+// ── Uploads from a paired device (backlog id 88) ─────────────────────────────
+
+export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Promise<void> {
+  const cwd = '/Users/someone/repo'
+  // The ordinary case: inside the thread's own folder, under a per-session dir.
+  const ok = resolveUploadDestination({ cwd, sessionId: 'sess_1', name: 'shot.png' })
+  assert.equal(ok.ok, true)
+  if (ok.ok) {
+    assert.equal(ok.path, '/Users/someone/repo/.multi-code/uploads/sess_1/shot.png')
+    assert.ok(ok.path.startsWith(cwd + '/'), 'the file lands under the working directory')
+  }
+
+  // Traversal, in every shape a phone could send it. None of these may produce
+  // a path outside the folder; each becomes a leaf name instead.
+  for (const name of [
+    '../../../../etc/passwd',
+    '..\\..\\Windows\\System32\\drivers\\etc\\hosts',
+    '/etc/passwd',
+    'C:\\Windows\\win.ini',
+    '....//....//escape.txt',
+    '.',
+    '..',
+  ]) {
+    const attempt = resolveUploadDestination({ cwd, sessionId: 'sess_1', name })
+    assert.equal(attempt.ok, true, `${name} should be sanitised, not refused`)
+    if (attempt.ok) {
+      assert.ok(
+        attempt.path.startsWith('/Users/someone/repo/.multi-code/uploads/sess_1/'),
+        `${name} escaped to ${attempt.path}`
+      )
+      assert.doesNotMatch(attempt.path.split('/uploads/sess_1/')[1] ?? '', /[\\/]/u, `${name} kept a separator`)
+    }
+  }
+
+  // A session id is a path segment too, and it is not more trusted than a name.
+  const forgedSession = resolveUploadDestination({ cwd, sessionId: '../../..', name: 'shot.png' })
+  assert.equal(forgedSession.ok, true)
+  if (forgedSession.ok) {
+    assert.ok(forgedSession.path.startsWith('/Users/someone/repo/.multi-code/uploads/'), 'a forged session id escaped')
+  }
+
+  // No working directory is a refusal, not a fallback to somewhere convenient:
+  // an agent confined to its project cannot read a file outside it, so the
+  // upload would "succeed" and be useless.
+  for (const cwdless of [null, undefined, '', '   ', 'relative/path']) {
+    const refused = resolveUploadDestination({ cwd: cwdless, sessionId: 'sess_1', name: 'shot.png' })
+    assert.equal(refused.ok, false, `${String(cwdless)} should be refused`)
+    if (!refused.ok) assert.equal(refused.code, 'invalid_session')
+  }
+}
+
+export async function testUploadNamesAreLeavesAndNeverOverwrite(): Promise<void> {
+  assert.equal(sanitizeUploadName('holiday photo.png'), 'holiday photo.png')
+  assert.equal(sanitizeUploadName('  ../../secret.env  '), 'secret.env')
+  assert.equal(sanitizeUploadName('..'), 'upload', 'a name that sanitises to nothing still gets one')
+  assert.equal(sanitizeUploadName(''), 'upload')
+  assert.equal(sanitizeUploadName('a\u0000b\u001fc.txt'), 'abc.txt', 'control characters are removed')
+  assert.equal(sanitizeUploadName('what:is*this?.png'), 'what_is_this_.png')
+  assert.ok(sanitizeUploadName('x'.repeat(400)).length <= 120, 'a name cannot be unbounded')
+
+  // Two photos from a camera roll carry the same name far more often than not,
+  // and silently replacing the first is a loss nobody can see from a phone.
+  const taken = new Set(['shot.png', 'shot (2).png'])
+  assert.equal(uniqueName('shot.png', taken), 'shot (3).png')
+  assert.equal(uniqueName('notes', new Set(['notes'])), 'notes (2)')
+  assert.equal(uniqueName('fresh.png', taken), 'fresh.png')
+}
+
 // ── Pairing and authentication ───────────────────────────────────────────────
 
 export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway(): Promise<void> {
@@ -589,7 +807,7 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     const tools = (listed.body as { result: { tools: Array<{ name: string }>; ttlMs: number } }).result
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ['backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.list']
+      ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list']
     )
     assert.equal(tools.ttlMs, 300_000, 'the tailnet transport carries the same tools/list TTL as the socket')
 
@@ -701,6 +919,10 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   // plain read; the command envelope is classified a mutation, so a paired
   // phone needs workspace:operate to drive it and every dispatch is audited.
   assert.equal(requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')), 'workspace:read')
+  // checkout-and-branch-on-remote-create: the checkout facts are a plain
+  // read; minting the worktree stays agent.launch's, on workspace:operate.
+  assert.equal(requiredScopeForTool('workspace.checkout', isStudioGatewayMutation('workspace.checkout')), 'workspace:read')
+  assert.equal(requiredScopeForTool('agent.launch', isStudioGatewayMutation('agent.launch')), 'workspace:operate')
   assert.equal(
     requiredScopeForTool('workspace.mobile_command', isStudioGatewayMutation('workspace.mobile_command')),
     'workspace:operate'
@@ -732,6 +954,34 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     assert.equal(audited[0].tool, 'sprint.cancel')
     assert.equal(audited[0].outcome, 'failure')
     assert.equal(audited[0].errorCode, 'tailnet_scope_required')
+
+    // checkout-and-branch-on-remote-create: a worktree minted for a remote
+    // chat rides agent.launch, a mutation — so it lands in the audit with the
+    // device that asked, granted or refused. The read beside it does not.
+    const worktreeMaker = await pairDevice(harness, { scopes: ['workspace:operate', 'terminal:control'], name: 'air' })
+    const minted = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: worktreeMaker.deviceToken,
+      body: rpc(3, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: { baseRef: 'main' } } }),
+    })
+    assert.equal(minted.status, 200)
+    await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: worktreeMaker.deviceToken,
+      body: rpc(4, 'tools/call', { name: 'workspace.checkout', arguments: { workspaceId: 'w1' } }),
+    })
+    const terminalsOnly = await pairDevice(harness, { scopes: ['terminal:control'], name: 'kiosk' })
+    await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: terminalsOnly.deviceToken,
+      body: rpc(5, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: {} } }),
+    })
+    const worktreeAudit = harness.auditRecords().filter((record) => record.tool === 'agent.launch')
+    assert.equal(worktreeAudit.length, 2, 'the granted and the refused worktree create are both audited')
+    assert.equal(worktreeAudit[0].outcome, 'success')
+    assert.equal(worktreeAudit[0].connection.deviceId, worktreeMaker.deviceId, 'with the device that asked')
+    assert.equal(worktreeAudit[0].connection.deviceName, 'air')
+    assert.equal(worktreeAudit[1].outcome, 'failure')
+    assert.equal(worktreeAudit[1].errorCode, 'tailnet_scope_required')
+    assert.equal(worktreeAudit[1].connection.deviceId, terminalsOnly.deviceId)
+    assert.ok(!harness.auditRecords().some((record) => record.tool === 'workspace.checkout'), 'the checkout read is not a mutation and is not audited')
 
     // operate implies read within its family, and never across families.
     const operator = await pairDevice(harness, { scopes: ['sprint:operate'], name: 'operator' })
@@ -1633,7 +1883,7 @@ export async function testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine()
       const listed = byId.get(2) as { result: { tools: Array<{ name: string }> } }
       assert.deepEqual(
         listed.result.tools.map((tool) => tool.name).sort(),
-        ['backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.list'],
+        ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list'],
         'the remote client sees the same tool surface a local one does'
       )
       const read = byId.get(3) as { result: { structuredContent: { tool: string } } }
@@ -1742,6 +1992,11 @@ const tests = [
   testBindAddressAllowsOnlyTailnetOrLoopback,
   testDisabledMeansNoListeningTcpSocket,
   testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingElse,
+  testUploadDestinationsCannotEscapeTheThreadsFolder,
+  testUploadNamesAreLeavesAndNeverOverwrite,
+  testTheListenerBindsWhenTailscaleComesUpAfterTheApp,
+  testTheListenerStandsDownWhenTailscaleGoesAway,
+  testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff,
   testUnpairedClientsGet401AndPairedClientsDriveTheGateway,
   testBrowserOriginatedRequestsAreRefused,
   testOversizedAndMalformedBodiesAreRefusedExplicitly,

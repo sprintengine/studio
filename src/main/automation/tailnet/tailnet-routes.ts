@@ -24,3 +24,11 @@ export const TAILNET_WS_TICKET_PATH = `${TAILNET_ROUTE_PREFIX}/ws-ticket`
 export const TAILNET_STREAM_PATH = `${TAILNET_ROUTE_PREFIX}/stream`
 /** One WebSocket per attached terminal, so a chatty session cannot stall the RPC stream. */
 export const TAILNET_TERMINAL_PATH = `${TAILNET_ROUTE_PREFIX}/terminal`
+/**
+ * One file from a paired device into a thread's own folder (backlog id 88).
+ *
+ * A plain streaming POST rather than a JSON-RPC tool: base64 inside an RPC
+ * envelope inflates a 5MB photo by a third and buffers all of it at both ends,
+ * where a stream to disk buffers none of it.
+ */
+export const TAILNET_UPLOAD_PATH = `${TAILNET_ROUTE_PREFIX}/upload`

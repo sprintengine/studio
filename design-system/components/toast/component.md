@@ -9,7 +9,9 @@ source product's `Toast` primitive (`src/renderer/src/components/ui/`).
 A toast never carries a question (that is a modal), never carries the only
 route to an action (a surface that must be acted on is a banner or an inline
 notice, which stay put), and never dumps the operation's inventory — file
-counts, hashes, byte sizes are stored, not displayed.
+counts, hashes, byte sizes are stored, not displayed. The one crack in the
+first rule is the answer-in-place variant below, held to a single field and a
+persistent surface the request is also readable behind.
 
 ## Anatomy
 
@@ -19,6 +21,7 @@ counts, hashes, byte sizes are stored, not displayed.
 | Surface | `.ds-toast` | yes — `role` and `aria-live` chosen by tone (below) |
 | Tone dot | `.ds-toast-dot` | yes — the 6px status idiom, `aria-hidden` |
 | Content | `.ds-toast-content` | yes — title `.ds-toast-title`, optional description `.ds-toast-description` |
+| Answer row | `.ds-toast-answer` + `.ds-toast-code` + `.ds-toast-help` | no — the answer-in-place variant's one field and its two answers |
 | Dismiss | `.ds-toast-dismiss` | no — trailing icon button, `aria-label="Dismiss"` |
 
 The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glass.opacity` over a `backdrop-filter` of
@@ -63,6 +66,20 @@ dismiss. This is the only toast in the system with buttons. "Undo" in a toast is
 still an action on a timer racing its own dismissal and still belongs where the
 change is visible; a second consumer of the action row is a design decision to
 record here, not a styling choice.
+
+**The answer-in-place row, one consumer.** Owner ruling 2026-09-05: the
+incoming pair-request toast carries `.ds-toast-answer` — a six-digit
+`.ds-input`, then Decline (ghost) and Allow (primary) — with `.ds-toast-help`
+under it holding the instruction, or the refusal in `status.danger` ink. It is
+the one toast in the system with a field, and it earns it: the answer IS six
+digits, read off the screen of the machine asking to pair, and every other
+route to typing them (a popover, a settings tab) walks the person away from
+the screen they are reading. The toast never auto-dismisses — a surface
+holding a half-typed code that vanishes on a timer is worse than no surface —
+and the request stays answerable on its own persistent card, so a dismissed
+toast loses nothing. Everything the field cannot express stays on that card:
+this variant grants the request's DEFAULT authority and nothing a checkbox
+would have chosen. A second consumer, or a second field, is a modal.
 
 ## States
 
@@ -122,6 +139,12 @@ None. Both entries that stood here were spent on 2026-08-05 (**MC-2138**):
   now takes its floor from that token directly, keeping the 10px glyph and the
   flow advance the smaller target had.
 - The placement note pointed at **MC-2110**, which had already shipped.
+
+*2026-09-05:* the answer-in-place variant, above, was ruled and consumed in
+the same breath — the remote epic's pair-request toast stopped pointing at the
+Remote glyph and started taking the code. Its `content` slot is one rendered
+body between the description and the action row; the shipped kit's store
+documents the same single-consumer rule the action row carries.
 
 *2026-09-04:* the corner region is consumed. The remote-sessions-ux epic's
 `toast-host-region` child shipped `.ds-toast-region`'s product counterpart —

@@ -26,6 +26,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
+import { observedCheckoutKind } from '../../../../shared/observed-checkout'
+import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
 import {
@@ -45,9 +47,10 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
-import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { AgentTabIdentityPopover, type AgentTabCheckout, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
@@ -89,7 +92,6 @@ function countOpenTabs(model: Model | null): number {
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const FleetPanel = React.lazy(() => import('../panels/FleetPanel'))
 const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
 // Local lazy const for the defensive fixed-view fallbacks below; the canonical
 // 'sprintengine' board is served through the renderer host (gated). Both resolve
@@ -335,6 +337,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
     }
   }, [worktreeGitRoot])
   const terminalSessions = useTerminalSessions()
+  // Which terminals a paired phone is watching, for the tab's remote mark.
+  const remoteAttachedSessions = useRemoteAttachedSessions()
   const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -571,12 +575,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
             : DISABLED_SURFACE
-        // The Fleet and its terminals are core chrome, not a module: tailnet
-        // remote control is a built-in opt-in feature, and a pane that vanished
-        // with a module toggle would strand a person mid-session on another
-        // machine.
-        case 'fleet':
-          return timedPanel('FleetPanel', <FleetPanel workspaceId={workspaceId} />)
+        // A remote terminal is core chrome, not a module: tailnet remote control
+        // is a built-in opt-in feature, and a pane that vanished with a module
+        // toggle would strand a person mid-session on another machine. (The
+        // Fleet panel that used to sit beside it was retired on 2026-09-05 —
+        // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
+        // default branch's unavailable surface.)
         case 'fleet-terminal':
           // A stale tab whose config lost its machine is refused rather than
           // rendered as an empty terminal: there is no session to attach to, and
@@ -587,8 +591,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                 // Scoped by WORKSPACE, not just by the tab's session-derived id:
                 // the tab id is deliberately deterministic per session (dedupe
                 // within a workspace), so the same session opened in a second
-                // workspace — a New-chat-door solo pane plus a FleetPanel open
-                // elsewhere — used to collide on one attachId, where main's
+                // workspace — a New-chat-door solo pane plus a sidebar row
+                // opened elsewhere — used to collide on one attachId, where main's
                 // same-pane replace rule silently stole the first pane's
                 // stream. The remote terminal port is multi-viewer; two panes
                 // are two healthy attachments (remote-sessions-ux review).
@@ -947,11 +951,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         existing: React.ReactNode,
         wt: { cwd: string | null; branch: string | null } | null,
         missing = false,
+        // The missing tooltip for an OBSERVED directory that vanished: the
+        // default sentence describes the workspace worktree's spawn fallback,
+        // which is not a promise about a per-agent directory.
+        missingTitle?: string,
       ): React.ReactNode => {
         if (!wt) return existing
         const heading = wt.branch ? `Worktree · ${wt.branch}` : 'Running in a git worktree'
         const title = missing
-          ? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
+          ? missingTitle ?? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
           : wt.cwd
             ? `${heading}\n${wt.cwd}`
             : heading
@@ -1139,6 +1147,22 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
             )
             return
           }
+        } else if (componentId === 'fleet-terminal') {
+          // A pane on another machine's terminal wears the shared remote glyph
+          // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
+          // the same keystroke means different things on two machines, and the
+          // tab's name alone is one truncation away from not saying so.
+          const config = node.getConfig() as { machineName?: string } | undefined
+          const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
+          renderValues.leading = (
+            <span
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
+              title={machineLabel}
+              aria-label={machineLabel}
+            >
+              <RemoteMachineGlyph className="h-3.5 w-3.5" />
+            </span>
+          )
         } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
           const isWatchtower = componentId === 'watchtower-panel'
           // Degrade the panel-tab accent + icon to generic when the switchboard
@@ -1238,18 +1262,59 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       } else {
         renderValues.leading = null
       }
-      // Worktree glyph. Workspace-level: any agent in a worktree-backed workspace
-      // earns it, because the cwd-redirect slices run every terminal in the
-      // worktree. Plus the standalone per-agent persisted case: an agent whose
-      // `execution.mode === 'worktree'` earns it even in a workspace that is not
-      // itself worktree-backed (a persisted worktree agent), reading its own cwd.
-      const agentWorktree: { cwd: string | null; branch: string | null } | null =
+      // Where the agent runs. Observed first (MC-2440): the session's own hooks
+      // report its cwd and git resolves it, so an agent that created a worktree
+      // and moved into it — or left one — is shown where it actually is. Until
+      // that answers, launch intent: workspace-level (any agent in a worktree-
+      // backed workspace, because the cwd-redirect slices run every terminal in
+      // the worktree) or the per-agent persisted `execution.mode === 'worktree'`.
+      const observed = agentSession?.observedCheckout
+      const observedKind = observedCheckoutKind(observed)
+      const launchWorktree: { cwd: string | null; branch: string | null } | null =
         worktreeGitRoot
           ? { cwd: worktreeGitRoot, branch: worktreeBranch }
           : agent?.execution.mode === 'worktree'
             ? { cwd: agent.execution.cwd ?? null, branch: worktreeBranch }
             : null
-      renderValues.leading = withWorktreeGlyph(renderValues.leading, agentWorktree, worktreeMissing)
+      // The hover path is the observed cwd itself (where the agent sits, which
+      // may be a subdirectory of the checkout), never the git root.
+      const agentCheckout: AgentTabCheckout | null =
+        observed && observedKind === 'worktree'
+          ? { kind: 'worktree', branch: observed.branch, cwd: observed.cwd, observed: true }
+          : observed && observedKind === 'main'
+            ? { kind: 'main', branch: observed.branch, cwd: observed.cwd, observed: true }
+            : observed && observedKind === 'folder'
+              ? { kind: 'folder', cwd: observed.cwd, observed: true }
+              : observed && observedKind === 'missing'
+                ? { kind: 'missing', cwd: observed.cwd, observed: true }
+                : launchWorktree
+                  ? { kind: 'worktree', ...launchWorktree, observed: false }
+                  : observed
+                    ? { kind: 'unverified', cwd: observed.cwd, observed: true }
+                    : null
+      // The tab glyph marks a worktree, in the danger tone when its directory
+      // is gone: the workspace-level focus-time check covers a launch-intent
+      // worktree and an observed one at the same root; git's own answer covers
+      // an observed directory that vanished (kind 'missing').
+      // git answers forward-slashed on every platform (`C:/…`) while the
+      // workspace root keeps the OS separator, so compare with one separator.
+      const slashed = (value: string) => value.replace(/\\/g, '/')
+      const observedAtWorkspaceWorktree = Boolean(
+        observed?.gitRoot && worktreeGitRoot && samePath(slashed(observed.gitRoot), slashed(worktreeGitRoot)),
+      )
+      const agentWorktree = agentCheckout?.kind === 'worktree'
+        ? { cwd: agentCheckout.cwd, branch: agentCheckout.branch }
+        : agentCheckout?.kind === 'missing'
+          ? { cwd: agentCheckout.cwd, branch: null }
+          : null
+      const agentWorktreeMissing = agentCheckout?.kind === 'missing'
+        || (agentCheckout?.kind === 'worktree' && worktreeMissing && (!agentCheckout.observed || observedAtWorkspaceWorktree))
+      renderValues.leading = withWorktreeGlyph(
+        renderValues.leading,
+        agentWorktree,
+        agentWorktreeMissing,
+        agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
+      )
 
       // Recency only when NOT working and NOT a Sprint Engine run. Active agents
       // show the pulsing green dot; sprint agents show run lifecycle.
@@ -1278,6 +1343,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // Trailing status treatment, shared across the three content branches:
       // sprint agents show a run-lifecycle glyph, everyone else the activity dot
       // (+ recency while idle).
+      // A phone is looking at this agent's terminal right now (owner,
+      // 2026-09-05: "if there is a mobile device actively looking at a
+      // terminal, show the little remote connection icon … beside the name …
+      // green and pulsing while the terminal is open on the mobile").
+      //
+      // It leads the trailing cluster rather than the leading slot, which
+      // already carries the identity the tab is named for — the runtime or the
+      // role. This is a state, and states live with the dot.
+      const remoteViewing = agentSessionId ? remoteAttachedSessions.has(agentSessionId) : false
+      const remoteMark = remoteViewing ? (
+        <span
+          className="status-dot-pulse flex shrink-0 items-center text-[color:var(--tone-good)]"
+          role="img"
+          aria-label="A paired phone is watching this terminal"
+          title="A paired phone is watching this terminal"
+        >
+          <RemoteMachineGlyph className="icon-xs" />
+        </span>
+      ) : null
+
       const trailing = sprintEngineLifecycle ? (
         <LifecycleGlyph
           state={sprintEngineLifecycle.state}
@@ -1343,7 +1428,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         cliLabel: agent?.cli ? labelForCliRuntime(agent.cli) : null,
         sessionId: agentSessionId ?? null,
         taskId: currentTaskId ?? null,
-        worktree: agentWorktree,
+        checkout: agentCheckout,
         status: identityStatus,
         lastMessage: tabPrompt ?? null,
       }
@@ -1356,11 +1441,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       renderValues.content = (
         <AgentTabIdentityPopover identity={agentIdentity}>
           {tabNameSpan}
+          {remoteMark}
           {trailing}
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

@@ -48,9 +48,8 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
-import { RemotePopover, remoteGlyphState, useOpenRemoteSettings } from './topbar/RemotePopover'
+import { RemotePopover, remoteGlyphState, remoteGlyphToneClass, useOpenRemoteSettings } from './topbar/RemotePopover'
 import { useTailnetPresence } from './topbar/useTailnetPresence'
-import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 
@@ -651,13 +650,17 @@ export function WorkspaceActions({
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
                 <Tooltip
                   content={
-                    remoteState.driving
-                      ? 'Remote — a device is driving a terminal here'
-                      : remoteState.requestCount > 0
-                        ? 'Remote — a pair request is waiting'
-                        : remoteState.degraded
-                          ? 'Remote — a machine is not answering'
-                          : 'Remote'
+                    remoteState.requestCount > 0
+                      ? 'Remote — a pair request is waiting'
+                      : remoteState.degraded
+                        ? 'Remote — a machine is not answering'
+                        : remoteState.driving
+                          ? 'Remote — a device is driving a terminal here'
+                          : remoteState.connected
+                            ? 'Remote — a device is connected'
+                            : remoteState.serving
+                              ? 'Remote — serving'
+                              : 'Remote'
                   }
                   placement="bottom"
                 >
@@ -670,35 +673,25 @@ export function WorkspaceActions({
                     aria-label="Remote"
                     {...triggerProps}
                   >
+                    {/* The GLYPH carries the state, and nothing sits in the
+                        corner beside it (owner ruling 2026-09-05: one
+                        indicator, not two on a 16px mark). Green while this
+                        Studio is serving or something is connected; pulsing
+                        amber only when something wants a person — a waiting
+                        pair request, or a machine that stopped answering; the
+                        default ink when remote is idle. A phone driving a
+                        terminal is the feature working, not a summons, so it
+                        is green like any other connection. */}
                     <ChangePulse
                       value={remoteState.requestCount}
                       mode="increase"
                       tint="var(--tone-warn)"
                       className="inline-flex"
                     >
-                      <RemoteMachineGlyph
-                        className={`size-icon-md ${
-                          remoteState.driving ? 'animate-pulse text-[color:var(--tone-warn)] motion-reduce:animate-none' : ''
-                        }`}
-                      />
+                      <RemoteMachineGlyph className={`size-icon-md ${remoteGlyphToneClass(remoteState)}`} />
                     </ChangePulse>
                     {remoteState.requestCount > 0 ? (
                       <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
-                    ) : remoteState.degraded ? (
-                      // Warn and steady: a link reconnecting or given up. The
-                      // pulse is reserved for "a device is driving a terminal
-                      // here", which the glyph itself carries.
-                      <StatusDot
-                        tone="warn"
-                        label="A machine is not answering"
-                        className="absolute right-0.5 top-0.5"
-                      />
-                    ) : remoteState.connected ? (
-                      <StatusDot
-                        tone="good"
-                        label="Connected"
-                        className="absolute right-0.5 top-0.5"
-                      />
                     ) : null}
                   </IconButton>
                 </Tooltip>
@@ -706,14 +699,6 @@ export function WorkspaceActions({
             >
               <RemotePopover
                 presence={remotePresence}
-                onOpenFleet={
-                  activeWorkspace
-                    ? () => {
-                        setRemoteOpen(false)
-                        focusOrAddComponentTab(activeWorkspace.id, 'fleet', 'Fleet')
-                      }
-                    : null
-                }
                 onOpenRemoteSettings={() => {
                   setRemoteOpen(false)
                   openRemoteSettings()

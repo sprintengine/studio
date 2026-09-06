@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react'
 import { ToastRegion } from '../ui/ToastRegion'
 import { showToast, useToastStore } from '../../store/toastStore'
 import { isPairRequestTerminalPhase } from '../../../../shared/tailnet'
+import { PairRequestToastAccept } from '../remote/PairRequestToastAccept'
+import { shortMachineName } from '../remote/machineRowModel'
 
 // The main window's toast host: mounts the one region and runs the app-level
 // producers that have no pane of their own (MC: remote-sessions-ux /
@@ -14,19 +16,25 @@ import { isPairRequestTerminalPhase } from '../../../../shared/tailnet'
 export function ToastHost() {
   useFleetToastBridge()
   usePairRequestToastBridge()
+  useListenerToastBridge()
   return <ToastRegion />
 }
 
-// A pair request has a five-minute TTL and an acting surface (the Remote
-// popover's card, and Settings → Remote); the toast only announces
-// (remote-sessions-ux / incoming-pair-request-prompt). Warn, so it persists —
-// and RETRACTED on every terminal phase (approved, denied, expired, or
-// cancelled because the listener stopped): a toast inviting review of a
-// request that no longer exists would be the one kind of stale this channel
-// exists to prevent. A toast the person already dismissed stays dismissed;
-// nothing resurrects. The comparison code never rides here — it belongs
-// beside the compare instruction. The toast's id is the REQUEST's, so a
-// repeat announcement replaces in place and the retraction cannot orphan.
+// A pair request has a five-minute TTL and — since the owner ruling of
+// 2026-09-05 — is ANSWERED where it arrives: the toast carries the code field
+// and the two answers (`PairRequestToastAccept`), because the person reading
+// it is standing in front of the screen showing the digits, and sending them
+// to another surface to type six numbers was the whole friction. Warn, so it
+// persists — and RETRACTED on every terminal phase (approved, denied,
+// expired, or cancelled because the listener stopped): a toast offering to
+// answer a request that no longer exists would be the one kind of stale this
+// channel exists to prevent. A toast the person already dismissed stays
+// dismissed; nothing resurrects. The comparison code never rides here — it is
+// typed in, never shown. The toast's id is the REQUEST's, so a repeat
+// announcement replaces in place and the retraction cannot orphan.
+//
+// Scope choices stay on the card in the Remote popover: Allow here grants the
+// defaults, terminal control excluded.
 function usePairRequestToastBridge(): void {
   const announced = useRef(new Set<string>())
   useEffect(() => {
@@ -38,16 +46,19 @@ function usePairRequestToastBridge(): void {
       if (event.phase === 'received') {
         if (announced.current.has(event.requestId)) return
         announced.current.add(event.requestId)
-        // The transport-proven node first, the self-declared name second —
-        // the approver should recognise the machine before the label it chose.
+        // The transport-proven node names the toast, shortened to the label a
+        // person reads (the tailnet tail is the same on every machine). The
+        // full identity, and the name the asker gave itself, stay on the card
+        // — the surface for looking a request over rather than answering it.
+        const request = (payload.status?.pairRequests ?? []).find((waiting) => waiting.id === event.requestId) ?? null
         showToast({
           id: toastId,
           tone: 'warn',
-          title: `Pair request from ${event.peerNode ?? event.deviceName}`,
-          description:
-            event.peerNode && event.peerNode !== event.deviceName
-              ? `Calls itself “${event.deviceName}”. Review it from the Remote glyph or Settings → Remote.`
-              : 'Review it from the Remote glyph or Settings → Remote.',
+          title: `Pair request from ${shortMachineName(event.peerNode ?? event.deviceName)}`,
+          // No body without the request itself: a code field that cannot name
+          // what it is answering would be worse than the pointer it replaced.
+          content: request ? <PairRequestToastAccept request={request} /> : undefined,
+          description: request ? undefined : 'Answer it from the Remote glyph.',
         })
         return
       }
@@ -60,6 +71,49 @@ function usePairRequestToastBridge(): void {
 
 export function pairRequestToastId(requestId: string): string {
   return `pair-request:${requestId}`
+}
+
+export const LISTENER_TOAST_ID = 'tailnet-listener'
+
+/**
+ * The inbound listener falling over, announced where a person is working.
+ *
+ * Quitting Tailscale stands the listener down (tailnet-service's interface
+ * heartbeat), and until now the only way to learn that was to open the Remote
+ * glyph — a phone would just stop being able to reach this Mac. Warn, so it
+ * persists, and RETRACTED the moment the listener binds again, with the
+ * recovery announced only if a loss was: the fleet bridge's rule, for the same
+ * reason.
+ *
+ * Only a failure speaks. `running: false` with no reason is someone turning
+ * remote control off, and announcing a thing the person just did is furniture.
+ */
+function useListenerToastBridge(): void {
+  const stopped = useRef(false)
+  useEffect(() => {
+    if (typeof window.api.onTailnetEvent !== 'function') return
+    return window.api.onTailnetEvent((payload) => {
+      const event = payload.event
+      if (event.kind !== 'listener') return
+      if (!event.running) {
+        if (!event.error || stopped.current) return
+        stopped.current = true
+        showToast({
+          id: LISTENER_TOAST_ID,
+          tone: 'warn',
+          title: 'Remote stopped serving',
+          // Main's own words: the reason a listener is down is the whole
+          // content of the report, and the Remote popover shows the same line.
+          description: event.error,
+        })
+        return
+      }
+      if (!stopped.current) return
+      stopped.current = false
+      useToastStore.getState().dismissToast(LISTENER_TOAST_ID)
+      showToast({ tone: 'good', title: 'Remote is serving again' })
+    })
+  }, [])
 }
 
 export function fleetLossToastId(connectionId: string): string {

@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
+import { readRepositoryIdentity } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { BranchStepSelection } from '../../shared/electron-api'
 import {
@@ -129,6 +130,14 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
   ipcMain.handle('git:get-file-at-stage', async (_, repoRoot: string, filePath: string, stage: GitFileStage) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-at-stage', { repoRoot, filePath, stage }, () =>
       getGitFileAtStage(repoRoot, filePath, stage)
+    )
+  })
+
+  // one-project-across-machines: which repository a folder is a clone of, for
+  // the sidebar's grouping and the launch panel's machine filter.
+  ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
+      readRepositoryIdentity(folderPath)
     )
   })
 

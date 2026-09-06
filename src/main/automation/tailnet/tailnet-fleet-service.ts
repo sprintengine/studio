@@ -25,6 +25,8 @@ import {
   type FleetCollectPairingResult,
   type FleetPairRequestView,
   type FleetRequestPairingResult,
+  type FleetCheckoutRequest,
+  type FleetWorkspaceCheckoutResult,
 } from '../../../shared/tailnet-fleet'
 import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
 import {
@@ -158,7 +160,16 @@ export type TailnetFleetService = {
     prompt?: unknown
     cliModel?: unknown
     permissionPreset?: unknown
+    /** Where the chat runs there (checkout-and-branch-on-remote-create); the current checkout when absent. */
+    checkout?: unknown
   }): Promise<FleetCreateTerminalResult>
+  /**
+   * One remote workspace's checkout facts — branch, trunk, branches,
+   * worktrees — over `workspace.checkout` (workspace:read). A pairing that
+   * may not read them gets the refusal as its answer, never an empty list
+   * dressed as "no branches".
+   */
+  workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<FleetWorkspaceCheckoutResult>
   /**
    * Attach a pane to a remote session. `emit` is the pane's event sink; the
    * caller owns its lifetime and calls `detach` when the pane goes away.
@@ -795,12 +806,21 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     return entries.flatMap((entry) => {
       const record = asRecord(entry)
       if (!record || typeof record.id !== 'string') return []
+      const repository = asRecord(record.repository)
       return [
         {
           id: record.id,
           name: typeof record.name === 'string' ? record.name : record.id,
           mode: typeof record.mode === 'string' ? record.mode : null,
           folderPath: typeof record.folderPath === 'string' ? record.folderPath : null,
+          repository:
+            repository && typeof repository.canonicalKey === 'string' && repository.canonicalKey
+              ? {
+                  canonicalKey: repository.canonicalKey,
+                  remoteUrl: typeof repository.remoteUrl === 'string' ? repository.remoteUrl : '',
+                  name: typeof repository.name === 'string' ? repository.name : repository.canonicalKey,
+                }
+              : null,
         },
       ]
     })
@@ -844,6 +864,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           processAlive: record.processAlive === true,
           suspended: record.suspended === true,
           phase: typeof state?.phase === 'string' ? state.phase : null,
+          workspaceName: typeof record.workspaceName === 'string' ? record.workspaceName : null,
+          git: terminalGitOf(record.git),
         },
       ]
     })
@@ -876,6 +898,57 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     }
   }
 
+  async function workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<FleetWorkspaceCheckoutResult> {
+    const connection = connectionFor(connectionId)
+    if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+    if (typeof workspaceId !== 'string' || !workspaceId) {
+      return { ok: false, code: 'invalid_arguments', message: 'Name the workspace whose checkout to read.' }
+    }
+    const answer = await callRemoteTool({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      tool: 'workspace.checkout',
+      args: { workspaceId },
+    })
+    if (!answer.ok) return { ok: false, code: answer.code, message: answer.message }
+    const branches = Array.isArray(answer.value.branches) ? answer.value.branches : []
+    const worktrees = Array.isArray(answer.value.worktrees) ? answer.value.worktrees : []
+    return {
+      ok: true,
+      checkout: {
+        workspaceId,
+        git: answer.value.git === true,
+        branch: typeof answer.value.branch === 'string' ? answer.value.branch : null,
+        defaultBranch: typeof answer.value.defaultBranch === 'string' ? answer.value.defaultBranch : null,
+        branches: branches.flatMap((entry) => {
+          const record = asRecord(entry)
+          if (!record || typeof record.name !== 'string') return []
+          return [{ name: record.name, current: record.current === true }]
+        }),
+        worktrees: worktrees.flatMap((entry) => {
+          const record = asRecord(entry)
+          if (!record || typeof record.path !== 'string') return []
+          return [{ path: record.path, branch: typeof record.branch === 'string' ? record.branch : null, isMain: record.isMain === true }]
+        }),
+      },
+    }
+  }
+
+  /** The checkout request as the wire carries it, or null for anything not that shape. */
+  function checkoutRequestOf(value: unknown): FleetCheckoutRequest | null {
+    const record = asRecord(value)
+    if (!record) return null
+    if (record.mode === 'current') return { mode: 'current' }
+    if (record.mode === 'worktree') {
+      return {
+        mode: 'worktree',
+        ...(typeof record.name === 'string' && record.name.trim() ? { name: record.name.trim() } : {}),
+        ...(typeof record.baseRef === 'string' && record.baseRef.trim() ? { baseRef: record.baseRef.trim() } : {}),
+      }
+    }
+    return null
+  }
+
   async function createTerminal(input: {
     connectionId: unknown
     workspaceId?: unknown
@@ -884,27 +957,77 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     prompt?: unknown
     cliModel?: unknown
     permissionPreset?: unknown
+    checkout?: unknown
   }): Promise<FleetCreateTerminalResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+    const checkout: FleetCheckoutRequest = checkoutRequestOf(input.checkout) ?? { mode: 'current' }
+    // Launch identity forwarded verbatim (remote-sessions-ux /
+    // new-chat-on-a-remote-machine): the remote gateway validates every
+    // field itself — including refusing `bypass` — and its refusal
+    // surfaces to the caller word for word rather than being smoothed here.
+    const identity = {
+      ...(typeof input.workspaceId === 'string' && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(typeof input.name === 'string' && input.name ? { name: input.name } : {}),
+      ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+      ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+      ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
+      ...(typeof input.permissionPreset === 'string' && input.permissionPreset
+        ? { permissionPreset: input.permissionPreset }
+        : {}),
+    }
+    // Which tool answers is the checkout's choice, and it is what keeps the
+    // scope model honest (checkout-and-branch-on-remote-create): the current
+    // checkout is `terminal.create` (terminal:control — a shell in a folder
+    // that already exists), a fresh worktree is `agent.launch` with its
+    // worktree option (workspace:operate — the mutation that mints it, and
+    // the one the audit records). Scope stays a function of the tool's name.
+    if (checkout.mode === 'worktree') {
+      if (!identity.workspaceId) {
+        return { ok: false, code: 'invalid_arguments', message: 'A worktree launch needs the remote workspace id.' }
+      }
+      const answer = await callRemoteTool({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        tool: 'agent.launch',
+        args: {
+          ...identity,
+          worktree: {
+            ...(checkout.name ? { name: checkout.name } : {}),
+            ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
+          },
+        },
+        timeoutMs: 60_000,
+      })
+      if (!answer.ok) return { ok: false, code: answer.code, message: answer.message }
+      const agent = asRecord(answer.value.agent)
+      const terminal = asRecord(agent?.terminal)
+      const sessionId = typeof terminal?.sessionId === 'string' ? terminal.sessionId : ''
+      if (!sessionId) {
+        return {
+          ok: false,
+          code: 'unreadable_result',
+          message: 'That machine started the agent but did not say which session it is, so it cannot be attached.',
+        }
+      }
+      return {
+        ok: true,
+        sessionId,
+        workspaceId: typeof agent?.workspaceId === 'string' ? agent.workspaceId : identity.workspaceId,
+        agentId: typeof agent?.agentId === 'string' ? agent.agentId : '',
+        title: typeof agent?.name === 'string' && agent.name ? agent.name : 'Terminal',
+        checkout: {
+          mode: 'worktree',
+          branch: typeof answer.value.worktreeBranch === 'string' ? answer.value.worktreeBranch : null,
+          worktreePath: typeof answer.value.worktreePath === 'string' ? answer.value.worktreePath : null,
+        },
+      }
+    }
     const answer = await callRemoteTool({
       endpoint: endpointOf(connection),
       token: connection.deviceToken,
       tool: 'terminal.create',
-      // Launch identity forwarded verbatim (remote-sessions-ux /
-      // new-chat-on-a-remote-machine): the remote gateway validates every
-      // field itself — including refusing `bypass` — and its refusal
-      // surfaces to the caller word for word rather than being smoothed here.
-      args: {
-        ...(typeof input.workspaceId === 'string' && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
-        ...(typeof input.name === 'string' && input.name ? { name: input.name } : {}),
-        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
-        ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
-        ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
-        ...(typeof input.permissionPreset === 'string' && input.permissionPreset
-          ? { permissionPreset: input.permissionPreset }
-          : {}),
-      },
+      args: identity,
       // A launch waits on a real CLI starting on another machine; the default
       // read timeout would call a healthy slow start a failure.
       timeoutMs: 60_000,
@@ -925,6 +1048,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       workspaceId: typeof answer.value.workspaceId === 'string' ? answer.value.workspaceId : '',
       agentId: typeof answer.value.agentId === 'string' ? answer.value.agentId : '',
       title: typeof terminal?.agentName === 'string' && terminal.agentName ? terminal.agentName : 'Terminal',
+      // The current checkout's branch is not on this wire: the panel read it
+      // through workspace.checkout before asking, and stamps it itself.
+      checkout: { mode: 'current', branch: null, worktreePath: null },
     }
   }
 
@@ -1226,6 +1352,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     browse,
     listRuns,
     createTerminal,
+    workspaceCheckout,
     attachTerminal,
 
     sendInput(attachId, data): void {
@@ -1302,4 +1429,22 @@ function isPositiveInteger(value: unknown): value is number {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The checkout summary `terminal.list` rides beside a session
+ * (remote-band-in-the-sidebar). Absent or malformed is null — the row then
+ * shows no branch — never a zero that claims a measurement.
+ */
+function terminalGitOf(value: unknown): FleetTerminal['git'] {
+  if (!value || typeof value !== 'object') return null
+  const git = value as Record<string, unknown>
+  const count = (field: unknown): number => (typeof field === 'number' && Number.isFinite(field) ? field : 0)
+  return {
+    branch: typeof git.branch === 'string' ? git.branch : null,
+    additions: count(git.additions),
+    deletions: count(git.deletions),
+    changedFiles: count(git.changedFiles),
+    scope: git.scope === 'worktree' || git.scope === 'branch' ? git.scope : 'folder',
+  }
 }

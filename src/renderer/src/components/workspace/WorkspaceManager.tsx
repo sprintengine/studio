@@ -62,7 +62,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, toggleComponentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -96,6 +96,7 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
+import type { RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
 import { showToast, useToastStore } from '../../store/toastStore'
@@ -1382,6 +1383,9 @@ export default function WorkspaceManager() {
     // What the launch surface typed. A new chat is a solo workspace whose agent
     // starts itself, so the prompt rides its seed patch rather than a tab.
     startupPrompt?: string,
+    // The chat lives in a worktree the door just made: `folderPath` IS that
+    // worktree, and the marker carries its branch for the Git view and row.
+    worktree?: WorkspaceWorktree,
   ) => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
     // A plain New chat is a General agent, so it rides General's own remembered
@@ -1414,6 +1418,7 @@ export default function WorkspaceManager() {
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli,
+      ...(worktree ? { worktree } : {}),
       seedAgent: {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
@@ -2615,7 +2620,8 @@ export default function WorkspaceManager() {
     folderPath?: string | null,
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
-  ) => createNewChat(folderPath, cli, skills, startupPrompt)
+    worktree?: WorkspaceWorktree,
+  ) => createNewChat(folderPath, cli, skills, startupPrompt, worktree)
 
   const openSpecialistInNewChat = (
     specialistId: SpecialistActionId,
@@ -2623,6 +2629,7 @@ export default function WorkspaceManager() {
     folderPath?: string | null,
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
+    worktree?: WorkspaceWorktree,
   ) => {
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
@@ -2637,6 +2644,7 @@ export default function WorkspaceManager() {
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli: cliForSpawn,
+      ...(worktree ? { worktree } : {}),
       seedAgent: {
         tabName,
         agentPatch: {
@@ -2708,9 +2716,10 @@ export default function WorkspaceManager() {
     folderPath?: string | null,
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
+    worktree?: WorkspaceWorktree,
   ) => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath, skills, startupPrompt)
+    openGeneralInNewChat(cli, folderPath, skills, startupPrompt, worktree)
   }
   const pickNewChatSpecialist = (
     specialistId: SpecialistActionId,
@@ -2718,9 +2727,45 @@ export default function WorkspaceManager() {
     folderPath?: string | null,
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
+    worktree?: WorkspaceWorktree,
   ) => {
     setLastNewChatAgent({ kind: 'specialist', specialistId })
-    openSpecialistInNewChat(specialistId, cli, folderPath, skills, startupPrompt)
+    openSpecialistInNewChat(specialistId, cli, folderPath, skills, startupPrompt, worktree)
+  }
+
+  // The worktree the New chat door asked for under ⋯ (found at the seam of
+  // checkout-and-branch-on-remote-create: the door offered the option and
+  // `confirmNewChat` dropped it on the floor). Same container, branch and
+  // include-set as the tab strip's worktree spawn; the chat then opens IN the
+  // worktree, the way the Worktree panel's "New chat here" does. Null after a
+  // diagnostic when it cannot be made — the caller aborts rather than start
+  // the chat in the checkout the person asked to keep clean.
+  const createNewChatWorktree = async (
+    folderPath: string | null,
+    requestedName: string,
+  ): Promise<{ folderPath: string; worktree: WorkspaceWorktree } | null> => {
+    const fail = (title: string, message: string) => {
+      publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
+      return null
+    }
+    if (!folderPath) return fail('Worktree needs a project', 'Choose a project folder before starting a chat on a worktree.')
+    const repoRoot = await window.api.getGitRepoRoot(folderPath)
+    if (!repoRoot) {
+      return fail('Worktree needs a git repository', 'This project is not a git repository, so a worktree cannot be created.')
+    }
+    const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
+    const paths = agentWorktreePaths(repoRoot, name)
+    if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
+    const result = await window.api.createGitWorktree({
+      repoRoot,
+      containerPath: paths.containerPath,
+      destinationPath: paths.destinationPath,
+      branchName: paths.branchName,
+      baseRef: 'HEAD',
+      copyIncludedFiles: true,
+    })
+    if (!result.ok) return fail('Worktree failed', result.message)
+    return { folderPath: result.data.path, worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD' } }
   }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
@@ -2925,13 +2970,41 @@ export default function WorkspaceManager() {
   // persist lastNewChatAgent and seed the solo workspace), then close the panel.
   // `folderPathOverride` is the project the door's own selector picked;
   // omitting it falls back to the panel's scope.
-  const confirmNewChat = (
+  // One confirm at a time: minting a worktree takes real seconds on a large
+  // repo (copyIncludedFiles), and a second Enter during that window used to
+  // mint a second worktree and a second chat.
+  const newChatConfirmInFlight = useRef(false)
+  const confirmNewChat = async (
     confirm: AgentComposerConfirm,
     folderPathOverride?: string | null,
     startupPrompt?: string,
   ) => {
-    const folderPath =
+    if (newChatConfirmInFlight.current) return
+    newChatConfirmInFlight.current = true
+    try {
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt)
+    } finally {
+      newChatConfirmInFlight.current = false
+    }
+  }
+  const confirmNewChatNow = async (
+    confirm: AgentComposerConfirm,
+    folderPathOverride?: string | null,
+    startupPrompt?: string,
+  ) => {
+    const scopedFolder =
       folderPathOverride !== undefined ? folderPathOverride : newChatPanelState?.folderPath ?? null
+    // An agent asked for a worktree starts IN it: the folder becomes the
+    // worktree and the marker rides along. A worktree that cannot be made
+    // leaves the door open with the diagnostic, never a chat in the checkout.
+    let folderPath = scopedFolder
+    let worktree: WorkspaceWorktree | undefined
+    if ((confirm.kind === 'general' || confirm.kind === 'specialist') && confirm.worktree) {
+      const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
+      if (!made) return
+      folderPath = made.folderPath
+      worktree = made.worktree
+    }
     switch (confirm.kind) {
       case 'terminal':
         pickNewChatTerminal(folderPath)
@@ -2941,10 +3014,10 @@ export default function WorkspaceManager() {
       // starts in the workspace and finds them there. The isolated connector
       // worktree runtime is no longer a New chat path.
       case 'specialist':
-        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skills, startupPrompt)
+        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skills, startupPrompt, worktree)
         break
       case 'general':
-        pickNewChatGeneral(confirm.cli, folderPath, confirm.skills, startupPrompt)
+        pickNewChatGeneral(confirm.cli, folderPath, confirm.skills, startupPrompt, worktree)
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
@@ -2962,6 +3035,52 @@ export default function WorkspaceManager() {
   // attachment onto that session, provenance-badged by the two-line row. A
   // failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
+  // A session on a paired machine, opened from the sidebar's Remote band
+  // (remote-sessions-in-the-sidebar): the row that already is that session
+  // is focused; any other becomes a solo workspace whose lone pane is the
+  // fleet attachment — the same shape a chat started over there takes,
+  // minus the create. Provenance is stamped with the session id so the band
+  // recognises the row next time it reads the machine.
+  const openRemoteSession = useCallback((spec: RemoteSessionOpenSpec): void => {
+    setNewChatPanelState(null)
+    if (spec.attachedWorkspaceId) {
+      setActiveWorkspaceForWindow(workspaceWindowId, spec.attachedWorkspaceId)
+      return
+    }
+    if (!SOLO_CHAT_TEMPLATE) {
+      showToast({
+        tone: 'error',
+        title: `Could not open ${spec.title} from ${spec.machineName}`,
+        description: 'The Solo layout template is missing.',
+      })
+      return
+    }
+    addWorkspace(SOLO_CHAT_TEMPLATE, {
+      name: spec.workspaceName ? `${spec.title} · ${spec.workspaceName}` : spec.title,
+      folderPath: null,
+      remoteOrigin: {
+        connectionId: spec.connectionId,
+        machineName: spec.machineName,
+        workspaceId: spec.workspaceId ?? spec.sessionId,
+        workspaceName: spec.workspaceName ?? '',
+        workspaceRoot: spec.workspaceRoot,
+        sessionId: spec.sessionId,
+        repository: spec.repository,
+        // The checkout as the machine listed it; this Mac never moves it.
+        checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
+      },
+      windowId: workspaceWindowId,
+      seedAgent: {
+        tabName: fleetTerminalTabName(spec.machineName, spec.title),
+        fleet: {
+          connectionId: spec.connectionId,
+          machineName: spec.machineName,
+          remoteSessionId: spec.sessionId,
+        },
+      },
+    })
+  }, [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, showToast, workspaceWindowId])
+
   const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch): Promise<void> => {
     const created = await window.api
       .fleetCreateTerminal({
@@ -2971,6 +3090,10 @@ export default function WorkspaceManager() {
         prompt: launch.prompt || undefined,
         cliModel: launch.cliModel ?? undefined,
         permissionPreset: launch.permissionPreset === 'none' ? undefined : launch.permissionPreset,
+        // The checkout choice (checkout-and-branch-on-remote-create): a
+        // worktree is minted THERE by the remote's own agent.launch, and its
+        // refusal — a pairing without workspace:operate — comes back verbatim.
+        checkout: launch.checkout,
       })
       .catch((error: unknown): { ok: false; code: string; message: string } => ({
         ok: false,
@@ -2990,7 +3113,7 @@ export default function WorkspaceManager() {
       showToast({
         tone: 'error',
         title: `Started on ${launch.machineName}, but no pane could open`,
-        description: `The Solo layout template is missing. Attach to "${created.title}" from the Fleet panel.`,
+        description: `The Solo layout template is missing. "${created.title}" is listed under Remote in the sidebar.`,
       })
       closeNewChatPanel()
       return
@@ -3008,6 +3131,19 @@ export default function WorkspaceManager() {
         workspaceId: launch.remoteWorkspaceId,
         workspaceName: launch.remoteWorkspaceName,
         workspaceRoot: launch.remoteWorkspaceRoot,
+        // The session the pane attaches to: how the sidebar's Remote band
+        // knows the row the machine lists is this one.
+        sessionId: created.sessionId,
+        // Which repository that is, as the machine served it (kept for New
+        // chat's "Run on", which filters machines by project).
+        repository: launch.remoteRepository,
+        // What the chat landed on: the worktree's branch as the remote minted
+        // it, or the checkout's branch as the panel read it before asking.
+        checkout: {
+          mode: created.checkout.mode,
+          branch: created.checkout.branch ?? launch.branch,
+          worktreePath: created.checkout.worktreePath,
+        },
       },
       windowId: workspaceWindowId,
       seedAgent: {
@@ -3020,10 +3156,14 @@ export default function WorkspaceManager() {
       },
     })
     closeNewChatPanel()
+    const landedBranch = created.checkout.branch ?? launch.branch
     showToast({
       tone: 'good',
       title: `Started on ${launch.machineName}`,
-      description: `${created.title} in ${launch.remoteWorkspaceName}`,
+      description:
+        created.checkout.mode === 'worktree'
+          ? `${created.title} in ${launch.remoteWorkspaceName}, on a new worktree${landedBranch ? ` (${landedBranch})` : ''}`
+          : `${created.title} in ${launch.remoteWorkspaceName}${landedBranch ? ` · ${landedBranch}` : ''}`,
     })
   }, [addWorkspace, closeNewChatPanel, workspaceWindowId])
 
@@ -3205,11 +3345,6 @@ export default function WorkspaceManager() {
       // silently no-opping (T8 code-review finding A10).
       openPaneTab(windowActiveWorkspaceId, { kind: 'git' })
       return true
-    }
-    if (commandId === 'panel.fleet.toggle' && windowActiveWorkspaceId) {
-      // Toggle, matching the other panel commands: a second invocation closes
-      // the pane it opened rather than re-focusing it forever.
-      return toggleComponentTab(windowActiveWorkspaceId, 'fleet', 'Fleet')
     }
     if (commandId === 'terminal.new') {
       addNewTerminal()
@@ -3776,6 +3911,7 @@ export default function WorkspaceManager() {
         activityByWorkspaceId={activityByWorkspaceId}
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+        onOpenRemoteSession={openRemoteSession}
         onSelectWorkspace={(id) => {
           // Park explicitly: selecting the very workspace New chat sits over
           // changes no workspace id, and the id-keyed park would not fire.
@@ -3961,7 +4097,7 @@ export default function WorkspaceManager() {
                       onChangeDebugMode={setAgentSpawnDebugMode}
                       onLaunch={({ prompt, ...confirm }) => {
                         // confirmNewChat closes the panel (and forgets the draft) itself.
-                        confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
+                        void confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
                       }}
                       // The promise itself, not a void wrapper: the panel's
                       // one-launch-at-a-time guard waits on it, and a wrapper

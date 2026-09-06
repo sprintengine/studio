@@ -28,8 +28,10 @@ import {
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
+import { resolveUploadDestination, UPLOAD_MAX_BYTES } from './tailnet-uploads'
 import {
   createTailnetTerminalStream,
   terminalAttachScopeFor,
@@ -255,6 +257,88 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     await new Promise<void>((resolve) => current.close(() => resolve()))
   }
 
+  /**
+   * One file from a paired device into a thread's own folder (backlog id 88).
+   *
+   * The destination comes from the SESSION, never the request: the phone names
+   * a file, and the working directory it lands under is whatever the terminal
+   * host says that session is running in. `resolveUploadDestination` holds the
+   * guard and its tests; this is the transport around it.
+   *
+   * Streamed to disk with the ceiling enforced as the bytes arrive, so an
+   * oversized upload is cut off mid-flight rather than buffered to discover
+   * its size — and the part-written file is removed, because a truncated
+   * screenshot in a folder an agent reads is worse than no screenshot.
+   */
+  async function handleUpload(
+    request: IncomingMessage,
+    response: ServerResponse,
+    device: TailnetDevice,
+    url: URL
+  ): Promise<void> {
+    // Writing a file into someone's project is a mutation on the terminal
+    // family, so it takes the tier that types rather than the one that watches.
+    if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'terminal:control')) {
+      writeJson(response, 403, {
+        error: {
+          code: 'tailnet_scope_required',
+          message: 'This device may watch terminals but not write files into them.',
+        },
+      })
+      return
+    }
+    if (!options.terminals) {
+      writeJson(response, 501, {
+        error: { code: 'terminal_unavailable', message: 'This build serves no terminals.' },
+      })
+      return
+    }
+    const sessionId = url.searchParams.get('sessionId')?.trim() ?? ''
+    const name = url.searchParams.get('name')?.trim() ?? ''
+    if (!sessionId || !name) {
+      writeJson(response, 400, {
+        error: { code: 'invalid_arguments', message: 'An upload needs a sessionId and a name.' },
+      })
+      return
+    }
+    const session = options.terminals.listSessions().find((candidate) => candidate.sessionId === sessionId)
+    if (!session) {
+      writeJson(response, 404, {
+        error: { code: 'unknown_terminal', message: 'No terminal on this machine has that session id.' },
+      })
+      return
+    }
+    const destination = resolveUploadDestination({ cwd: session.cwd, sessionId, name, taken: new Set() })
+    if (!destination.ok) {
+      writeJson(response, destination.code === 'path_escape' ? 400 : 409, {
+        error: { code: destination.code, message: destination.message },
+      })
+      return
+    }
+    // A declared length over the cap is refused before a byte is read.
+    const declared = Number(request.headers['content-length'] ?? '')
+    if (Number.isFinite(declared) && declared > UPLOAD_MAX_BYTES) {
+      writeJson(response, 413, {
+        error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+      })
+      return
+    }
+    try {
+      const written = await streamUploadToDisk(request, destination)
+      options.log?.(`tailnet upload: ${device.name} wrote ${written} bytes to ${destination.path}`)
+      writeJson(response, 200, { path: destination.path, bytes: written })
+    } catch (error) {
+      if (error instanceof UploadTooLarge) {
+        writeJson(response, 413, {
+          error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+        })
+        return
+      }
+      options.log?.(`tailnet upload failed: ${message(error)}`)
+      writeJson(response, 500, { error: { code: 'internal_error', message: 'The file could not be written.' } })
+    }
+  }
+
   async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     // Any `Origin` means a browser made this request. No client of this
     // transport is a browser, and a page on a tailnet machine must not be able
@@ -333,6 +417,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         transportVersion: TAILNET_TRANSPORT_VERSION,
         protocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
       })
+      return
+    }
+
+    if (method === 'POST' && path === TAILNET_UPLOAD_PATH) {
+      await handleUpload(request, response, device, parseUrl(request.url))
       return
     }
 
@@ -919,6 +1008,50 @@ function pathOf(url: string | undefined): string {
 
 function queryOf(url: string | undefined): URLSearchParams {
   return parseUrl(url).searchParams
+}
+
+/** Thrown when a body runs past the ceiling mid-flight. */
+class UploadTooLarge extends Error {}
+
+/**
+ * Stream a request body into the thread's upload directory.
+ *
+ * The ceiling is counted as the bytes arrive rather than trusted from
+ * `content-length`, which a client controls and can simply omit. A body that
+ * runs past it is cut off and the part-written file removed: a truncated
+ * screenshot sitting in a folder an agent reads is worse than no screenshot,
+ * because the agent cannot tell the difference.
+ */
+async function streamUploadToDisk(
+  request: IncomingMessage,
+  destination: { directory: string; path: string }
+): Promise<number> {
+  const { mkdir, rm } = await import('node:fs/promises')
+  const { createWriteStream } = await import('node:fs')
+  await mkdir(destination.directory, { recursive: true })
+  const sink = createWriteStream(destination.path, { flags: 'wx' })
+  let written = 0
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const fail = (error: Error) => {
+        request.unpipe(sink)
+        sink.destroy()
+        reject(error)
+      }
+      request.on('data', (chunk: Buffer) => {
+        written += chunk.length
+        if (written > UPLOAD_MAX_BYTES) fail(new UploadTooLarge('upload over the ceiling'))
+      })
+      request.on('error', fail)
+      sink.on('error', fail)
+      sink.on('finish', () => resolve())
+      request.pipe(sink)
+    })
+  } catch (error) {
+    await rm(destination.path, { force: true }).catch(() => {})
+    throw error
+  }
+  return written
 }
 
 // The base is a placeholder: only the path and query are ever read from it, and

@@ -132,6 +132,8 @@ type BackendsOverrides = {
   refreshSprintPullRequestStatus?: AutomationBackends['refreshSprintPullRequestStatus']
   readSprintTokenUsage?: AutomationBackends['readSprintTokenUsage']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
+  readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
+  readRepositoryIdentity?: AutomationBackends['readRepositoryIdentity']
   listPlugins?: AutomationBackends['listPlugins']
   ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
   getModuleRegistrySnapshot?: AutomationBackends['getModuleRegistrySnapshot']
@@ -269,6 +271,10 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
         worktreePath: `${workspaceRoot}/.multicode-worktrees/${name}`,
         branch: `agent/${name}`,
       })),
+    readWorkspaceCheckout:
+      overrides.readWorkspaceCheckout
+      ?? (async () => ({ git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] })),
+    readRepositoryIdentity: overrides.readRepositoryIdentity ?? (async () => null),
     listPlugins: overrides.listPlugins ?? (() => []),
     ensureBuiltinSkillInstalled: overrides.ensureBuiltinSkillInstalled ?? (async () => true),
     // module.*/marketplace.*: no registry mirrored and nothing installed unless
@@ -402,6 +408,7 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'sprint.token_usage',
       'terminal.create',
       'terminal.list',
+      'workspace.checkout',
       'workspace.create',
       'workspace.list',
       'workspace.mobile_command',
@@ -525,13 +532,32 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
       activity: { kind: 'idle', since: 20 },
     } as unknown as TerminalSessionSnapshot,
   ]
-  const tools = createAutomationTools(backendsOf({ workspaces: [workspace, restartSurvivor], sessions }))
+  const identityReads: string[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [workspace, restartSurvivor],
+      sessions,
+      readRepositoryIdentity: async (folderPath) => {
+        identityReads.push(folderPath)
+        return folderPath === '/repo/old'
+          ? { canonicalKey: 'github.com/acme/old', remoteUrl: 'git@github.com:acme/old.git', name: 'old' }
+          : null
+      },
+    })
+  )
 
   const list = await tool(tools, 'workspace.list').handler({})
   assert.equal(list.isError, undefined)
-  const listed = list.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
+  const listed = list.structuredContent as {
+    workspaces: Array<{ id: string; detail: string; repository: { canonicalKey: string } | null }>
+  }
   assert.equal(listed.workspaces.length, 2)
   assert.deepEqual(listed.workspaces.map((entry) => entry.detail), ['full', 'full'])
+  // one-project-across-machines: each folder's repository rides the listing,
+  // null where the reader has nothing, so a paired Studio can match clones.
+  assert.deepEqual(identityReads, ['/repo/old'], 'read once per folder; a folderless workspace is not asked about')
+  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-old')?.repository?.canonicalKey, 'github.com/acme/old')
+  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-1')?.repository, null)
 
   // A gateway tool operates on the restart survivor with no live agent
   // terminal — the case that used to fail `workspace_without_folder`.
@@ -584,12 +610,12 @@ async function testInvalidRequestsReturnExplicitErrors(): Promise<void> {
 function launchHarness(overrides: BackendsOverrides = {}): {
   tools: ReturnType<typeof createAutomationTools>
   requests: AgentLaunchRequest[]
-  worktreeCalls: Array<{ workspaceRoot: string; name: string }>
+  worktreeCalls: Array<{ workspaceRoot: string; name: string; baseRef?: string }>
 } {
   const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
   const sessions: TerminalSessionSnapshot[] = []
   const requests: AgentLaunchRequest[] = []
-  const worktreeCalls: Array<{ workspaceRoot: string; name: string }> = []
+  const worktreeCalls: Array<{ workspaceRoot: string; name: string; baseRef?: string }> = []
   const backends: AutomationBackends = {
     ...backendsOf({ workspaces: [workspace], sessions, ...overrides }),
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
@@ -691,6 +717,28 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
     (okWorktree.structuredContent as { worktreePath?: string }).worktreePath,
     '/tmp/project-a/.multicode-worktrees/Scout'
   )
+  assert.equal(
+    (okWorktree.structuredContent as { worktreeBranch?: string }).worktreeBranch,
+    'agent/Scout',
+    'the branch the worktree was minted on is reported, for the row that will name it'
+  )
+
+  // worktree.baseRef (checkout-and-branch-on-remote-create) is the ref the
+  // worktree forks from — a branch the caller read off workspace.checkout —
+  // and reaches the git helper as such; absent, the helper forks HEAD.
+  const forked = launchHarness()
+  const okForked = await tool(forked.tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    name: 'Scout',
+    worktree: { name: 'fix', baseRef: 'release/2' },
+  })
+  assert.equal(okForked.isError, undefined, JSON.stringify(okForked.structuredContent))
+  assert.deepEqual(forked.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'fix', baseRef: 'release/2' }])
+  const badBase = await tool(launchHarness().tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    worktree: { baseRef: 7 },
+  })
+  assert.equal((badBase.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 
   // A connector forces a worktree even without an explicit worktree request.
   const connector = launchHarness()
@@ -816,6 +864,53 @@ async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise
 // The acceptance the item states about defaults: this machine's own settings
 // decide the CLI and the preset unless the caller names them — with the one
 // exception that `bypass` never crosses this surface, inherited or asked for.
+// workspace.checkout (checkout-and-branch-on-remote-create): the read a
+// paired Studio makes before choosing where a remote chat runs. It projects
+// the backend's facts under the workspace id, and answers a folderless or
+// unknown workspace with the same failures every workspace tool gives.
+async function testWorkspaceCheckoutReportsTheBackendsFacts(): Promise<void> {
+  const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
+  const orphan = testWorkspace('ws-none', { folderPath: null })
+  const reads: string[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [workspace, orphan],
+      readWorkspaceCheckout: async (root) => {
+        reads.push(root)
+        return {
+          git: true,
+          branch: 'main',
+          defaultBranch: 'main',
+          branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
+          worktrees: [{ path: '/tmp/project-a', branch: 'main', isMain: true }],
+        }
+      },
+    })
+  )
+  const answer = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-1' })
+  assert.equal(answer.isError, undefined, JSON.stringify(answer.structuredContent))
+  assert.deepEqual(reads, ['/tmp/project-a'], 'the read is against the workspace folder')
+  const facts = answer.structuredContent as {
+    workspaceId: string
+    git: boolean
+    branch: string | null
+    defaultBranch: string | null
+    branches: Array<{ name: string; current: boolean }>
+    worktrees: Array<{ path: string; branch: string | null; isMain: boolean }>
+  }
+  assert.equal(facts.workspaceId, 'ws-1')
+  assert.equal(facts.git, true)
+  assert.equal(facts.branch, 'main')
+  assert.deepEqual(facts.branches.map((entry) => entry.name), ['feat/x', 'main'])
+  assert.equal(facts.worktrees[0]?.isMain, true)
+
+  const noFolder = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-none' })
+  assert.equal((noFolder.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
+  const unknown = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-ghost' })
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
+  assert.equal(isStudioGatewayMutation('workspace.checkout'), false, 'a read, on workspace:read — the worktree itself is agent.launch')
+}
+
 async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
   const inherited = launchHarness({
     defaultCli: 'codex',
@@ -4121,6 +4216,7 @@ const tests = [
   testAgentLaunchWidensConfigAndIsolation,
   testTerminalCreateSpawnsAndReturnsTheAttachableSession,
   testTerminalCreateTakesThisMachinesLaunchDefaults,
+  testWorkspaceCheckoutReportsTheBackendsFacts,
   testInvalidRequestsReturnExplicitErrors,
   testCreateMintsInMainWithNoWindow,
   testCreateSurfacesARegistryRefusal,

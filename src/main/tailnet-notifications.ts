@@ -109,7 +109,7 @@ export function fleetNotice(event: FleetEvent): TailnetNotice | null {
     return {
       key: `revoked:${event.connectionId}`,
       title: `${event.machineName} revoked this Mac`,
-      body: 'Its pairing was taken back over there. Pair again from the Fleet when you want it back.',
+      body: 'Its pairing was taken back over there. Pair again from Settings → Remote when you want it back.',
     }
   }
   return null

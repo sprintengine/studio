@@ -5,6 +5,7 @@ import {
   FLEET_ATTACH_TERMINAL_CHANNEL,
   FLEET_BROWSE_CHANNEL,
   FLEET_CREATE_TERMINAL_CHANNEL,
+  FLEET_WORKSPACE_CHECKOUT_CHANNEL,
   FLEET_DETACH_TERMINAL_CHANNEL,
   FLEET_FORGET_CHANNEL,
   FLEET_GET_LIVE_STATE_CHANNEL,
@@ -100,7 +101,12 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
       prompt: record.prompt,
       cliModel: record.cliModel,
       permissionPreset: record.permissionPreset,
+      checkout: record.checkout,
     })
+  })
+  ipcMain.handle(FLEET_WORKSPACE_CHECKOUT_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input)
+    return service.fleet().workspaceCheckout(record?.connectionId, record?.workspaceId)
   })
 
   ipcMain.handle(FLEET_ATTACH_TERMINAL_CHANNEL, async (event, input: unknown) => {

@@ -12,8 +12,9 @@ import { JSDOM } from 'jsdom'
 // a selected `InboxRow` inside a `Tabs` strip — one tree, one render — and
 // asserts the four contracts those tasks landed:
 //
-//   T4   selection is a neutral `--bg-selected` fill, the title sits at
-//        `--text-strong`, and no accent left bar survives anywhere in the row.
+//   T4   selection is a neutral `--bg-selected` fill plus a 2px inset
+//        `--selection-edge` ring, the title sits at `--text-strong`, and
+//        neither an accent fill nor a left bar survives anywhere in the row.
 //   T18  the ink lift is a real step: an unselected title sits at
 //        `--text-default`. The resting tier itself is a cascade behaviour
 //        (`data-selection-pane` + `:focus-within`) and is measured in the built
@@ -225,6 +226,26 @@ async function main(): Promise<void> {
     )
   })
 
+  // The fill's second channel, added 2026-09-05. One step of neutral grey is
+  // the quietest mark on a surface, and it lost outright to any row wearing a
+  // status wash — the person could not find the row their keyboard was driving.
+  // The edge answers that; it reads `--selection-edge` rather than the accent
+  // directly so the resting tier can drop it to transparent with the fill.
+  await run('T4 the selected row carries the 2px accent edge, through --selection-edge', () => {
+    assert.ok(
+      hasClassMatching(selectedRow, /^ring-2$/) && hasClassMatching(selectedRow, /^ring-inset$/),
+      'the edge is a 2px inset ring, so it never shifts the row',
+    )
+    assert.ok(
+      hasClassMatching(selectedRow, /^ring-\[color:var\(--selection-edge\)\]$/),
+      'and it is drawn in --selection-edge, which the resting tier rebinds',
+    )
+    assert.ok(
+      !hasClassMatching(plainRow, /^ring-inset$/),
+      'an unselected row carries no edge — exactly one is on screen',
+    )
+  })
+
   await run('T4 the selected row title sits at --text-strong', () => {
     const title = selectedRow?.querySelector('.truncate')
     assert.ok(title, 'the row has a title line')
@@ -248,12 +269,18 @@ async function main(): Promise<void> {
     )
   })
 
-  await run('T4 no accent and no left bar survives anywhere in the selected row', () => {
+  // The accent reaches selection as an EDGE and only as an edge. An accent
+  // FILL would be the original failure this rule was written for: the accent's
+  // other job is "this is the action worth clicking", and a filled row outranks
+  // the button beside it. `--selection-edge` is the one sanctioned spelling —
+  // naming `--accent-primary` on a row opts it out of the resting tier.
+  await run('T4 the accent reaches the selected row as an edge only — no fill, no left bar', () => {
     for (const element of subtree(selectedRow as Element)) {
       for (const token of classesOf(element)) {
         assert.ok(
           !/--accent-primary/.test(token),
-          `selection must not reach for the accent, found \`${token}\``,
+          'selection reaches the accent only as an edge, and only through ' +
+            `--selection-edge so the resting tier can drop it, found \`${token}\``,
         )
         assert.ok(
           !/^-?border-l(-|$)/.test(token),
