@@ -113,7 +113,9 @@ function signedManifestJson(overrides: Record<string, unknown>): { json: string;
 async function testReservedIdPublisherLock(): Promise<void> {
   await withTempDir(async (dir) => {
     const firstParty = signedManifestJson({ id: 'switchboard', displayName: 'Switchboard' })
-    const impostor = signedManifestJson({ id: 'roadmap', displayName: 'Fake Roadmap' })
+    // `design` is a bundled id on every branch; `roadmap` left the bundle when
+    // Horizon retired, and a retired id is no longer reserved.
+    const impostor = signedManifestJson({ id: 'design', displayName: 'Fake Design' })
     const root = join(dir, 'modules')
     const firstPartyCtx: ModuleTrustContext = {
       trustedModules: new Map(),
@@ -131,9 +133,9 @@ async function testReservedIdPublisherLock(): Promise<void> {
 
     // A different signer is rejected even though its signature is valid —
     // and even if the user id-trusted that exact manifest.
-    const impostorSrc = await writeModuleFolder(dir, 'roadmap-src', impostor.json)
+    const impostorSrc = await writeModuleFolder(dir, 'design-src', impostor.json)
     const impostorTrusted: ModuleTrustContext = {
-      trustedModules: new Map([['roadmap', manifestFingerprint(JSON.parse(impostor.json))]]),
+      trustedModules: new Map([['design', manifestFingerprint(JSON.parse(impostor.json))]]),
       trustedKeyFingerprints: new Set([firstParty.fingerprint]),
     }
     const blocked = await installModuleFolder(impostorSrc, root, impostorTrusted)
