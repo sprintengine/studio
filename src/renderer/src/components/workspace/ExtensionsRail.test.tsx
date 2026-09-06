@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 
-// The sidebar's Extensions section (app shell, 2026-09-05): one list of
-// every door and modal surface the modules registered, in registry order, with
-// the same row for both. This renders the real surface against the real host
-// because the contract is the WIRING — a registered surface becomes a row, the
-// row opens it on the local store, and the row reads selected while it is
-// open — and none of that shows in a unit test of the registry alone.
+// The Extensions drawer (Extensions drawer ruling, 2026-09-05): FIVE rows in a
+// fixed order — Sprints · Design · Plugins · Skills · Agent CLIs — where the
+// last three are three views of the ONE `extensions` surface. This renders the
+// real drawer against the real module registry because the contract is the
+// WIRING: the ruling's order survives whatever `order` the modules declared, a
+// view row opens its surface latched to that view, exactly the row the surface
+// is standing on reads selected, and a disabled module's row is simply absent.
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -19,6 +20,7 @@ anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
 anyGlobal.Node = dom.window.Node
 anyGlobal.MouseEvent = dom.window.MouseEvent
 anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
+anyGlobal.CustomEvent = dom.window.CustomEvent
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -36,6 +38,8 @@ import { getRendererHost } from '../../modules'
 import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SidebarNavButton } from './SidebarNavButton'
+import { publishModalSurfaceView } from './modalSurfaceView'
+import { consumePendingExtensionsSurfaceTarget } from './globalSurface/extensions/extensionsSurfaceTarget'
 
 function render(navEntries: readonly RegisteredSidebarNavEntry[]): HTMLElement {
   const host = dom.window.document.createElement('div')
@@ -49,66 +53,14 @@ function render(navEntries: readonly RegisteredSidebarNavEntry[]): HTMLElement {
 
 const rows = () => [...dom.window.document.querySelectorAll('[role="listitem"] button')] as HTMLElement[]
 const rowLabels = () => rows().map((row) => row.textContent?.trim() ?? '')
+const row = (label: string) => rows().find((candidate) => candidate.textContent?.trim() === label)
 
-// ── A modal surface becomes a row that opens it ───────────────────────────────
-const host = getRendererHost()
-let onOpenCalls = 0
-if (!host.getModalSurface('compass-test')) {
-  host.hostFor('design').registerModalSurface({
-    id: 'compass-test',
-    order: 5,
-    label: 'Compass',
-    Icon: ({ className }: { className?: string }) => React.createElement('svg', { className }),
-    // A plain open runs onOpen first — the seam the Plugins surface uses to
-    // discard a stale deep-link latch.
-    onOpen: () => {
-      onOpenCalls += 1
-    },
-    Component: () => null,
-  })
-}
-
-// A surface that stands on the app rail (RAIL_SURFACE_IDS) is not an
-// extension to the person and is not offered here a second time.
-if (!host.getModalSurface('automations')) {
-  host.hostFor('design').registerModalSurface({
-    id: 'automations',
-    order: 1,
-    label: 'Automations',
-    Icon: ({ className }: { className?: string }) => React.createElement('svg', { className }),
-    Component: () => null,
-  })
-}
-
-render([])
-assert.ok(!rowLabels().includes('Automations'), 'a rail-level surface (Automations) is left out of the Extensions list')
-const compass = rows().find((row) => row.textContent?.includes('Compass'))
-assert.ok(compass, 'a registered modal surface renders as a row of the Extensions list')
-assert.equal(compass?.getAttribute('aria-current'), null, 'the row reads unselected while its modal is closed')
-act(() => {
-  compass?.click()
-})
-assert.equal(useWorkspaceStore.getState().activeModalSurface, 'compass-test', 'clicking the row opens its modal on the local store')
-assert.equal(onOpenCalls, 1, 'a plain row open ran the surface’s onOpen hook first')
-assert.equal(
-  rows().find((row) => row.textContent?.includes('Compass'))?.getAttribute('aria-current'),
-  'true',
-  'the row reads selected while its modal is open',
-)
-act(() => {
-  useWorkspaceStore.getState().closeModalSurface()
-})
-
-dom.window.document.body.innerHTML = ''
-
-// ── Doors and modals interleave by their declared order ──────────────────────
-// A door entry at order 1 sorts before the order-5 modal; one at order 50
-// sorts after it. The list is one list — a module places its surface by order
-// alone, whichever registry it used.
+// A door row, as a module registers one. The declared `order` is deliberately
+// absurd: the drawer's order is the ruling's, not the registry's.
 const doorEntry = (id: string, order: number, label: string): RegisteredSidebarNavEntry => ({
   id,
   order,
-  moduleId: 'design',
+  moduleId: 'sprint-engine',
   Component: ({ collapsed }) =>
     React.createElement(SidebarNavButton, {
       collapsed,
@@ -119,9 +71,95 @@ const doorEntry = (id: string, order: number, label: string): RegisteredSidebarN
       onClick: () => {},
     }),
 })
-render([doorEntry('late-door', 50, 'Late door'), doorEntry('early-door', 1, 'Early door')])
-const labels = rowLabels()
-assert.ok(labels.indexOf('Early door') < labels.indexOf('Compass'), 'an order-1 door sorts before the order-5 modal')
-assert.ok(labels.indexOf('Compass') < labels.indexOf('Late door'), 'the order-5 modal sorts before an order-50 door')
+
+// ── The registry says what a view row IS ─────────────────────────────────────
+// The shell holds the ORDER; the agent-runtime module holds what its three rows
+// are called, what they look like and how the surface lands on each.
+const extensions = getRendererHost().getModalSurface('extensions')
+assert.ok(extensions, 'the always-on core registers the extensions surface')
+assert.deepEqual(
+  extensions?.views?.map((view) => [view.id, view.label]),
+  [
+    ['plugins', 'Plugins'],
+    ['skills', 'Skills'],
+    ['agent-clis', 'Agent CLIs'],
+  ],
+  'one surface, three drawer rows, each named by the module',
+)
+
+// ── The five rows, in the ruled order ────────────────────────────────────────
+render([doorEntry('sprints', 900, 'Sprints'), doorEntry('roadmap', 1, 'Roadmap')])
+assert.deepEqual(
+  rowLabels(),
+  ['Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs'],
+  'the drawer is exactly the ruling’s five rows, in the ruling’s order — an order-1 door that is not one of them does not appear, and an order-900 Sprints still leads',
+)
+assert.ok(!rowLabels().includes('Automations'), 'Automations stands on the app rail, not in the drawer')
+assert.ok(!rowLabels().includes('Reviews'), 'a registered surface the ruling did not list is not a drawer row')
+
+// ── A view row opens its surface latched to that view ────────────────────────
+consumePendingExtensionsSurfaceTarget()
+act(() => {
+  row('Skills')?.click()
+})
+assert.equal(useWorkspaceStore.getState().activeModalSurface, 'extensions', 'a view row opens the surface that owns it')
+assert.equal(
+  consumePendingExtensionsSurfaceTarget(),
+  'skills',
+  'and latches the view first, so a surface that mounts a tick later still lands on the clicked row',
+)
+
+act(() => {
+  row('Plugins')?.click()
+})
+assert.equal(consumePendingExtensionsSurfaceTarget(), 'browse', 'Plugins is the MCP-server catalogue')
+
+// ── Exactly the row the surface stands on reads selected ─────────────────────
+// The surface publishes its view (modalSurfaceView), so the drawer follows it
+// even when the person moved with the surface's own rail rather than a row.
+act(() => {
+  publishModalSurfaceView('extensions', 'skills')
+})
+assert.equal(row('Skills')?.getAttribute('aria-current'), 'true', 'the row the surface is standing on reads selected')
+assert.equal(row('Plugins')?.getAttribute('aria-current'), null, 'and its siblings do not — one open surface lights one row')
+assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), null)
+
+act(() => {
+  publishModalSurfaceView('extensions', 'agent-clis')
+})
+assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), 'true', 'moving the surface moves the selection')
+assert.equal(row('Skills')?.getAttribute('aria-current'), null)
+
+act(() => {
+  useWorkspaceStore.getState().closeModalSurface()
+  publishModalSurfaceView('extensions', null)
+})
+assert.ok(rows().every((r) => r.getAttribute('aria-current') === null), 'a closed surface lights nothing')
+
+// ── A whole-surface row still opens plainly ──────────────────────────────────
+act(() => {
+  row('Design')?.click()
+})
+assert.equal(useWorkspaceStore.getState().activeModalSurface, 'design', 'the Design row opens the design module’s surface')
+assert.equal(row('Design')?.getAttribute('aria-current'), 'true', 'and reads selected while it is open')
+act(() => {
+  useWorkspaceStore.getState().closeModalSurface()
+})
+
+// ── A disabled module takes its row with it ──────────────────────────────────
+dom.window.document.body.innerHTML = ''
+act(() => {
+  useWorkspaceStore.setState((state) => ({
+    appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, design: false } },
+  }))
+})
+// No Sprints door either: the sidebar filters nav entries by enablement before
+// they reach the drawer, so a disabled sprint-engine hands over an empty list.
+render([])
+assert.deepEqual(
+  rowLabels(),
+  ['Plugins', 'Skills', 'Agent CLIs'],
+  'rows for modules that are off are absent rather than dead, and the rest keep their order',
+)
 
 console.log('ExtensionsRail.test.tsx: ok')

@@ -312,10 +312,9 @@ and do not render a group heading when there is only one group — "Recent"
 spanning every row groups nothing. Headings appear when there are at least two
 groups to tell apart; the list's accessible name carries the label otherwise.
 
-**The app rail** (ruled 2026-09-05; glyphs-only, same day) — the window's
-far-left column of glyphs, the editor's tool stripe and the app's rail — is chrome,
-not a rail in the context-rail sense. It names AREAS of the product (Home,
-Extensions) and holds its two standing tools (Automations, Plugins), never
+**The app rail** (ruled 2026-09-05; glyphs-only and then three-glyph, same day)
+— the window's far-left column of glyphs — is chrome, not a rail in the context-rail sense. It names AREAS of the
+product (Home, Extensions) and holds its one standing tool (Automations), never
 things inside an area; the sidebar column beside it lists the things, and a
 drilled-in surface still replaces that column's content rather than standing
 beside it. "One rail, ever" is unchanged: the app rail holds no list a person
@@ -331,19 +330,31 @@ walks. Its anatomy:
    bar on the window's edge. A section glyph is current while its column
    shows; a tool glyph is pressed while its surface floats. The two can light
    together, and they say different things.
-3. **Automations and Plugins stand on the rail, not in the Extensions list.**
-   They are what the product does, not something added to it. Each is the
-   module's own registered surface, gated on the module's enablement, so a
-   turned-off module's glyph is simply absent.
-4. **Extensions opens the marketplace.** Choosing it lists the installed
-   extension doors in the sidebar column and floats the marketplace — what can
-   be installed, and what is — over the card region.
+3. **Three glyphs: Home, Automations, Extensions.** Automations stands on the
+   rail because it is what the product DOES, not something added to it; it is
+   the module's own registered surface, gated on the module's enablement, so a
+   turned-off module's glyph is simply absent. Plugins does not: it is one of
+   the five things under Extensions, and a glyph of its own said it stood
+   beside them.
+4. **Extensions opens its home, and the sidebar becomes the drawer.** The
+   drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills,
+   Agent CLIs — with the same `SidebarNavButton` chrome for all five. The order
+   is the ruling's, not the registry's `order`; a module contributes a row's
+   name, glyph and behaviour, never its place. The drawer stays put while the
+   card region swaps, so it is the navigation; only Sprints, which has its own
+   list of runs, replaces it with a rail for the length of its visit.
 5. **The account and Settings cluster pins to its foot.** They belong to the
    window, not to whichever section the sidebar is showing.
 6. **Its top reserves the title strip's height** on every platform, so its
    first glyph sits below the chrome row beside it. On macOS the native
    traffic lights start in that reserve and run past the rail's edge; the
    sidebar's chrome row insets for the remainder.
+7. **The divider starts below that reserve, never at the top.** The rail's
+   right-hand hairline is a positioned strip from the title row down, not a
+   full-height `border-r`: the traffic lights are wider than the rail, so an
+   edge that ran the whole height drew a line straight through the green light.
+   Across the title row the rail and the chrome beside it are one unbroken
+   band.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.

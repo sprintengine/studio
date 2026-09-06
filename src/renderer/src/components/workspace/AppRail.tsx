@@ -4,12 +4,11 @@ import type { RegisteredModalSurface } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
-import { TITLE_BAR_HEIGHT } from './AppTitleBar'
+import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
 // The app rail (app shell, 2026-09-05): the narrow column of glyphs at
 // the window's far left that decides what the sidebar column beside it shows,
-// and holds the product's two standing tools. Desktop apps commonly put this
-// rail outside the sidebar rather than inside it — the rail names AREAS of the
+// and holds the product's standing tools. The rail sits outside the sidebar — the rail names AREAS of the
 // product, the sidebar lists the THINGS inside the chosen area, and the two
 // never share a column.
 //
@@ -19,19 +18,19 @@ import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 // keeps the name on hover and in the accessible name — the same idiom the
 // sidebar's collapsed rows already use.
 //
-// Four glyphs, top to bottom:
+// THREE glyphs, top to bottom (Extensions drawer ruling, 2026-09-05, revising
+// the four-glyph cut of the same day):
 //   Home        — the sidebar shows New chat and the workspaces tree.
-//   Automations — the Automations surface floats over the card region.
-//   Plugins     — the Plugins surface (MCPs, skills, CLIs) floats likewise.
-//   Extensions  — the sidebar lists the installed extension doors (Sprints,
-//                 Reviews, Design) and the marketplace opens over the card
-//                 region: what is installed, and what can be.
-// Automations and Plugins are rail-level because they are not extensions to
-// the person — they are what the product does — so they leave the Extensions
-// list (ExtensionsRail excludes RAIL_SURFACE_IDS) and stand here. They are
-// still the modules' own registered surfaces: the rail takes each one's glyph
-// and label from the registry and is gated on the module's enablement, so a
-// disabled module's glyph simply is not there.
+//   Automations — the Automations surface opens over the card region.
+//   Extensions  — the sidebar becomes the Extensions drawer (Sprints, Design,
+//                 Plugins, Skills, Agent CLIs) and the Extensions home opens
+//                 over the card region.
+// Plugins left the rail: it is one of the five things UNDER Extensions, and a
+// glyph of its own said it stood beside them. Automations stays because it is
+// what the product does rather than something added to it — and it is still
+// the automations module's own registered surface, glyph and label taken from
+// the registry and gated on the module's enablement, so a disabled module's
+// glyph is simply not there.
 //
 // This is window chrome, not a rail in the context-rail sense
 // (`design-system/patterns/context-rail.html`, "one rail, ever"). That ruling is
@@ -53,13 +52,12 @@ export const APP_RAIL_WIDTH = 46
 // Where the three lights end, as AppTitleBar's own reserve measures it.
 export const TRAFFIC_LIGHT_RESERVE = 78
 
-// The registered modal surfaces that stand on the rail, in rail order. Ids,
-// not modules: `extensions` is the agent-runtime module's Plugins surface.
-export const RAIL_SURFACE_IDS = ['automations', 'extensions'] as const
-
-export function isRailSurface(id: string): boolean {
-  return (RAIL_SURFACE_IDS as readonly string[]).includes(id)
-}
+// The registered modal surfaces that stand on the rail, in rail order. Ids, not
+// modules. One of them today: the ruling promotes only Automations. The
+// mechanism stays a LIST because what the rail holds is a ruling rather than a
+// constant of the code — a second standing tool would join it here rather than
+// be hand-placed in the JSX.
+export const RAIL_SURFACE_IDS = ['automations'] as const
 
 /** The rail's surfaces, picked from the host's enablement-filtered list and put in rail order. */
 export function railSurfacesOf(surfaces: readonly RegisteredModalSurface[]): RegisteredModalSurface[] {
@@ -155,11 +153,23 @@ export function AppRail({ section, onSelectSection, surfaces, activeModalSurface
       style={{ width: APP_RAIL_WIDTH }}
       // The whole column is a drag region — it is window chrome — and each
       // control opts back out, exactly as the title strip does.
-      className="app-drag flex shrink-0 flex-col items-stretch border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-canvas)]"
+      className="app-drag relative flex shrink-0 flex-col items-stretch bg-[color:var(--bg-canvas)]"
     >
       {/* The title strip's height, reserved: the first glyph sits below the
           chrome row beside it, and on macOS the native traffic lights start here. */}
       <div aria-hidden="true" className={`${TITLE_BAR_HEIGHT} shrink-0`} />
+      {/* The divider starts BELOW that reserve (owner, 2026-09-05), which is why
+          it is a positioned hairline and not the nav's `border-r`. The macOS
+          traffic lights are pinned at x:12 by the hiddenInset frame and their
+          78px span runs past this 46px column, so a full-height edge drew a line
+          straight through the green light. Below the title row the rail and the
+          sidebar's chrome share one unbroken band, and the rule picks up where
+          the window controls end. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-0 right-0 w-px bg-[color:var(--border-subtle)]"
+        style={{ top: TITLE_BAR_HEIGHT_PX }}
+      />
       <div className="flex flex-col items-center gap-1.5 px-1.5 pt-1">
         <RailGlyph label="Home" current="section" active={section === 'home'} onClick={() => onSelectSection('home')}>
           <HomeGlyph className="icon-md" />

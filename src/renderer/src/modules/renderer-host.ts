@@ -436,6 +436,36 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
 // chevron.
 export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
 
+// One drawer row of a surface that is several things to the person (Extensions
+// drawer ruling, 2026-09-05). The agent-runtime module registers ONE
+// `extensions` surface, but Plugins, Skills and Agent CLIs are three separate
+// destinations to the operator and the ruling gives each its own row in the
+// Extensions drawer. A view is that row: the module owns its name, its glyph
+// and how the surface lands on it, so the shell never learns a module's
+// internal sections — it only places the rows.
+//
+// A surface with no views contributes one row (its own label and glyph), which
+// is every surface but Plugins today.
+export type ModalSurfaceViewDefinition = {
+  /**
+   * Unique within the surface. This is the id the surface publishes while it is
+   * showing this view (`publishModalSurfaceView`), which is how the drawer knows
+   * which of a surface's rows is the selected one.
+   */
+  id: string
+  /** The row's label and accessible name. Non-empty; sentence case. */
+  label: string
+  /** The row's glyph; the shell sizes it via className. */
+  Icon: ModalSurfaceIconComponent
+  /**
+   * Land the surface on this view. Runs BEFORE the shell opens the surface, so
+   * a deep-link latch dispatched here is drained by the surface as it mounts —
+   * the order every other deep-link opener uses. This replaces `onOpen` for a
+   * view row: a view IS a target, so there is no stale latch to discard.
+   */
+  open: () => void
+}
+
 export type ModalSurfaceDefinition = {
   /** Matches the id opened via `openModalSurface`. Non-empty; unique. */
   id: string
@@ -457,6 +487,12 @@ export type ModalSurfaceDefinition = {
    * plain open). Deep-link openers dispatch their own state and bypass this.
    */
   onOpen?: () => void
+  /**
+   * The drawer rows this one surface offers, when it is more than one
+   * destination to the person. Absent (the common case) means one row, named by
+   * `label` and drawn with `Icon`.
+   */
+  views?: readonly ModalSurfaceViewDefinition[]
   /** The modal body. Eager or React.lazy(), mirroring GlobalSurfaceComponent. */
   Component: GlobalSurfaceComponent
 }
@@ -1163,6 +1199,23 @@ export function createRendererHost(): RendererKernel {
           }
           if (definition.label.trim().length === 0) {
             throw new Error(`Modal surface "${definition.id}" must have a non-empty label.`)
+          }
+          // A view id is what the surface publishes to say which of its rows is
+          // showing, so a duplicate or blank one would light two rows at once
+          // (or none) rather than fail loudly here.
+          const viewIds = new Set<string>()
+          for (const view of definition.views ?? []) {
+            const viewId = view.id.trim()
+            if (viewId.length === 0) {
+              throw new Error(`Modal surface "${definition.id}" has a view with an empty id.`)
+            }
+            if (view.label.trim().length === 0) {
+              throw new Error(`Modal surface view "${definition.id}/${viewId}" must have a non-empty label.`)
+            }
+            if (viewIds.has(viewId)) {
+              throw new Error(`Modal surface "${definition.id}" registers view "${viewId}" twice.`)
+            }
+            viewIds.add(viewId)
           }
           const existing = modalSurfaces.get(definition.id)
           if (existing) {

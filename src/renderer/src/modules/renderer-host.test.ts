@@ -516,6 +516,51 @@ assert.throws(
   /non-empty label/,
   'a modal surface without a label is rejected — the label is the trigger tooltip and the dialog name',
 )
+// Views (Extensions drawer ruling, 2026-09-05): one surface, several drawer
+// rows. A view id is what the surface publishes to say which row is showing, so
+// a blank or duplicated one would light two rows at once — or none — instead of
+// failing here where the module can see it.
+assert.throws(
+  () => modalHost.hostFor('design').registerModalSurface({
+    id: 'blank-view-id', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
+    views: [{ id: '  ', label: 'A', Icon: modalIcon, open() {} }],
+  }),
+  /view with an empty id/,
+  'a view without an id is rejected: nothing could ever publish it',
+)
+assert.throws(
+  () => modalHost.hostFor('design').registerModalSurface({
+    id: 'blank-view-label', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
+    views: [{ id: 'a', label: '  ', Icon: modalIcon, open() {} }],
+  }),
+  /non-empty label/,
+  'a view without a label is rejected — the label is the drawer row’s name',
+)
+assert.throws(
+  () => modalHost.hostFor('design').registerModalSurface({
+    id: 'dupe-views', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
+    views: [
+      { id: 'a', label: 'A', Icon: modalIcon, open() {} },
+      { id: 'a', label: 'Also A', Icon: modalIcon, open() {} },
+    ],
+  }),
+  /registers view "a" twice/,
+  'two views cannot share an id, or the published view would select both rows',
+)
+{
+  // A host of its own, so the surface-ordering assertions below still see the
+  // two surfaces they were written for.
+  const viewHost = createRendererHost()
+  viewHost.hostFor('acme.compass').registerModalSurface({
+    id: 'compass', order: 16, label: 'Compass', Icon: modalIcon, Component: modalComponent,
+    views: [{ id: 'near', label: 'Near', Icon: modalIcon, open() {} }],
+  })
+  assert.deepEqual(
+    viewHost.getModalSurface('compass')?.views?.map((view) => view.id),
+    ['near'],
+    'a registered surface carries its views through to the drawer that places them',
+  )
+}
 assert.throws(
   () => modalHost.hostFor('acme.compass').registerModalSurface({
     id: 'settings', order: 1, label: 'Settings', Icon: modalIcon, Component: modalComponent,

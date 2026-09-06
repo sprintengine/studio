@@ -14,7 +14,7 @@ import type { AutomationDefinition } from '../../../../../../shared/automations/
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
-import { McpGlyph, SkillsGlyph } from '../../../ui/CapabilityGlyphs'
+import { CliGlyph, McpGlyph, SkillsGlyph } from '../../../ui/CapabilityGlyphs'
 import { automationsDoorTarget } from '../../../automations/runTarget'
 import { dispatchAutomationSurfaceTarget } from '../automations/automationSurfaceTarget'
 import { AutomationServerSettings } from '../../../settings/AutomationServerSettings'
@@ -40,8 +40,11 @@ import { useSkillSources } from './skills/useSkillSources'
 import {
   consumePendingExtensionsSurfaceTarget,
   subscribeExtensionsSurfaceTarget,
+  EXTENSIONS_DRAWER_VIEWS,
+  type ExtensionsDrawerView,
   type ExtensionsSurfaceView,
 } from './extensionsSurfaceTarget'
+import { publishModalSurfaceView } from '../../modalSurfaceView'
 
 // The canvas sections. The connector marketplace is ONE section with ONE
 // browse state: its two rail rows (Featured, MCP servers) are projections of
@@ -122,7 +125,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   const applyTargetView = useCallback(
     (view: ExtensionsSurfaceView) => {
-      if (view === 'installed' || view === 'skills') {
+      if (view === 'installed' || view === 'skills' || view === 'agent-clis') {
         setSection(view)
         return
       }
@@ -144,6 +147,25 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       applyTargetView(view)
     })
   }, [applyTargetView])
+
+  // Say which of the Extensions drawer's three rows this surface is standing on
+  // (drawer ruling, 2026-09-05), so exactly one of Plugins / Skills / Agent CLIs
+  // reads selected — including when the person moved with the surface's OWN rail
+  // rather than the drawer row. Everything that is not the skills or the CLI
+  // shelf belongs to Plugins: the surface is titled Plugins, and Installed,
+  // Automations and Modules are halves of it until Stage 2 splits them out.
+  const drawerView: ExtensionsDrawerView =
+    section === 'skills'
+      ? EXTENSIONS_DRAWER_VIEWS.skills
+      : section === 'agent-clis'
+        ? EXTENSIONS_DRAWER_VIEWS.agentClis
+        : EXTENSIONS_DRAWER_VIEWS.plugins
+  useEffect(() => {
+    publishModalSurfaceView('extensions', drawerView)
+    // Closing takes the selection with it: a drawer row must not stay lit over
+    // a card region the surface no longer owns.
+    return () => publishModalSurfaceView('extensions', null)
+  }, [drawerView])
 
   // Host actions, read at call time from the seam WorkspaceManager fills. A
   // missing host (tests, detached mounts) no-ops rather than throwing.
@@ -487,20 +509,6 @@ function ModuleGlyph(): JSX.Element {
         d="M8 2 13.5 4.6v6L8 13.9 2.5 10.6v-6zM2.5 4.6 8 7.2l5.5-2.6M8 7.2v6.7"
         stroke="currentColor"
         strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function CliGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
-      <path
-        d="M2.5 3.5h11v9h-11zM4.8 6.6l2 1.7-2 1.7M8.6 10.3h2.8"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>

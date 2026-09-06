@@ -10,7 +10,12 @@ import {
   AGENT_TERMINAL_TARGET_KIND,
   type AgentBacklogLinkOpenPorts,
 } from '../utils/agentBacklogLinks'
-import { consumePendingExtensionsSurfaceTarget } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import {
+  consumePendingExtensionsSurfaceTarget,
+  dispatchExtensionsSurfaceTarget,
+  EXTENSIONS_DRAWER_VIEWS,
+} from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import { CliGlyph, McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
 import { PluginsGlyph } from '../components/workspace/modalSurfaceGlyphs'
 
 // The Plugins surface (MC-1847's Extensions door until doors→modals,
@@ -132,6 +137,35 @@ export const agentRuntimeRendererModule: RendererModule = {
       onOpen: () => {
         consumePendingExtensionsSurfaceTarget()
       },
+      // Three rows in the Extensions drawer, not one (drawer ruling,
+      // 2026-09-05: Sprints · Design · Plugins · Skills · Agent CLIs). Plugins,
+      // Skills and Agent CLIs are separate destinations to the operator even
+      // though one surface still renders all three, so each contributes its own
+      // row here rather than the shell learning this module's sections. Each
+      // opens by the deep-link latch the surface already drains, so the row and
+      // a notification's Open arrive by exactly one route. Stage 2 splits the
+      // surface into three; these rows do not change when it does.
+      views: [
+        {
+          id: EXTENSIONS_DRAWER_VIEWS.plugins,
+          label: 'Plugins',
+          Icon: McpGlyph,
+          // `browse` is the MCP-server catalogue — the full grid, not Featured.
+          open: () => dispatchExtensionsSurfaceTarget('browse'),
+        },
+        {
+          id: EXTENSIONS_DRAWER_VIEWS.skills,
+          label: 'Skills',
+          Icon: SkillsGlyph,
+          open: () => dispatchExtensionsSurfaceTarget('skills'),
+        },
+        {
+          id: EXTENSIONS_DRAWER_VIEWS.agentClis,
+          label: 'Agent CLIs',
+          Icon: CliGlyph,
+          open: () => dispatchExtensionsSurfaceTarget('agent-clis'),
+        },
+      ],
       Component: ExtensionsGlobalSurface,
     })
 

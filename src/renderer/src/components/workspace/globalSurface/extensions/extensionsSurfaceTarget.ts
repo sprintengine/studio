@@ -11,10 +11,25 @@
 // points can import it without pulling the door bundle into their graph.
 
 /** Deep-link destinations, mapped onto rail rows by the surface: browse → the
- *  marketplace grid, installed → Installed, skills → Skills. `skills` is where
- *  the retired `skill-packs` settings tab now lands (MC-1936) — the packs are
- *  gone, but a link that asked for skills must still arrive at skills. */
-export type ExtensionsSurfaceView = 'browse' | 'installed' | 'skills'
+ *  marketplace grid, installed → Installed, skills → Skills, agent-clis → the
+ *  Agent CLIs shelf. `skills` is where the retired `skill-packs` settings tab
+ *  now lands (MC-1936) — the packs are gone, but a link that asked for skills
+ *  must still arrive at skills. `agent-clis` arrived with the Extensions drawer
+ *  (2026-09-05), whose Agent CLIs row is a deep link like any other. */
+export type ExtensionsSurfaceView = 'browse' | 'installed' | 'skills' | 'agent-clis'
+
+// The drawer rows this surface contributes (Extensions drawer ruling,
+// 2026-09-05): the ids the module registers as its `views` and the surface
+// publishes while it is showing one (modalSurfaceView). Kept here, in the leaf
+// both the eager module registration and the lazy surface already import, so
+// the row a person clicks and the row that lights are named by one constant.
+export const EXTENSIONS_DRAWER_VIEWS = {
+  plugins: 'plugins',
+  skills: 'skills',
+  agentClis: 'agent-clis',
+} as const
+
+export type ExtensionsDrawerView = (typeof EXTENSIONS_DRAWER_VIEWS)[keyof typeof EXTENSIONS_DRAWER_VIEWS]
 
 export const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'
 
@@ -47,7 +62,7 @@ export function subscribeExtensionsSurfaceTarget(
 ): () => void {
   const listener = (event: Event) => {
     const view = (event as CustomEvent<ExtensionsSurfaceView>).detail
-    if (view === 'browse' || view === 'installed' || view === 'skills') handler(view)
+    if (view === 'browse' || view === 'installed' || view === 'skills' || view === 'agent-clis') handler(view)
   }
   window.addEventListener(EXTENSIONS_SURFACE_TARGET_EVENT, listener)
   return () => window.removeEventListener(EXTENSIONS_SURFACE_TARGET_EVENT, listener)

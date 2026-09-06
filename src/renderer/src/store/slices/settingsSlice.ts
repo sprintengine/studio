@@ -1161,9 +1161,11 @@ export interface SettingsSliceState {
   activeModalSurface: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
-  // the list of installed extension doors (the tools the rail holds itself —
-  // Automations, Plugins — are not in it), beside the marketplace the rail's
-  // Extensions glyph floats. Per window and transient like
+  // the Extensions drawer — Sprints, Design, Plugins, Skills, Agent CLIs
+  // (2026-09-05 ruling); Automations is what the product does rather than
+  // something added to it, so it stands on the rail and is not in the drawer.
+  // Beside it the rail's Extensions glyph opens its surface. Per window and
+  // transient like
   // activeGlobalSurface — a restart lands on Home.
   // Opening a door flips it to `extensions` (the door's rail then replaces
   // the column, and the rail glyph says where the operator is); selecting a
