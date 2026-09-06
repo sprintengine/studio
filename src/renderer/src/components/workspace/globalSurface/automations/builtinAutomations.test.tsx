@@ -85,6 +85,7 @@ const addedDefinition = {
 }
 
 let storeHasAdded = false
+let addFails = false
 const addCalls: unknown[] = []
 
 function run(name: string, body: () => void): void {
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
     listBuiltinAutomations: async () => ({ ok: true, value: [...BUILTIN_AUTOMATIONS] }),
     addBuiltinAutomation: async (input: unknown) => {
       addCalls.push(input)
+      if (addFails) return { ok: false, code: 'store_error', message: 'The automations store could not be written.' }
       const alreadyAdded = storeHasAdded
       storeHasAdded = true
       return { ok: true, value: { definition: addedDefinition, alreadyAdded, workspaceRoot: WORKSPACE_ROOT } }
@@ -254,6 +256,22 @@ async function main(): Promise<void> {
     assert.match(yours.textContent ?? '', /Dead code sweep/, 'and the copy is listed under Yours')
   })
 
+  // A failure belongs to the row it was raised on. Left standing, it followed
+  // the selection and reported itself against four automations that never
+  // failed.
+  addFails = true
+  await act(async () => { findButton(host, /Duplication review/)!.click() })
+  await act(async () => { findButton(bar(), /^Add to demo-repo$/)!.click() })
+  await act(async () => { await Promise.resolve() })
+  run('a failed add is reported on the automation it was attempted for', () => {
+    assert.match(host.textContent ?? '', /The automations store could not be written\./)
+  })
+  await act(async () => { findButton(host, /Unit test coverage/)!.click() })
+  run('and does not follow the selection to the next automation', () => {
+    assert.doesNotMatch(host.textContent ?? '', /The automations store could not be written\./)
+  })
+  addFails = false
+
   act(() => root.unmount())
   host.remove()
 
@@ -279,6 +297,13 @@ async function main(): Promise<void> {
     const control = findButton(barText, /Open a project to add it/)
     assert.ok(control, 'the control names what is missing rather than a project that is not there')
     assert.equal(control!.disabled, true, 'and refuses the write')
+    // A disabled button is not focusable, so the reason has to live somewhere a
+    // keyboard can actually reach — in the card, in reading order.
+    assert.match(
+      bareHost.textContent ?? '',
+      /Open the project this automation should run in, then add it there\./,
+      'and the reason is readable without focusing the control',
+    )
   })
 
   act(() => bareRoot.unmount())

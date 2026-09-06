@@ -142,20 +142,54 @@ function weeklyWords(timeLocal: string, daysOfWeek: number[]): string {
  * than the expression the author wrote.
  */
 function cronWords(expression: string): string {
+  const literal = `Cron · ${expression.trim()}`
   const fields = expression.trim().split(/\s+/u)
-  if (fields.length !== 5) return `Cron · ${expression.trim()}`
+  if (fields.length !== 5) return literal
   const [minute, hour, dayOfMonth, month, dayOfWeek] = fields as [string, string, string, string, string]
-  if (dayOfMonth !== '*' || month !== '*') return `Cron · ${expression.trim()}`
+  if (dayOfMonth !== '*' || month !== '*') return literal
 
+  // A step is only the interval it looks like while it fits inside its field:
+  // cron applies `*/n` across 0-59 (or 0-23), so `*/90` fires at minute 0 and
+  // nothing else — hourly, not "every 90 min". Saying the number back would be
+  // the wrong-paraphrase failure this function exists to avoid, so an
+  // out-of-range step falls back to the expression the author wrote.
   const everyMinutes = /^\*\/(\d+)$/u.exec(minute)
-  if (everyMinutes && hour === '*' && dayOfWeek === '*') return `Every ${Number(everyMinutes[1])} min`
+  if (everyMinutes && hour === '*' && dayOfWeek === '*') {
+    const step = Number(everyMinutes[1])
+    return step >= 1 && step <= 59 ? `Every ${step} min` : literal
+  }
 
   const everyHours = /^\*\/(\d+)$/u.exec(hour)
-  if (everyHours && /^\d+$/u.test(minute) && dayOfWeek === '*') return `Every ${Number(everyHours[1])}h`
+  if (everyHours && /^\d+$/u.test(minute) && dayOfWeek === '*') {
+    const step = Number(everyHours[1])
+    return step >= 1 && step <= 23 ? `Every ${step}h` : literal
+  }
 
-  if (!/^\d+$/u.test(minute) || !/^\d+$/u.test(hour)) return `Cron · ${expression.trim()}`
+  if (!/^\d+$/u.test(minute) || !/^\d+$/u.test(hour)) return literal
   const timeLocal = `${pad(Number(hour))}:${pad(Number(minute))}`
   if (dayOfWeek === '*') return dailyWords(timeLocal)
-  if (!/^\d+(,\d+)*$/u.test(dayOfWeek)) return `Cron · ${expression.trim()}`
-  return weeklyWords(timeLocal, dayOfWeek.split(',').map(Number))
+  if (!/^\d+(,\d+)*$/u.test(dayOfWeek)) return literal
+  const days = cronDaysOfWeek(dayOfWeek)
+  // A day this cannot place is not a day to leave out: dropping one turned
+  // `0 6 * * 1,7` into "Weekly, Monday", a schedule that runs on a day the
+  // words deny. Either every day resolves or the expression stands as written.
+  return days ? weeklyWords(timeLocal, days) : literal
+}
+
+/**
+ * Cron's day-of-week field, as the weekday indices `weeklyWords` reads. Cron
+ * accepts BOTH 0 and 7 for Sunday, which the cadence contract does not — so 7
+ * is folded onto 0 here rather than falling off the end of the weekday table.
+ * Null when any entry is outside 0-7, so the caller can decline to paraphrase
+ * rather than paraphrase incompletely. Deduped, because `0,7` is one day said
+ * twice and "Sunday, Sunday" is not a schedule.
+ */
+function cronDaysOfWeek(field: string): number[] | null {
+  const days = new Set<number>()
+  for (const raw of field.split(',')) {
+    const day = Number(raw)
+    if (!Number.isInteger(day) || day < 0 || day > 7) return null
+    days.add(day === 7 ? 0 : day)
+  }
+  return days.size > 0 ? [...days] : null
 }

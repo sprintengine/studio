@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -97,24 +97,57 @@ run('a built-in is found by its id, and an unknown id is null, not a guess', () 
   assert.equal(builtinAutomationById(''), null)
 })
 
-// These records were generated from the marketplace payloads and must stay their
-// equal: the module is the copy that ships, and a drift between the two is a
-// prompt the app runs that nobody reviewed. When the marketplace copies are
-// finally removed this test goes with them — until then it is the guard.
+// From the cwd, not from `__dirname`: the bundled test file lives under
+// node_modules/.cache, which in a git worktree resolves back into the main
+// checkout — this must read the marketplace copies of the checkout it is
+// testing.
+const MARKETPLACE_PLUGINS = join(process.cwd(), 'resources', 'marketplace', 'plugins')
+
+function marketplaceAutomationIds(): string[] {
+  return readdirSync(MARKETPLACE_PLUGINS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith('-automation'))
+    .map((entry) => entry.name)
+    .sort()
+}
+
+// BOTH directions, deliberately. Iterating BUILTIN_AUTOMATIONS alone answers
+// only "is each record still true of its payload" — a SIXTH `*-automation`
+// folder added to the marketplace would ship to nobody and this file would say
+// nothing, which is exactly the silence a drift guard exists to break.
+run('the shipped set and the marketplace automations are the same set', () => {
+  assert.deepEqual(
+    [...BUILTIN_AUTOMATIONS].map((entry) => entry.id).sort(),
+    marketplaceAutomationIds(),
+    'every marketplace automation ships, and every shipped one still has its payload',
+  )
+})
+
+// These records' DEFINITION half was generated from the marketplace payloads and
+// must stay their equal: the module is the copy that ships, and a drift between
+// the two is a prompt the app runs that nobody reviewed.
+//
+// `description` is deliberately NOT compared: it is authored in builtin.ts, not
+// generated, because each plugin summary ends on a wall-clock in UTC that the
+// install localises — a card repeating it would contradict its own Schedule row.
+// `publisher`/`category` come off plugin.json, so those are compared there.
+//
+// When the marketplace copies are finally removed this test goes with them —
+// until then it is the guard.
 run('each record still matches the marketplace payload it was generated from', () => {
-  // From the cwd, not from `__dirname`: the bundled test file lives under
-  // node_modules/.cache, which in a git worktree resolves back into the main
-  // checkout — this must read the marketplace copies of the checkout it is
-  // testing.
-  const plugins = join(process.cwd(), 'resources', 'marketplace', 'plugins')
   for (const entry of BUILTIN_AUTOMATIONS) {
     const source = JSON.parse(
-      readFileSync(join(plugins, entry.id, 'automation', 'automation.json'), 'utf8'),
+      readFileSync(join(MARKETPLACE_PLUGINS, entry.id, 'automation', 'automation.json'), 'utf8'),
     ) as { name: string; status: string; trigger: unknown; action: { config: { prompt: string } } }
     assert.equal(entry.name, source.name, `${entry.id} name`)
     assert.equal(entry.status, source.status, `${entry.id} status`)
     assert.deepEqual(entry.trigger, source.trigger, `${entry.id} trigger`)
     assert.equal(entry.action.config.prompt, source.action.config.prompt, `${entry.id} prompt`)
+
+    const plugin = JSON.parse(
+      readFileSync(join(MARKETPLACE_PLUGINS, entry.id, 'plugin.json'), 'utf8'),
+    ) as { publisher: string; category: string }
+    assert.equal(entry.publisher, plugin.publisher, `${entry.id} publisher`)
+    assert.equal(entry.category, plugin.category, `${entry.id} category`)
   }
 })
 

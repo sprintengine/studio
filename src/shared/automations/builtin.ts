@@ -25,8 +25,20 @@ import {
 // project that added one from the old Plugins shelf is recognised as already
 // having it and `installFromCatalogue` will not write a second copy.
 //
-// Generated from resources/marketplace/plugins/<id>/{plugin.json,automation/
-// automation.json}; edit those and regenerate rather than drifting the two.
+// The DEFINITION half — name, status, trigger, action — is generated from
+// resources/marketplace/plugins/<id>/automation/automation.json, and
+// builtin.test.ts re-reads those files and asserts the two still match, in both
+// directions, so neither a drifted prompt nor a sixth folder can go unnoticed
+// while the marketplace copies still exist.
+//
+// `description` is NOT generated and is authored here. The plugin summaries it
+// replaces each end "One agent run nightly at 02:00 UTC, opening a pull
+// request" — a wall-clock the install then localises (`localiseCatalogueSchedule`),
+// so restating it on the card would contradict the Schedule row two lines below.
+// `publisher` and `category` are read off plugin.json at generation time.
+//
+// Editing one of the five means editing the automation.json and regenerating,
+// never editing the record here.
 
 export type BuiltinAutomation = {
   /** The marker every built-in record carries; a project's own copy never has it. */

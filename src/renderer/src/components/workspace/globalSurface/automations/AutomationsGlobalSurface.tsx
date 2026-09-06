@@ -457,6 +457,26 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   }, [engineStatus, problems])
 
   // ── Rail ────────────────────────────────────────────────────────────────────
+  // Why "Built in" is not listing five rows. Never an empty group in silence:
+  // an unexplained absence reads as "this app ships none", which is a different
+  // and false statement about a read that is still in flight, one that failed,
+  // or a lens that excluded the group.
+  //
+  // The lens case says so rather than dropping the selection with the row,
+  // because this surface's rule is already that the lens NARROWS THE RAIL AND
+  // NEVER THE CANVAS — a filtered-out automation of your own keeps its card
+  // today. Clearing the canvas for a built-in alone would make the same
+  // narrowing mean two different things one group apart.
+  const builtinNotice = useMemo(() => {
+    if (visibleBuiltins.length > 0) return undefined
+    if (builtinState.status === 'loading') return 'Loading…'
+    if (builtinState.status === 'error') return builtinState.message
+    if (railProject !== ALL_PROJECTS || railState !== ALL_STATES) {
+      return 'Hidden by the filter — a built-in belongs to no project and has not run.'
+    }
+    return railSearch.trim() ? undefined : 'This build ships none.'
+  }, [visibleBuiltins, builtinState, railProject, railState, railSearch])
+
   const rail = (
     <AutomationsRail
       entries={visibleEntries}
@@ -464,7 +484,16 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       addedBuiltinIds={addedIds}
       selectedId={editorTarget ? null : selectedId}
       now={now}
-      onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
+      onSelect={(id) => {
+        setSelectedId(id)
+        setEditorTarget(null)
+        setFocusRunId(null)
+        // The add error belongs to the row it was raised on. Without this it
+        // outlived the selection and reappeared on the card of every automation
+        // opened afterwards — a failure reported against four things that never
+        // failed. Cleared on navigation, exactly as `clearActionError` is.
+        adder.clearError()
+      }}
       onCreate={openChooser}
       search={{
         value: railSearch,
@@ -479,17 +508,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       // The built-in read has its own outcome, and an empty group would say
       // something false about it. Only shown while the lens has not deliberately
       // excluded the group — a filtered-out group is not a broken one.
-      builtinNotice={
-        visibleBuiltins.length === 0 && railProject === ALL_PROJECTS && railState === ALL_STATES
-          ? builtinState.status === 'loading'
-            ? 'Loading…'
-            : builtinState.status === 'error'
-              ? builtinState.message
-              : railSearch.trim()
-                ? undefined
-                : 'This build ships none.'
-          : undefined
-      }
+      builtinNotice={builtinNotice}
     />
   )
 
@@ -526,6 +545,9 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             selectedBuiltin={selectedBuiltin}
             builtinCliLabel={cliLabel}
             builtinAddedIn={selectedBuiltin && addedIds.has(selectedBuiltin.id) ? addTarget?.displayName ?? null : null}
+            builtinAddBlockedReason={
+              addTarget ? null : 'Open the project this automation should run in, then add it there.'
+            }
             builtinAddError={adder.state.status === 'error' ? adder.state.message : null}
             editorTarget={editorTarget}
             editorActionsSlot={{ el: editorActionsEl }}
@@ -588,7 +610,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 // stays readable.
 function SurfaceBody({
   loadState, loadError, onRetry, hasEntries, editorTarget, editorActionsSlot, providers, onEditorCancel, onEditorSaved,
-  selectedEntry, selectedBuiltin, builtinCliLabel, builtinAddedIn, builtinAddError,
+  selectedEntry, selectedBuiltin, builtinCliLabel, builtinAddedIn, builtinAddBlockedReason, builtinAddError,
   now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
 }: {
   loadState: string
@@ -598,6 +620,7 @@ function SurfaceBody({
   selectedBuiltin: BuiltinAutomation | null
   builtinCliLabel: string
   builtinAddedIn: string | null
+  builtinAddBlockedReason: string | null
   builtinAddError: string | null
   editorTarget: { editor: EditorState; workspaceRoot: string } | null
   editorActionsSlot: Parameters<typeof AutomationEditor>[0]['actionsSlot']
@@ -637,6 +660,7 @@ function SurfaceBody({
         entry={selectedBuiltin}
         cliLabel={builtinCliLabel}
         addedIn={builtinAddedIn}
+        addBlockedReason={builtinAddBlockedReason}
         addError={builtinAddError}
       />
     )

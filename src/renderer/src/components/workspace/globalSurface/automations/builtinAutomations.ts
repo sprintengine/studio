@@ -17,8 +17,9 @@ import type { AutomationProjectFolder } from '../../../../utils/automationsEntry
 // The "Built in" half of the Automations surface (Extensions drawer ruling,
 // 2026-09-05, frame 4). The five automations that ship inside the app are cron
 // lines plus a prompt, so they live here rather than on a marketplace shelf: the
-// rail lists them under Yours, the card states what one is, and "Add to
-// <project>" writes it into that project.
+// rail lists them under "Built in", below the open projects' own automations
+// under "Yours"; the card states what one is; and "Add to <project>" writes it
+// into that project, where it then appears under Yours.
 //
 // Everything a test needs to pin is a pure function in this file; the hook is the
 // thin IPC wrapper over `listBuiltinAutomations` / `addBuiltinAutomation`. The

@@ -82,6 +82,39 @@ run('a cron expression it cannot phrase is quoted rather than paraphrased', () =
   assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: 'nonsense' })), 'Cron · nonsense')
 })
 
+// Cron takes BOTH 0 and 7 for Sunday. Reading 7 off the end of the weekday
+// table dropped it, which is the worst of the three outcomes: `0 6 * * 7` read
+// as a weekly with no day, and `0 6 * * 1,7` claimed Monday only — words that
+// deny a day the schedule actually runs on.
+run('cron Sunday is 0 or 7, and neither is dropped', () => {
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 0' })), 'Weekly, Sunday 06:00')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 7' })), 'Weekly, Sunday 06:00')
+  assert.equal(
+    automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 1,7' })),
+    'Weekly, Sunday, Monday 06:00',
+  )
+  assert.equal(
+    automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 0,7' })),
+    'Weekly, Sunday 06:00',
+    'one day said twice is still one day',
+  )
+  // A day outside 0-7 places nothing, so nothing is paraphrased — the whole
+  // expression stands rather than a weekly missing one of its days.
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 9' })), 'Cron · 0 6 * * 9')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 6 * * 1,9' })), 'Cron · 0 6 * * 1,9')
+})
+
+// A step only means the interval it looks like while it fits inside its field:
+// cron applies `*/n` across 0-59, so `*/90` fires at minute 0 and nothing else.
+run('a step wider than its field is quoted, not read back as an interval', () => {
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '*/90 * * * *' })), 'Cron · */90 * * * *')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '*/60 * * * *' })), 'Cron · */60 * * * *')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '*/0 * * * *' })), 'Cron · */0 * * * *')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 */25 * * *' })), 'Cron · 0 */25 * * *')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '*/59 * * * *' })), 'Every 59 min')
+  assert.equal(automationScheduleWords(schedule({ type: 'cron', expression: '0 */23 * * *' })), 'Every 23h')
+})
+
 run('a malformed or non-schedule trigger answers without inventing a time', () => {
   assert.equal(automationScheduleWords({ kind: 'repo-event', config: {} }), 'On a trigger')
   assert.equal(automationScheduleCron({ kind: 'repo-event', config: {} }), null)

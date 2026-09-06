@@ -20,6 +20,7 @@ export function BuiltinAutomationCanvas({
   entry,
   cliLabel,
   addedIn,
+  addBlockedReason,
   addError,
 }: {
   entry: BuiltinAutomation
@@ -29,6 +30,17 @@ export function BuiltinAutomationCanvas({
   /** The project that already holds a copy, if any — named, because "added" is
    *  only ever true OF a project. */
   addedIn: string | null
+  /** Why the bar's Add is off, when it is off for a reason a person can act on.
+   *
+   *  It is said HERE, in the reading order, rather than only on the control: a
+   *  `disabled` button is not focusable, so a reason carried only by its label
+   *  is unreachable to anyone tabbing the surface. The button stays `disabled`
+   *  rather than becoming `aria-disabled` because the kit's PrimaryButton
+   *  paints its off state through `:disabled` alone (ui/Buttons.tsx —
+   *  `disabled:opacity-45`, plus the per-variant `disabled:hover:` guards);
+   *  swapping the attribute would leave the control painted as live and force
+   *  this one call site to re-spell the primitive's own state styling. */
+  addBlockedReason: string | null
   addError: string | null
 }): JSX.Element {
   const prompt = entry.action.config.prompt.trim()
@@ -46,6 +58,8 @@ export function BuiltinAutomationCanvas({
           <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
             {`Added to ${addedIn}. It is under Yours, where it can be edited, paused and run.`}
           </p>
+        ) : addBlockedReason ? (
+          <p className="text-meta leading-5 text-[color:var(--text-subtle)]">{addBlockedReason}</p>
         ) : null}
 
         <DefinitionList
