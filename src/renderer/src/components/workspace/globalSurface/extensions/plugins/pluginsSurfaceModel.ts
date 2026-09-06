@@ -12,6 +12,9 @@ import type { MarketplacePluginEntry } from '../../../../../../../shared/marketp
 import {
   BUILTIN_SKILL_SOURCE_ID,
   describePluginComponents,
+  findScannedPlugin,
+  pluginAliases,
+  scanPluginRenames,
   scanPlugins,
   type ScanResult,
   type ScannedPlugin,
@@ -93,12 +96,20 @@ export function findInstalledRecord(
   sourceId: string,
   plugin: Pick<ScannedPlugin, 'id'>,
   marketplaceName: string,
+  /**
+   * Names this plugin used to be listed under, from the marketplace's own
+   * `renames` map. A receipt written before an upstream rename names the plugin
+   * by the old name, and without them the plugin a person installed reads as
+   * not installed and installing it again duplicates it.
+   */
+  aliases: readonly string[] = [],
 ): InstalledPluginRecord | null {
-  const own = records.find((record) => record.sourceId === sourceId && record.pluginId === plugin.id)
+  const names = aliases.includes(plugin.id) ? aliases : [plugin.id, ...aliases]
+  const own = records.find((record) => record.sourceId === sourceId && names.includes(record.pluginId))
   if (own) return own
   if (marketplaceName === '') return null
-  const key = `${plugin.id}@${marketplaceName}`
-  return records.find((record) => record.claudePluginKey === key) ?? null
+  const keys = names.map((name) => `${name}@${marketplaceName}`)
+  return records.find((record) => keys.includes(record.claudePluginKey)) ?? null
 }
 
 export function derivePluginInstallState(
@@ -108,8 +119,10 @@ export function derivePluginInstallState(
   marketplaceName: string,
   /** The commit the source (or the linked plugin) pins now. */
   currentCommit: string,
+  /** Names this plugin used to be listed under — see findInstalledRecord. */
+  aliases: readonly string[] = [],
 ): PluginInstallState {
-  const record = findInstalledRecord(records, sourceId, plugin, marketplaceName)
+  const record = findInstalledRecord(records, sourceId, plugin, marketplaceName, aliases)
   if (!record) return { kind: 'not-installed' }
   // Only our own receipts carry a commit to compare; a hand-enabled plugin has
   // no commit we wrote, and "update available" would be a guess.
@@ -130,6 +143,7 @@ export function derivePluginRows(input: {
   query: string
 }): PluginListItem[] {
   const marketplaceName = input.scan.marketplaceName ?? ''
+  const renames = scanPluginRenames(input.scan)
   const needle = input.query.trim().toLowerCase()
   return scanPlugins(input.scan)
     .filter((plugin) =>
@@ -148,12 +162,14 @@ export function derivePluginRows(input: {
         plugin,
         marketplaceName,
         pluginCommit(plugin, input.source),
+        pluginAliases(renames, plugin.id),
       ),
     }))
 }
 
+/** A plugin by the name it goes by now, or any name the marketplace renamed onto it. */
 export function findPlugin(scan: ScanResult, pluginId: string): ScannedPlugin | null {
-  return scanPlugins(scan).find((plugin) => plugin.id === pluginId) ?? null
+  return findScannedPlugin(scan, pluginId)
 }
 
 /** Where a plugin's bytes can be read by a person: its homepage, else its repository. */
@@ -200,7 +216,7 @@ export function describeInstallPlan(input: {
       return {
         harness,
         label: HARNESS_LABEL[harness],
-        line: `Enabled as ${plugin.id}@${input.marketplaceName} in this workspace's .claude/settings.json. Claude Code loads its commands, agents, hooks and MCP servers itself.`,
+        line: `Enabled as ${plugin.id}@${input.marketplaceName} in this workspace's .claude/settings.json. Claude Code loads its commands, agents, hooks, MCP servers and language servers itself.`,
       }
     }
     const parts: string[] = []
@@ -225,6 +241,11 @@ function claudeOnlyComponents(plugin: ScannedPlugin): string {
   if (plugin.components.commands.length > 0) parts.push('commands')
   if (plugin.components.agents.length > 0) parts.push('agents')
   if (plugin.components.hooks.length > 0) parts.push('hooks')
+  // A language server is started by Claude Code's own editor integration and
+  // has no equivalent in the other harnesses. Left out, the twelve `*-lsp`
+  // plugins read "Nothing to install." under Codex with no reason given, which
+  // is the blank this sentence exists to avoid.
+  if (plugin.components.lspServers.length > 0) parts.push('LSP servers')
   return parts.join(', ')
 }
 

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 
-import type { SkillSource } from '../../../../../../../shared/skills'
+import {
+  OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
 import type { InstalledExtension } from '../../../../settings/extensionsInstalled'
 import {
   APP_CATALOGUE_LABEL,
+  catalogueHoldingsLine,
   catalogueStateLine,
   catalogueTabLabel,
   deriveCatalogueTabs,
@@ -43,6 +47,12 @@ const APP = source({ id: 'builtin', kind: 'builtin', name: 'Multicode', monogram
 const CONNECTORS = source({ id: 'connectors', kind: 'connectors', name: 'Connectors' })
 const ACME = source({ id: 'github:acme/skills', repo: 'acme/skills' })
 const FOLDER = source({ id: 'local:/Users/me/work/skills', kind: 'local', name: 'skills', path: '/Users/me/work/skills' })
+const ANTHROPIC = source({
+  id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  name: 'Anthropic',
+  repo: 'anthropics/claude-plugins-official',
+  monogram: 'AN',
+})
 
 run('Installed leads, then the app’s own catalogue, then the rest in the order they were added', () => {
   const tabs = deriveCatalogueTabs({
@@ -65,8 +75,75 @@ run('Installed leads, then the app’s own catalogue, then the rest in the order
   )
 })
 
+// ── The official marketplace: always present, and where Plugins opens ────────
+
+run('the two bundled catalogues lead the row, ours first, then the rest as added', () => {
+  const tabs = deriveCatalogueTabs({
+    kind: 'plugins',
+    // Handed in in the order a store that appended it would give: the row's
+    // order is the ruling's, not the store's.
+    sources: [ACME, ANTHROPIC, FOLDER, APP],
+    installedCount: 0,
+    counts: {},
+  })
+  assert.deepEqual(
+    tabs.map((tab) => tab.id),
+    [INSTALLED_TAB_ID, 'builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'github:acme/skills', FOLDER.id],
+    'Installed · SprintEngine Studio · Anthropic · the sources you added, in the order you added them',
+  )
+})
+
+run('the Plugins catalogue opens on Anthropic, and only Plugins does', () => {
+  // It is where the plugins are — 292 against our own catalogue's handful —
+  // and our tab is one click away, still first in the row.
+  const plugins = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
+  assert.equal(resolveCatalogueTab(plugins, null), OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
+  assert.equal(
+    resolveCatalogueTab(plugins, 'builtin'),
+    'builtin',
+    'and a tab the person chose still wins over the default',
+  )
+  const skills = deriveCatalogueTabs({ kind: 'skills', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
+  assert.equal(resolveCatalogueTab(skills, null), 'builtin', 'Skills is unchanged: our own skills lead it')
+  const withoutIt = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ACME], installedCount: 0, counts: {} })
+  assert.equal(resolveCatalogueTab(withoutIt, null), 'builtin', 'a row without it opens on its first source, as before')
+})
+
+run('a source that holds two kinds says so in both nouns', () => {
+  // "292 listings" was one number over two populations, and a listing is not a
+  // noun anybody uses: the owner read anthropics/skills's five plugin bundles
+  // as five skills, because four of them are named *-skills.
+  assert.equal(
+    catalogueHoldingsLine([
+      [292, 'plugin', 'plugins'],
+      [15, 'MCP server', 'MCP servers'],
+    ]),
+    '292 plugins · 15 MCP servers',
+  )
+  assert.equal(catalogueHoldingsLine([[1, 'skill', 'skills']]), '1 skill')
+  assert.equal(
+    catalogueHoldingsLine([
+      [5, 'plugin', 'plugins'],
+      [0, 'MCP server', 'MCP servers'],
+    ]),
+    '5 plugins',
+    'a kind the source has none of is left out rather than printed as a zero',
+  )
+  assert.equal(catalogueHoldingsLine([]), '')
+})
+
 run('a source is named by what it is: the product, a repository, a folder', () => {
   assert.equal(catalogueTabLabel(APP), APP_CATALOGUE_LABEL)
+  assert.equal(
+    catalogueTabLabel(ANTHROPIC),
+    'Anthropic',
+    'the official marketplace is called by its publisher, not by its path',
+  )
+  assert.equal(
+    catalogueTabLabel({ ...ANTHROPIC, name: 'claude-plugins-official' }),
+    'Anthropic',
+    'including the copy Sync hands back, which a scan named after the repository it read',
+  )
   assert.equal(catalogueTabLabel(ACME), 'acme/skills', 'not "skills" — three repos called skills is unnavigable')
   assert.equal(catalogueTabLabel(FOLDER), 'skills', 'a folder has no repository to name it by')
   assert.equal(catalogueTabLabel(CONNECTORS), 'Connectors')

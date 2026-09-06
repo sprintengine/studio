@@ -11,6 +11,7 @@
 import React, { useState } from 'react'
 
 import {
+  isBundledSkillSource,
   sourceHasUpdate,
   type ScanResult,
   type SkillSource,
@@ -43,7 +44,12 @@ export function SourceTabActions({
   // The two bundled sources ship with the app and refresh with it; a folder or
   // a repository is the person's, and can be re-read and removed.
   const canSync = source.kind === 'github' || source.kind === 'local'
-  const canRemove = source.kind === 'github' || source.kind === 'local'
+  // …with one exception since the official-plugins ruling (2026-09-06): the
+  // official marketplace IS a repository, so it syncs like one, but it is
+  // always present and the store refuses to remove it. Offering Remove there
+  // would be an action that can only report a failure the person could not
+  // have avoided.
+  const canRemove = (source.kind === 'github' || source.kind === 'local') && !isBundledSkillSource(source.id)
   const commitsUrl = skillSourceCommitsUrl(source)
   if (!canSync && !canRemove && !commitsUrl) return null
 

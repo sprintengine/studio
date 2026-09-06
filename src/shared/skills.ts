@@ -113,6 +113,11 @@ export type ScanResult = {
   marketplaceName?: string
   plugins?: ScannedPlugin[]
   mcpServers?: ScannedMcpServer[]
+  /**
+   * The marketplace's top-level `renames`: old plugin name → the name it is
+   * listed under now. Read through `scanPluginRenames()`, never directly.
+   */
+  pluginRenames?: Record<string, string>
 }
 
 // Plugins and MCP servers: the other two kinds a source can hold.
@@ -183,6 +188,28 @@ export type ScannedMcpServer = {
   declaredBy: string
 }
 
+/**
+ * A language server a plugin declares. Claude Code starts it for the file
+ * extensions the manifest maps, so those are what the surface can honestly say
+ * the plugin covers — the twelve `*-lsp` plugins in
+ * `anthropics/claude-plugins-official` are nothing BUT this declaration, their
+ * directories holding a LICENSE and a README and no manifest at all.
+ * `startupTimeout` is milliseconds and 0 when the manifest states none.
+ */
+export type ScannedLspServer = {
+  /** The key the declaration is filed under: `clangd`, `rust-analyzer`, … */
+  id: string
+  command: string
+  args: string[]
+  /** `.ts` → `typescript`, verbatim from the manifest. */
+  extensionToLanguage: Record<string, string>
+  startupTimeout: number
+  /** Repo-relative path of the file that declared it. */
+  declaredIn: string
+  /** The plugin id, '' when nothing named one. */
+  declaredBy: string
+}
+
 export type ScannedPluginComponents = {
   /** The plugin's skills, whole: read from wherever the plugin's bytes live. */
   skills: ScannedSkill[]
@@ -192,6 +219,13 @@ export type ScannedPluginComponents = {
   agents: string[]
   hooks: ScannedPluginHook[]
   mcpServers: ScannedMcpServer[]
+  /**
+   * Language servers, a component kind of its own rather than a footnote on the
+   * MCP servers: an LSP server is started per file extension by the editor
+   * integration and is not an MCP endpoint at all, and a plugin can consist of
+   * nothing else.
+   */
+  lspServers: ScannedLspServer[]
   /** Skills the entry names but that shipped with no readable directory. */
   missingSkills: string[]
 }
@@ -206,6 +240,18 @@ export type ScannedPlugin = {
   author: string
   homepage: string
   origin: ScannedPluginOrigin
+  /**
+   * Whether the marketplace requires this entry to validate strictly. Absent in
+   * a manifest means true, which is the marketplace schema's own default, so
+   * only `strict: false` is ever written — and it is written by fourteen of the
+   * official marketplace's entries, which is why dropping it made those look
+   * like every other entry.
+   */
+  strict: boolean
+  /** Curation labels the marketplace applies, e.g. `community-managed`. */
+  tags: string[]
+  /** Search words the entry gives itself; distinct from `tags`, which curate. */
+  keywords: string[]
   /**
    * False for a linked plugin whose repository has not been read yet: its
    * components are unknown, not empty, and the surface must say so.
@@ -229,7 +275,46 @@ export function scanShape(scan: ScanResult): SourceShape {
 }
 
 export function emptyPluginComponents(): ScannedPluginComponents {
-  return { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], missingSkills: [] }
+  return { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] }
+}
+
+/**
+ * The marketplace's `renames` map, old name → the name it lists the plugin
+ * under now. Carried whole rather than resolved at scan time: the map may name
+ * a plugin the listing no longer holds, and a lookup that silently dropped
+ * those would answer "no such plugin" for a name the marketplace explicitly
+ * accounts for.
+ */
+export function scanPluginRenames(scan: Pick<ScanResult, 'pluginRenames'>): Record<string, string> {
+  return scan.pluginRenames ?? {}
+}
+
+/**
+ * Every name a plugin has answered to: the names `renames` points AT it, and
+ * the id it goes by now. This is what a receipt written before an upstream
+ * rename has to be matched against — `anthropics/claude-plugins-official`
+ * renamed `adlc` to `agentforce-adlc`, and without the map the plugin a person
+ * installed reads as not installed and installing it again duplicates it.
+ */
+export function pluginAliases(renames: Readonly<Record<string, string>>, pluginId: string): string[] {
+  const aliases = new Set<string>([pluginId])
+  for (const [was, now] of Object.entries(renames)) {
+    if (now === pluginId) aliases.add(was)
+  }
+  return [...aliases]
+}
+
+/** A plugin by the name it goes by now, or by any name `renames` points at it. */
+export function findScannedPlugin(
+  scan: Pick<ScanResult, 'plugins' | 'pluginRenames'>,
+  pluginId: string,
+): ScannedPlugin | null {
+  const plugins = scanPlugins(scan)
+  const direct = plugins.find((plugin) => plugin.id === pluginId)
+  if (direct) return direct
+  const renamed = scanPluginRenames(scan)[pluginId]
+  if (!renamed) return null
+  return plugins.find((plugin) => plugin.id === renamed) ?? null
 }
 
 /** The words a row uses for what a plugin ships: "4 skills · 2 commands · 1 MCP". */
@@ -244,6 +329,7 @@ export function describePluginComponents(plugin: ScannedPlugin): string {
   count(c.commands.length, 'command', 'commands')
   count(c.agents.length, 'agent', 'agents')
   count(c.mcpServers.length, 'MCP', 'MCP')
+  count(c.lspServers.length, 'LSP server', 'LSP servers')
   count(c.hooks.length, 'hook', 'hooks')
   return parts.length > 0 ? parts.join(' · ') : 'No components declared'
 }
@@ -262,11 +348,41 @@ export const SKILL_REPO_ROOT_GROUP = '(repo root)'
  * is a source's own grouping and never its census: a directory with a SKILL.md
  * that the manifest forgot is still a skill, and must not vanish because a
  * plugin list omitted it (anthropics/skills' `template/` is the visible case).
+ *
+ * The renderer's own fallback heading for a group the scan did not list is this
+ * same constant, so a source never shows two headings meaning the same thing. A
+ * manifest that authors a group of this name absorbs the unlisted skills into
+ * it: one heading, every skill reachable, which is the better of the two ways
+ * that collision can go.
  */
 export const SKILL_UNLISTED_GROUP = 'Everything else'
 
 export const BUILTIN_SKILL_SOURCE_ID = 'builtin'
 export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
+
+// Claude Code's own plugin marketplace, an always-present source since the
+// official-plugins ruling (2026-09-06). Its id is the one `addSource` would
+// have minted for it, so someone who pastes the repository into "Add from
+// GitHub…" is told they already have it rather than getting a second tab of the
+// same 292 plugins.
+export const OFFICIAL_PLUGINS_SKILL_SOURCE_REPO = 'anthropics/claude-plugins-official'
+export const OFFICIAL_PLUGINS_SKILL_SOURCE_ID = `github:${OFFICIAL_PLUGINS_SKILL_SOURCE_REPO}`
+/** What that source is CALLED: the publisher, not the repository path. */
+export const OFFICIAL_PLUGINS_SKILL_SOURCE_NAME = 'Anthropic'
+
+/**
+ * A source every install has and nobody can remove. The store is the authority
+ * (`ALWAYS_PRESENT_SKILL_SOURCES` in main), but the renderer has to know too —
+ * offering "Remove source" on a tab that refuses to go is an action that
+ * reports a failure the person could not have avoided.
+ */
+export function isBundledSkillSource(id: string): boolean {
+  return (
+    id === BUILTIN_SKILL_SOURCE_ID
+    || id === CONNECTORS_SKILL_SOURCE_ID
+    || id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID
+  )
+}
 
 /** Every local source's id is this prefix plus its absolute path. */
 export const LOCAL_SKILL_SOURCE_ID_PREFIX = 'local:'
@@ -533,7 +649,12 @@ export function emptySkillFrontmatter(): SkillFrontmatter {
  * but a larger parse surface for third-party bytes.
  */
 export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
-  const block = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  // A byte-order mark sits BEFORE the opening fence, so `^---` never matches a
+  // SKILL.md saved by a Windows editor. That used to cost the row its
+  // description; since a skill with no description is skipped (2026-09-06) it
+  // would cost the skill its row, which is a repository's file deleted from a
+  // listing over three invisible bytes.
+  const block = stripByteOrderMark(raw).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   const result: SkillFrontmatter = emptySkillFrontmatter()
   if (!block) return result
 
@@ -586,7 +707,7 @@ export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
  * it did find, never invented copy.
  */
 export function parseSkillFragment(fragment: string): { name: string; description: string } {
-  const lines = fragment.split(/\r?\n/)
+  const lines = stripByteOrderMark(fragment).split(/\r?\n/)
   const found = { name: '', description: '' }
   for (let index = 0; index < lines.length; index += 1) {
     const field = lines[index].match(/^(name|description):\s*(.*)$/)
@@ -637,11 +758,19 @@ function readMetadataMap(
   // A scalar where a map belongs is not a map; reading it as one would invent
   // a key nobody wrote.
   if (inline !== '') return found
+  // The map's own indent, taken from its first entry: a deeper line belongs to
+  // a nested structure, and reading it here would invent a key at the top level
+  // — usually one whose value is the empty string, which then renders as a row
+  // stating nothing. The specification's map is string to string.
+  let indent = -1
   for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-    const entry = lines[cursor].match(/^\s+([^\s:][^:]*):\s*(.*)$/)
+    const entry = lines[cursor].match(/^(\s+)([^\s:][^:]*):\s*(.*)$/)
     if (!entry) break
-    const key = unquoteYamlScalar(entry[1])
-    if (key && !(key in found)) found[key] = unquoteYamlScalar(entry[2])
+    if (indent === -1) indent = entry[1].length
+    if (entry[1].length > indent) continue
+    if (entry[1].length < indent) break
+    const key = unquoteYamlScalar(entry[2])
+    if (key && !(key in found)) found[key] = unquoteYamlScalar(entry[3])
   }
   return found
 }
@@ -669,7 +798,10 @@ function splitToolList(value: string): string[] {
   for (const char of inner) {
     if (quote !== '') {
       if (char === quote) quote = ''
-    } else if (char === '"' || char === "'") {
+    } else if ((char === '"' || char === "'") && depth === 0 && current === '') {
+      // A quote only QUOTES at the start of a token: the apostrophe in
+      // `Bash(don't:*)` is part of a command, and reading it as an opening quote
+      // swallowed the rest of the line into one bogus tool name.
       quote = char
     } else if (char === '(') {
       depth += 1
@@ -684,6 +816,20 @@ function splitToolList(value: string): string[] {
   }
   tokens.push(current)
   return tokens.map((token) => unquoteYamlScalar(token)).filter((token) => token.length > 0)
+}
+
+/**
+ * One character of a conformant `name`. The specification says "unicode
+ * lowercase alphanumeric characters (`a-z`, `0-9`) and hyphens", so the test is
+ * alphanumeric-and-already-lowercase rather than ASCII: `café-export` is a name
+ * a repository may legitimately ship, `PDF-Processing` is the one the spec's own
+ * invalid example rejects, and a script without case (`日本語`) is its own
+ * lowercase.
+ */
+function isSpecNameCharacter(char: string): boolean {
+  if (char === '-') return true
+  if (!/[\p{L}\p{N}]/u.test(char)) return false
+  return char === char.toLowerCase()
 }
 
 /** The longest `name` the specification allows. */
@@ -706,7 +852,7 @@ export function skillNameWarning(name: string, dirName: string): string {
   if (name.length > SKILL_NAME_MAX_LENGTH) {
     return `Its name is ${name.length} characters; the Agent Skills specification allows ${SKILL_NAME_MAX_LENGTH}.`
   }
-  if (!/^[a-z0-9-]+$/.test(name)) {
+  if (![...name].every(isSpecNameCharacter)) {
     return `Its name “${name}” uses characters the Agent Skills specification does not allow — lowercase letters, numbers and hyphens only.`
   }
   if (name.startsWith('-') || name.endsWith('-')) {
@@ -719,6 +865,11 @@ export function skillNameWarning(name: string, dirName: string): string {
     return `Its name “${name}” is not its directory name “${dirName}”, which the Agent Skills specification requires.`
   }
   return ''
+}
+
+/** The three bytes a Windows editor writes before the first character. */
+function stripByteOrderMark(raw: string): string {
+  return raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
 }
 
 function unquoteYamlScalar(value: string): string {

@@ -26,12 +26,14 @@ import {
   scanMcpServers,
   scanPlugins,
   scanShape,
+  type ScanResult,
   type ScannedMcpServer,
   type ScannedPlugin,
   type SkillHarness,
   type SkillSource,
 } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { McpInfoPanel } from '../../../../settings/McpCatalog'
 import { PluginDetailPanel } from '../../../../settings/BrowseStorefront'
 import { ConnectorEntryRow, ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
@@ -51,7 +53,9 @@ import { SourceMonogram } from '../skills/SourceMonogram'
 import { summarizeSyncRun } from '../skills/skillsSurfaceModel'
 import type { SkillSourcesState } from '../skills/useSkillSources'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
+import { EXTENSIONS_DRAWER_VIEWS, dispatchExtensionsSurfaceTarget } from '../extensionsSurfaceTarget'
 import {
+  catalogueHoldingsLine,
   catalogueMonogram,
   catalogueStateLine,
   catalogueTabLabel,
@@ -444,15 +448,25 @@ export function PluginsCatalogue({
         monogram={<SourceMonogram monogram={catalogueMonogram(activeSource)} size="lg" />}
         name={catalogueTabLabel(activeSource)}
         stateLine={
-          isApp
-            ? `${catalogueStateLine(appCount, 'listing')} · ${registryOrigin(connectors.registryUrl)}`
-            : [
-                scan ? SOURCE_SHAPE_LABEL[scanShape(scan)] : null,
-                catalogueStateLine(counts[activeSource.id] ?? { status: 'loading' }, 'listing'),
-                thisReport?.outcome ?? null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
+          isApp ? (
+            `${catalogueStateLine(appCount, 'listing')} · ${registryOrigin(connectors.registryUrl)}`
+          ) : (
+            <SourceStateLine
+              source={activeSource}
+              scan={scan}
+              count={counts[activeSource.id] ?? { status: 'loading' }}
+              outcome={thisReport?.outcome ?? null}
+              onOpenUnderSkills={() => {
+                // The tab has to be CHOSEN before the view changes: the open
+                // tab is one piece of state across Plugins and Skills, and
+                // while it is still the default nothing carries this source to
+                // the other view — Skills would open on its own default and
+                // the link would land somewhere else.
+                onSelectTab(activeSource.id)
+                dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills })
+              }}
+            />
+          )
         }
         actions={
           <SourceTabActions
@@ -646,6 +660,66 @@ export function PluginsCatalogue({
       noun="plugin"
       detail={detail}
     />
+  )
+}
+
+/**
+ * What a source's tab is showing, in the nouns of the things themselves:
+ * "Claude Code plugin marketplace · 292 plugins · 15 MCP servers · 31 skills".
+ *
+ * The skills are the link, not a number in a sentence: they are real things in
+ * this repository that this catalogue does not list, and the tab that does list
+ * them is one view away with the same source already open (official-plugins
+ * ruling, 2026-09-06). Before it, both were totalled into "292 listings", and
+ * "listing" is a word for a row rather than for a thing you can install — the
+ * owner read `anthropics/skills`'s five plugin bundles as five skills.
+ */
+function SourceStateLine({
+  source,
+  scan,
+  count,
+  outcome,
+  onOpenUnderSkills,
+}: {
+  source: SkillSource
+  /** The source's scan once it is in hand; null while loading or failed. */
+  scan: ScanResult | null
+  count: CatalogueCount
+  /** What the last Sync on this source reported, when it was this one. */
+  outcome: string | null
+  onOpenUnderSkills: () => void
+}): JSX.Element {
+  // A count is never spoken while it is unknown: a scan still loading, or one
+  // that failed, says that instead — the tab-row rule, unchanged.
+  if (!scan) {
+    return <>{[catalogueStateLine(count, 'listing'), outcome].filter(Boolean).join(' · ')}</>
+  }
+  const plugins = scanPlugins(scan).length
+  const servers = scanMcpServers(scan).length
+  const skills = scan.skills.length
+  const holdings = catalogueHoldingsLine([
+    [plugins, 'plugin', 'plugins'],
+    [servers, 'MCP server', 'MCP servers'],
+  ])
+  return (
+    <>
+      {SOURCE_SHAPE_LABEL[scanShape(scan)]}
+      {holdings ? ` · ${holdings}` : ` · ${catalogueStateLine({ status: 'ready', count: 0 }, 'plugin')}`}
+      {skills > 0 ? (
+        <>
+          {' · '}
+          <button
+            type="button"
+            onClick={onOpenUnderSkills}
+            aria-label={`Open the ${skills} skills in ${catalogueTabLabel(source)} under Skills`}
+            className={`interactive rounded-[3px] text-meta text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+          >
+            {catalogueHoldingsLine([[skills, 'skill', 'skills']])}
+          </button>
+        </>
+      ) : null}
+      {outcome ? ` · ${outcome}` : null}
+    </>
   )
 }
 

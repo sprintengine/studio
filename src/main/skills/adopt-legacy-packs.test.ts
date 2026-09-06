@@ -3,8 +3,9 @@ import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { SkillSource } from '../../shared/skills'
 import { adoptLegacySkillPackSources, LEGACY_SKILL_PACKS } from './adopt-legacy-packs'
-import { createSkillSourceStore } from './source-store'
+import { createSkillSourceStore, isRemovableSkillSource } from './source-store'
 
 async function storeInTemp() {
   const dir = await mkdtemp(join(tmpdir(), 'multicode-adopt-packs-'))
@@ -19,6 +20,14 @@ async function workspaceHolding(dirNames: readonly string[]): Promise<string> {
   return root
 }
 
+/**
+ * A repository source adoption could have added — which is every repository
+ * source except the official marketplace, which every install has whether or
+ * not anything was adopted (official-plugins ruling, 2026-09-06).
+ */
+const adoptable = (source: SkillSource): boolean =>
+  source.kind === 'github' && isRemovableSkillSource(source.id)
+
 async function main(): Promise<void> {
   // Only what is actually installed is adopted: a workspace holding one pack
   // does not inherit the other three as sources.
@@ -30,7 +39,7 @@ async function main(): Promise<void> {
     assert.deepEqual(adopted.map((source) => source.repo), ['pbakaus/impeccable'])
     const listed = await store.listSources()
     assert.deepEqual(
-      listed.filter((source) => source.kind === 'github').map((source) => source.id),
+      listed.filter(adoptable).map((source) => source.id),
       ['github:pbakaus/impeccable'],
     )
     // No scan is invented for it: what the repository holds today is a network
@@ -46,7 +55,7 @@ async function main(): Promise<void> {
     const adopted = await adoptLegacySkillPackSources({ store, workspaceRoots: [workspaceRoot] })
 
     assert.deepEqual(adopted, [])
-    assert.deepEqual((await store.listSources()).filter((source) => source.kind === 'github'), [])
+    assert.deepEqual((await store.listSources()).filter(adoptable), [])
   }
 
   // It runs once. A source the user removed after adoption stays removed.
@@ -58,7 +67,7 @@ async function main(): Promise<void> {
 
     const second = await adoptLegacySkillPackSources({ store, workspaceRoots: [workspaceRoot] })
     assert.deepEqual(second, [])
-    assert.deepEqual((await store.listSources()).filter((source) => source.kind === 'github'), [])
+    assert.deepEqual((await store.listSources()).filter(adoptable), [])
   }
 
   // With no workspace open there is nowhere to look, so the migration stays

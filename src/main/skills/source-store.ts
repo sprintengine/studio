@@ -12,13 +12,26 @@ import { join } from 'node:path'
 import {
   BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_REPO,
   type ScanResult,
   type SkillSource,
 } from '../../shared/skills'
 
 const FILE_NAME = 'skill-sources.json'
 
-/** The two sources every install has, which cannot be removed. */
+/**
+ * The sources every install has, which cannot be removed, in the order the
+ * catalogues show them.
+ *
+ * The official-plugins ruling (2026-09-06) put Claude Code's own marketplace
+ * here: the app never fetched `anthropics/claude-plugins-official`, yet 254 of
+ * the 256 skills-only entries in the frozen registry were that repository's
+ * plugins by name. It is a repository like any the user adds — it is read over
+ * the network, it carries a commit, Sync re-reads it — and it differs only in
+ * that it is present before anyone adds it and cannot be taken away.
+ */
 export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
   {
     id: BUILTIN_SKILL_SOURCE_ID,
@@ -27,6 +40,16 @@ export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
     repo: '',
     monogram: 'MC',
     blurb: 'The skills Multicode ships.',
+    commitSha: '',
+    scannedAt: '',
+  },
+  {
+    id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+    kind: 'github',
+    name: OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+    repo: OFFICIAL_PLUGINS_SKILL_SOURCE_REPO,
+    monogram: 'AN',
+    blurb: 'Claude Code’s official plugin marketplace.',
     commitSha: '',
     scannedAt: '',
   },
@@ -44,6 +67,38 @@ export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
 
 export function isRemovableSkillSource(id: string): boolean {
   return !ALWAYS_PRESENT_SKILL_SOURCES.some((source) => source.id === id)
+}
+
+/**
+ * An always-present source whose contents are READ rather than shipped. Its
+ * scan is a network round trip and its commit is the answer to "has this moved
+ * since", so both have to survive to disk exactly like an added repository's —
+ * a store that dropped them would refetch 292 plugins on every launch and could
+ * never say an update was available.
+ *
+ * The two bundled-with-the-app sources are the opposite: no commit, no network,
+ * re-read from disk each launch, so nothing about them is worth persisting and
+ * a stored copy would only be a stale name waiting to overrule this build's.
+ */
+function isCachedAlwaysPresentSource(id: string): boolean {
+  return ALWAYS_PRESENT_SKILL_SOURCES.some((source) => source.id === id && source.kind === 'github')
+}
+
+/**
+ * An always-present source, wearing whatever a scan of it wrote down. Identity
+ * — name, repository, monogram, blurb — is this build's and is never overruled
+ * by the persisted copy: `scanGithubSource` names a source after its repository
+ * ("claude-plugins-official"), and this source is called Anthropic.
+ */
+function withPersistedScanState(always: SkillSource, stored: SkillSource | undefined): SkillSource {
+  if (!stored) return always
+  return {
+    ...always,
+    commitSha: stored.commitSha,
+    scannedAt: stored.scannedAt,
+    headSha: stored.headSha,
+    headCheckedAt: stored.headCheckedAt,
+  }
 }
 
 type PersistedState = {
@@ -95,13 +150,21 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
   return {
     async listSources() {
       const state = await read()
-      return [...ALWAYS_PRESENT_SKILL_SOURCES, ...state.sources]
+      const stored = new Map(state.sources.map((source) => [source.id, source]))
+      return [
+        ...ALWAYS_PRESENT_SKILL_SOURCES.map((source) => withPersistedScanState(source, stored.get(source.id))),
+        // An always-present source's stored copy is its scan state, not a
+        // second source: listing it again would be the same repository under
+        // two tabs, one of them removable.
+        ...state.sources.filter((source) => isRemovableSkillSource(source.id)),
+      ]
     },
     async getSource(id) {
       const always = ALWAYS_PRESENT_SKILL_SOURCES.find((source) => source.id === id)
-      if (always) return always
       const state = await read()
-      return state.sources.find((source) => source.id === id) ?? null
+      const stored = state.sources.find((source) => source.id === id)
+      if (always) return withPersistedScanState(always, stored)
+      return stored ?? null
     },
     async putSource(source, scan) {
       await update((state) => {
@@ -155,7 +218,9 @@ export function parseSkillSourceState(raw: string): PersistedState {
   if (!parsed || typeof parsed !== 'object') return emptyState()
   const record = parsed as { sources?: unknown; scans?: unknown; adoptedLegacyPacks?: unknown }
   const sources = Array.isArray(record.sources)
-    ? record.sources.filter(isPersistableSource).filter((source) => isRemovableSkillSource(source.id))
+    ? record.sources
+        .filter(isPersistableSource)
+        .filter((source) => isRemovableSkillSource(source.id) || isCachedAlwaysPresentSource(source.id))
     : []
   // A scan is only ever a cache of a source in the list beside it, so a key
   // naming a source this read dropped is dead weight that the next write would
@@ -176,8 +241,9 @@ function emptyState(): PersistedState {
 }
 
 /**
- * What a stored source has to be to survive a read. The two bundled sources
- * never appear here (they are always-present and filtered out by id), so this
+ * What a stored source has to be to survive a read. The two bundled-with-the-app
+ * sources never appear here (they are always-present and filtered out by id;
+ * the always-present REPOSITORY does appear, carrying its scan state), so this
  * covers the kinds a person can ADD: a repository, and — since the source-tabs
  * ruling (2026-09-05) — a folder on this machine, which is identified by its
  * path rather than by a repository and so must carry one.

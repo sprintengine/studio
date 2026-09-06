@@ -13,9 +13,17 @@
 // marketplace manifest, each plugin's manifest, its `.mcp.json` and its
 // `hooks/hooks.json`. Those reads go through one injected reader, so the unit
 // suite runs against recorded bytes with no network at all.
+//
+// The manifest is read for everything it states, not just the words on a row
+// (official-plugins ruling, 2026-09-06): `lspServers` is a component kind of
+// its own — twelve of the official marketplace's plugins are that declaration
+// and nothing else — and `strict`, `tags`, `keywords` and the top-level
+// `renames` all ride the scan, because a field this file drops is a field no
+// surface can ever show.
 
 import {
   emptyPluginComponents,
+  type ScannedLspServer,
   type ScannedMcpServer,
   type ScannedPlugin,
   type ScannedPluginComponents,
@@ -32,8 +40,26 @@ const MCP_CONFIG_FILE = '.mcp.json'
 const HOOKS_FILE = 'hooks/hooks.json'
 const MCP_REGISTRY_MANIFEST = 'server.json'
 
-/** How many in-tree plugins get their manifests read; beyond it they list by directory name. */
-export const MAX_SCANNED_PLUGINS = 300
+/**
+ * How many in-tree plugins get their manifests read; beyond it they list by
+ * directory name.
+ *
+ * Raised from 300 to 1000 by the official-plugins ruling (2026-09-06).
+ * `anthropics/claude-plugins-official` lists 292 plugins at 85cce03 and gains
+ * entries every week, so 300 was roughly one quarter's growth from becoming a
+ * marketplace that quietly stops describing its last few plugins. The number is
+ * not a size limit — a repository too large to scan is refused by the tree cap
+ * (`DEFAULT_SKILL_MAX_TREE_ENTRIES`) long before this — it bounds the FILE
+ * READS one scan makes: three small files per in-tree plugin, eight at a time,
+ * from raw.githubusercontent.com. 1000 is over three times what the largest
+ * marketplace in the wild holds and still a bounded scan.
+ *
+ * Only plugins that are actually read spend from it: a linked entry's bytes
+ * live in another repository and are not fetched until it is opened, so 238
+ * linked entries used to push the in-tree plugins listed after them past a
+ * budget they had not spent a request from.
+ */
+export const MAX_SCANNED_PLUGINS = 1000
 const READ_CONCURRENCY = 8
 
 /** Reads one repo-relative file at the scanned commit; null when it is missing or unreadable. */
@@ -53,6 +79,8 @@ export type PluginTreeScan = {
   plugins: ScannedPlugin[]
   /** Every server the source declares — through its plugins or at its root. */
   mcpServers: ScannedMcpServer[]
+  /** The marketplace's `renames`, old name → the name it lists now. */
+  pluginRenames: Record<string, string>
 }
 
 export async function scanPluginTree(input: PluginTreeScanInput): Promise<PluginTreeScan> {
@@ -71,15 +99,20 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
     for (const entry of marketplace.plugins) {
       if (entry.source.kind === 'in-tree') {
         claimedDirs.add(entry.source.path)
-        plans.push({ entry, dir: entry.source.path, listedSkills: entry.skills })
+        plans.push({ entry, dir: entry.source.path, listedSkills: entry.skills, readIndex: -1 })
       } else {
-        plans.push({ entry, dir: null, listedSkills: entry.skills })
+        plans.push({ entry, dir: null, listedSkills: entry.skills, readIndex: -1 })
       }
     }
   }
   for (const dir of pluginDirs) {
     if (claimedDirs.has(dir)) continue
-    plans.push({ entry: null, dir, listedSkills: [] })
+    plans.push({ entry: null, dir, listedSkills: [], readIndex: -1 })
+  }
+  // The read budget is spent by the plans that read (see MAX_SCANNED_PLUGINS).
+  let budget = 0
+  for (const plan of plans) {
+    if (plan.dir !== null) plan.readIndex = budget++
   }
 
   const plugins: ScannedPlugin[] = new Array(plans.length)
@@ -88,7 +121,7 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
     while (cursor < plans.length) {
       const index = cursor
       cursor += 1
-      plugins[index] = await realisePlan(plans[index], index, input, blobs)
+      plugins[index] = await realisePlan(plans[index], input, blobs)
     }
   })
   await Promise.all(workers)
@@ -110,6 +143,7 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
     marketplaceName: marketplace?.name ?? '',
     plugins,
     mcpServers,
+    pluginRenames: marketplace?.renames ?? {},
   }
 }
 
@@ -138,18 +172,21 @@ type PluginPlan = {
   /** The in-tree directory, or null for a linked entry. */
   dir: string | null
   listedSkills: readonly string[]
+  /** Position in the read budget; -1 for a plan that reads nothing. */
+  readIndex: number
 }
 
 async function realisePlan(
   plan: PluginPlan,
-  index: number,
   input: PluginTreeScanInput,
   blobs: ReadonlySet<string>
 ): Promise<ScannedPlugin> {
   const entry = plan.entry
   if (plan.dir === null && entry && entry.source.kind === 'linked') {
     // Not read now: its bytes live in another repository. The entry's own
-    // words are all that is known until it is opened.
+    // words are all that is known until it is opened — including the language
+    // servers it declares here, which are the marketplace's statement rather
+    // than anything inside that repository.
     return {
       id: entry.name,
       name: entry.displayName || entry.name,
@@ -158,18 +195,28 @@ async function realisePlan(
       category: entry.category,
       author: entry.author,
       homepage: entry.homepage,
+      strict: entry.strict,
+      tags: entry.tags,
+      keywords: entry.keywords,
       origin: entry.source,
       componentsKnown: false,
       components: emptyPluginComponents(),
     }
   }
   const dir = plan.dir ?? ''
-  const overBudget = index >= MAX_SCANNED_PLUGINS
+  const overBudget = plan.readIndex >= MAX_SCANNED_PLUGINS
   const { manifest, components } = overBudget
     ? { manifest: null, components: emptyPluginComponents() }
     : await readComponents(dir, blobs, input.skills, input.readFile, plan.listedSkills, entry?.name ?? null)
   const dirName = dir === '' ? '' : dir.slice(dir.lastIndexOf('/') + 1)
   const id = entry?.name || manifest?.name || dirName || 'plugin'
+  // A marketplace entry's language servers and the plugin manifest's are one
+  // list: the twelve `*-lsp` plugins declare theirs in the entry alone, and a
+  // plugin that ships a manifest may declare its own.
+  const lspServers = dedupeLspServers([
+    ...(entry?.lspServers ?? []).map((server) => ({ ...server, declaredBy: id })),
+    ...components.lspServers.map((server) => ({ ...server, declaredBy: id })),
+  ])
   return {
     id,
     name: entry?.displayName || manifest?.name || entry?.name || dirName || 'plugin',
@@ -178,9 +225,16 @@ async function realisePlan(
     category: entry?.category || '',
     author: entry?.author || manifest?.author || '',
     homepage: entry?.homepage || manifest?.homepage || '',
+    strict: entry?.strict ?? true,
+    tags: entry?.tags ?? [],
+    keywords: entry?.keywords ?? [],
     origin: { kind: 'in-tree', path: dir },
     componentsKnown: !overBudget,
-    components: { ...components, mcpServers: components.mcpServers.map((server) => ({ ...server, declaredBy: id })) },
+    components: {
+      ...components,
+      mcpServers: components.mcpServers.map((server) => ({ ...server, declaredBy: id })),
+      lspServers,
+    },
   }
 }
 
@@ -234,6 +288,7 @@ async function readComponents(
     readHooks(under(HOOKS_FILE), blobs, readFile, parsedManifest?.inlineHooks ?? null),
     readMcpServers(under(MCP_CONFIG_FILE), blobs, readFile, parsedManifest?.inlineMcpServers ?? null, declaredBy ?? ''),
   ])
+  const lspServers = parseLspServers(parsedManifest?.inlineLspServers ?? null, manifestPath, declaredBy ?? '')
 
   return {
     manifest: parsedManifest
@@ -245,7 +300,7 @@ async function readComponents(
           homepage: parsedManifest.homepage,
         }
       : null,
-    components: { skills: pluginSkills, commands, agents, hooks, mcpServers, missingSkills },
+    components: { skills: pluginSkills, commands, agents, hooks, mcpServers, lspServers, missingSkills },
   }
 }
 
@@ -264,6 +319,7 @@ function markdownNames(blobs: ReadonlySet<string>, root: string): string[] {
 type ParsedPluginManifest = PluginManifest & {
   inlineHooks: unknown
   inlineMcpServers: unknown
+  inlineLspServers: unknown
 }
 
 function parsePluginManifest(raw: string | null): ParsedPluginManifest | null {
@@ -277,7 +333,52 @@ function parsePluginManifest(raw: string | null): ParsedPluginManifest | null {
     homepage: stringOf(parsed.homepage),
     inlineHooks: isObject(parsed.hooks) ? parsed.hooks : null,
     inlineMcpServers: isObject(parsed.mcpServers) ? parsed.mcpServers : null,
+    inlineLspServers: isObject(parsed.lspServers) ? parsed.lspServers : null,
   }
+}
+
+// ── Language servers ────────────────────────────────────────────────────────
+
+/**
+ * `lspServers`: a map of id → `{ command, args, extensionToLanguage,
+ * startupTimeout }`, declared by a marketplace entry or a plugin manifest. A
+ * declaration naming no command is not a language server — nothing could be
+ * started from it — and is dropped rather than listed as one that will never
+ * run. The id is checked the same way an MCP server's is: it names a process
+ * this app may one day launch, and `../` is not a name.
+ */
+export function parseLspServers(value: unknown, declaredIn: string, declaredBy: string): ScannedLspServer[] {
+  if (!isObject(value)) return []
+  const servers: ScannedLspServer[] = []
+  for (const [id, raw] of Object.entries(value)) {
+    if (!isObject(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
+    const command = stringOf(raw.command).trim()
+    if (command === '') continue
+    const timeout = typeof raw.startupTimeout === 'number' && Number.isFinite(raw.startupTimeout)
+      ? raw.startupTimeout
+      : 0
+    servers.push({
+      id,
+      command,
+      args: Array.isArray(raw.args) ? raw.args.filter((arg): arg is string => typeof arg === 'string') : [],
+      extensionToLanguage: stringRecord(raw.extensionToLanguage),
+      startupTimeout: timeout,
+      declaredIn,
+      declaredBy,
+    })
+  }
+  return servers
+}
+
+function dedupeLspServers(servers: readonly ScannedLspServer[]): ScannedLspServer[] {
+  const seen = new Set<string>()
+  const out: ScannedLspServer[] = []
+  for (const server of servers) {
+    if (seen.has(server.id)) continue
+    seen.add(server.id)
+    out.push(server)
+  }
+  return out
 }
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
@@ -496,9 +597,19 @@ type MarketplaceEntry = {
   homepage: string
   source: Extract<ScannedPluginOrigin, { kind: 'in-tree' | 'linked' }>
   skills: string[]
+  /** Absent means true — the marketplace schema's own default. */
+  strict: boolean
+  tags: string[]
+  keywords: string[]
+  lspServers: ScannedLspServer[]
 }
 
-type MarketplaceManifest = { name: string; plugins: MarketplaceEntry[] }
+type MarketplaceManifest = {
+  name: string
+  plugins: MarketplaceEntry[]
+  /** Old plugin name → the name this marketplace lists it under now. */
+  renames: Record<string, string>
+}
 
 /**
  * The marketplace's plugin list. A `source` is a relative path (in this
@@ -531,9 +642,31 @@ export function parseMarketplaceManifest(raw: string | null): MarketplaceManifes
       skills: Array.isArray(item.skills)
         ? item.skills.filter((skill): skill is string => typeof skill === 'string')
         : [],
+      strict: item.strict !== false,
+      tags: stringList(item.tags),
+      keywords: stringList(item.keywords),
+      lspServers: parseLspServers(item.lspServers, CLAUDE_MARKETPLACE_MANIFEST_PATH, name),
     })
   }
-  return { name: stringOf(parsed.name).trim(), plugins }
+  return { name: stringOf(parsed.name).trim(), plugins, renames: parseRenames(parsed.renames) }
+}
+
+/**
+ * The manifest's top-level `renames`. Kept verbatim, including a name it maps
+ * to a plugin the listing no longer holds: the map is the marketplace's record
+ * of what a plugin used to be called, and an entry it cannot resolve today may
+ * resolve after the next Sync. A self-map is dropped — it would make a lookup
+ * chase its own tail for nothing.
+ */
+function parseRenames(value: unknown): Record<string, string> {
+  if (!isObject(value)) return {}
+  const renames: Record<string, string> = {}
+  for (const [was, now] of Object.entries(value)) {
+    const to = stringOf(now).trim()
+    if (was.trim() === '' || to === '' || was === to) continue
+    renames[was] = to
+  }
+  return renames
 }
 
 function parseEntrySource(value: unknown): MarketplaceEntry['source'] | null {
@@ -620,6 +753,10 @@ function stringOf(value: unknown): string {
 function authorName(value: unknown): string {
   if (typeof value === 'string') return value
   return isObject(value) ? stringOf(value.name) : ''
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 function stringRecord(value: unknown): Record<string, string> {

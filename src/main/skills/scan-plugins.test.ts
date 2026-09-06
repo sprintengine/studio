@@ -7,11 +7,23 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { scanPlugins, scanShape, type ScanResult } from '../../shared/skills'
+import {
+  describePluginComponents,
+  findScannedPlugin,
+  pluginAliases,
+  scanPluginRenames,
+  scanPlugins,
+  scanShape,
+  type ScanResult,
+} from '../../shared/skills'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
 import {
+  CLAUDE_MARKETPLACE_MANIFEST_PATH,
+  CLAUDE_PLUGIN_MANIFEST_PATH,
   githubRepoFromUrl,
+  MAX_SCANNED_PLUGINS,
   parseHooks,
+  parseLspServers,
   parseMarketplaceManifest,
   parseMcpRegistryManifest,
   parseMcpServers,
@@ -146,6 +158,54 @@ async function officialMarketplace(): Promise<void> {
   assert.equal(review.componentsKnown, true)
   assert.ok(review.components.commands.length > 0)
 
+  // A language server is a component kind of its own. The twelve `*-lsp`
+  // plugins are the marketplace entry's `lspServers` and nothing else — their
+  // directories hold a LICENSE and a README, no manifest at all — so a scan
+  // that read only manifests listed them as plugins that ship nothing.
+  const clangd = plugins.find((plugin) => plugin.id === 'clangd-lsp')
+  assert.ok(clangd)
+  assert.deepEqual(clangd.origin, { kind: 'in-tree', path: 'plugins/clangd-lsp' })
+  assert.equal(clangd.componentsKnown, true)
+  assert.equal(clangd.components.lspServers.length, 1)
+  const lsp = clangd.components.lspServers[0]
+  assert.equal(lsp.id, 'clangd')
+  assert.equal(lsp.command, 'clangd')
+  assert.deepEqual(lsp.args, ['--background-index'])
+  assert.equal(lsp.extensionToLanguage['.cpp'], 'cpp')
+  assert.equal(lsp.declaredIn, CLAUDE_MARKETPLACE_MANIFEST_PATH)
+  assert.equal(lsp.declaredBy, 'clangd-lsp')
+  assert.equal(
+    describePluginComponents(clangd),
+    '1 LSP server',
+    'and it is what the row says the plugin ships, rather than "No components declared"',
+  )
+  assert.equal(
+    plugins.filter((plugin) => plugin.components.lspServers.length > 0).length,
+    12,
+    'every LSP plugin the marketplace declares one for',
+  )
+
+  // The three fields the entry carries that a row and a pane can show. `strict`
+  // is absent from all but fourteen entries and absent means true, which is the
+  // marketplace schema's own default — so it is never invented as false.
+  assert.equal(clangd.strict, false)
+  assert.equal(guidance.strict, true, 'an entry that states nothing is strict')
+  const serena = plugins.find((plugin) => plugin.id === 'serena')
+  assert.deepEqual(serena?.tags, ['community-managed'])
+  const convex = plugins.find((plugin) => plugin.id === 'convex')
+  assert.ok(convex?.keywords.includes('realtime'))
+  assert.deepEqual(guidance.tags, [], 'and an entry with none carries none, not undefined')
+
+  // The marketplace's own record of what a plugin used to be called. Kept
+  // whole: a lookup by the old name has to land on the plugin, or a receipt
+  // written before the rename reads as "not installed".
+  assert.equal(scanPluginRenames(scan)['adlc'], 'agentforce-adlc')
+  assert.equal(Object.keys(scanPluginRenames(scan)).length, 9)
+  assert.equal(findScannedPlugin(scan, 'adlc')?.id, 'agentforce-adlc')
+  assert.equal(findScannedPlugin(scan, 'agentforce-adlc')?.id, 'agentforce-adlc')
+  assert.equal(findScannedPlugin(scan, 'no-such-plugin'), null)
+  assert.deepEqual(pluginAliases(scanPluginRenames(scan), 'convex'), ['convex', 'convex-backend'])
+
   // The source-wide server list carries every plugin's servers, attributed.
   const servers = scan.mcpServers ?? []
   assert.ok(servers.some((s) => s.id === 'context7' && s.declaredBy === 'context7'))
@@ -241,7 +301,72 @@ async function rootServers(): Promise<void> {
   assert.equal(parseMcpRegistryManifest({ name: 'x', packages: [{ registryType: 'oci', identifier: 'ghcr.io/x' }] }, 'server.json').length, 0)
 }
 
+async function readBudget(): Promise<void> {
+  // The cap bounds the FILE READS a scan makes, and only a plugin whose bytes
+  // are in this tree costs one. 238 of the official marketplace's 292 entries
+  // are hosted elsewhere and are not fetched until they are opened, so they
+  // must not push the in-tree plugins listed after them out of the budget.
+  assert.ok(
+    MAX_SCANNED_PLUGINS > 292 * 3,
+    'and the cap stands well clear of the 292 the official marketplace lists today',
+  )
+
+  const linkedEntries = Array.from({ length: MAX_SCANNED_PLUGINS }, (_, index) => ({
+    name: `linked-${index}`,
+    source: { source: 'github', repo: `owner/repo-${index}` },
+  }))
+  const entries: SkillTreeEntry[] = [
+    { path: `plugins/real/${CLAUDE_PLUGIN_MANIFEST_PATH}`, mode: '100644', type: 'blob', sha: 'a' },
+    { path: 'plugins/real/commands/go.md', mode: '100644', type: 'blob', sha: 'b' },
+  ]
+  const afterLinked = await scanPluginTree({
+    entries,
+    skills: [],
+    marketplaceManifest: JSON.stringify({ name: 'm', plugins: linkedEntries }),
+    readFile: async () => null,
+  })
+  const real = afterLinked.plugins.find((plugin) => plugin.id === 'real')
+  assert.ok(real)
+  assert.equal(real.componentsKnown, true, 'a full budget of linked entries spends nothing')
+  assert.deepEqual(real.components.commands, ['go'])
+
+  // Past the cap, a plugin still LISTS — by its directory name — and says its
+  // components are unknown rather than showing an empty bundle.
+  const many: SkillTreeEntry[] = Array.from({ length: MAX_SCANNED_PLUGINS + 1 }, (_, index) => ({
+    // Zero-padded so the sorted directory order is the numeric one and the
+    // over-budget plugin is the one this asserts on.
+    path: `plugins/p${String(index).padStart(5, '0')}/${CLAUDE_PLUGIN_MANIFEST_PATH}`,
+    mode: '100644',
+    type: 'blob' as const,
+    sha: `s${index}`,
+  }))
+  const capped = await scanPluginTree({ entries: many, skills: [], marketplaceManifest: null, readFile: async () => null })
+  assert.equal(capped.plugins.length, MAX_SCANNED_PLUGINS + 1)
+  assert.equal(capped.plugins[MAX_SCANNED_PLUGINS - 1].componentsKnown, true)
+  assert.equal(capped.plugins[MAX_SCANNED_PLUGINS].componentsKnown, false, 'the one past the cap is unread, not empty')
+  assert.equal(capped.plugins[MAX_SCANNED_PLUGINS].id, `p${String(MAX_SCANNED_PLUGINS).padStart(5, '0')}`)
+}
+
 function parsers(): void {
+  // Language servers: a declaration naming no command could never be started,
+  // and an id that is not a name is not carried into anything that launches.
+  const lsp = parseLspServers(
+    {
+      good: { command: 'gopls', args: ['--stdio', 7], extensionToLanguage: { '.go': 'go' }, startupTimeout: 120000 },
+      silent: { extensionToLanguage: { '.x': 'x' } },
+      '../evil': { command: 'rm' },
+    },
+    '.claude-plugin/plugin.json',
+    'p',
+  )
+  assert.equal(lsp.length, 1)
+  assert.equal(lsp[0].id, 'good')
+  assert.deepEqual(lsp[0].args, ['--stdio'], 'a non-string arg is dropped rather than stringified')
+  assert.equal(lsp[0].startupTimeout, 120000)
+  assert.equal(lsp[0].declaredBy, 'p')
+  assert.deepEqual(parseLspServers(null, 'x', ''), [])
+  assert.equal(parseLspServers({ a: { command: 'a' } }, 'x', '')[0].startupTimeout, 0, 'never a guessed timeout')
+
   // Hooks: wrapped and bare, matcher kept, entries without a command dropped.
   const wrapped = parseHooks({
     hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node check.js' }, { type: 'prompt' }] }] },
@@ -291,6 +416,18 @@ function parsers(): void {
   assert.equal(parseMarketplaceManifest('{"plugins": "no"}'), null)
   assert.equal(parseMarketplaceManifest(null), null)
 
+  // Renames: kept whole, including one that names a plugin the listing does not
+  // hold — the marketplace still says that is what the plugin used to be
+  // called. A self-map is dropped; it would make a lookup chase its own tail.
+  const renamed = parseMarketplaceManifest(
+    JSON.stringify({
+      name: 'm',
+      renames: { was: 'a', gone: 'never-listed', self: 'self', '': 'x', bad: 4 },
+      plugins: [{ name: 'a', source: './a' }],
+    }),
+  )
+  assert.deepEqual(renamed?.renames, { was: 'a', gone: 'never-listed' })
+
   assert.equal(githubRepoFromUrl('https://github.com/o/r.git'), 'o/r')
   assert.equal(githubRepoFromUrl('https://github.com/o/r/tree/main/x'), 'o/r')
   assert.equal(githubRepoFromUrl('https://example.com/o/r'), '')
@@ -299,6 +436,7 @@ function parsers(): void {
 
 async function main(): Promise<void> {
   await officialMarketplace()
+  await readBudget()
   await linkedPluginRead()
   await skillsOnlyRepositories()
   await rootServers()

@@ -16,6 +16,8 @@
 
 import {
   BUILTIN_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
   localSourceFolderName,
   skillSourceMonogram,
   sourceHasUpdate,
@@ -52,6 +54,12 @@ export type CatalogueTab = {
   source: SkillSource | null
   /** A check has seen this source's repository move past the scanned commit. */
   updateAvailable: boolean
+  /**
+   * The tab this catalogue opens on when the person has not chosen one. At most
+   * one tab in a row carries it; a row with none opens on its first source, as
+   * every row did before the official-plugins ruling.
+   */
+  isDefault: boolean
 }
 
 /**
@@ -61,6 +69,17 @@ export type CatalogueTab = {
  */
 export function catalogueTabLabel(source: SkillSource): string {
   if (source.id === BUILTIN_SKILL_SOURCE_ID) return APP_CATALOGUE_LABEL
+  // The official marketplace is called by its publisher, not by its path. A tab
+  // reading `anthropics/claude-plugins-official` beside one reading SprintEngine
+  // Studio names one source by its address and the other by who publishes it;
+  // the two bundled catalogues are peers and read as peers (official-plugins
+  // ruling, 2026-09-06).
+  //
+  // The record's OWN name is deliberately not consulted: a scan names a source
+  // after the repository it read, so the copy Sync hands back reads
+  // "claude-plugins-official" until the source list is read again — and the tab
+  // renamed itself under the person mid-sync.
+  if (source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID) return OFFICIAL_PLUGINS_SKILL_SOURCE_NAME
   if (source.repo) return source.repo
   if (source.kind === 'local') return localSourceFolderName(source.path ?? source.name)
   return source.name
@@ -78,13 +97,21 @@ export function catalogueMonogram(source: SkillSource): string {
 
 /**
  * Sources in tab order: the app's own catalogue first (it is the one every
- * install has, and the one a first-time reader wants), then the rest in the
- * order the store lists them, which is the order they were added.
+ * install has, and the one a first-time reader wants), then Anthropic's
+ * official marketplace, then the rest in the order the store lists them, which
+ * is the order they were added.
+ *
+ * The two bundled catalogues lead because they are the two nobody chose and
+ * nobody can remove; ours is first because a person looking for what THIS app
+ * ships should not have to pass 292 of someone else's plugins to reach it
+ * (official-plugins ruling, 2026-09-06).
  */
 export function orderCatalogueSources(sources: readonly SkillSource[]): SkillSource[] {
-  const app = sources.filter((source) => source.id === BUILTIN_SKILL_SOURCE_ID)
-  const rest = sources.filter((source) => source.id !== BUILTIN_SKILL_SOURCE_ID)
-  return [...app, ...rest]
+  const rank = (source: SkillSource): number =>
+    source.id === BUILTIN_SKILL_SOURCE_ID ? 0 : source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID ? 1 : 2
+  // A stable partition, not a sort: everything else keeps the order it arrived
+  // in, which is the order the sources were added.
+  return [0, 1, 2].flatMap((tier) => sources.filter((source) => rank(source) === tier))
 }
 
 export function deriveCatalogueTabs(input: {
@@ -102,6 +129,7 @@ export function deriveCatalogueTabs(input: {
     state: input.installedCount === null ? { status: 'loading' } : { status: 'ready', count: input.installedCount },
     source: null,
     updateAvailable: false,
+    isDefault: false,
   }
   // Agent CLIs come from the marketplace registry and nowhere else: a skill
   // source's scan yields plugins, skills and MCP servers, never a CLI, so
@@ -123,20 +151,42 @@ export function deriveCatalogueTabs(input: {
         state,
         source,
         updateAvailable: sourceHasUpdate(source),
+        // Plugins opens on Anthropic: it is where the plugins are — 292 of
+        // them against our own catalogue's handful — and the app's own tab is
+        // one click away, still first in the row (official-plugins ruling,
+        // 2026-09-06). Skills and Agent CLIs are unchanged; the app's own
+        // skills are what a first-time reader of those wants.
+        isDefault: input.kind === 'plugins' && source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
       }
     }),
   ]
 }
 
 /**
- * The tab to stand on. The one asked for when it still exists, else the first
- * source, else Installed — a removed source must not leave the surface on a
- * tab that is no longer in the row.
+ * The tab to stand on. The one asked for when it still exists, else this
+ * catalogue's default tab, else the first source, else Installed — a removed
+ * source must not leave the surface on a tab that is no longer in the row.
  */
 export function resolveCatalogueTab(tabs: readonly CatalogueTab[], wanted: string | null): string {
   if (wanted && tabs.some((tab) => tab.id === wanted)) return wanted
-  const firstSource = tabs.find((tab) => tab.source !== null)
-  return firstSource?.id ?? INSTALLED_TAB_ID
+  const preferred = tabs.find((tab) => tab.isDefault) ?? tabs.find((tab) => tab.source !== null)
+  return preferred?.id ?? INSTALLED_TAB_ID
+}
+
+/**
+ * What a source holds, each kind named: "292 plugins · 15 MCP servers".
+ *
+ * The Plugins tab used to total them into "292 listings", and a listing is not
+ * a noun anybody uses — the owner read `anthropics/skills`'s five plugin
+ * bundles as five skills, because four of them are named `*-skills`
+ * (official-plugins ruling, 2026-09-06). A kind the source has none of is left
+ * out rather than printed as a zero.
+ */
+export function catalogueHoldingsLine(kinds: readonly (readonly [number, string, string])[]): string {
+  return kinds
+    .filter(([count]) => count > 0)
+    .map(([count, one, many]) => `${count} ${count === 1 ? one : many}`)
+    .join(' · ')
 }
 
 /** The head line under the tab row: what this source is, or why it is silent. */

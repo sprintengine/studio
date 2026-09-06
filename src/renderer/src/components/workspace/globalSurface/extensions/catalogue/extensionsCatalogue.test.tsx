@@ -298,6 +298,42 @@ async function main(): Promise<void> {
     assert.equal(/Show \d+ more/.test(text()), false, 'and so is "Show N more"')
   })
 
+  // ── A source's head line on Plugins names both populations ──────────────────
+
+  await act(async () => {
+    tabNamed('acme/skills')?.click()
+  })
+  await settle()
+
+  await run('the Plugins head line names plugins and skills separately', () => {
+    // "30 listings" was one number over two populations, and a listing is not a
+    // noun anybody uses — the owner read anthropics/skills's five plugin
+    // bundles as five skills, because four of them are named *-skills
+    // (official-plugins ruling, 2026-09-06).
+    assert.equal(text().includes('listings'), false, 'nothing is called a listing any more')
+    assert.ok(text().includes('No plugins here'), 'a source with no plugins says so in the Plugins tab')
+    assert.ok(text().includes('30 skills'), 'and says how many skills it holds, which this tab does not list')
+  })
+
+  await run('the skills on that head line open the same source under Skills', async () => {
+    const link = container.querySelector(
+      'button[aria-label="Open the 30 skills in acme/skills under Skills"]',
+    ) as HTMLElement | null
+    assert.ok(link, 'the count is a way through, not a number in a sentence')
+    await act(async () => {
+      link.click()
+    })
+    await settle()
+    assert.equal(title(), 'Skills')
+    assert.equal(
+      container.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.startsWith('acme/skills'),
+      true,
+      'and it lands on the SAME source, not on whichever tab Skills opens on',
+    )
+  })
+
+  await openView('plugins')
+
   // ── The plus menu ───────────────────────────────────────────────────────────
 
   await act(async () => {

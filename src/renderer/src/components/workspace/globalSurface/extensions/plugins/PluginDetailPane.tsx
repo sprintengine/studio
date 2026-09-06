@@ -133,6 +133,24 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
                 mono
               />
               <ComponentRow
+                label="LSP servers"
+                // A language server is named by what it starts and what it
+                // covers: the twelve `*-lsp` plugins in the official
+                // marketplace are this declaration and nothing else, and
+                // without the extensions the row would not say which language
+                // the plugin is for.
+                values={plugin.components.lspServers.map((server) =>
+                  [
+                    server.id,
+                    `${server.command} ${server.args.join(' ')}`.trim(),
+                    Object.keys(server.extensionToLanguage).join(' '),
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                )}
+                mono
+              />
+              <ComponentRow
                 label="Hooks"
                 values={hooks.map((hook) => `${hook.event}${hook.matcher ? ` on ${hook.matcher}` : ''}: ${hook.command}`)}
                 mono
@@ -250,7 +268,14 @@ function ComponentRow({
 
 function componentCount(plugin: ScannedPlugin): number {
   const c = plugin.components
-  return c.skills.length + c.commands.length + c.agents.length + c.mcpServers.length + c.hooks.length
+  return (
+    c.skills.length
+    + c.commands.length
+    + c.agents.length
+    + c.mcpServers.length
+    + c.lspServers.length
+    + c.hooks.length
+  )
 }
 
 function describeOrigin(plugin: ScannedPlugin, source: SkillSource, shape: SourceShape): React.ReactNode {

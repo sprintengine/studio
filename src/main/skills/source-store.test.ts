@@ -3,8 +3,13 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { ScanResult, SkillSource } from '../../shared/skills'
-import { createSkillSourceStore, parseSkillSourceState } from './source-store'
+import {
+  OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+  type ScanResult,
+  type SkillSource,
+} from '../../shared/skills'
+import { createSkillSourceStore, isRemovableSkillSource, parseSkillSourceState } from './source-store'
 
 // What the store owes: a source a person added survives the write→read round
 // trip, and the scan cached beside it never outlives it.
@@ -87,8 +92,8 @@ async function main(): Promise<void> {
     const listed = await reopened.listSources()
     assert.deepEqual(
       listed.map((source) => source.id),
-      ['builtin', 'connectors', FOLDER.id],
-      'the folder is in the list beside the two the app always has',
+      ['builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors', FOLDER.id],
+      'the folder is in the list beside the ones the app always has',
     )
     const found = await reopened.getSource(FOLDER.id)
     assert.ok(found, 'and it can be opened by id')
@@ -144,6 +149,75 @@ async function main(): Promise<void> {
       JSON.stringify({ sources: [{ ...FOLDER, path: '' }], scans: {}, adoptedLegacyPacks: false }),
     )
     assert.deepEqual(state.sources, [], 'a path is the only identity it has')
+  })
+
+  await run('the official marketplace is always present, and keeps what a scan of it wrote', async () => {
+    // It is a repository like any the user adds — read over the network, at a
+    // commit — and differs only in that it is present before anyone adds it and
+    // cannot be taken away (official-plugins ruling, 2026-09-06). So the scan
+    // cached beside it, and the commit that scan was taken at, have to survive
+    // the trip to disk: a store that dropped them would refetch 292 plugins on
+    // every launch and could never say an update was available.
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+    const store = createSkillSourceStore(dir)
+    const fresh = await store.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
+    assert.equal(fresh?.kind, 'github', 'a fresh profile has it without anyone adding it')
+    assert.equal(fresh?.repo, 'anthropics/claude-plugins-official')
+    assert.equal(fresh?.commitSha, '', 'and it claims no commit until something reads it')
+
+    // What a scan writes back: `scanGithubSource` names a source after its
+    // repository, which is NOT what this source is called.
+    await store.putSource(
+      {
+        ...(fresh as SkillSource),
+        name: 'claude-plugins-official',
+        blurb: '292 plugins from anthropics/claude-plugins-official.',
+        commitSha: '85cce03',
+        scannedAt: '2026-09-06T09:00:00.000Z',
+        headSha: '85cce03',
+      },
+      scanOf('plugins/frontend-design/skills/frontend-design'),
+    )
+
+    const reopened = createSkillSourceStore(dir)
+    const listed = await reopened.listSources()
+    assert.deepEqual(
+      listed.map((source) => source.id),
+      ['builtin', OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors'],
+      'it is listed once, not once as itself and once as the copy its scan wrote',
+    )
+    const reread = await reopened.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
+    assert.equal(reread?.commitSha, '85cce03', 'the commit survives')
+    assert.equal(reread?.headSha, '85cce03')
+    assert.equal(
+      reread?.name,
+      OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
+      'but this build names it, not a scan that ran months ago',
+    )
+    assert.equal((await reopened.getScan(OFFICIAL_PLUGINS_SKILL_SOURCE_ID))?.skills.length, 1)
+
+    assert.equal(isRemovableSkillSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID), false)
+    assert.equal(await reopened.removeSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID), false)
+    assert.equal(
+      (await reopened.getScan(OFFICIAL_PLUGINS_SKILL_SOURCE_ID))?.skills.length,
+      1,
+      'and a refused removal leaves its scan alone',
+    )
+  })
+
+  await run('a bundled source that ships with the app persists nothing', async () => {
+    // The opposite case: no commit, no network, re-read from disk each launch,
+    // so a stored copy could only be a stale name waiting to overrule this
+    // build's.
+    const state = parseSkillSourceState(
+      JSON.stringify({
+        sources: [{ id: 'builtin', kind: 'github', name: 'Old name', repo: '' }],
+        scans: { builtin: scanOf('stale') },
+        adoptedLegacyPacks: false,
+      }),
+    )
+    assert.deepEqual(state.sources, [])
+    assert.deepEqual(Object.keys(state.scans), [])
   })
 
   console.log('skill source store: ok')

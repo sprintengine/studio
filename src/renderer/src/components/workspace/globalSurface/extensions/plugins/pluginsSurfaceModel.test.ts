@@ -14,6 +14,7 @@ import {
   derivePluginRows,
   derivePluginsKindStateLine,
   describeInstallPlan,
+  findPlugin,
   pluginCountLine,
   pluginExternalUrl,
   summarizePluginInstall,
@@ -154,6 +155,37 @@ run('installed state comes from our receipt, or from a hand-enabled Claude key',
   assert.equal(derivePluginInstallState([elsewhere], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'not-installed')
 })
 
+run('a plugin the marketplace renamed is still the one you installed', () => {
+  // `anthropics/claude-plugins-official` renamed `adlc` to `agentforce-adlc`,
+  // and records its old names in the manifest's top-level `renames`. A receipt
+  // written before the rename names the plugin by the old name; without the map
+  // the row reads "not installed" and installing again duplicates it
+  // (official-plugins ruling, 2026-09-06).
+  const scan = scanOf([plugin('agentforce-adlc')], { pluginRenames: { adlc: 'agentforce-adlc' } })
+  const before = record({ pluginId: 'adlc', pluginName: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' })
+  const rows = derivePluginRows({ source: SOURCE, scan, installed: [before], query: '' })
+  assert.equal(rows[0].install.kind, 'installed')
+  assert.equal(findPlugin(scan, 'adlc')?.id, 'agentforce-adlc', 'and the old name opens the plugin it became')
+  assert.equal(findPlugin(scan, 'agentforce-adlc')?.id, 'agentforce-adlc')
+
+  // A hand-enabled Claude key written under the old name resolves too.
+  const handEnabled = record({
+    sourceId: '',
+    commitSha: '',
+    pluginId: 'adlc',
+    claudePluginKey: 'adlc@claude-plugins-official',
+  })
+  assert.equal(
+    derivePluginRows({ source: SOURCE, scan, installed: [handEnabled], query: '' })[0].install.kind,
+    'installed',
+  )
+
+  // Without the map, nothing is guessed: two plugins with unrelated names stay
+  // unrelated.
+  const unmapped = scanOf([plugin('agentforce-adlc')])
+  assert.equal(derivePluginRows({ source: SOURCE, scan: unmapped, installed: [before], query: '' })[0].install.kind, 'not-installed')
+})
+
 run('the install plan says per harness what will land, before it does', () => {
   const p = plugin('security-guidance', {
     components: {
@@ -185,6 +217,30 @@ run('the install plan says per harness what will land, before it does', () => {
     harnesses: ['codex'],
   })
   assert.match(hooksOnly[0].line, /Nothing to install\. Its hooks are Claude Code-format/)
+  // An LSP-only plugin — the shape twelve of the official marketplace's plugins
+  // take — says why there is nothing for this harness rather than going blank.
+  const lspOnly = describeInstallPlan({
+    plugin: plugin('clangd-lsp', {
+      components: {
+        ...emptyPluginComponents(),
+        lspServers: [
+          {
+            id: 'clangd',
+            command: 'clangd',
+            args: ['--background-index'],
+            extensionToLanguage: { '.c': 'c' },
+            startupTimeout: 0,
+            declaredIn: '.claude-plugin/marketplace.json',
+            declaredBy: 'clangd-lsp',
+          },
+        ],
+      },
+    }),
+    marketplaceName: '',
+    marketplaceRepo: '',
+    harnesses: ['codex'],
+  })
+  assert.match(lspOnly[0].line, /Nothing to install\. Its LSP servers are Claude Code-format/)
   const unread = describeInstallPlan({ plugin: plugin('u', { componentsKnown: false }), marketplaceName: 'm', marketplaceRepo: 'o/r', harnesses: ['claude'] })
   assert.match(unread[0].line, /Known once the plugin has been read/)
 })
