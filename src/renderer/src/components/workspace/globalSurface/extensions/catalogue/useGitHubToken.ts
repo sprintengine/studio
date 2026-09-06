@@ -24,17 +24,22 @@ export function openGitHubSettings(): void {
 
 /**
  * True once a token is known to be configured, false once it is known not to
- * be, null while neither is known. A build whose preload predates the call, or
- * a call that throws, reads as "configured": the head line's job is to offer a
- * fix for a shortfall it can explain, and inventing a missing token from a
- * failed status call would put a setting under somebody who already set it.
+ * be, null while neither is known.
+ *
+ * A failed call, and a build whose preload predates it, read as NOT configured
+ * — the head line then offers the setting (linked-plugins review, 2026-09-06).
+ * The other way round was chosen to avoid nagging somebody who already has a
+ * token, and it got the trade backwards: offering Settings to a person who does
+ * not need it costs them one glance, while hiding the only remedy from a person
+ * whose scan really is short of a token leaves them with a partial listing and
+ * no way to find out why.
  */
 export function useGitHubTokenConfigured(): boolean | null {
   const [configured, setConfigured] = useState<boolean | null>(null)
   useEffect(() => {
     let cancelled = false
     if (typeof window.api.getGitHubTokenStatus !== 'function') {
-      setConfigured(true)
+      setConfigured(false)
       return
     }
     void window.api
@@ -43,7 +48,7 @@ export function useGitHubTokenConfigured(): boolean | null {
         if (!cancelled) setConfigured(status.configured)
       })
       .catch(() => {
-        if (!cancelled) setConfigured(true)
+        if (!cancelled) setConfigured(false)
       })
     return () => {
       cancelled = true

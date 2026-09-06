@@ -31,9 +31,9 @@ import {
   scanMcpServers,
   scanPlugins,
   linkedPluginShortfall,
+  pluginNeedsRead,
   scanShape,
   summariseLinkedPlugins,
-  unreadPluginReason,
   type ScanResult,
   type ScannedMcpServer,
   type ScannedPlugin,
@@ -253,7 +253,11 @@ export function PluginsCatalogue({
       // that the scan skipped for being past its plugin limit has nothing to
       // fetch, and asking main to read it returned the same unread plugin —
       // a spinner that resolved to no change, forever.
-      if (plugin && unreadPluginReason(plugin) === 'unopened') void readLinked(activeSource, plugin)
+      //
+      // A plugin the scan already FOLLOWED is read here too: the follow lists
+      // components from the tree and fetches no skill's entry document, so this
+      // is where the descriptions come from (linked-plugins review, 2026-09-06).
+      if (plugin && pluginNeedsRead(plugin)) void readLinked(activeSource, plugin)
     },
     [activeSource, scan, readLinked],
   )
@@ -276,6 +280,11 @@ export function PluginsCatalogue({
         })
         if (!result.ok) {
           setReport({ sourceId: source.id, outcome: null, error: result.message })
+          // Main read the plugin to find those hooks and wrote the read back to
+          // the store; without pulling it in, the pane keeps showing the plugin
+          // that had no hooks to acknowledge and the refusal reads as a glitch
+          // (linked-plugins review, 2026-09-06).
+          if (result.needsHookAcknowledgement === true) await readLinked(source, plugin)
           return
         }
         if (result.mcpServers.length > 0) onAddMcpServers(result.mcpServers)
@@ -287,7 +296,7 @@ export function PluginsCatalogue({
         setInstalling(false)
       }
     },
-    [workspaceRoot, hooksAcknowledged, onAddMcpServers, sources],
+    [workspaceRoot, hooksAcknowledged, onAddMcpServers, sources, readLinked],
   )
 
   const uninstallPlugin = useCallback(

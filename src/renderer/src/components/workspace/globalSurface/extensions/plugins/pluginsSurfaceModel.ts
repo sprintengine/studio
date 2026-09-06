@@ -82,6 +82,11 @@ export type PluginListItem = {
   description: string
   /** "4 skills · 2 commands · 1 MCP", or "Read when opened" for an unread linked plugin. */
   components: string
+  /**
+   * Known to run hooks. False also means "not read", never "runs none" — an
+   * unread plugin's `unread` chip is what says which, and no surface may turn
+   * this into a claim that a plugin is hook-free.
+   */
   hasHooks: boolean
   linked: boolean
   /**

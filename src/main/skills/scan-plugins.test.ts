@@ -17,6 +17,8 @@ import {
   scanPlugins,
   scanShape,
   summariseLinkedPlugins,
+  unreadPluginChip,
+  unreadPluginReason,
   type LinkedPluginSummary,
   type ScanResult,
   type ScannedPlugin,
@@ -410,11 +412,13 @@ async function readBudget(): Promise<void> {
     { path: `plugins/real/${CLAUDE_PLUGIN_MANIFEST_PATH}`, mode: '100644', type: 'blob', sha: 'a' },
     { path: 'plugins/real/commands/go.md', mode: '100644', type: 'blob', sha: 'b' },
   ]
+  // An empty manifest rather than null: a null on a path the TREE LISTED is a
+  // read that failed, and this test is about the budget, not about failures.
   const afterLinked = await scanPluginTree({
     entries,
     skills: [],
     marketplaceManifest: JSON.stringify({ name: 'm', plugins: linkedEntries }),
-    readFile: async () => null,
+    readFile: async () => '{}',
   })
   const real = afterLinked.plugins.find((plugin) => plugin.id === 'real')
   assert.ok(real)
@@ -431,7 +435,7 @@ async function readBudget(): Promise<void> {
     type: 'blob' as const,
     sha: `s${index}`,
   }))
-  const capped = await scanPluginTree({ entries: many, skills: [], marketplaceManifest: null, readFile: async () => null })
+  const capped = await scanPluginTree({ entries: many, skills: [], marketplaceManifest: null, readFile: async () => '{}' })
   assert.equal(capped.plugins.length, MAX_SCANNED_PLUGINS + 1)
   assert.equal(capped.plugins[MAX_SCANNED_PLUGINS - 1].componentsKnown, true)
   assert.equal(capped.plugins[MAX_SCANNED_PLUGINS].componentsKnown, false, 'the one past the cap is unread, not empty')
@@ -597,6 +601,8 @@ function recordedReader(
   }
 }
 
+const NO_PENDING = { budget: 0, rateLimited: 0, offline: 0 }
+
 /** The head line's shortfall clauses as one sentence, the way the head line reads. */
 function shortfallLine(summary: LinkedPluginSummary, tokenConfigured: boolean): string | null {
   const parts = linkedPluginShortfall(summary, tokenConfigured)
@@ -604,7 +610,7 @@ function shortfallLine(summary: LinkedPluginSummary, tokenConfigured: boolean): 
 }
 
 function unreadableMessage(plugin: ScannedPlugin): string {
-  const state = plugin.linkedRead
+  const state = plugin.readState
   assert.equal(state?.status, 'unreadable', `${plugin.id} was expected to be unreadable`)
   return state?.status === 'unreadable' ? state.message : ''
 }
@@ -641,7 +647,11 @@ async function linkedPluginsFollowed(): Promise<void> {
   const byId = new Map(first.plugins.map((plugin) => [plugin.id, plugin]))
   const capTable = byId.get('carta-cap-table')!
   assert.equal(capTable.componentsKnown, true)
-  assert.deepEqual(capTable.linkedRead, { status: 'read' })
+  assert.deepEqual(
+    capTable.readState,
+    { status: 'listed' },
+    'listed, not read: the components are real, but no skill entry document was fetched',
+  )
   assert.ok(capTable.components.skills.length > 0)
   assert.ok(capTable.components.hooks.length > 0, 'its hooks/hooks.json was read from ITS repository')
   assert.ok(
@@ -677,7 +687,7 @@ async function linkedPluginsFollowed(): Promise<void> {
 
   // The in-tree plugin is untouched, components and all.
   const guidance = byId.get('security-guidance')!
-  assert.equal(guidance.linkedRead, undefined)
+  assert.deepEqual(guidance.readState, { status: 'read' }, 'an in-tree plugin was read whole, entry documents included')
   assert.ok(guidance.components.hooks.length >= 3)
 
   // The servers the followed plugins declare come back for the source's list,
@@ -695,10 +705,49 @@ async function linkedPluginsFollowed(): Promise<void> {
   })
   assert.deepEqual(reread.trees, [CONVEX_REPO], 'only the repository that never answered is asked again')
   assert.equal(cachedRun.repositoriesRead, 0)
+  const cachedCrm = cachedRun.plugins.find((plugin) => plugin.id === 'carta-crm')!
   assert.equal(
-    cachedRun.plugins.find((plugin) => plugin.id === 'carta-crm')?.components.skills.length,
+    cachedCrm.components.skills.length,
     crm.components.skills.length,
     'and a cached plugin keeps the components the earlier read gave it',
+  )
+  // …and everything the LINKED repository's own manifest filled in. All 238 of
+  // the official marketplace's linked entries state no version and 70 state no
+  // author, so a reuse that kept only the entry's fields blanked the version on
+  // 238 rows at the second Sync (linked-plugins review, 2026-09-06).
+  assert.ok(crm.version !== '', 'the version came from the linked repository, not the entry')
+  assert.equal(cachedCrm.version, crm.version)
+  assert.equal(cachedCrm.author, crm.author)
+  assert.equal(cachedCrm.homepage, crm.homepage)
+  assert.equal(cachedCrm.description, crm.description)
+  assert.equal(cachedCrm.readCommit, crm.readCommit)
+  assert.equal(cachedCrm.componentsKnown, true)
+
+  // The cache is keyed on the whole address, not the commit alone: a
+  // marketplace that moves a plugin's subdirectory at an unchanged sha must not
+  // be served components from a directory that no longer exists.
+  const relocated = subject.map((plugin) =>
+    plugin.id === 'carta-crm' && plugin.origin.kind === 'linked'
+      ? { ...plugin, origin: { ...plugin.origin, path: 'plugins/carta-investors' } }
+      : plugin,
+  )
+  const relocatedReader = recordedReader()
+  const afterMove = await followLinkedPlugins({
+    plugins: relocated,
+    reader: relocatedReader,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+    cached: first.plugins,
+  })
+  assert.ok(
+    relocatedReader.trees.includes('carta/plugins@cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4'),
+    'the moved plugin is read again even though its commit did not move',
+  )
+  assert.ok(
+    afterMove.plugins
+      .find((plugin) => plugin.id === 'carta-crm')!
+      .components.skills.every((skill) => skill.id.startsWith('plugins/carta-investors/skills/')),
+    'and it lists the directory it points at NOW, not the one the cache held',
   )
 
   // A sha that MOVED is read again: the cache is keyed by the pinned commit.
@@ -736,7 +785,13 @@ async function linkedPluginsPartial(): Promise<void> {
   const unread = await followLinkedPlugins({ plugins: all, reader: none, budget: 0, marketplaceManifest })
   assert.equal(none.trees.length, 0)
   const summary = summariseLinkedPlugins({ plugins: unread.plugins })
-  assert.deepEqual(summary, { total: 238, read: 0, pending: 238, unreadable: 0 })
+  assert.deepEqual(summary, {
+    total: 238,
+    read: 0,
+    pending: 238,
+    unreadable: 0,
+    pendingReasons: { budget: 238, rateLimited: 0, offline: 0 },
+  })
   assert.equal(
     shortfallLine(summary, false),
     '238 of 238 linked plugins not yet read — add a GitHub token',
@@ -757,11 +812,27 @@ async function linkedPluginsPartial(): Promise<void> {
     describePluginComponents(unread.plugins.find((plugin) => plugin.id === UNRECORDED_PLUGIN)!),
     'Not read yet — read when opened',
   )
-  assert.equal(shortfallLine({ total: 0, read: 0, pending: 0, unreadable: 0 }, false), null)
+  assert.equal(shortfallLine({ total: 0, read: 0, pending: 0, unreadable: 0, pendingReasons: NO_PENDING }, false), null)
   assert.equal(
-    shortfallLine({ total: 238, read: 238, pending: 0, unreadable: 0 }, false),
+    shortfallLine({ total: 238, read: 238, pending: 0, unreadable: 0, pendingReasons: NO_PENDING }, false),
     null,
     'a source that read them all says nothing extra: the counts already stand',
+  )
+  // The remedy is whatever is actually in the way. "Add a GitHub token" is
+  // useless advice to a machine with no network, and a spent limit is not
+  // cleared by pressing Sync again this minute (linked-plugins review).
+  const offlineSummary = { total: 10, read: 0, pending: 10, unreadable: 0, pendingReasons: { budget: 0, rateLimited: 0, offline: 10 } }
+  assert.equal(shortfallLine(offlineSummary, false), '10 of 10 linked plugins not yet read — GitHub could not be reached')
+  assert.deepEqual(linkedPluginShortfall(offlineSummary, false).map((part) => part.action), [null], 'and it offers no setting')
+  const limitedSummary = { total: 10, read: 0, pending: 10, unreadable: 0, pendingReasons: { budget: 0, rateLimited: 10, offline: 0 } }
+  assert.equal(
+    shortfallLine(limitedSummary, true),
+    "10 of 10 linked plugins not yet read — Sync once GitHub's rate limit resets",
+  )
+  assert.equal(
+    shortfallLine(limitedSummary, false),
+    '10 of 10 linked plugins not yet read — add a GitHub token',
+    'without a token, raising the limit IS the fix for a spent limit',
   )
 
   // A partial budget: as many as it allows, the rest stated as pending.
@@ -780,13 +851,13 @@ async function linkedPluginsPartial(): Promise<void> {
   assert.equal(partialSummary.read + partialSummary.pending, 5)
   for (const plugin of partial.plugins) {
     if (plugin.componentsKnown) continue
-    assert.deepEqual(plugin.linkedRead, { status: 'pending', reason: 'budget' })
+    assert.deepEqual(plugin.readState, { status: 'pending', reason: 'budget' })
   }
 
   // A repository that failed last time never crowds out one nobody has read.
   const failedBefore = subject.map((plugin) =>
     plugin.id === '42crunch-api-security-testing'
-      ? { ...plugin, linkedRead: { status: 'unreadable' as const, message: 'gone' } }
+      ? { ...plugin, readState: { status: 'unreadable' as const, message: 'gone' } }
       : plugin,
   )
   const orderReader = recordedReader()
@@ -813,8 +884,8 @@ async function linkedPluginsPartial(): Promise<void> {
   })
   const carta = capped.plugins.find((plugin) => plugin.id === 'carta-crm')!
   assert.deepEqual(
-    carta.linkedRead,
-    { status: 'pending', reason: 'rate-limited' },
+    carta.readState,
+    { status: 'pending', reason: 'rate-limited', blocked: true },
     'pending, not unreadable: the limit resets and the next scan will read it',
   )
   assert.equal(describePluginComponents(carta), 'Not read — GitHub rate limit reached')
@@ -850,7 +921,7 @@ async function linkedPluginsPartial(): Promise<void> {
   assert.ok(flooded.trees.length < 60, `the pass stopped after ${flooded.trees.length} of 60 repositories`)
   assert.equal(stopped.repositoriesRead, 0)
   assert.ok(
-    stopped.plugins.every((plugin) => plugin.linkedRead?.status === 'pending'),
+    stopped.plugins.every((plugin) => plugin.readState?.status === 'pending'),
     'every plugin it did not reach is pending, none of them unreadable',
   )
   assert.equal(
@@ -883,10 +954,11 @@ async function linkedPluginsPartial(): Promise<void> {
     read: 0,
     pending: 0,
     unreadable: 1,
+    pendingReasons: { budget: 0, rateLimited: 0, offline: 0 },
   })
   assert.equal(
-    shortfallLine({ total: 1, read: 0, pending: 0, unreadable: 1 }, true),
-    '1 of 1 linked plugin could not be read',
+    shortfallLine({ total: 1, read: 0, pending: 0, unreadable: 1, pendingReasons: NO_PENDING }, true),
+    '1 of 1 linked plugin could not be read in full',
   )
 
   // …and a budget that fits every repository still reads them all, which is
@@ -915,24 +987,30 @@ async function linkedPluginsPartial(): Promise<void> {
     read: 0,
     pending: 60,
     unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 0, offline: 60 },
   })
-  assert.deepEqual(dark.plugins[59].linkedRead, { status: 'pending', reason: 'offline' })
+  assert.ok(
+    dark.plugins.some((plugin) => plugin.readState?.status === 'pending' && plugin.readState.blocked === true),
+    'the repository whose reply stopped the pass is marked, so the next pass ranks it last',
+  )
+  assert.equal(dark.plugins[59].readState?.status, 'pending')
   assert.equal(describePluginComponents(dark.plugins[59]), 'Not read — GitHub could not be reached')
   assert.match(describeUnreadPlugin(dark.plugins[59]), /Sync when the connection is back/)
 
   // An entry the marketplace did NOT pin: its ref is resolved once for the
   // group, and the commit that comes back is what the plugin ends up pinned to.
+  const unpinnedManifest = JSON.stringify({
+    name: 'm',
+    plugins: [
+      { name: 'floating-a', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-crm' } },
+      { name: 'floating-b', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-investors' } },
+    ],
+  })
   const unpinned = await scanPluginTree({
     entries: [],
     skills: [],
-    marketplaceManifest: JSON.stringify({
-      name: 'm',
-      plugins: [
-        { name: 'floating-a', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-crm' } },
-        { name: 'floating-b', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-investors' } },
-      ],
-    }),
-    readFile: async () => null,
+    marketplaceManifest: unpinnedManifest,
+    readFile: async () => '{}',
   })
   const resolving = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
   const floated = await followLinkedPlugins({
@@ -946,23 +1024,141 @@ async function linkedPluginsPartial(): Promise<void> {
   assert.equal(floated.repositoriesRead, 1)
   assert.ok(floated.plugins.every((plugin) => plugin.componentsKnown))
   assert.equal(
-    floated.plugins[0].origin.kind === 'linked' ? floated.plugins[0].origin.sha : '',
+    floated.plugins[0].origin.kind === 'linked' ? floated.plugins[0].origin.sha : 'x',
+    '',
+    'the entry stays UNPINNED: what the marketplace pinned is not what a scan happened to resolve',
+  )
+  assert.equal(
+    floated.plugins[0].readCommit,
     'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4',
-    'the plugin now pins the commit the ref resolved to, so the cache can key on it',
+    'the commit this read used is recorded beside it, not written into the origin',
   )
 
-  // …and with that commit written back, a re-scan of the unpinned entries costs
-  // nothing: resumability does not depend on the marketplace having pinned.
-  const settled = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
-  await followLinkedPlugins({
-    plugins: floated.plugins,
-    reader: settled,
+  // An unpinned entry is re-read every scan, and the input a later scan gets is
+  // the manifest PARSED AGAIN — never the sha-stamped plugins the last pass
+  // produced, which is a shape production never hands it (linked-plugins
+  // review, 2026-09-06).
+  const reparsed = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: unpinnedManifest,
+    readFile: async () => '{}',
+  })
+  const again = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
+  const refloated = await followLinkedPlugins({
+    plugins: reparsed.plugins,
+    reader: again,
     budget: MAX_LINKED_REPOSITORY_READS,
     marketplaceManifest: null,
     cached: floated.plugins,
   })
-  assert.deepEqual(settled.trees, [])
-  assert.deepEqual(settled.commits, [])
+  assert.deepEqual(again.commits, ['carta/plugins#main'], 'no pin, no cache: the ref is resolved again')
+  assert.equal(again.trees.length, 1)
+  assert.ok(refloated.plugins.every((plugin) => plugin.componentsKnown))
+
+  // …and the resolve is charged against the budget before it is spent, so
+  // unpinned entries cannot quietly outspend it. One ref-bearing group costs
+  // one resolve plus one tree, which a budget of one cannot afford.
+  const broke = recordedReader({ resolvesTo: { 'carta/plugins': 'cf7e25ef8d8ff5ec9f6194eafae9a809f66ffff4' } })
+  const starved = await followLinkedPlugins({
+    plugins: reparsed.plugins,
+    reader: broke,
+    budget: 1,
+    marketplaceManifest: null,
+  })
+  assert.deepEqual(broke.commits, [], 'the resolve never happened: the budget could not cover it')
+  assert.deepEqual(broke.trees, [])
+  assert.ok(starved.plugins.every((plugin) => plugin.readState?.status === 'pending'))
+
+  // A linked source path may not climb out of the plugin's directory, the same
+  // rule the in-tree branch has always applied.
+  const traversal = parseMarketplaceManifest(
+    JSON.stringify({
+      name: 'm',
+      plugins: [
+        { name: 'escape', source: { source: 'github', repo: 'o/r', path: '../../etc' } },
+        { name: 'fine', source: { source: 'github', repo: 'o/r', path: 'plugins/ok' } },
+      ],
+    }),
+  )
+  assert.deepEqual(traversal?.plugins.map((plugin) => plugin.name), ['fine'])
+}
+
+/**
+ * A read that lost a file the tree listed is not a read plugin.
+ *
+ * This is the install gate's foundation: `installPlugin` refuses a plugin whose
+ * components are not known, and the hooks acknowledgement is only ever shown
+ * for hooks that were actually read. A `hooks/hooks.json` lost to a throttled
+ * raw request used to come back as a plugin with no hooks and
+ * `componentsKnown: true`, which is the one shape that walks past both
+ * (linked-plugins review, 2026-09-06).
+ */
+async function aLostFileIsNotAnAbsentFile(): Promise<void> {
+  const tree = recorded('claude-plugins-official')
+  const files = recordedFiles('claude-plugins-official')
+  const skills = scanSkillTree({ entries: tree.tree, commitSha: tree.commitSha })
+  const hooksPath = 'plugins/security-guidance/hooks/hooks.json'
+  assert.ok(files.has(hooksPath), 'the fixture holds the file this test then refuses to serve')
+
+  const whole = await readPluginComponents({
+    dir: 'plugins/security-guidance',
+    entries: tree.tree,
+    skills: skills.skills,
+    readFile: async (path) => files.get(path) ?? null,
+  })
+  assert.deepEqual(whole.unreadFiles, [])
+  assert.ok(whole.components.hooks.length >= 3)
+
+  const throttled = await readPluginComponents({
+    dir: 'plugins/security-guidance',
+    entries: tree.tree,
+    skills: skills.skills,
+    readFile: async (path) => (path === hooksPath ? null : files.get(path) ?? null),
+  })
+  assert.deepEqual(throttled.unreadFiles, [hooksPath], 'the tree listed it, so a null is a failure')
+  assert.equal(throttled.components.hooks.length, 0)
+
+  // …and the scan that produced it says so, rather than caching a plugin that
+  // claims to ship no hooks.
+  const marketplaceManifest = manifest('claude-plugins-official')
+  const scanned = await scanPluginTree({
+    entries: tree.tree,
+    skills: skills.skills,
+    marketplaceManifest,
+    readFile: async (path) => (path === hooksPath ? null : files.get(path) ?? null),
+  })
+  const guidance = scanned.plugins.find((plugin) => plugin.id === 'security-guidance')!
+  assert.equal(guidance.componentsKnown, false, 'not a complete plugin, so the install gate cannot be walked past')
+  assert.deepEqual(guidance.readState, { status: 'partial', unread: [hooksPath] })
+  assert.equal(unreadPluginChip(guidance), 'Partly read')
+  assert.equal(describePluginComponents(guidance), 'Partly read — 1 file could not be read')
+  assert.match(describeUnreadPlugin(guidance), /could not be read, so this is not all of the plugin/)
+  assert.equal(unreadPluginReason(guidance), 'incomplete', 'neither "open it" nor "past the scan limit"')
+
+  // The same on the linked side, where the request is a raw read of another
+  // repository and throttling is likeliest.
+  const all = scanPlugins({ ...scanned })
+  const crunch = all.find((plugin) => plugin.id === '42crunch-api-security-testing')!
+  const manifestPath = 'plugins/api-security-testing/.claude-plugin/plugin.json'
+  const partialReader = recordedReader()
+  const brokenReader: LinkedPluginRepoReader = {
+    ...partialReader,
+    readFile: async (repo, sha, path) => (path === manifestPath ? null : partialReader.readFile(repo, sha, path)),
+  }
+  const followed = await followLinkedPlugins({
+    plugins: [crunch],
+    reader: brokenReader,
+    budget: MAX_LINKED_REPOSITORY_READS,
+    marketplaceManifest,
+  })
+  assert.equal(followed.plugins[0].componentsKnown, false)
+  assert.deepEqual(followed.plugins[0].readState, { status: 'partial', unread: [manifestPath] })
+  assert.deepEqual(
+    summariseLinkedPlugins({ plugins: followed.plugins }),
+    { total: 1, read: 0, pending: 0, unreadable: 1, pendingReasons: NO_PENDING },
+    'a partly-read plugin is counted with the ones that could not be read, never with the read ones',
+  )
 }
 
 /** How many tree listings a full follow of this marketplace would cost. */
@@ -982,6 +1178,7 @@ async function main(): Promise<void> {
   await readBudget()
   await linkedPluginsFollowed()
   await linkedPluginsPartial()
+  await aLostFileIsNotAnAbsentFile()
   await linkedPluginRead()
   await skillsOnlyRepositories()
   await rootServers()

@@ -104,8 +104,13 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
               ...(plugin.version ? [{ term: 'Version', description: <span className="font-mono">{plugin.version}</span> }] : []),
               ...(plugin.category ? [{ term: 'Category', description: plugin.category }] : []),
               { term: 'Source', description: describeOrigin(plugin, props.source, props.shape) },
-              ...(pinnedCommit(plugin, props.source)
-                ? [{ term: 'Pinned to', description: <span className="font-mono">{pinnedCommit(plugin, props.source)}</span> }]
+              ...(commitLine(plugin, props.source).sha
+                ? [
+                    {
+                      term: commitLine(plugin, props.source).term,
+                      description: <span className="font-mono">{commitLine(plugin, props.source).sha}</span>,
+                    },
+                  ]
                 : []),
             ]}
           />
@@ -201,8 +206,8 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
         ) : null}
         {props.install.kind === 'update-available' ? (
           <p className="px-3 pb-3 text-meta text-[color:var(--text-muted)]">
-            {`Installed from this source at ${shortCommit(props.install.record.commitSha)}; the source now pins ${
-              pinnedCommit(plugin, props.source) || 'a newer commit'
+            {`Installed from this source at ${shortCommit(props.install.record.commitSha)}; the source now reads ${
+              commitLine(plugin, props.source).sha || 'a newer commit'
             }. Install again to refresh.`}
           </p>
         ) : null}
@@ -300,7 +305,16 @@ function describeOrigin(plugin: ScannedPlugin, source: SkillSource, shape: Sourc
   )
 }
 
-function pinnedCommit(plugin: ScannedPlugin, source: SkillSource): string {
-  const sha = plugin.origin.kind === 'linked' ? plugin.origin.sha : source.commitSha
-  return shortCommit(sha)
+/**
+ * The commit this plugin's bytes come from, and whether anybody PINNED it.
+ *
+ * "Pinned to" is a claim about the marketplace, not about the app: an entry
+ * that names a ref and no sha is deliberately floating, and labelling the
+ * commit a scan happened to resolve as a pin told a reader the publisher had
+ * fixed it there (linked-plugins review, 2026-09-06).
+ */
+function commitLine(plugin: ScannedPlugin, source: SkillSource): { term: string; sha: string } {
+  if (plugin.origin.kind !== 'linked') return { term: 'Pinned to', sha: shortCommit(source.commitSha) }
+  if (plugin.origin.sha) return { term: 'Pinned to', sha: shortCommit(plugin.origin.sha) }
+  return { term: 'Read at', sha: shortCommit(plugin.readCommit ?? '') }
 }

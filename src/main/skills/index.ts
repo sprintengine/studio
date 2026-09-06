@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import {
   BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
+  describeUnreadPlugin,
   LOCAL_SKILL_SOURCE_ID_PREFIX,
   localSourceFolderName,
   parseSkillFrontmatter,
@@ -550,6 +551,11 @@ export function createSkillsService(
     const plugin = scanPlugins(scan ?? { plugins: [] }).find((candidate) => candidate.id === input.pluginId)
     if (!scan || !plugin) return { ok: false, message: 'That plugin is not in this source.' }
     if (plugin.origin.kind !== 'linked') return { ok: true, source, scan, plugin }
+    // A plugin the follow already read is re-read here anyway, and that is the
+    // point: the follow lists components from the tree without fetching a
+    // single skill's entry document, so this is where the descriptions come
+    // from (linked-plugins review, 2026-09-06).
+
     if (plugin.origin.repo === '') {
       return { ok: false, message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.` }
     }
@@ -587,13 +593,21 @@ export function createSkillsService(
         description: plugin.description || read.manifest?.description || '',
         author: plugin.author || read.manifest?.author || '',
         homepage: plugin.homepage || read.manifest?.homepage || '',
-        origin: { ...plugin.origin, sha: commitSha },
-        componentsKnown: true,
+        // `origin.sha` is what the MARKETPLACE pinned and stays that, '' and
+        // all; the commit this read used is recorded beside it. Writing it into
+        // the origin made an unpinned entry look pinned and quietly moved every
+        // later install onto a commit a scan happened to see (linked-plugins
+        // review, 2026-09-06).
+        readCommit: commitSha,
         // Opening a plugin is a full read of its one repository, entry
         // documents included, so it supersedes whatever the scan's budgeted
         // follow left behind — including a `pending` or `unreadable` verdict
         // this read has just disproved (linked-plugins ruling, 2026-09-06).
-        linkedRead: { status: 'read' },
+        // Unless files went missing on the way: then it is partly read, and
+        // saying so is what keeps the hooks acknowledgement honest.
+        componentsKnown: read.unreadFiles.length === 0,
+        readState:
+          read.unreadFiles.length > 0 ? { status: 'partial', unread: read.unreadFiles } : { status: 'read' },
         components: {
           ...read.components,
           mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
@@ -621,11 +635,22 @@ export function createSkillsService(
     let scan = await scanFor(source.id)
     let plugin = scanPlugins(scan ?? { plugins: [] }).find((candidate) => candidate.id === input.pluginId)
     if (!scan || !plugin) return { ok: false, message: 'That plugin is not in this source.' }
-    if (!plugin.componentsKnown) {
+    // Read it now when the scan did not, could not, or only partly could — and
+    // when the marketplace pinned nothing, because "no pin" means the ref's head
+    // at the moment you install, not the commit a scan happened to resolve
+    // (linked-plugins review, 2026-09-06).
+    const unpinned = plugin.origin.kind === 'linked' && plugin.origin.sha === ''
+    if (!plugin.componentsKnown || unpinned || plugin.readState?.status === 'listed') {
       const read = await scanLinkedPluginNow({ sourceId: source.id, pluginId: plugin.id })
       if (!read.ok) return read
       scan = read.scan
       plugin = read.plugin
+    }
+    // Whatever that left, an install never proceeds on components nobody has
+    // seen whole: the hooks acknowledgement can only disclose hooks that were
+    // actually read, and a plugin whose hooks file was lost would sail past it.
+    if (!plugin.componentsKnown) {
+      return { ok: false, message: describeUnreadPlugin(plugin) }
     }
     if (plugin.components.hooks.length > 0 && input.acknowledgedHooks !== true) {
       return {
@@ -635,7 +660,10 @@ export function createSkillsService(
       }
     }
     const origin = plugin.origin
-    const commitSha = origin.kind === 'linked' ? origin.sha : source.commitSha
+    // `readCommit` for a linked plugin: the commit the read above resolved,
+    // which for a pinned entry IS `origin.sha` and for an unpinned one is the
+    // ref's head as of a moment ago.
+    const commitSha = origin.kind === 'linked' ? plugin.readCommit || origin.sha : source.commitSha
     const bytesRef: SkillRepoRef | null =
       origin.kind === 'linked'
         ? { owner: origin.repo.split('/')[0] ?? '', repo: origin.repo.split('/')[1] ?? '', ref: '' }
@@ -873,11 +901,10 @@ async function scanGithubSource(
  *
  * Its whole job besides fetching is to sort failures into "this minute" and
  * "this repository", because the follow stops the entire pass on the first of
- * the former and carries on past the latter. 403 and 429 are how GitHub says
- * rate limit (`githubErrorMessage` in github-tree.ts). A `SkillFetchError`
- * carrying NO status code is a request that never reached GitHub at all — the
- * machine is offline, DNS failed, the fetch timed out — and calling that
- * "unreadable" would tell somebody on a train that 238 repositories are gone.
+ * the former and carries on past the latter. A `SkillFetchError` carrying NO
+ * status code is a request that never reached GitHub at all — the machine is
+ * offline, DNS failed, the fetch timed out — and calling that "unreadable"
+ * would tell somebody on a train that 238 repositories are gone.
  */
 function githubLinkedPluginReader(github: SkillGithubOptions): LinkedPluginRepoReader {
   const refFor = (repo: string): SkillRepoRef => {
@@ -894,24 +921,47 @@ function githubLinkedPluginReader(github: SkillGithubOptions): LinkedPluginRepoR
       fetchSkillRepoTree(refFor(repo), sha, github)
         .then((tree) => tree.entries)
         .catch(rethrow),
-    // A missing file is null, not a failure: `.mcp.json` and `hooks/hooks.json`
-    // are absent from most plugins, and the tree listing has already said which
-    // of them exist. A rate limit reaching HERE cannot stop the pass — the tree
-    // is already in hand — so it only costs this plugin that one file.
+    // The scan only asks for a path the tree listed, so a null here is a fetch
+    // that FAILED, and the caller now treats it as one: the plugin comes back
+    // partly read rather than as a plugin that ships nothing. A run of the live
+    // marketplace on 2026-09-06 lost seven MCP servers this way — 172 where two
+    // other runs read 179 — out of 386 raw reads.
     //
-    // Which is exactly why it is tried twice. The scan only asks for a path the
-    // tree listed, so a null is a fetch that failed rather than a file that is
-    // not there, and the plugin then lists fewer components than it ships with
-    // nothing on screen to say so. A run of the live marketplace on 2026-09-06
-    // lost seven MCP servers that way — 172 where two other runs read 179 —
-    // out of 386 raw reads. One retry, because a second failure on the same
-    // byte range is no longer plausibly a blip.
+    // So it is tried twice, and the second attempt WAITS. An immediate retry at
+    // twenty-wide is what turns throttling into more throttling, which GitHub's
+    // own guidance says not to do; `retry-after` is honoured when the reply
+    // carried one and is capped, because a plugin's manifest is not worth
+    // holding a scan open for a minute.
     readFile: async (repo, sha, path) => {
       const read = (): Promise<string | null> =>
         fetchSkillRepoFile(refFor(repo), sha, path, github).then((bytes) => bytes.toString('utf8'))
-      return read().catch(() => read().catch(() => null))
+      return read().catch(async (error: unknown) => {
+        const wait = retryDelayMs(error)
+        if (wait === null) return null
+        await new Promise((resolve) => setTimeout(resolve, wait))
+        return read().catch(() => null)
+      })
     },
   }
+}
+
+/**
+ * How long to wait before the one retry, or null for "do not retry".
+ *
+ * A refusal that names a reset further away than this is not worth waiting for
+ * on a single component file: the pass has bigger problems, and the plugin is
+ * better reported as partly read than kept open for a minute. A failure with no
+ * rate-limit headers at all is the ordinary blip the retry exists for.
+ */
+const MAX_RAW_RETRY_WAIT_MS = 2_000
+
+function retryDelayMs(error: unknown): number | null {
+  if (!(error instanceof SkillFetchError)) return 250
+  if (error.statusCode === 404) return null
+  const hint = error.rateLimit
+  if (!hint?.exhausted) return 250
+  const after = hint.retryAfterSeconds * 1000
+  return after > 0 && after <= MAX_RAW_RETRY_WAIT_MS ? after : null
 }
 
 /**
@@ -994,10 +1044,20 @@ function isUtf8Text(bytes: Buffer): boolean {
   return Buffer.compare(Buffer.from(bytes.toString('utf8'), 'utf8'), bytes) === 0
 }
 
-/** Which of the three a GitHub failure is — see `githubLinkedPluginReader`. */
+/**
+ * Which of the three a GitHub failure is — see `githubLinkedPluginReader`.
+ *
+ * The headers decide, not the status. GitHub answers 403 both for a spent hour
+ * and for a repository that is private, DMCA-blocked or behind an org's SSO,
+ * and reading every 403 as a rate limit halted the pass on a repository that
+ * will never answer — which, because a halted group stays pending and pending
+ * groups are never demoted, was picked first on the next scan and halted that
+ * one too, so the follow could never finish (linked-plugins review,
+ * 2026-09-06).
+ */
 function linkedFailureKind(error: unknown): 'rate-limited' | 'offline' | 'unreadable' {
   if (!(error instanceof SkillFetchError)) return 'unreadable'
-  if (error.statusCode === 403 || error.statusCode === 429) return 'rate-limited'
+  if (error.rateLimit?.exhausted === true) return 'rate-limited'
   return error.statusCode === undefined ? 'offline' : 'unreadable'
 }
 

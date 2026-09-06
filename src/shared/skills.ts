@@ -259,35 +259,60 @@ export type ScannedPlugin = {
   componentsKnown: boolean
   components: ScannedPluginComponents
   /**
-   * For a linked plugin: whether its own repository was read, and why not when
-   * it was not (linked-plugins ruling, 2026-09-06). Absent on an in-tree
-   * plugin, and on a scan cached before the scan followed anything — which is
-   * why `componentsKnown` stays the authority on whether the components are
-   * known and this only ever explains it.
+   * How completely this plugin has been read, and why not when it has not been
+   * (linked-plugins ruling, 2026-09-06). Absent on a scan cached before the
+   * scan followed anything — which is why `componentsKnown` stays the
+   * authority on whether the components are known and this only ever explains
+   * it.
    */
-  linkedRead?: LinkedPluginReadState
+  readState?: PluginReadState
+  /**
+   * The commit a read of a LINKED plugin actually used. Distinct from
+   * `origin.sha`, which is what the marketplace pinned and is '' when it
+   * pinned nothing: writing a resolved commit back into `origin.sha` made an
+   * entry the publisher deliberately left floating look pinned, and quietly
+   * moved installs onto whatever commit a scan happened to see (linked-plugins
+   * review, 2026-09-06).
+   */
+  readCommit?: string
 }
 
 /**
- * Why a linked plugin's components are or are not in hand.
+ * How completely a plugin has been read.
  *
  * A scan follows linked plugins within a budget (`MAX_LINKED_REPOSITORY_READS`
- * in src/main/skills/scan-plugins.ts), so "not read" splits into two very
- * different facts: one a later scan will fix by itself, and one no amount of
- * scanning will. Saying which is the whole point — 238 rows reading "Read when
- * opened" told a person nothing about whether opening one would work.
+ * in src/main/skills/scan-plugins.ts), so "not read" is several very different
+ * facts: one a later scan fixes by itself, one opening the plugin fixes, and
+ * one no amount of either will. Saying which is the whole point — 238 rows
+ * reading "Read when opened" told a person nothing about whether opening one
+ * would work.
  */
-export type LinkedPluginReadState =
-  /** Its repository was listed at the pinned commit and its components are real. */
+export type PluginReadState =
+  /** Components read, and every skill's entry document read with them. */
   | { status: 'read' }
   /**
-   * Nothing was fetched for it, for a reason that is about this moment rather
-   * than about the plugin: the pass's budget ran out, GitHub's rate limit did,
-   * or the network was not there. The next scan resumes where this one
-   * stopped, because every plugin already read is cached against its pinned
-   * sha and costs nothing.
+   * Components read from the repository's tree, but the skills' entry
+   * documents were not: the follow proves what a plugin ships without spending
+   * a request per skill across 238 repositories. Opening the plugin reads
+   * them. `componentsKnown` is true — the components really are known.
    */
-  | { status: 'pending'; reason: 'budget' | 'rate-limited' | 'offline' }
+  | { status: 'listed' }
+  /**
+   * Files the tree listed could not be fetched, so what was read is not the
+   * whole plugin. `componentsKnown` is FALSE for this: a hooks file lost to
+   * throttling would otherwise be cached as a plugin with no hooks, and the
+   * install gate would wave through the very commands it exists to disclose.
+   */
+  | { status: 'partial'; unread: string[] }
+  /**
+   * Nothing was fetched for it, for a reason about this moment rather than
+   * about the plugin: the pass's budget ran out, GitHub's rate limit did, or
+   * the network was not there. The next scan resumes where this one stopped,
+   * because every plugin already read is cached against its pinned sha and
+   * costs nothing. `blocked` marks the one repository whose reply stopped the
+   * pass, so the next pass can put it last instead of halting on it again.
+   */
+  | { status: 'pending'; reason: 'budget' | 'rate-limited' | 'offline'; blocked?: true }
   /** Reading it was refused or failed in a way a retry will not change. */
   | { status: 'unreadable'; message: string }
 
@@ -297,16 +322,42 @@ export type LinkedPluginSummary = {
   read: number
   pending: number
   unreadable: number
+  /**
+   * Why the pending ones are pending. The sentence branches on this: "add a
+   * GitHub token" is the right advice for a budget or a rate limit and the
+   * wrong advice for a machine with no network, and printing one line for all
+   * three was the count and the rows disagreeing (linked-plugins review,
+   * 2026-09-06).
+   */
+  pendingReasons: { budget: number; rateLimited: number; offline: number }
 }
 
 export function summariseLinkedPlugins(scan: Pick<ScanResult, 'plugins'>): LinkedPluginSummary {
-  const summary: LinkedPluginSummary = { total: 0, read: 0, pending: 0, unreadable: 0 }
+  const summary: LinkedPluginSummary = {
+    total: 0,
+    read: 0,
+    pending: 0,
+    unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 0, offline: 0 },
+  }
   for (const plugin of scanPlugins(scan)) {
     if (plugin.origin.kind !== 'linked') continue
     summary.total += 1
-    if (plugin.componentsKnown) summary.read += 1
-    else if (plugin.linkedRead?.status === 'unreadable') summary.unreadable += 1
-    else summary.pending += 1
+    const state = plugin.readState
+    if (plugin.componentsKnown) {
+      summary.read += 1
+      continue
+    }
+    if (state?.status === 'unreadable' || state?.status === 'partial') {
+      summary.unreadable += 1
+      continue
+    }
+    summary.pending += 1
+    // A scan cached before any of this existed carries no state at all; it is
+    // counted as budget, which is the reason a re-scan will actually clear.
+    if (state?.status === 'pending' && state.reason === 'rate-limited') summary.pendingReasons.rateLimited += 1
+    else if (state?.status === 'pending' && state.reason === 'offline') summary.pendingReasons.offline += 1
+    else summary.pendingReasons.budget += 1
   }
   return summary
 }
@@ -334,16 +385,30 @@ export function linkedPluginShortfall(
 ): LinkedPluginShortfallPart[] {
   const parts: LinkedPluginShortfallPart[] = []
   if (summary.pending > 0) {
+    // The remedy is whatever is actually in the way, worst first. A machine
+    // with no network is not helped by a token, and a spent rate limit is not
+    // helped by pressing Sync again this minute — printing one line for all
+    // three reasons was advice that was wrong exactly when it mattered
+    // (linked-plugins review, 2026-09-06).
+    const { offline, rateLimited } = summary.pendingReasons
+    const remedy: LinkedPluginShortfallPart =
+      offline > 0
+        ? { text: 'GitHub could not be reached', action: null }
+        : !tokenConfigured
+          ? { text: 'add a GitHub token', action: 'github-settings' }
+          : rateLimited > 0
+            ? { text: "Sync once GitHub's rate limit resets", action: null }
+            : { text: 'Sync to read the rest', action: null }
     parts.push({
-      text: `${summary.pending} of ${summary.total} linked plugins not yet read — ${
-        tokenConfigured ? 'Sync to read the rest' : 'add a GitHub token'
-      }`,
-      action: tokenConfigured ? null : 'github-settings',
+      text: `${summary.pending} of ${summary.total} linked plugins not yet read — ${remedy.text}`,
+      action: remedy.action,
     })
   }
   if (summary.unreadable > 0) {
+    // "in full" because this bucket holds both a repository nothing could read
+    // and one whose read lost files along the way.
     parts.push({
-      text: `${summary.unreadable} of ${summary.total} linked ${summary.unreadable === 1 ? 'plugin' : 'plugins'} could not be read`,
+      text: `${summary.unreadable} of ${summary.total} linked ${summary.unreadable === 1 ? 'plugin' : 'plugins'} could not be read in full`,
       action: null,
     })
   }
@@ -452,6 +517,21 @@ export function pluginAliases(renames: Readonly<Record<string, string>>, pluginI
   return [...aliases]
 }
 
+/**
+ * Whether opening this plugin would actually read anything new.
+ *
+ * True for a linked plugin the scan has not read, has read only partly, or has
+ * `listed` — the follow proves a plugin's components from its repository's tree
+ * without fetching one skill's entry document, so a listed plugin's skills
+ * carry directory names and no descriptions until this returns true and
+ * somebody opens it. It was not returning true for those, which left the
+ * descriptions blank forever (linked-plugins review, 2026-09-06).
+ */
+export function pluginNeedsRead(plugin: Pick<ScannedPlugin, 'origin' | 'componentsKnown' | 'readState'>): boolean {
+  if (plugin.origin.kind !== 'linked') return false
+  return !plugin.componentsKnown || plugin.readState?.status !== 'read'
+}
+
 /** A plugin by the name it goes by now, or by any name `renames` points at it. */
 export function findScannedPlugin(
   scan: Pick<ScanResult, 'plugins' | 'pluginRenames'>,
@@ -477,9 +557,13 @@ export function findScannedPlugin(
  * work and leaves Install refusing with no reason given.
  */
 export function unreadPluginReason(
-  plugin: Pick<ScannedPlugin, 'componentsKnown' | 'origin'>,
-): 'read' | 'unopened' | 'over-scan-limit' {
+  plugin: Pick<ScannedPlugin, 'componentsKnown' | 'origin' | 'readState'>,
+): 'read' | 'unopened' | 'over-scan-limit' | 'incomplete' {
   if (plugin.componentsKnown) return 'read'
+  // A read that lost files is its own case: it is not waiting to be opened and
+  // it is not past a limit — some of it arrived and some of it did not, and
+  // both an in-tree and a linked plugin can end up here.
+  if (plugin.readState?.status === 'partial') return 'incomplete'
   return plugin.origin.kind === 'linked' ? 'unopened' : 'over-scan-limit'
 }
 
@@ -493,8 +577,9 @@ export function unreadPluginReason(
  */
 export function unreadPluginChip(plugin: ScannedPlugin): string | null {
   if (plugin.componentsKnown) return null
+  const state = plugin.readState
+  if (state?.status === 'partial') return 'Partly read'
   if (unreadPluginReason(plugin) !== 'unopened') return 'Not scanned'
-  const state = plugin.linkedRead
   if (state?.status === 'unreadable') return 'Could not be read'
   if (state?.status === 'pending' && state.reason === 'rate-limited') return 'Rate limited'
   if (state?.status === 'pending' && state.reason === 'offline') return 'GitHub unreachable'
@@ -512,10 +597,19 @@ export function unreadPluginChip(plugin: ScannedPlugin): string | null {
  * "not read yet" there would send a person to press a button that cannot work.
  */
 export function describeUnreadPlugin(plugin: ScannedPlugin): string {
-  if (unreadPluginReason(plugin) !== 'unopened') {
+  const reason = unreadPluginReason(plugin)
+  if (reason === 'incomplete') {
+    const unread = plugin.readState?.status === 'partial' ? plugin.readState.unread : []
+    const files = unread.length === 1 ? unread[0] : `${unread.length} of its files`
+    // Named, because WHICH file went missing decides what is unknown: a lost
+    // hooks file means nobody can be shown the commands the plugin would run,
+    // which is why this is not listed as a plugin that ships none.
+    return `${files} could not be read, so this is not all of the plugin — its hooks and servers may be understated. Open it, or Sync the source, to read it again.`
+  }
+  if (reason !== 'unopened') {
     return 'This source lists more plugins than one scan reads, and this one was past the limit. Its components are unknown, and opening it reads nothing — Sync the source when it has fewer.'
   }
-  const state = plugin.linkedRead
+  const state = plugin.readState
   if (state?.status === 'unreadable') {
     return `${state.message} Its components cannot be listed from here.`
   }
@@ -539,9 +633,12 @@ export function describeUnreadPlugin(plugin: ScannedPlugin): string {
  */
 export function describePluginComponents(plugin: ScannedPlugin): string {
   if (!plugin.componentsKnown) {
+    const state = plugin.readState
+    if (state?.status === 'partial') {
+      return `Partly read — ${state.unread.length} ${state.unread.length === 1 ? 'file' : 'files'} could not be read`
+    }
     if (unreadPluginReason(plugin) !== 'unopened') return 'Not read by this scan'
-    const state = plugin.linkedRead
-    if (!state || state.status === 'read') return 'Read when opened'
+    if (!state || state.status === 'read' || state.status === 'listed') return 'Read when opened'
     if (state.status === 'unreadable') return state.message
     if (state.reason === 'rate-limited') return 'Not read — GitHub rate limit reached'
     if (state.reason === 'offline') return 'Not read — GitHub could not be reached'

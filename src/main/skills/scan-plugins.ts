@@ -31,7 +31,7 @@
 import { isMarketplaceSourceHostAllowed } from '../../shared/marketplace/source-policy'
 import {
   emptyPluginComponents,
-  type LinkedPluginReadState,
+  type PluginReadState,
   type ScannedLspServer,
   type ScannedMcpServer,
   type ScannedPlugin,
@@ -189,7 +189,7 @@ export async function readPluginComponents(options: {
   readFile: PluginFileReader
   /** Skill paths the marketplace entry named, relative to `dir`. */
   listedSkills?: readonly string[]
-}): Promise<{ manifest: PluginManifest | null; components: ScannedPluginComponents }> {
+}): Promise<PluginComponentRead> {
   const blobs = new Set(
     options.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
   )
@@ -358,14 +358,26 @@ export async function followLinkedPlugins(
     }
 
     const hit = cached.get(plugin.id)
-    if (
-      hit
-      && hit.componentsKnown
-      && hit.origin.kind === 'linked'
-      && origin.sha !== ''
-      && hit.origin.sha === origin.sha
-    ) {
-      plugins[index] = { ...plugin, componentsKnown: true, components: hit.components, linkedRead: { status: 'read' } }
+    // The whole address, not just the commit: a marketplace that moves a
+    // plugin's subdirectory without moving the commit would otherwise be served
+    // components from a directory that no longer exists (linked-plugins
+    // review, 2026-09-06).
+    if (hit && sameLinkedBytes(hit, origin) && hit.componentsKnown) {
+      plugins[index] = {
+        ...plugin,
+        // Everything the linked repository's own manifest filled in, carried
+        // through. All 238 of the official marketplace's linked entries state
+        // no version and 70 state no author, so a reuse that kept only the
+        // entry's fields blanked the version on 238 rows at the second Sync.
+        version: plugin.version || hit.version,
+        description: plugin.description || hit.description,
+        author: plugin.author || hit.author,
+        homepage: plugin.homepage || hit.homepage,
+        componentsKnown: true,
+        components: hit.components,
+        readState: hit.readState?.status === 'read' ? { status: 'read' } : { status: 'listed' },
+        readCommit: hit.readCommit,
+      }
       continue
     }
 
@@ -374,16 +386,22 @@ export async function followLinkedPlugins(
     // tree, and one on another ref is honestly a second repository to read.
     const key = origin.sha !== '' ? `${origin.repo}@${origin.sha}` : `${origin.repo}#${origin.ref}`
     const group = groups.get(key)
-    const retry = hit?.linkedRead?.status === 'unreadable'
+    // A group is demoted when every plugin in it already has a verdict this
+    // pass cannot improve on: one that failed for good, and — the loop the
+    // review found — one whose reply halted the last pass. Left promoted, a
+    // repository that always answers 403 is picked in the first batch of every
+    // scan and halts it again, so the follow never finishes.
+    const spent = hit?.readState?.status === 'unreadable'
+      || (hit?.readState?.status === 'pending' && hit.readState.blocked === true)
     if (group) {
       group.indexes.push(index)
-      group.retryOnly = group.retryOnly && retry
+      group.retryOnly = group.retryOnly && spent
     } else {
-      groups.set(key, { sha: origin.sha, ref: origin.ref, repo: origin.repo, indexes: [index], retryOnly: retry })
+      groups.set(key, { sha: origin.sha, ref: origin.ref, repo: origin.repo, indexes: [index], retryOnly: spent })
     }
   }
 
-  // Never-read repositories first; ones only retrying a previous failure last.
+  // Never-read repositories first; ones with nothing new to gain from a retry last.
   const ordered = [...groups.values()].sort((a, b) => Number(a.retryOnly) - Number(b.retryOnly))
   const affordable = ordered.slice(0, Math.max(0, input.budget))
   for (const group of ordered.slice(Math.max(0, input.budget))) {
@@ -397,6 +415,9 @@ export async function followLinkedPlugins(
   // for nothing.
   let halted: 'rate-limited' | 'offline' | null = null
   let repositoriesRead = 0
+  // API requests this pass has committed to. One per tree, plus the resolves an
+  // unpinned entry costs before its tree can be asked for.
+  let spent = affordable.length
   let cursor = 0
   const workers = Array.from(
     { length: Math.min(LINKED_REPOSITORY_CONCURRENCY, affordable.length) },
@@ -411,6 +432,22 @@ export async function followLinkedPlugins(
           continue
         }
         try {
+          // Resolving a ref is one API request of its own — two when the entry
+          // names no ref and the default branch has to be looked up first — so
+          // it is charged against the budget before it is spent, not after
+          // (linked-plugins review, 2026-09-06). Twenty unpinned entries were
+          // otherwise able to spend the whole unauthenticated hour that a
+          // budget of twenty exists to protect.
+          if (group.sha === '') {
+            const cost = group.ref === '' ? 2 : 1
+            if (spent + cost > input.budget) {
+              for (const index of group.indexes) {
+                plugins[index] = markLinked(plugins[index], { status: 'pending', reason: 'budget' })
+              }
+              continue
+            }
+            spent += cost
+          }
           const sha = group.sha || (await input.reader.resolveCommit(group.repo, group.ref))
           const entries = await input.reader.readTree(group.repo, sha)
           repositoriesRead += 1
@@ -428,10 +465,13 @@ export async function followLinkedPlugins(
         } catch (error) {
           const kind = error instanceof LinkedPluginReadError ? error.kind : 'unreadable'
           if (kind !== 'unreadable') halted = kind
-          const state: LinkedPluginReadState =
+          const state: PluginReadState =
             kind === 'unreadable'
               ? { status: 'unreadable', message: describeLinkedFailure(group, error) }
-              : { status: 'pending', reason: kind }
+              // `blocked`, because THIS is the repository whose reply stopped
+              // the pass. The next pass ranks it behind everything else rather
+              // than picking it first and stopping on it again.
+              : { status: 'pending', reason: kind, blocked: true }
           for (const index of group.indexes) plugins[index] = markLinked(plugins[index], state)
         }
       }
@@ -452,6 +492,27 @@ export async function followLinkedPlugins(
 /** The budget for one pass: a token is the difference between 20 and 250. */
 export function linkedRepositoryBudget(token: string | undefined): number {
   return token && token.trim() !== '' ? MAX_LINKED_REPOSITORY_READS : MAX_LINKED_REPOSITORY_READS_ANONYMOUS
+}
+
+/**
+ * Whether a cached plugin is the same BYTES as the entry now names.
+ *
+ * The commit alone is not the address: a marketplace can move a plugin from
+ * one subdirectory to another without moving the commit, and it can point an
+ * entry at a different repository entirely. An unpinned entry is never a hit —
+ * "no pin" means "whatever the ref points at today", which is not something a
+ * cache can answer (linked-plugins review, 2026-09-06).
+ */
+function sameLinkedBytes(
+  cached: ScannedPlugin,
+  origin: Extract<ScannedPluginOrigin, { kind: 'linked' }>
+): boolean {
+  if (origin.sha === '' || cached.origin.kind !== 'linked') return false
+  return (
+    cached.origin.sha === origin.sha
+    && cached.origin.repo === origin.repo
+    && cached.origin.path === origin.path
+  )
 }
 
 async function readLinkedPlugin(options: {
@@ -480,9 +541,22 @@ async function readLinkedPlugin(options: {
     description: plugin.description || read.manifest?.description || '',
     author: plugin.author || read.manifest?.author || '',
     homepage: plugin.homepage || read.manifest?.homepage || '',
-    origin: plugin.origin.kind === 'linked' ? { ...plugin.origin, sha: options.sha } : plugin.origin,
-    componentsKnown: true,
-    linkedRead: { status: 'read' },
+    // `origin.sha` stays what the MARKETPLACE pinned, '' included. The commit
+    // this read used goes beside it: writing it into the origin made an entry
+    // the publisher left floating read as pinned, and silently moved every
+    // later install onto whatever commit a scan happened to see.
+    readCommit: options.sha,
+    // A read that lost a file the tree listed is not a read plugin. Saying so
+    // is what keeps the install gate honest: the hooks file is the one most
+    // worth losing to a throttled request, and a plugin cached with none is a
+    // plugin installed with nobody shown the commands it runs.
+    componentsKnown: read.unreadFiles.length === 0,
+    readState:
+      read.unreadFiles.length > 0
+        ? { status: 'partial', unread: read.unreadFiles }
+        // `listed`, not `read`: the components are real, but no skill's entry
+        // document was fetched, so the descriptions arrive when it is opened.
+        : { status: 'listed' },
     components: {
       ...read.components,
       mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
@@ -491,8 +565,8 @@ async function readLinkedPlugin(options: {
 }
 
 /** A plugin that was not read keeps its empty components and gains the reason. */
-function markLinked(plugin: ScannedPlugin, linkedRead: LinkedPluginReadState): ScannedPlugin {
-  return { ...plugin, componentsKnown: false, components: emptyPluginComponents(), linkedRead }
+function markLinked(plugin: ScannedPlugin, readState: PluginReadState): ScannedPlugin {
+  return { ...plugin, componentsKnown: false, components: emptyPluginComponents(), readState }
 }
 
 /**
@@ -586,8 +660,8 @@ async function realisePlan(
   }
   const dir = plan.dir ?? ''
   const overBudget = plan.readIndex >= MAX_SCANNED_PLUGINS
-  const { manifest, components } = overBudget
-    ? { manifest: null, components: emptyPluginComponents() }
+  const { manifest, components, unreadFiles } = overBudget
+    ? { manifest: null, components: emptyPluginComponents(), unreadFiles: [] as string[] }
     : await readComponents(dir, blobs, input.skills, input.readFile, plan.listedSkills, entry?.name ?? null)
   const dirName = dir === '' ? '' : dir.slice(dir.lastIndexOf('/') + 1)
   const id = entry?.name || manifest?.name || dirName || 'plugin'
@@ -610,7 +684,19 @@ async function realisePlan(
     tags: entry?.tags ?? [],
     keywords: entry?.keywords ?? [],
     origin: { kind: 'in-tree', path: dir },
-    componentsKnown: !overBudget,
+    // An in-tree plugin is read from the same repository as the rest of the
+    // scan, but a raw read still fails, and it fails the same way: a plugin
+    // whose hooks file was lost is not a plugin with no hooks (linked-plugins
+    // review, 2026-09-06).
+    componentsKnown: !overBudget && unreadFiles.length === 0,
+    ...(overBudget
+      ? {}
+      : {
+          readState:
+            unreadFiles.length > 0
+              ? ({ status: 'partial', unread: unreadFiles } as const)
+              : ({ status: 'read' } as const),
+        }),
     components: {
       ...components,
       mcpServers: components.mcpServers.map((server) => ({ ...server, declaredBy: id })),
@@ -629,6 +715,24 @@ export type PluginManifest = {
   homepage: string
 }
 
+/**
+ * What one plugin directory holds, and what could not be read of it.
+ *
+ * `unreadFiles` is the load-bearing half (linked-plugins review, 2026-09-06).
+ * The scan asks for a path only when the TREE LISTING said it exists, so a
+ * null from the reader is a fetch that failed, never a file that is not there
+ * — and the two used to be the same value. A `hooks/hooks.json` lost to
+ * throttling became a plugin cached as fully read with no hooks, which is
+ * exactly the plugin the install gate waves through without showing anybody
+ * the commands it is about to let Claude Code run.
+ */
+export type PluginComponentRead = {
+  manifest: PluginManifest | null
+  components: ScannedPluginComponents
+  /** Repo-relative paths the tree listed that this read could not fetch. */
+  unreadFiles: string[]
+}
+
 async function readComponents(
   dir: string,
   blobs: ReadonlySet<string>,
@@ -636,10 +740,19 @@ async function readComponents(
   readFile: PluginFileReader,
   listedSkills: readonly string[],
   declaredBy: string | null
-): Promise<{ manifest: PluginManifest | null; components: ScannedPluginComponents }> {
+): Promise<PluginComponentRead> {
   const under = (relative: string): string => (dir === '' ? relative : `${dir}/${relative}`)
+  const unreadFiles: string[] = []
+  // The tree listed it, so a null is a failure. Anything the tree did NOT list
+  // is simply absent and costs no request at all.
+  const readListed = async (path: string): Promise<string | null> => {
+    if (!blobs.has(path)) return null
+    const raw = await readFile(path)
+    if (raw === null) unreadFiles.push(path)
+    return raw
+  }
   const manifestPath = under(CLAUDE_PLUGIN_MANIFEST_PATH)
-  const rawManifest = blobs.has(manifestPath) ? await readFile(manifestPath) : null
+  const rawManifest = await readListed(manifestPath)
   const parsedManifest = parsePluginManifest(rawManifest)
 
   // Skills: the marketplace entry's list when it has one, else `skills/*`.
@@ -665,10 +778,10 @@ async function readComponents(
   const commands = markdownNames(blobs, under('commands'))
   const agents = markdownNames(blobs, under('agents'))
 
-  const [hooks, mcpServers] = await Promise.all([
-    readHooks(under(HOOKS_FILE), blobs, readFile, parsedManifest?.inlineHooks ?? null),
-    readMcpServers(under(MCP_CONFIG_FILE), blobs, readFile, parsedManifest?.inlineMcpServers ?? null, declaredBy ?? ''),
-  ])
+  const mcpPath = under(MCP_CONFIG_FILE)
+  const [rawHooks, rawMcp] = await Promise.all([readListed(under(HOOKS_FILE)), readListed(mcpPath)])
+  const hooks = readHooks(rawHooks, parsedManifest?.inlineHooks ?? null)
+  const mcpServers = readMcpServers(rawMcp, mcpPath, parsedManifest?.inlineMcpServers ?? null, declaredBy ?? '')
   const lspServers = parseLspServers(parsedManifest?.inlineLspServers ?? null, manifestPath, declaredBy ?? '')
 
   return {
@@ -682,6 +795,7 @@ async function readComponents(
         }
       : null,
     components: { skills: pluginSkills, commands, agents, hooks, mcpServers, lspServers, missingSkills },
+    unreadFiles,
   }
 }
 
@@ -764,19 +878,11 @@ function dedupeLspServers(servers: readonly ScannedLspServer[]): ScannedLspServe
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
-async function readHooks(
-  path: string,
-  blobs: ReadonlySet<string>,
-  readFile: PluginFileReader,
-  inline: unknown
-): Promise<ScannedPluginHook[]> {
+function readHooks(raw: string | null, inline: unknown): ScannedPluginHook[] {
   const hooks: ScannedPluginHook[] = []
   if (inline) hooks.push(...parseHooks(inline))
-  if (blobs.has(path)) {
-    const raw = await readFile(path)
-    const parsed = parseJsonObject(raw)
-    if (parsed) hooks.push(...parseHooks(parsed))
-  }
+  const parsed = parseJsonObject(raw)
+  if (parsed) hooks.push(...parseHooks(parsed))
   return hooks
 }
 
@@ -808,19 +914,16 @@ export function parseHooks(value: unknown): ScannedPluginHook[] {
 
 // ── MCP servers ─────────────────────────────────────────────────────────────
 
-async function readMcpServers(
+function readMcpServers(
+  raw: string | null,
   path: string,
-  blobs: ReadonlySet<string>,
-  readFile: PluginFileReader,
   inline: unknown,
   declaredBy: string
-): Promise<ScannedMcpServer[]> {
+): ScannedMcpServer[] {
   const servers: ScannedMcpServer[] = []
   if (inline) servers.push(...parseMcpServers(inline, `${declaredBy || 'plugin'}/${CLAUDE_PLUGIN_MANIFEST_PATH}`, declaredBy))
-  if (blobs.has(path)) {
-    const parsed = parseJsonObject(await readFile(path))
-    if (parsed) servers.push(...parseMcpServers(parsed, path, declaredBy))
-  }
+  const parsed = parseJsonObject(raw)
+  if (parsed) servers.push(...parseMcpServers(parsed, path, declaredBy))
   return dedupeScannedMcpServers(servers)
 }
 
@@ -1064,6 +1167,11 @@ function parseEntrySource(value: unknown): MarketplaceEntry['source'] | null {
   if (!isObject(value)) return null
   const kind = stringOf(value.source)
   const path = normalizeRelative(stringOf(value.path))
+  // The same check the in-tree branch makes. Today only `blobs.has()` against a
+  // tree we fetched stops a traversal from escaping the plugin's directory,
+  // which is one refactor away from not stopping it (linked-plugins review,
+  // 2026-09-06).
+  if (path.split('/').some((segment) => segment === '..')) return null
   const ref = stringOf(value.ref)
   const sha = stringOf(value.sha)
   if (kind === 'github') {

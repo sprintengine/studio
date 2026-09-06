@@ -95,6 +95,9 @@ const HUB_SOURCE: SkillSource = {
 /** Every source `skillsGetScan` was asked for, in order. */
 const scanCalls: string[] = []
 
+/** Every plugin the surface asked main to go and read. */
+const linkedReads: string[] = []
+
 /** 30 skills in three folders, so the source needs three pages of twelve. */
 const ACME_SCAN: ScanResult = {
   skills: Array.from({ length: 30 }, (_, index) => ({
@@ -137,7 +140,8 @@ const HUB_SCAN: ScanResult = {
       keywords: [],
       origin: { kind: 'linked', repo: 'acme/one', ref: '', sha: 'a'.repeat(40), path: '', url: 'https://github.com/acme/one' },
       componentsKnown: true,
-      linkedRead: { status: 'read' },
+      readState: { status: 'read' },
+      readCommit: 'a'.repeat(40),
       components: {
         skills: [],
         commands: ['go'],
@@ -161,8 +165,33 @@ const HUB_SCAN: ScanResult = {
       keywords: [],
       origin: { kind: 'linked', repo: 'acme/two', ref: '', sha: 'b'.repeat(40), path: '', url: 'https://github.com/acme/two' },
       componentsKnown: false,
-      linkedRead: { status: 'pending', reason: 'budget' },
+      readState: { status: 'pending', reason: 'budget' },
       components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+    },
+    {
+      id: 'listed-only',
+      name: 'Listed only',
+      description: 'Its components came from the tree; its skills have no descriptions yet.',
+      version: '2.0.0',
+      category: '',
+      author: 'acme',
+      homepage: '',
+      strict: true,
+      tags: [],
+      keywords: [],
+      origin: { kind: 'linked', repo: 'acme/four', ref: '', sha: 'd'.repeat(40), path: '', url: 'https://github.com/acme/four' },
+      componentsKnown: true,
+      readState: { status: 'listed' },
+      readCommit: 'd'.repeat(40),
+      components: {
+        skills: [{ id: 'skills/one', name: 'one', description: '', group: '', files: [], allowedTools: [], hasExecutables: false }],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
     },
     {
       id: 'elsewhere',
@@ -177,7 +206,7 @@ const HUB_SCAN: ScanResult = {
       keywords: [],
       origin: { kind: 'linked', repo: '', ref: '', sha: '', path: '', url: 'https://gitlab.com/acme/three' },
       componentsKnown: false,
-      linkedRead: { status: 'unreadable', message: "Hosted on gitlab.com, which is not on this app's allowlist." },
+      readState: { status: 'unreadable', message: "Hosted on gitlab.com, which is not on this app's allowlist." },
       components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
     },
   ],
@@ -269,6 +298,9 @@ const api: Record<string, unknown> = {
   // No token on this machine, which is what makes the head line's shortfall
   // clause the one that offers to add one.
   getGitHubTokenStatus: async () => ({ configured: false, source: 'none', encryptionAvailable: true }),
+  skillsScanLinkedPlugin: async ({ pluginId }: { pluginId: string }) => (
+    linkedReads.push(pluginId), { ok: false, message: 'not reachable in this test' }
+  ),
   skillsGetScan: async ({ sourceId }: { sourceId: string }) => (
     scanCalls.push(sourceId),
     sourceId === 'builtin'
@@ -459,13 +491,13 @@ async function main(): Promise<void> {
   // ── A partial scan says so, and the fix is one click ─────────────────────────
 
   await run('a marketplace whose linked plugins are not all read says how many are not', () => {
-    assert.ok(text().includes('3 plugins'), 'every linked plugin is listed, read or not')
+    assert.ok(text().includes('4 plugins'), 'every linked plugin is listed, read or not')
     assert.ok(
-      text().includes('1 of 3 linked plugins not yet read'),
+      text().includes('1 of 4 linked plugins not yet read'),
       'and the head line states the shortfall rather than reading as a complete listing',
     )
     assert.ok(
-      text().includes('1 of 3 linked plugin could not be read'),
+      text().includes('1 of 4 linked plugin could not be read in full'),
       'a plugin nothing can read is counted apart from one a later scan will read',
     )
   })
@@ -499,6 +531,47 @@ async function main(): Promise<void> {
       false,
       'which is what all three said before the scan followed any of them',
     )
+  })
+
+  await run('a token status that cannot be read fails CLOSED, keeping the remedy on screen', async () => {
+    // Reading it as "configured" hid the only remedy from the person whose scan
+    // really was short of a token, which is the one who needed it
+    // (linked-plugins review, 2026-09-06).
+    api.getGitHubTokenStatus = async () => {
+      throw new Error('preload is older than this call')
+    }
+    await openView('skills')
+    await openView('plugins')
+    await act(async () => {
+      tabNamed('acme/hub')?.click()
+    })
+    await settle()
+    assert.ok(
+      text().includes('add a GitHub token'),
+      'the clause and its button survive a status call that threw',
+    )
+    api.getGitHubTokenStatus = async () => ({ configured: false, source: 'none', encryptionAvailable: true })
+  })
+
+  await run('opening a plugin the scan only LISTED reads it again, for the descriptions', async () => {
+    // The follow proves a plugin's components from its repository's tree and
+    // fetches no skill's entry document, so a listed plugin's skills carry
+    // directory names and blank descriptions until it is opened. Keying the
+    // re-read on "components unknown" meant it never was (linked-plugins
+    // review, 2026-09-06).
+    linkedReads.length = 0
+    await act(async () => {
+      ;(container.querySelector('button[aria-label="Open Listed only"]') as HTMLElement).click()
+    })
+    await settle()
+    assert.deepEqual(linkedReads, ['listed-only'], 'it went and read the one whose skills have no descriptions')
+
+    linkedReads.length = 0
+    await act(async () => {
+      ;(container.querySelector('button[aria-label="Open Read one"]') as HTMLElement).click()
+    })
+    await settle()
+    assert.deepEqual(linkedReads, [], 'and left alone the one that was already read whole')
   })
 
   await act(async () => {

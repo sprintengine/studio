@@ -85,9 +85,50 @@ function validRef(ref: SkillRepoRef): SkillRepoRef | null {
   return ref
 }
 
+/**
+ * What GitHub's headers said about the rate limit when a request was refused.
+ *
+ * Status alone cannot tell the two 403s apart (linked-plugins review,
+ * 2026-09-06): GitHub answers 403 both for "you have spent your hour" and for
+ * a repository that is DMCA-blocked, SAML-gated or suspended. Only
+ * `x-ratelimit-remaining: 0` or a `retry-after` header says which, and a scan
+ * that guesses either stops for an hour it did not have to, or hammers a
+ * repository that will never answer.
+ */
+export type SkillRateLimitHint = {
+  /** The limit is spent: wait, do not retry. */
+  exhausted: boolean
+  /** `retry-after`, in seconds; 0 when the header was absent. */
+  retryAfterSeconds: number
+  /** `x-ratelimit-reset` as an ISO timestamp; '' when the header was absent. */
+  resetAt: string
+}
+
 export class SkillFetchError extends Error {
-  constructor(message: string, readonly statusCode?: number) {
+  constructor(
+    message: string,
+    readonly statusCode?: number,
+    /** Present only for a refusal that carried rate-limit headers. */
+    readonly rateLimit?: SkillRateLimitHint
+  ) {
     super(message)
+  }
+}
+
+/** The rate-limit headers of a refusal, read once so nothing downstream guesses. */
+export function readRateLimitHint(response: Pick<Response, 'status' | 'headers'>): SkillRateLimitHint {
+  // `fetcher` is injectable, and a double is not obliged to carry headers.
+  const header = (name: string): string | null => response.headers?.get(name) ?? null
+  const retryAfter = Number.parseInt(header('retry-after') ?? '', 10)
+  const reset = Number.parseInt(header('x-ratelimit-reset') ?? '', 10)
+  const remaining = header('x-ratelimit-remaining')
+  const retryAfterSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0
+  return {
+    // 429 is unambiguous. A 403 is a rate limit only when the headers say so.
+    exhausted:
+      response.status === 429 || (response.status === 403 && (retryAfterSeconds > 0 || remaining === '0')),
+    retryAfterSeconds,
+    resetAt: Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : '',
   }
 }
 
@@ -224,21 +265,71 @@ async function fetchBytes(
         `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`
       )
     }
-    if (!response.ok) throw new SkillFetchError(githubErrorMessage(response), response.status)
-    const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.byteLength > maxBytes) throw new SkillFetchError(describeOverflow(maxBytes))
-    return bytes
+    if (!response.ok) {
+      const hint = readRateLimitHint(response)
+      throw new SkillFetchError(githubErrorMessage(response, hint), response.status, hint)
+    }
+    return await readBounded(response, maxBytes, describeOverflow)
   } finally {
     clearTimeout(timeout)
   }
 }
 
-function githubErrorMessage(response: Response): string {
+function githubErrorMessage(response: Response, hint: SkillRateLimitHint): string {
   if (response.status === 404) return 'That repository could not be found, or it is not public.'
-  if (response.status === 403 || response.status === 429) {
-    return 'GitHub rate-limited this request. Adding a GitHub token in Settings raises the limit.'
+  if (hint.exhausted) {
+    const until = hint.resetAt ? ` It resets at ${hint.resetAt}.` : ''
+    return `GitHub rate-limited this request. Adding a GitHub token in Settings raises the limit.${until}`
+  }
+  // A 403 whose headers do NOT say the limit is spent: the repository itself is
+  // refused — private, blocked, or behind an org's SSO. Calling that a rate
+  // limit told people to wait an hour for something that never changes.
+  if (response.status === 403) {
+    return 'GitHub refused this request. The repository may be private, blocked, or behind single sign-on.'
   }
   return `GitHub replied with HTTP ${response.status}.`
+}
+
+/**
+ * The body, refused the moment it passes the cap rather than after it has all
+ * arrived.
+ *
+ * `arrayBuffer()` buffers the whole response before anything can check its
+ * size, and the listing cap is 48 MB against twenty concurrent tree reads —
+ * roughly a gigabyte of headroom the process never agreed to (linked-plugins
+ * review, 2026-09-06). `content-length` settles it before a byte is read when
+ * the server sends one; otherwise the stream is measured as it arrives and
+ * cancelled the moment it is too big. A response with no readable stream (a
+ * stubbed one in the suite) falls back to the buffered read, still capped.
+ */
+async function readBounded(
+  response: Response,
+  maxBytes: number,
+  describeOverflow: (limit: number) => string
+): Promise<Buffer> {
+  const declared = Number.parseInt(response.headers?.get('content-length') ?? '', 10)
+  if (Number.isFinite(declared) && declared > maxBytes) throw new SkillFetchError(describeOverflow(maxBytes))
+  const body = response.body
+  if (!body || typeof body.getReader !== 'function') {
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (bytes.byteLength > maxBytes) throw new SkillFetchError(describeOverflow(maxBytes))
+    return bytes
+  }
+  const reader = body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new SkillFetchError(describeOverflow(maxBytes))
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks)
 }
 
 /**
