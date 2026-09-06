@@ -6,15 +6,22 @@ import { shouldBrowse, type RemoteBrowseEntry } from './remoteSessionsModel'
 // The reads behind the sidebar's Remote band (remote-sessions-in-the-sidebar,
 // epic decision 2): an expanded band IS the ask, and the asking is bounded —
 // only machines main's last check says are awake, on the transitions that
-// change what they hold, and on a slow cadence while the band is open and the
-// window is the one in front. A machine that is asleep is never dialled: its
-// last rows stay on screen dimmed, and the next reachability event that says
-// it answered is what reads it again.
+// change what they hold, and when a machine SAYS it changed. A machine that
+// is asleep is never dialled: its last rows stay on screen dimmed, and the
+// next reachability event that says it answered is what reads it again.
+//
+// The change feed (2026-09-05) replaced the thirty-second timer. Main holds
+// one idle socket to each paired machine, on which that machine says its
+// terminal or workspace list moved, and the band re-reads on that: the
+// server owns the state, the client subscribes. The timer
+// that remains is a slow fallback for a feed a machine could not open.
 
-/** How often an open band re-reads awake machines while the window is focused. */
-export const REMOTE_BAND_CADENCE_MS = 30_000
+/** The fallback re-read of awake machines while the band is open and focused; the change feed is the real beat. */
+export const REMOTE_BAND_CADENCE_MS = 180_000
 /** Attachment link changes arrive in bursts (connecting → live); one read per burst. */
 const ATTACHMENT_SETTLE_MS = 750
+/** A machine's change pushes arrive already throttled; a short settle folds the terminal and workspace pushes of one event into one read. */
+const REMOTE_CHANGE_SETTLE_MS = 250
 
 export type RemoteSessions = {
   presence: TailnetPresence
@@ -89,7 +96,29 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
     [bridge]
   )
 
-  const { fleet, fleetReachability, fleetAttachments } = presence
+  const { fleet, fleetReachability, fleetAttachments, fleetRemoteChanges } = presence
+
+  // The change feed: a machine that said it changed is re-read, once its
+  // pushes settle. Keyed by the fleet's revision so a re-render of the same
+  // push reads nothing, and only machines that may be asked are asked.
+  const handledChangeRevision = useRef(new Map<string, number>())
+  useEffect(() => {
+    if (!enabled) return
+    const due: string[] = []
+    for (const [id, change] of fleetRemoteChanges) {
+      if ((handledChangeRevision.current.get(id) ?? 0) >= change.revision) continue
+      handledChangeRevision.current.set(id, change.revision)
+      if (fleet.some((connection) => connection.id === id) && shouldBrowse(fleetReachability.get(id))) due.push(id)
+    }
+    for (const id of [...handledChangeRevision.current.keys()]) {
+      if (!fleetRemoteChanges.has(id)) handledChangeRevision.current.delete(id)
+    }
+    if (due.length === 0) return
+    const timer = window.setTimeout(() => {
+      for (const id of due) browse(id)
+    }, REMOTE_CHANGE_SETTLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [enabled, fleet, fleetReachability, fleetRemoteChanges, browse])
 
   // The pairing list: a machine not yet read gets its first read; a machine
   // forgotten drops its entry so its rows go with it.
@@ -153,7 +182,9 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
     return () => window.clearTimeout(timer)
   }, [enabled, attachmentSignature, fleet, fleetReachability, browse])
 
-  // The cadence: only while the band is open and this window is in front.
+  // The fallback cadence: only while the band is open and this window is in
+  // front, and slow — a machine whose change feed is up has already said
+  // everything this read could find.
   useEffect(() => {
     if (!enabled || !bridge) return
     const timer = window.setInterval(() => {

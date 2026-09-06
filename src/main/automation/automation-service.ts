@@ -257,12 +257,24 @@ export function createAutomationService(options: AutomationServiceOptions) {
     tailnet?.notifyToolsListChanged()
   }
 
+  // The change feed to paired devices. Only the tailnet listener has one; the
+  // local socket's clients are agents on this machine, which read on demand.
+  function notifyTerminalsChanged(): void {
+    tailnet?.notifyTerminalsChanged()
+  }
+
+  function notifyWorkspacesChanged(): void {
+    tailnet?.notifyWorkspacesChanged()
+  }
+
   return {
     initialize,
     getStatus,
     setEnabled,
     shutdown,
     notifyToolsListChanged,
+    notifyTerminalsChanged,
+    notifyWorkspacesChanged,
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
     getTailnetLiveState: (): TailnetLiveState => tailnetService().getLiveState(),
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),

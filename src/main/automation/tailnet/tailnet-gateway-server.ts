@@ -26,6 +26,7 @@ import {
   TAILNET_PAIR_PATH,
   TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
+  TAILNET_EVENTS_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_UPLOAD_PATH,
@@ -149,6 +150,8 @@ export type TailnetGatewayServerOptions = {
   }) => void
   now?: () => number
   log?: (message: string) => void
+  /** The change feed's per-kind push floor; tests shorten it. */
+  changePushIntervalMs?: number
 }
 
 export type TailnetGatewayPeer = { peerNode: string | null; peerAddress: string }
@@ -167,10 +170,19 @@ export type TailnetGatewayServer = {
   /** The address actually bound, or null while stopped. */
   address(): { address: string; port: number } | null
   notifyToolsListChanged(): void
+  /**
+   * Tell every device on the change feed that this machine's terminal list
+   * changed, or its workspace list. Throttled here, so a burst of hook frames
+   * is one push; the device re-reads through terminal.list / workspace.list.
+   */
+  notifyTerminalsChanged(): void
+  notifyWorkspacesChanged(): void
   /** Live WebSocket streams, by device — diagnostics and tests. */
   streamCount(): number
   /** Live attached terminals — diagnostics and tests. */
   terminalStreamCount(): number
+  /** Live change-feed sockets — diagnostics and tests. */
+  eventStreamCount(): number
 }
 
 type StreamSession = {
@@ -181,13 +193,114 @@ type StreamSession = {
   context: McpConnectionContext
 }
 
+type EventStream = { socket: Duplex; deviceId: string }
+
+type ChangeKind = 'terminals' | 'workspaces'
+
+/**
+ * The floor between two pushes of one kind. A session broadcast already
+ * coalesces to a frame; a second is what stops a busy hook stream turning
+ * into a re-read per frame on every paired machine.
+ */
+export const TAILNET_CHANGE_PUSH_INTERVAL_MS = 1_000
+
 export function createTailnetGatewayServer(options: TailnetGatewayServerOptions): TailnetGatewayServer {
   const now = options.now ?? (() => Date.now())
   let server: Server | null = null
   let unsubscribeRevocations: (() => void) | null = null
   const streams = new Set<StreamSession>()
   const terminalStreams = new Set<TailnetTerminalStream>()
+  const eventStreams = new Set<EventStream>()
   const tickets = new Map<string, { deviceId: string; expiresAtMs: number }>()
+
+  // ── The change feed ───────────────────────────────────────────────────────
+  // A revision per kind, so a watcher that reconnects can see it missed
+  // something and re-read; a throttle per kind, so a burst is one push.
+  const changePushIntervalMs = Math.max(0, options.changePushIntervalMs ?? TAILNET_CHANGE_PUSH_INTERVAL_MS)
+  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0 }
+  const changePush: Record<ChangeKind, { lastSentAt: number; timer: ReturnType<typeof setTimeout> | null }> = {
+    terminals: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
+    workspaces: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
+  }
+
+  function notifyChanged(what: ChangeKind): void {
+    changeRevisions[what] += 1
+    const state = changePush[what]
+    // A push already queued carries this revision too.
+    if (state.timer) return
+    const elapsed = now() - state.lastSentAt
+    if (elapsed >= changePushIntervalMs) {
+      pushChanged(what)
+      return
+    }
+    state.timer = setTimeout(() => {
+      state.timer = null
+      pushChanged(what)
+    }, changePushIntervalMs - elapsed)
+    state.timer.unref?.()
+  }
+
+  function pushChanged(what: ChangeKind): void {
+    changePush[what].lastSentAt = now()
+    if (eventStreams.size === 0) return
+    const payload = encodeTextFrame(JSON.stringify({ type: 'changed', what, revision: changeRevisions[what] }))
+    for (const stream of eventStreams) {
+      if (!stream.socket.destroyed) stream.socket.write(payload)
+    }
+  }
+
+  function openEventStream(socket: Duplex, device: TailnetDevice, head: Buffer): void {
+    const stream: EventStream = { socket, deviceId: device.id }
+    eventStreams.add(stream)
+    const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
+    const drop = (): void => {
+      eventStreams.delete(stream)
+    }
+    const consume = (chunk: Buffer): void => {
+      const decoded = decoder.push(chunk)
+      if (decoded.kind === 'error') {
+        closeEventStream(stream, decoded.code, decoded.reason)
+        return
+      }
+      for (const frame of decoded.frames) {
+        if (frame.kind === 'close') {
+          closeEventStream(stream, WEBSOCKET_CLOSE_GOING_AWAY, '')
+          return
+        }
+        if (frame.kind === 'ping' && !socket.destroyed) socket.write(encodePongFrame(frame.payload))
+        // Text frames are ignored: this channel speaks server → client only.
+      }
+    }
+    // Where things stand, at once: a watcher that reconnected after a change
+    // it missed compares revisions and re-reads without waiting for the next.
+    socket.write(
+      encodeTextFrame(
+        JSON.stringify({ type: 'hello', revisions: { terminals: changeRevisions.terminals, workspaces: changeRevisions.workspaces } })
+      )
+    )
+    if (head?.length) consume(head)
+    socket.on('data', consume)
+    socket.on('end', () => {
+      drop()
+      socket.destroy()
+    })
+    socket.on('close', drop)
+    socket.on('error', () => {
+      drop()
+      socket.destroy()
+    })
+  }
+
+  function closeEventStream(stream: EventStream, code: number, reason: string): void {
+    eventStreams.delete(stream)
+    if (stream.socket.destroyed) return
+    try {
+      stream.socket.write(encodeCloseFrame(code, reason))
+    } catch {
+      // The peer is already gone; ending below is the whole cleanup.
+    }
+    stream.socket.end()
+  }
 
   const dispatcher = createMcpDispatcher({
     serverName: options.serverName,
@@ -254,6 +367,16 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     streams.clear()
     for (const terminal of [...terminalStreams]) terminal.close(WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
     terminalStreams.clear()
+    for (const kind of ['terminals', 'workspaces'] as const) {
+      const state = changePush[kind]
+      if (state.timer) clearTimeout(state.timer)
+      state.timer = null
+    }
+    for (const stream of [...eventStreams]) {
+      closeEventStream(stream, WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
+      stream.socket.destroy()
+    }
+    eventStreams.clear()
     await new Promise<void>((resolve) => current.close(() => resolve()))
   }
 
@@ -654,7 +777,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   async function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     if (request.headers.origin) return rejectUpgrade(socket, 403, 'origin_not_allowed')
     const path = pathOf(request.url)
-    if (path !== TAILNET_STREAM_PATH && path !== TAILNET_TERMINAL_PATH) return rejectUpgrade(socket, 404, 'not_found')
+    if (path !== TAILNET_STREAM_PATH && path !== TAILNET_TERMINAL_PATH && path !== TAILNET_EVENTS_PATH) {
+      return rejectUpgrade(socket, 404, 'not_found')
+    }
     if ((headerOf(request, 'upgrade') ?? '').toLowerCase() !== 'websocket') return rejectUpgrade(socket, 400, 'not_a_websocket_upgrade')
     if ((headerOf(request, 'sec-websocket-version') ?? '') !== '13') return rejectUpgrade(socket, 400, 'unsupported_websocket_version')
     const key = headerOf(request, 'sec-websocket-key')
@@ -663,6 +788,18 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const query = queryOf(request.url)
     const device = redeemTicket(query.get('ticket'))
     if (!device) return rejectUpgrade(socket, 401, 'unauthorized')
+
+    if (path === TAILNET_EVENTS_PATH) {
+      // Any paired device may watch: the feed says only that something
+      // changed, and what the device may then read is decided by the tools'
+      // own scopes. No `onActivity`: a watcher is ambient, not a connection.
+      const eventsPeerAddress = normalizeAddress(remoteAddressOf(socket))
+      const eventsPeer = await options.peers.resolve(eventsPeerAddress)
+      options.devices.recordSeen(device.id, eventsPeer)
+      acceptUpgrade(socket, key)
+      openEventStream(socket, device, head)
+      return
+    }
 
     if (path === TAILNET_TERMINAL_PATH) {
       // Refused BEFORE the 101, so a device without the grant never gets a
@@ -821,6 +958,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     for (const terminal of [...terminalStreams]) {
       if (terminal.deviceId === deviceId) terminal.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
     }
+    for (const stream of [...eventStreams]) {
+      if (stream.deviceId === deviceId) closeEventStream(stream, WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
+    }
     for (const [ticket, entry] of tickets) if (entry.deviceId === deviceId) tickets.delete(ticket)
   }
 
@@ -907,6 +1047,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     notifyToolsListChanged: () => {
       for (const stream of streams) sendStream(stream, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
     },
+    notifyTerminalsChanged: () => notifyChanged('terminals'),
+    notifyWorkspacesChanged: () => notifyChanged('workspaces'),
+    eventStreamCount: () => eventStreams.size,
     streamCount: () => streams.size,
     terminalStreamCount: () => terminalStreams.size,
   }

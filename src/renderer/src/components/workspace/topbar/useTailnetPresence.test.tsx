@@ -155,6 +155,19 @@ async function main(): Promise<void> {
   })
   assert.equal(current().fleetLiveSessions.get('air'), undefined, 'the last pane closing ends the live session')
 
+  // The change feed: a machine saying it changed lands as the latest change
+  // for that machine, and never as an attachment.
+  await act(async () => {
+    fleetListener!({ kind: 'remote-changed', revision: 5, connectionId: 'air', machineName: 'air', what: 'terminals' })
+  })
+  assert.equal(current().fleetRemoteChanges.get('air')?.what, 'terminals', 'the change is recorded per machine')
+  assert.equal(current().fleetRemoteChanges.get('air')?.revision, 5)
+  assert.equal(current().fleetAttachments.size, 0, 'a change push is not an attachment')
+  await act(async () => {
+    fleetListener!({ kind: 'machine-forgotten', revision: 6, connectionId: 'air', machineName: 'air' })
+  })
+  assert.equal(current().fleetRemoteChanges.get('air'), undefined, 'forgetting the machine drops its change')
+
   act(() => root.unmount())
   assert.equal(tailnetListener, null, 'unmount releases the tailnet subscription')
   assert.equal(fleetListener, null, 'unmount releases the fleet subscription')

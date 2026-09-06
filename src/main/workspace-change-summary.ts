@@ -112,7 +112,24 @@ export type CheckoutSummaryShare = {
   read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
 }
 
-export const CHECKOUT_SUMMARY_HOLD_MS = 15_000
+/**
+ * Forty-five seconds, up from fifteen (2026-09-05). The share is now read from
+ * the network as well as the sidebar — a paired Studio's Remote band asks
+ * `terminal.list` every thirty seconds, and the phone asks when it is open —
+ * and a fifteen-second hold meant every one of those asks re-ran the whole
+ * branch-span chain (about twenty git spawns per checkout, each spawn a
+ * synchronous step on main's event loop). Forty-five keeps the sidebar's own
+ * sixty-second sweep fresh, and folds every other reader in between into the
+ * read that already happened.
+ */
+export const CHECKOUT_SUMMARY_HOLD_MS = 45_000
+/**
+ * How many checkouts are read at once, across every caller of the share. The
+ * sidebar queued its own reads four wide; the network path fanned out to every
+ * distinct checkout at once, which on a sixteen-checkout registry was sixteen
+ * git chains spawning in parallel on the event loop. One queue for both.
+ */
+export const CHECKOUT_SUMMARY_CONCURRENCY = 4
 /**
  * How long an in-flight read is shared before a newcomer starts its own. A
  * `git diff` hung on a spun-down volume must not pin every row of that checkout,
@@ -123,10 +140,11 @@ export const CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
 
 export function createCheckoutSummaryShare(
   read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>,
-  options: { holdMs?: number; inFlightMaxMs?: number; now?: () => number } = {}
+  options: { holdMs?: number; inFlightMaxMs?: number; concurrency?: number; now?: () => number } = {}
 ): CheckoutSummaryShare {
   const holdMs = options.holdMs ?? CHECKOUT_SUMMARY_HOLD_MS
   const inFlightMaxMs = options.inFlightMaxMs ?? CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS
+  const concurrency = Math.max(1, Math.floor(options.concurrency ?? CHECKOUT_SUMMARY_CONCURRENCY))
   const now = options.now ?? Date.now
   type Entry = {
     promise: Promise<WorkspaceChangeSummary>
@@ -134,6 +152,32 @@ export function createCheckoutSummaryShare(
     settledAt: number | null
   }
   const reads = new Map<string, Entry>()
+
+  // The one queue every reader shares: a read past the concurrency waits for
+  // a slot rather than spawning beside the others. Waiting reads are still
+  // shared by key, so a checkout asked for twice while queued is read once.
+  let running = 0
+  const waiting: Array<() => void> = []
+  function acquire(): Promise<void> {
+    if (running < concurrency) {
+      running += 1
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => waiting.push(resolve))
+  }
+  function release(): void {
+    const next = waiting.shift()
+    if (next) next()
+    else running -= 1
+  }
+  async function limitedRead(checkoutPath: string): Promise<WorkspaceChangeSummary> {
+    await acquire()
+    try {
+      return await read(checkoutPath)
+    } finally {
+      release()
+    }
+  }
 
   function shareable(entry: Entry, at: number): boolean {
     return entry.settledAt === null
@@ -156,7 +200,7 @@ export function createCheckoutSummaryShare(
       const existing = reads.get(key)
       if (existing) return existing.promise
 
-      const entry: Entry = { promise: read(checkoutPath), startedAt: at, settledAt: null }
+      const entry: Entry = { promise: limitedRead(checkoutPath), startedAt: at, settledAt: null }
       entry.promise.then(
         () => {
           entry.settledAt = now()
