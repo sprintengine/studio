@@ -16,6 +16,7 @@ import { shortMachineName } from '../remote/machineRowModel'
 export function ToastHost() {
   useFleetToastBridge()
   usePairRequestToastBridge()
+  useListenerToastBridge()
   return <ToastRegion />
 }
 
@@ -70,6 +71,49 @@ function usePairRequestToastBridge(): void {
 
 export function pairRequestToastId(requestId: string): string {
   return `pair-request:${requestId}`
+}
+
+export const LISTENER_TOAST_ID = 'tailnet-listener'
+
+/**
+ * The inbound listener falling over, announced where a person is working.
+ *
+ * Quitting Tailscale stands the listener down (tailnet-service's interface
+ * heartbeat), and until now the only way to learn that was to open the Remote
+ * glyph — a phone would just stop being able to reach this Mac. Warn, so it
+ * persists, and RETRACTED the moment the listener binds again, with the
+ * recovery announced only if a loss was: the fleet bridge's rule, for the same
+ * reason.
+ *
+ * Only a failure speaks. `running: false` with no reason is someone turning
+ * remote control off, and announcing a thing the person just did is furniture.
+ */
+function useListenerToastBridge(): void {
+  const stopped = useRef(false)
+  useEffect(() => {
+    if (typeof window.api.onTailnetEvent !== 'function') return
+    return window.api.onTailnetEvent((payload) => {
+      const event = payload.event
+      if (event.kind !== 'listener') return
+      if (!event.running) {
+        if (!event.error || stopped.current) return
+        stopped.current = true
+        showToast({
+          id: LISTENER_TOAST_ID,
+          tone: 'warn',
+          title: 'Remote stopped serving',
+          // Main's own words: the reason a listener is down is the whole
+          // content of the report, and the Remote popover shows the same line.
+          description: event.error,
+        })
+        return
+      }
+      if (!stopped.current) return
+      stopped.current = false
+      useToastStore.getState().dismissToast(LISTENER_TOAST_ID)
+      showToast({ tone: 'good', title: 'Remote is serving again' })
+    })
+  }, [])
 }
 
 export function fleetLossToastId(connectionId: string): string {

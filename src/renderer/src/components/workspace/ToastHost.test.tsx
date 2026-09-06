@@ -288,6 +288,39 @@ run('a toast the person dismissed stays dismissed — resolution does not resurr
   unmount()
 })
 
+run('the listener falling over is announced, retracted on recovery, and a requested stop is silent', () => {
+  reset()
+  const mounted = mount()
+  const listener = (running: boolean, error: string | null = null): unknown => ({
+    revision: ++revision,
+    event: { kind: 'listener', running, error },
+    status: { pairRequests: [] },
+    live: { revision, devices: [] },
+  })
+
+  fireTailnet(listener(false, null))
+  assert.equal(titles().length, 0, 'someone turning remote off is not news')
+
+  fireTailnet(listener(false, 'Tailnet remote control stopped: Tailscale is no longer up on this machine.'))
+  assert.deepEqual(titles(), ['Remote stopped serving'])
+  assert.match(mounted.innerHTML, /Tailscale is no longer up/, 'in main’s own words')
+  assert.match(mounted.innerHTML, /role="alert"/, 'warn persists — the phone is not coming back on its own')
+
+  // The interface heartbeat keeps beating; a repeat is not a second toast.
+  fireTailnet(listener(false, 'Tailnet remote control stopped: Tailscale is no longer up on this machine.'))
+  assert.equal(titles().length, 1)
+
+  fireTailnet(listener(true))
+  assert.deepEqual(titles(), ['Remote is serving again'], 'the loss is retracted and the recovery announced')
+  assert.doesNotMatch(mounted.innerHTML, /stopped serving/)
+
+  // Recovery is only news after a loss.
+  reset()
+  fireTailnet(listener(true))
+  assert.equal(titles().length, 0)
+  unmount()
+})
+
 // ── the fleet bridge ─────────────────────────────────────────────────────
 
 run('a machine paired announces good; a machine removed announces neutral', () => {
