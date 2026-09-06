@@ -47,18 +47,48 @@ boundary.
 
 The full contract — `ReviewBrief`, `ReviewStep`, `ReviewAnnotation`,
 `ReviewAnchor`, `ChangeMap`, `KnowledgeRef` and the validation rules — is the
-`review-guide` skill, which ships with this app and carries the schema verbatim
-as its output spec. Read it before writing a brief; this skill does not restate
-it, and a restatement would drift.
+`review-guide` skill, which carries the schema verbatim as its output spec. Read
+it before writing a brief; this skill does not restate it, and a restatement
+would drift.
 
-The shape in one breath: `schemaVersion: 1`, a `changeSetId` equal to the change
-set you walked, a non-empty `generatedAt`, an `overview` (`intent`,
-`blastRadius`, `readingGuide`, `complexity`), ordered `steps` each with a
-`narrative` and per-file `why` lines and line-anchored `annotations`, the
-`knowledgeRefs` you actually consulted, and an honest `coverage` split into
-`assignedPaths` and `unassignedPaths`. `headSha` and `changeMap` are the only
-optional members of that list — omitting any of the others is `brief_invalid`,
-and `generatedAt` is the one easiest to forget.
+The app installs `review-guide` into a workspace when it starts a Review guide
+terminal, so if you were started as one it is beside this skill. If it is not
+there, you were started some other way: say so rather than inventing the parts
+of the schema you cannot see. What follows is the minimum needed to build a
+brief the validator accepts — enough to work without `review-guide`, not a
+substitute for it.
+
+The shape in one breath: `schemaVersion: 1`, a `changeSetId` equal to the `id`
+of the change set you walked — that field, not the `reviewId`, or the
+cross-check answers `brief_mismatch` — a non-empty `generatedAt`, an `overview`, ordered `steps` each
+with a `narrative` and per-file `why` lines and line-anchored `annotations`, the
+`knowledgeRefs` you actually consulted (`[]` when you consulted none), and an
+honest `coverage` holding `assignedPaths` and `unassignedPaths`, both arrays of
+repo-relative path strings and both required even when empty. At the top
+level `headSha` and `changeMap` are the only optional members — omitting any of
+the others is `brief_invalid`, and `generatedAt` is the one easiest to forget.
+
+One level down, where a brief is most often rejected:
+
+- **overview**: `intent`, `blastRadius` and `readingGuide`, all non-empty
+  strings. `complexity` is OPTIONAL — a brief may carry no judgment of it — but
+  when present it must be `low`, `medium` or `high` and nothing else.
+- **step**: `id` (a slug), `order` (a non-negative integer — required, and the
+  one this list used to omit), `title`, `narrative`, `files`, `annotations`.
+- **step.files[]**: `path` and `why` (at most 200 characters). `readingNote` is
+  optional and is `read-closely` or `mechanical-skim`.
+- **annotation**: `id`, `path`, `anchor`, `kind`, `title`, `summary`, and
+  `hoverTip` (at most 200 characters). `kind` is `explain`, `context` or
+  `knowledge` — those three and nothing else. `detail` and `knowledgeRefs` are
+  optional, and an annotation's `knowledgeRefs` is an array of plain STRINGS,
+  not of `{note, reason}` objects like the brief's own — the two fields share a
+  name and not a shape.
+- **anchor**: `side` (`new` or `old`), `startLine` and `endLine`, both positive
+  integers with `endLine >= startLine`. Line numbers are counted by walking the
+  hunk from its `newStart`/`oldStart`, advancing only on the lines that exist on
+  that side, and the cross-check rejects an anchor outside the file's own hunk
+  extent.
+- **knowledgeRefs[]**: `{note, reason}`, both non-empty.
 
 Every non-binary file in the change set belongs to exactly one step, or is named
 in `coverage.unassignedPaths`. Unassigned paths render as a visible warning to
