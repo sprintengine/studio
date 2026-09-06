@@ -63,10 +63,13 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
     await readFile(join(TEMPLATE_ROOT, '.claude-plugin', 'marketplace.json'), 'utf8')
   ) as { name: string; plugins: { name: string; source: string }[] }
   assert.equal(marketplace.name, STUDIO_PLUGIN_ID)
-  assert.deepEqual(
-    marketplace.plugins.map((entry) => [entry.name, entry.source]),
-    [[STUDIO_PLUGIN_ID, `./${STUDIO_PLUGIN_ID}`]]
-  )
+  // That it LISTS us, at the directory we install from — not that it lists only
+  // us. This marketplace is where every MCP server we ship becomes a plugin
+  // (backlog/epics/plugins-from-the-official-marketplace.md), so an assertion
+  // on the whole list would fail the moment the second one arrives.
+  const listed = marketplace.plugins.find((entry) => entry.name === STUDIO_PLUGIN_ID)
+  assert.notEqual(listed, undefined, 'the marketplace must list the plugin this installer installs')
+  assert.equal(listed?.source, `./${STUDIO_PLUGIN_ID}`, 'and point at the directory it is installed from')
   // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
   // particular: the root `.gitignore` entry for the generated workspace config
   // is unanchored and matched this one too, which would have shipped a plugin
