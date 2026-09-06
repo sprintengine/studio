@@ -16,7 +16,7 @@ const valid = {
       models: [
         { id: 'claude-opus-5', label: 'Opus 5', releasedAt: '2026-07-25', retired: false },
         { id: 'opus[1m]', label: 'Opus (latest, 1M context)', alias: true },
-        { id: 'claude-opus-4-8', label: 'Opus 4.8', retired: true, retiredAt: '2026-09-01' },
+        { id: 'claude-opus-4-8', label: 'Opus 4.8', releasedAt: '2026-05-05', retired: true, retiredAt: '2026-09-01' },
       ],
     },
     cursor: { models: [] },
@@ -31,17 +31,21 @@ const valid = {
   assert.equal(parsed.feed.clis['claude-code'].models.length, 3)
   assert.equal(parsed.feed.clis.cursor.models.length, 0)
   assert.equal(parsed.feed.clis['claude-code'].models[1].alias, true)
-  const bare = parseHostedModelFeed({ schemaVersion: 1, updatedAt: '2026-09-04T00:00:00Z', clis: { codex: { models: [{ id: ' gpt-5.5 ' }] } } })
+  assert.equal(parsed.feed.clis['claude-code'].models[1].releasedAt, undefined, 'an alias floats undated')
+  const bare = parseHostedModelFeed({ schemaVersion: 1, updatedAt: '2026-09-04T00:00:00Z', clis: { codex: { models: [{ id: ' gpt-5.5 ', releasedAt: '2026-04-23' }] } } })
   assert.ok(bare.ok)
-  assert.deepEqual(bare.feed.clis.codex.models, [{ id: 'gpt-5.5', label: 'gpt-5.5' }])
+  assert.deepEqual(bare.feed.clis.codex.models, [{ id: 'gpt-5.5', label: 'gpt-5.5', releasedAt: '2026-04-23' }])
 }
 
 // The schema gate: a version this build does not know is refused whole, and so
-// is a missing updatedAt, a duplicate id, or a row without an id.
+// is a missing updatedAt, a duplicate id, a row without an id, or a model
+// without the date it shipped (an alias is the one row that floats undated).
 for (const [label, body] of [
   ['unknown schemaVersion', { ...valid, schemaVersion: 2 }],
   ['missing updatedAt', { schemaVersion: 1, clis: valid.clis }],
-  ['duplicate id', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A' }, { id: 'a', label: 'A again' }] } } }],
+  ['duplicate id', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A', releasedAt: '2026-01-01' }, { id: 'a', label: 'A again', releasedAt: '2026-01-01' }] } } }],
+  ['model without releasedAt', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A' }] } } }],
+  ['releasedAt not a date', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A', releasedAt: 'soon' }] } } }],
   ['row without id', { ...valid, clis: { codex: { models: [{ label: 'nameless' }] } } }],
   ['models not an array', { ...valid, clis: { codex: { models: {} } } }],
   ['not json', '{ not json'],
@@ -84,10 +88,10 @@ for (const [label, body] of [
         models: [
           ...valid.clis['claude-code'].models,
           { id: 'claude-fable-5-1', label: 'Fable 5.1', releasedAt: '2026-09-04' },
-          { id: 'claude-opus-4-7', label: 'Opus 4.7', retired: true, retiredAt: '2026-09-05' },
+          { id: 'claude-opus-4-7', label: 'Opus 4.7', releasedAt: '2026-03-03', retired: true, retiredAt: '2026-09-05' },
         ],
       },
-      codex: { models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }] },
+      codex: { models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', releasedAt: '2026-07-09' }] },
     },
   })
   assert.ok(after.ok)

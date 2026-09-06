@@ -5,7 +5,8 @@
 //   - resources/model-feed.json is missing, malformed, or has no updatedAt;
 //   - a CLI's non-retired feed ids and its manifest's modelSelection.options
 //     ids differ in either direction;
-//   - two feed rows share an id.
+//   - two feed rows share an id;
+//   - a non-alias row has no releasedAt (the parser refuses such a feed).
 // Fix a failure with `npm run sync:model-feed` and a manifest edit, whichever
 // side is behind.
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
@@ -47,6 +48,9 @@ for (const [cli, entry] of Object.entries(feed.clis ?? {})) {
     if (typeof row.id !== 'string' || !row.id.trim()) errors.push(`${cli}: a row has no id`)
     else if (seen.has(row.id)) errors.push(`${cli}: duplicate id "${row.id}"`)
     else seen.add(row.id)
+    if (row.alias !== true && (typeof row.releasedAt !== 'string' || Number.isNaN(Date.parse(row.releasedAt)))) {
+      errors.push(`${cli}: "${row.id}" has no releasedAt (required on every model except an alias)`)
+    }
   }
   const manifest = manifests.get(cli)
   if (!manifest) {

@@ -30,7 +30,9 @@ export type HostedModel = {
   effortLevels?: string[]
   defaultEffort?: string
   supportsFastMode?: boolean
-  // ISO date. Drives "New". Absent on aliases, which float.
+  // ISO date the model shipped. Required on every row except an alias (the
+  // parser refuses a feed that omits it). Pickers list models newest first by
+  // it, and it drives "New". Absent only on aliases, which float.
   releasedAt?: string
   // A floating id like `opus[1m]` that tracks whatever is newest.
   alias?: boolean
@@ -119,6 +121,7 @@ function parseModel(raw: unknown): { ok: true; model: HostedModel } | { ok: fals
   if (typeof raw.supportsFastMode === 'boolean') model.supportsFastMode = raw.supportsFastMode
   if (typeof raw.releasedAt === 'string' && !Number.isNaN(Date.parse(raw.releasedAt))) model.releasedAt = raw.releasedAt
   if (raw.alias === true) model.alias = true
+  else if (!model.releasedAt) return { ok: false, message: `"${id}" has no releasedAt; every model except an alias needs the date it shipped.` }
   if (raw.retired === true) model.retired = true
   if (typeof raw.retiredAt === 'string' && !Number.isNaN(Date.parse(raw.retiredAt))) model.retiredAt = raw.retiredAt
   return { ok: true, model }
