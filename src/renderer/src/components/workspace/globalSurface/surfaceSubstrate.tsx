@@ -296,10 +296,16 @@ export interface SurfaceRailGroup {
  * which is what says "a list starts here".
  */
 export function SurfaceRailHeader({
+  intro,
   newAffordance,
   search,
   filterControl,
 }: {
+  /** One line under the door's name, above everything it offers — what this
+   *  door is FOR, where a door has a sibling it has to be told apart from
+   *  (Workflows and Sprints, item 2470). Said once, here, and nowhere else on
+   *  the surface; a door with nothing to distinguish it omits it entirely. */
+  intro?: React.ReactNode
   newAffordance: SurfaceRailNewAffordance
   /** Search over the rows. Omit on a rail with nothing to narrow. */
   search?: SurfaceRailSearch
@@ -323,6 +329,9 @@ export function SurfaceRailHeader({
     // — deliberately WIDER than the scrollport's 4px, because the head holds
     // full-width controls while the rows hold hover fills (MC-2101's grid).
     <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-0 pt-2">
+      {intro ? (
+        <p className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</p>
+      ) : null}
       <button
         type="button"
         aria-current={newAffordance.selected ? 'true' : undefined}
@@ -363,6 +372,7 @@ export function SurfaceRailHeader({
 
 export function SurfaceRail({
   label,
+  intro,
   rows,
   groups,
   selectedId,
@@ -377,6 +387,8 @@ export function SurfaceRail({
 }: {
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
+  /** One line under the door's name — see `SurfaceRailHeader`'s `intro`. */
+  intro?: React.ReactNode
   rows: ReadonlyArray<SurfaceRailRow>
   /** Optional grouping (the Sprints door): rows render under quiet group
    *  headers instead of one flat list. `rows` must equal the groups' rows
@@ -570,6 +582,7 @@ export function SurfaceRail({
           own sake, and put the same choice in two different shapes on two
           different doors. */}
       <SurfaceRailHeader
+        intro={intro}
         newAffordance={newAffordance}
         search={search}
         filterControl={

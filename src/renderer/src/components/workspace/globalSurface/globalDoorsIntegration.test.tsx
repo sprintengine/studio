@@ -275,9 +275,10 @@ async function main(): Promise<void> {
     assert.deepEqual(
       doorOrder,
       [
+        ['workflows', 19],
         ['sprints', 20],
       ],
-      'the nav-entry registry holds only the door that draws its own row',
+      'the nav-entry registry holds only the doors that draw their own rows',
     )
     assert.equal(
       new Set(doorOrder.map(([id]) => id)).size,
@@ -304,6 +305,7 @@ async function main(): Promise<void> {
         ['design', 'Design', 'inline'],
         ['extensions', 'Plugins', 'sidebar'],
         ['sprints', 'Sprints', 'sidebar'],
+        ['workflows', 'Workflows', 'sidebar'],
       ],
       // Extensions reads `sidebar` — the default — and still leaves the drawer
       // alone: it declares NO rail since the source-tabs ruling (2026-09-05),
@@ -359,6 +361,16 @@ async function main(): Promise<void> {
     assert.ok(
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
       'and so does the Sprints surface',
+    )
+    // And its sibling, which the same module owns (item 2470): two doors, one
+    // module, so one toggle takes both rows and both pages.
+    assert.ok(
+      !host.getSidebarNavEntries(withoutSprintEngine).some((entry) => entry.id === 'workflows'),
+      'the Workflows row leaves with the same module',
+    )
+    assert.ok(
+      !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'workflows'),
+      'and so does the Workflows surface',
     )
     // The same gating for a drawer door, from its own module id: the Design row
     // and its page leave with the design module (registering a surface from a

@@ -9,7 +9,9 @@ import { JSDOM } from 'jsdom'
 import {
   claimSprintCreationForDoor,
   consumeSprintCreationDoorClaim,
+  consumeSprintDoorDraft,
   consumeSprintDoorSelection,
+  noteSprintDoorDraft,
   noteSprintDoorSelection,
   releaseSprintCreationDoorClaim,
   requestCloseSprintWorkspace,
@@ -67,22 +69,45 @@ unsubscribe()
 void requestCloseSprintWorkspace('ws-sprint-2')
 assert.deepEqual(closed, ['ws-sprint-1'], 'unsubscribing really detaches the listener')
 
-// The door's claim on the next sprint creation (item 1811). Creation spends it;
-// every route back out of the wizard releases it. A claim that outlived its
-// wizard is the bug: the next sprint, started from anywhere, bounced to the door.
-assert.equal(consumeSprintCreationDoorClaim(), false, 'no claim until the door asks')
+// The door's claim on the next run creation (item 1811). Creation spends it;
+// every route back out of the dialog releases it. A claim that outlived its
+// dialog is the bug: the next run, started from anywhere, bounced to the door.
+//
+// The claim records WHICH door since item 2470 — there are two of them, and a
+// workflow returned to Sprints would land in a list its own partition keeps it
+// out of, which reads as a run that was never created.
+assert.equal(consumeSprintCreationDoorClaim(), null, 'no claim until a door asks')
 
-claimSprintCreationForDoor()
-assert.equal(consumeSprintCreationDoorClaim(), true, 'the door claims the creation it opened')
-assert.equal(consumeSprintCreationDoorClaim(), false, 'and spends it — the next creation is nobody’s')
+claimSprintCreationForDoor('sprints')
+assert.equal(consumeSprintCreationDoorClaim(), 'sprints', 'the door claims the creation it opened')
+assert.equal(consumeSprintCreationDoorClaim(), null, 'and spends it — the next creation is nobody’s')
 
-claimSprintCreationForDoor()
+claimSprintCreationForDoor('workflows')
+assert.equal(
+  consumeSprintCreationDoorClaim(),
+  'workflows',
+  'and the claim names the door, so a workflow comes back to Workflows',
+)
+
+claimSprintCreationForDoor('sprints')
 releaseSprintCreationDoorClaim()
 assert.equal(
   consumeSprintCreationDoorClaim(),
-  false,
-  'a wizard that goes away without creating anything leaves no claim behind',
+  null,
+  'a dialog that goes away without creating anything leaves no claim behind',
 )
+
+// The inline new-row's own latch (item 2470): the Workflows `+` collects a goal
+// and a roster and hands them to the EXISTING creation path, which reads them
+// once as it opens.
+assert.equal(consumeSprintDoorDraft(), null, 'no draft until an inline row fills one in')
+noteSprintDoorDraft({ goal: 'Rebuild the settings screen', rosterId: 'roster-1' })
+assert.deepEqual(
+  consumeSprintDoorDraft(),
+  { goal: 'Rebuild the settings screen', rosterId: 'roster-1' },
+  'the goal and the roster reach the dialog that creates the run',
+)
+assert.equal(consumeSprintDoorDraft(), null, 'and only once — an abandoned dialog leaves no draft behind')
 
 // The shell half of the seam. WorkspaceManager is a window-lifetime component
 // with no node-renderable surface, so its wiring is read from source: the point
@@ -111,10 +136,15 @@ assert.match(dialogOpen, /releaseSprintCreationDoorClaim\(\)/, 'opening the dial
 
 // The door asks, the dialog opens, THEN the door claims — so the claim always
 // belongs to the dialog the operator is looking at.
-const doorRequest = shellRegion('subscribeNewSprintRequests((source) => {', '}),')
+const doorRequest = shellRegion('subscribeNewSprintRequests((source, door) => {', '}),')
 assert.ok(
-  doorRequest.indexOf('openNewSprintDialog()') < doorRequest.indexOf('claimSprintCreationForDoor()'),
+  doorRequest.indexOf('openNewSprintDialog()') < doorRequest.indexOf('claimSprintCreationForDoor(door)'),
   'the door claims after the dialog it asked for has opened',
+)
+assert.match(
+  doorRequest,
+  /claimSprintCreationForDoor\(door\)/,
+  'and it claims for the door that asked, not for Sprints by default',
 )
 
 // Creation reads the claim before closing, or closing would swallow it and a
@@ -123,15 +153,15 @@ const newSprintDialog = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/newSprint/NewSprintDialog.tsx'),
   'utf8',
 )
-const create = newSprintDialog.slice(newSprintDialog.indexOf('const cameFromSprintsDoor = consumeSprintCreationDoorClaim()'))
+const create = newSprintDialog.slice(newSprintDialog.indexOf('const cameFromDoor = consumeSprintCreationDoorClaim()'))
 assert.ok(
   create.indexOf('consumeSprintCreationDoorClaim()') < create.indexOf('onClose()'),
   'the dialog consumes the claim before closing',
 )
 assert.match(
   create,
-  /if \(cameFromSprintsDoor\) \{\s*noteSprintDoorSelection\(created\.statePath\)\s*openGlobalSurface\('sprints'\)/,
-  'and the return to the door is gated on that claim — a sprint created from anywhere else stays where it was started',
+  /if \(cameFromDoor\) \{\s*noteSprintDoorSelection\(created\.statePath\)\s*openGlobalSurface\(cameFromDoor\)/,
+  'and the return is to the door that claimed it — a run created from anywhere else stays where it was started, and a workflow never lands in Sprints',
 )
 
 void (async () => {

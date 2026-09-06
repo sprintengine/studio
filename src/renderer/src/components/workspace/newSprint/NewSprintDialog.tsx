@@ -38,6 +38,7 @@ import {
 } from '../newWorkspace/controllers/sprintEngineController'
 import {
   consumeSprintCreationDoorClaim,
+  consumeSprintDoorDraft,
   noteSprintDoorSelection,
 } from '../globalSurface/sprints/sprintDoorRequests'
 import { inferSourcePlanKind, markdownTitle, workspaceRelativePath } from '../newWorkspace/helpers'
@@ -249,6 +250,16 @@ export default function NewSprintDialog({
   useEffect(() => {
     creatingItemRef.current = creatingItem
   }, [creatingItem])
+  // What the Workflows door's inline new-row collected before it asked for this
+  // dialog (item 2470). A workflow starts from a goal someone typed, and the
+  // engine plans from something WRITTEN, so the goal arrives here as the title of
+  // the item this dialog's own New-item capture is about to write — the existing
+  // creation path, opened on what the operator already said, rather than a second
+  // one that would have to learn connectors, isolation and backlog links again.
+  // Read once, on mount, because the latch is spent by the read.
+  const doorDraftRef = useRef<ReturnType<typeof consumeSprintDoorDraft> | null>(null)
+  if (doorDraftRef.current === null) doorDraftRef.current = consumeSprintDoorDraft() ?? { goal: '', rosterId: null }
+  const doorDraft = doorDraftRef.current
 
   // --- roster -------------------------------------------------------------
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -309,6 +320,20 @@ export default function NewSprintDialog({
     cliAvailabilityStatus,
     workspaceRoot: folderPath,
   })
+
+  // The inline row's two answers land on the two controls that already own them:
+  // the roster it picked selects itself here, and its goal opens the New-item
+  // capture prefilled. Both run once — `appliedDoorDraftRef` is what makes it
+  // once rather than on every roster load — and neither invents a control.
+  const appliedDoorDraftRef = useRef(false)
+  useEffect(() => {
+    if (appliedDoorDraftRef.current) return
+    const goal = doorDraft.goal.trim()
+    if (!goal && !doorDraft.rosterId) return
+    appliedDoorDraftRef.current = true
+    if (doorDraft.rosterId) editor.onSelectRoster(doorDraft.rosterId)
+    if (goal) setCreatingItem(true)
+  }, [doorDraft, editor])
 
   const selectedRoster = useMemo(
     () =>
@@ -836,14 +861,14 @@ export default function NewSprintDialog({
           },
         },
       )
-      // Read the door's claim before closing — closing releases it. A sprint
-      // started at the Sprints door returns there, on the run just created
-      // (item 1765); one started anywhere else stays where it was started.
-      const cameFromSprintsDoor = consumeSprintCreationDoorClaim()
+      // Read the door's claim before closing — closing releases it. A run
+      // started at a door returns to THAT door, on the run just created (items
+      // 1765 + 2470); one started anywhere else stays where it was started.
+      const cameFromDoor = consumeSprintCreationDoorClaim()
       onClose()
-      if (cameFromSprintsDoor) {
+      if (cameFromDoor) {
         noteSprintDoorSelection(created.statePath)
-        openGlobalSurface('sprints')
+        openGlobalSurface(cameFromDoor)
       }
     } catch (error) {
       setCreateError(
@@ -1353,6 +1378,7 @@ export default function NewSprintDialog({
         <BacklogCreateDialog
           difficultyItems={DIFFICULTY_EDIT_ITEMS}
           criticalityItems={CRITICALITY_EDIT_ITEMS}
+          initialTitle={doorDraft.goal}
           onClose={() => setCreatingItem(false)}
           onCreate={submitCreateItem}
         />

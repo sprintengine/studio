@@ -1,5 +1,5 @@
-// What the Extensions home's five tiles SAY (Extensions drawer ruling,
-// 2026-09-05, Stage 3) — the one-line summary under each name, and the rule
+// What the Extensions home's six tiles SAY (Extensions drawer ruling,
+// 2026-09-05, Stage 3; six since item 2470 split the run doors in two) — the one-line summary under each name, and the rule
 // each live count line follows.
 //
 // A leaf: no React, no store, no IPC. The page reads the numbers (from the
@@ -27,7 +27,13 @@
  * is one of a surface's views, the surface's id otherwise. Keyed that way so a
  * row's copy cannot drift onto the wrong row: the same string routes the click.
  */
-export type ExtensionsHomeTileId = 'sprints' | 'design' | 'plugins' | 'skills' | 'agent-clis'
+export type ExtensionsHomeTileId =
+  | 'workflows'
+  | 'sprints'
+  | 'design'
+  | 'plugins'
+  | 'skills'
+  | 'agent-clis'
 
 /**
  * The one-line summary under each tile's name. Not in the registry: a module
@@ -38,7 +44,10 @@ export type ExtensionsHomeTileId = 'sprints' | 'design' | 'plugins' | 'skills' |
  * row added to the drawer appears on the home rather than silently vanishing.
  */
 export const EXTENSIONS_HOME_TILE_SUMMARIES: Readonly<Record<string, string>> = {
-  sprints: 'Plan, run and merge agent sprints',
+  // The two run doors say the two jobs the one noun used to hold (item 2470):
+  // one turns a goal into a plan, the other works a plan that already exists.
+  workflows: 'Say a goal; an architect plans it',
+  sprints: 'Run work that is already written down',
   design: 'Design systems, rendered from disk',
   plugins: 'MCP servers your agents can call',
   skills: 'Reusable instructions agents pick up',

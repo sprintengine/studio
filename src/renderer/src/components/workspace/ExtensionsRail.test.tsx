@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 // The Extensions drawer (Extensions drawer ruling, 2026-09-05): FIVE rows in a
-// fixed order — Sprints · Design · Plugins · Skills · Agent CLIs — where the
+// fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs — where the
 // last three are three views of the ONE `extensions` surface. This renders the
 // real drawer against the real module registry because the contract is the
 // WIRING: the ruling's order survives whatever `order` the modules declared, a
@@ -135,7 +135,7 @@ assert.equal(
   'Automations takes the sidebar column (the default), because it is not a drawer row',
 )
 
-// ── The five rows, in the ruled order ────────────────────────────────────────
+// ── The six rows, in the ruled order ─────────────────────────────────────────
 // Every module on, explicitly: the resolver filters nav entries by live
 // enablement, and a test store that has never been written to is not the same
 // thing as a machine with the modules turned on.
@@ -150,13 +150,14 @@ act(() => {
 render()
 assert.equal(
   dom.window.document.querySelectorAll('[role="listitem"]').length,
-  5,
-  'the drawer is exactly the ruling’s five rows — an order-1 door that is not one of them does not appear',
+  6,
+  'the drawer is exactly the ruling’s six rows — an order-1 door that is not one of them does not appear',
 )
-// Four labels, not five: the Sprints slot renders the sprint-engine module's
-// OWN row component, which is lazy, and a Suspense boundary in this bundle has
-// nothing to show for it. Its slot is the first listitem above; the order of
-// the four the shell draws is what this asserts.
+// Four labels, not six: the Workflows and Sprints slots render the
+// sprint-engine module's OWN row component (item 2470 gave both doors the same
+// one), which is lazy, and a Suspense boundary in this bundle has nothing to
+// show for it. Their slots are the first two listitems above; the order of the
+// four the shell draws is what this asserts.
 assert.deepEqual(
   rowLabels(),
   ['Design', 'Plugins', 'Skills', 'Agent CLIs'],

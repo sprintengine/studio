@@ -5,7 +5,7 @@ import { registerSprintEngineWorkspaceTypes } from './sprint-engine-workspace-ty
 import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
-import { SprintsGlyph } from '../components/workspace/surfaceGlyphs'
+import { SprintsGlyph, WorkflowsGlyph } from '../components/workspace/surfaceGlyphs'
 import { dispatchRevealTarget } from '../utils/revealTarget'
 import { hasAgentLink } from '../utils/agentBacklogLinks'
 import {
@@ -40,6 +40,19 @@ const SprintsGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/sprints/SprintsGlobalSurface')
 )
 
+// The Workflows door and its surface (item 2470): a SIBLING of Sprints, not a
+// second copy of it. Both entries and both surfaces are the same two components
+// parameterised by a door definition — what differs between the doors is the run
+// partition they filter with and the words they use, and both of those are data.
+const WorkflowsNavEntry = React.lazy(() =>
+  import('../components/workspace/globalSurface/sprints/WorkflowsNavEntry').then((module) => ({
+    default: module.WorkflowsNavEntry,
+  }))
+)
+const WorkflowsGlobalSurface = React.lazy(
+  () => import('../components/workspace/globalSurface/sprints/WorkflowsGlobalSurface')
+)
+
 // The ports a Backlog `sprintengine.run` link opens through (item 1767). It used
 // to find-or-mount a workspace for the run; the Sprints door reads runs from disk
 // by state path, so opening one is now "open the door on it" — no workspace, no
@@ -49,21 +62,42 @@ const SprintsGlobalSurface = React.lazy(
 // unreadable run reports that instead of silently opening the door on whatever
 // the rail happens to lead with.
 async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOpenPorts> {
-  const [{ useWorkspaceStore }, { publishDiagnostic }, { noteSprintDoorSelection }] = await Promise.all([
+  const [
+    { useWorkspaceStore },
+    { publishDiagnostic },
+    { noteSprintDoorSelection },
+    { runDoorFor },
+    { normalizeSprintEngineProjection },
+    { sprintEngineCoordinatorSeat },
+  ] = await Promise.all([
     import('../store/workspaceStore'),
     import('../utils/diagnostics'),
     import('../components/workspace/globalSurface/sprints/sprintDoorRequests'),
+    import('../components/workspace/globalSurface/sprints/runDoors'),
+    import('../utils/sprintengine'),
+    import('../../../shared/sprintengine/state'),
   ])
   return {
     openSprintsDoorOnRun: async (statePath: string): Promise<boolean> => {
+      // The projection is read before opening anything, so a link pointing at a
+      // deleted or unreadable run reports that rather than silently opening a
+      // door on whatever its rail leads with. Since item 2470 the same read also
+      // decides WHICH door: a link that named "sprints" still resolves, but it
+      // resolves to the door the run is actually listed in — opening the other
+      // one would show a rail its own partition keeps the run out of. A run
+      // whose projection will not normalize takes the partition's own fallback,
+      // which is Sprints.
+      let state: ReturnType<typeof normalizeSprintEngineProjection> = null
       try {
         const projection = await window.api.readSprintEngineProjection(statePath)
         if (!projection.ok) return false
+        state = normalizeSprintEngineProjection(projection.data)
       } catch {
         return false
       }
+      const door = runDoorFor({ coordinatorSeat: state ? sprintEngineCoordinatorSeat(state) : null })
       noteSprintDoorSelection(statePath)
-      useWorkspaceStore.getState().openGlobalSurface('sprints')
+      useWorkspaceStore.getState().openGlobalSurface(door)
       return true
     },
     publishDiagnostic,
@@ -110,6 +144,11 @@ export const sprintEngineRendererModule: RendererModule = {
     // null in WorkspaceManager's generic mount guard, falling back to the
     // workspace rather than painting a blank page.
     host.registerSidebarNavEntry({ id: 'sprints', order: 20, Component: SprintsNavEntry })
+    // Workflows sits beside Sprints (item 2470, owner ruling R7). One noun named
+    // two jobs — turning a goal into a plan, and running a plan that already
+    // exists — so there are two doors, each listing only its own runs. The order
+    // puts Workflows first because it is where a goal starts.
+    host.registerSidebarNavEntry({ id: 'workflows', order: 19, Component: WorkflowsNavEntry })
     // The door names itself (label + glyph) even though its drawer row is drawn
     // by SprintsNavEntry above: the Extensions home's Sprints tile is built from
     // the registry like the other four, and a shell that hard-coded "Sprints"
@@ -122,6 +161,12 @@ export const sprintEngineRendererModule: RendererModule = {
       label: 'Sprints',
       Icon: SprintsGlyph,
       Component: SprintsGlobalSurface,
+    })
+    host.registerGlobalSurface({
+      id: 'workflows',
+      label: 'Workflows',
+      Icon: WorkflowsGlyph,
+      Component: WorkflowsGlobalSurface,
     })
     // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
     // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired

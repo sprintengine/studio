@@ -75,8 +75,8 @@ assert.equal(agentCliCountLine({ ready: true, installed: 3, updates: 1 }), '3 in
 // one landing on the wrong tile.
 assert.deepEqual(
   Object.keys(EXTENSIONS_HOME_TILE_SUMMARIES),
-  ['sprints', 'design', 'plugins', 'skills', 'agent-clis'],
-  'the ruling’s five parts, in the ruling’s order',
+  ['workflows', 'sprints', 'design', 'plugins', 'skills', 'agent-clis'],
+  'the ruling’s six parts, in the ruling’s order',
 )
 for (const [id, summary] of Object.entries(EXTENSIONS_HOME_TILE_SUMMARIES)) {
   assert.ok(summary.length > 0 && !summary.endsWith('.'), `${id}: one line, not a sentence`)

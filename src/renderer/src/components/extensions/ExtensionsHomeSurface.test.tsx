@@ -52,7 +52,7 @@ import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { consumePendingExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 
-const RULED_ORDER = ['Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs']
+const RULED_ORDER = ['Workflows', 'Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs']
 
 function mount(element: React.ReactElement): { host: HTMLElement; unmount: () => void } {
   const host = dom.window.document.createElement('div')
@@ -103,6 +103,7 @@ for (const tile of tilesIn(home.host)) {
 // Each tile carries the summary its id was given, on the tile it belongs to —
 // a copy table keyed by the wrong id would swap two sentences silently.
 const summaryFor: Record<string, string> = {
+  Workflows: EXTENSIONS_HOME_TILE_SUMMARIES.workflows,
   Sprints: EXTENSIONS_HOME_TILE_SUMMARIES.sprints,
   Design: EXTENSIONS_HOME_TILE_SUMMARIES.design,
   Plugins: EXTENSIONS_HOME_TILE_SUMMARIES.plugins,
@@ -182,7 +183,10 @@ assert.equal(
 // registry by the function both surfaces call.
 const drawer = mount(React.createElement(ExtensionsRail, { collapsed: false }))
 const drawerRows = () => [...drawer.host.querySelectorAll('[role="listitem"] button')] as HTMLElement[]
-const SHELL_DRAWN = RULED_ORDER.filter((label) => label !== 'Sprints')
+// The two run doors draw their OWN rows (one lazy component, item 2470), so
+// the shell has nothing to paint for either — their slots are there, empty.
+const MODULE_DRAWN_ROWS = ['Workflows', 'Sprints']
+const SHELL_DRAWN = RULED_ORDER.filter((label) => !MODULE_DRAWN_ROWS.includes(label))
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
   SHELL_DRAWN,
@@ -191,7 +195,7 @@ assert.deepEqual(
 assert.equal(
   drawer.host.querySelectorAll('[role="listitem"]').length,
   RULED_ORDER.length,
-  'and the Sprints slot is there, holding its module’s own row',
+  'and the Workflows and Sprints slots are there, holding their module’s own rows',
 )
 
 /** What clicking left behind: the routed surface, and the view it was latched to. */
@@ -249,12 +253,12 @@ act(() => {
 })
 assert.deepEqual(
   tilesIn(home.host).map(nameOf),
-  ['Sprints', 'Plugins', 'Skills', 'Agent CLIs'],
+  ['Workflows', 'Sprints', 'Plugins', 'Skills', 'Agent CLIs'],
   'a tile for a module that is off is absent rather than dead, and the rest keep their order',
 )
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
-  tilesIn(home.host).map(nameOf).filter((label) => label !== 'Sprints'),
+  tilesIn(home.host).map(nameOf).filter((label) => !MODULE_DRAWN_ROWS.includes(label)),
   'and the drawer says the same thing at the same moment',
 )
 

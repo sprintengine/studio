@@ -1627,15 +1627,17 @@ export default function WorkspaceManager() {
 
   useEffect(
     () =>
-      subscribeNewSprintRequests((source) => {
+      subscribeNewSprintRequests((source, door) => {
         closeGlobalSurface()
-        // A request carrying a plan (a "Run a Sprint" from a Backlog door row)
-        // opens the New sprint dialog with that selection already made, exactly
-        // as the per-project panel's own action does; the rail's bare "New
-        // sprint" opens it with nothing chosen.
+        // A request carrying a plan (a "Run a Sprint" from a Backlog door row,
+        // or the Sprints door's own inline work picker) opens the New sprint
+        // dialog with that selection already made, exactly as the per-project
+        // panel's own action does; a bare "New" opens it with nothing chosen.
         if (source) openFuturePlanWorkspace(source)
         else openNewSprintDialog()
-        claimSprintCreationForDoor()
+        // Claimed for the door that ASKED (item 2470). There are two of them, and
+        // a run created from one belongs back in it.
+        claimSprintCreationForDoor(door)
       }),
     [closeGlobalSurface, openFuturePlanWorkspace, openNewSprintDialog],
   )

@@ -1425,6 +1425,40 @@ async function main(): Promise<void> {
   await act(async () => {
     root7.unmount()
   })
+
+  // ── The Sprints door lists only sprints (item 2470) ───────────────────────
+  // The index is one read for both doors, and the partition is what separates
+  // them. A run whose coordinator seat is NAMED is a workflow: it must not be in
+  // this rail at all — not greyed, not badged, absent — because the door beside
+  // this one is where it lives. The classification reads the seat the summary
+  // carries, never a role name (`runDoors.ts`).
+  listed = [
+    summary({ teamSlug: 'graph-already-written', coordinatorSeat: { agentId: 'coordinator' } }),
+    summary({
+      teamSlug: 'goal-to-be-planned',
+      coordinatorSeat: { role: 'architect', agentId: 'architect' },
+    }),
+    // A run whose projection could not be read states no kind at all, and must
+    // not vanish: it stays in the door every run has always been listed in.
+    summary({ teamSlug: 'unreadable-run', runtimeState: 'unknown', coordinatorSeat: null }),
+  ]
+  const partitionRoot = createRoot(container)
+  await act(async () => {
+    partitionRoot.render(surface())
+  })
+  await settle()
+  const sprintsRail = container.querySelector('aside[aria-label="Sprints list"]')?.textContent ?? ''
+  assert.ok(sprintsRail.includes('graph-already-written'), 'a roleless run is a sprint and lists here')
+  assert.ok(sprintsRail.includes('unreadable-run'), 'and so does a run that cannot say what it is')
+  assert.ok(
+    !sprintsRail.includes('goal-to-be-planned'),
+    'a run with a named coordinator seat belongs to Workflows and is absent from this rail',
+  )
+  console.log('ok - the Sprints door lists only its own runs, and loses none of them')
+  await act(async () => {
+    partitionRoot.unmount()
+  })
+
   console.log('all Sprints surface composition tests passed')
 }
 

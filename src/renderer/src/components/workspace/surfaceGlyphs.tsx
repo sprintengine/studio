@@ -25,6 +25,29 @@ export function SprintsGlyph({ className }: { className?: string }) {
   return <SprintEngineFrond className={className} tone="current" />
 }
 
+// Workflows: one goal fanning out into the work it turns into (item 2470). Its
+// concept is the split itself — a single thing on the left becoming several on
+// the right — which is what separates this door from Sprints, where the several
+// were written down before the run began. Drawn on the same 16 box in the icon
+// family's round-stroke idiom, so the two rows read as siblings in the drawer.
+export function WorkflowsGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <circle cx="3.6" cy="8" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M5.3 8h1.5M6.8 8c1.8 0 1.8-4 3.6-4M6.8 8h3.6M6.8 8c1.8 0 1.8 4 3.6 4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="11.9" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11.9" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11.9" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
+}
+
 // Plugins: a link to an external capability. Moved verbatim from the retired
 // ExtensionsNavEntry (where it was the Extensions door's row icon).
 export function PluginsGlyph({ className }: { className?: string }) {

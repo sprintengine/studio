@@ -9,7 +9,9 @@ import {
   deriveSprintEngineRepoMergeRollup,
   isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
+  sprintEngineCoordinatorSeat,
   sprintEngineHumanInputTasks,
+  type SprintEngineCoordinatorSeat,
 } from './state'
 
 // Renderer broadcast channel: main pushes one of these whenever a run's
@@ -71,6 +73,20 @@ export type SprintRunSummary = {
   updatedAt: string | null
   /** Short "Started from" descriptor (Epic / Backlog item / Product plan …), or null. */
   sourceLabel: string | null
+  /**
+   * Who coordinates this run, as {@link sprintEngineCoordinatorSeat} resolves it
+   * from the run's own `configuredRoles` — a SEAT, never a role-name comparison
+   * (epic 2058). It rides the index summary because the run partition that sorts
+   * runs into the Workflows and Sprints doors (item 2470) reads the rail's
+   * summaries and never the full projection: a run whose coordinator's seat is
+   * NAMED is one an architect plans, and a run whose coordinator has no role is
+   * one whose work was already written down.
+   *
+   * `null` when the projection could not be read, and absent from a payload an
+   * older build produced. Both mean "this run does not state its kind", which the
+   * partition answers for rather than guessing at — see `runDoors.ts`.
+   */
+  coordinatorSeat?: SprintEngineCoordinatorSeat | null
   /** Present only when {@link runtimeState} is `unknown`: why the projection could not be read. */
   unknownReason?: string
   /**
@@ -194,6 +210,11 @@ export function deriveSprintRunSummary(input: {
       startedAt: null,
       updatedAt: input.updatedAtFallback ?? null,
       sourceLabel: null,
+      // An unreadable projection has no `configuredRoles` to resolve a seat from,
+      // and `sprintEngineCoordinatorSeat` answers "architect" for a state it
+      // cannot read. Saying null instead keeps "we do not know" distinct from
+      // "this run is architect-coordinated".
+      coordinatorSeat: null,
       unknownReason: input.unknownReason ?? 'Run projection could not be read.',
       ...(input.unknownKind ? { unknownKind: input.unknownKind } : {}),
     }
@@ -209,6 +230,7 @@ export function deriveSprintRunSummary(input: {
     taskCounts: deriveTaskCounts(state),
     repoRollup: deriveRepoRollup(state),
     needsInputCount: sprintEngineHumanInputTasks(state).length,
+    coordinatorSeat: sprintEngineCoordinatorSeat(state),
     startedAt: state.creation?.createdAt ?? state.source?.capturedAt ?? null,
     updatedAt: state.updatedAt ?? state.creation?.updatedAt ?? input.updatedAtFallback ?? null,
     sourceLabel: deriveSourceLabel(state),

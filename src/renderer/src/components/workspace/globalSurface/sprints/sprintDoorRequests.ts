@@ -1,6 +1,7 @@
 import type { FuturePlanWorkspaceSource } from '../../../../types/workspace'
+import type { RunDoorId } from './runDoors'
 
-// The Sprints door ↔ shell seam.
+// The run doors ↔ shell seam.
 //
 // A door-routed global surface is zero-prop by contract, so there is no prop path
 // from the surface to the shell chrome that owns workspace creation and workspace
@@ -13,60 +14,108 @@ import type { FuturePlanWorkspaceSource } from '../../../../types/workspace'
 // WorkspaceManager, which is mounted for the entire life of the window, so an
 // event can never be dispatched before someone is listening.
 
-// ── New sprint (items 1763 + 1765) ───────────────────────────────────────────
-// The creation wizard is shell chrome; the door asks and the shell opens it on
-// the Sprint mode with an explicit primary-project picker.
+// ── New run (items 1763 + 1765, two doors since 2470) ────────────────────────
+// The creation dialog is shell chrome; the door asks and the shell opens it. The
+// event carries WHICH door asked, because a run started at a door comes back to
+// that door (item 1765) and there are two of them now — a workflow that returned
+// to Sprints would land in a list its own partition keeps it out of, which reads
+// as a run that was never created.
 
 export const NEW_SPRINT_REQUEST_EVENT = 'multicode:new-sprint'
 
 type NewSprintRequestDetail = {
   /**
-   * The plan to seed the wizard from, when the request came from a backlog item
-   * rather than the rail's own "New sprint". Without it the wizard opens on the
-   * Sprint mode with nothing chosen, which is what the rail asks for.
+   * The plan to seed the dialog from, when the request came from a backlog item
+   * rather than a door's own "New …". Without it the dialog opens with nothing
+   * chosen, which is what the rail's bare New asks for.
    */
   source?: FuturePlanWorkspaceSource
+  /** The door that asked. Absent on an older caller, which meant Sprints. */
+  door?: RunDoorId
 }
 
-export function requestNewSprint(source?: FuturePlanWorkspaceSource): void {
-  const detail: NewSprintRequestDetail = source ? { source } : {}
+export function requestNewSprint(
+  source?: FuturePlanWorkspaceSource,
+  door: RunDoorId = 'sprints',
+): void {
+  const detail: NewSprintRequestDetail = { ...(source ? { source } : {}), door }
   window.dispatchEvent(new CustomEvent(NEW_SPRINT_REQUEST_EVENT, { detail }))
 }
 
 export function subscribeNewSprintRequests(
-  onRequest: (source: FuturePlanWorkspaceSource | null) => void,
+  onRequest: (source: FuturePlanWorkspaceSource | null, door: RunDoorId) => void,
 ): () => void {
   const handler = (event: Event): void => {
     const detail = (event as CustomEvent<NewSprintRequestDetail>).detail
-    onRequest(detail?.source ?? null)
+    onRequest(detail?.source ?? null, detail?.door === 'workflows' ? 'workflows' : 'sprints')
   }
   window.addEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
   return () => window.removeEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
 }
 
-// ── The door's claim on the next sprint creation (items 1765 + 1811) ─────────
-// A run started at the door belongs to the door: creating it comes back to
-// Sprints rather than dropping the operator into the workspace it resides in. The
-// claim is made when the door asks for the New sprint dialog and spent when a
-// run is created — but the dialog can also go away without creating anything
-// (cancel, Escape, Settings opening over it), and a claim that outlives its
-// dialog bounces the NEXT creation to the door from wherever it was started
-// (item 1811). Every one of those routes releases it, so the invariant is: the
-// claim is set only while the dialog the door opened is still on screen.
-let sprintCreationClaimedByDoor = false
+// ── What the inline new-row collected (item 2470) ────────────────────────────
+//
+// The `+` at the end of each list opens INLINE, on the row where the plus was —
+// a modal is for interrupting somebody, and somebody who just pressed new is not
+// being interrupted (owner ruling R7). What the row collects is the one thing
+// its door is about: a goal on Workflows, the work itself on Sprints.
+//
+// It creates nothing. Creation is the existing path and stays there — the Sprints
+// row hands over a fully-built `FuturePlanWorkspaceSource`, exactly the seed a
+// Backlog row's "Run a Sprint" builds, and the Workflows row hands over its goal
+// and its roster through this latch for the dialog to open on. A second creation
+// path would be a second set of rules about connectors, isolation, rosters and
+// backlog links, which is precisely what "no new creation logic" forbids.
+//
+// A latch rather than an event, for the same reason the selection below is one:
+// the door hands it over BEFORE the dialog mounts, and the dialog reads it once.
+export type SprintDoorDraft = {
+  /** What the operator said they want done. Empty when they said nothing. */
+  goal: string
+  /** The roster they picked, or null for "whatever the dialog would default to". */
+  rosterId: string | null
+}
 
-export function claimSprintCreationForDoor(): void {
-  sprintCreationClaimedByDoor = true
+let pendingDraft: SprintDoorDraft | null = null
+
+export function noteSprintDoorDraft(draft: SprintDoorDraft): void {
+  pendingDraft = draft
+}
+
+/** What the inline row collected, once. Null when nobody filled one in. */
+export function consumeSprintDoorDraft(): SprintDoorDraft | null {
+  const draft = pendingDraft
+  pendingDraft = null
+  return draft
+}
+
+// ── The door's claim on the next run creation (items 1765 + 1811 + 2470) ─────
+// A run started at a door belongs to that door: creating it comes back there
+// rather than dropping the operator into the workspace it resides in. The claim
+// is made when a door asks for the New sprint dialog and spent when a run is
+// created — but the dialog can also go away without creating anything (cancel,
+// Escape, Settings opening over it), and a claim that outlives its dialog bounces
+// the NEXT creation to the door from wherever it was started (item 1811). Every
+// one of those routes releases it, so the invariant is: the claim is set only
+// while the dialog the door opened is still on screen.
+//
+// It records WHICH door since item 2470, because the answer decides where the
+// operator is put down. `null` is "nobody claimed it", which is a creation
+// started anywhere else and stays where it was started.
+let sprintCreationClaimedByDoor: RunDoorId | null = null
+
+export function claimSprintCreationForDoor(door: RunDoorId = 'sprints'): void {
+  sprintCreationClaimedByDoor = door
 }
 
 export function releaseSprintCreationDoorClaim(): void {
-  sprintCreationClaimedByDoor = false
+  sprintCreationClaimedByDoor = null
 }
 
-/** True when the door opened the wizard this creation came from. Reads once. */
-export function consumeSprintCreationDoorClaim(): boolean {
+/** The door that opened the dialog this creation came from. Reads once. */
+export function consumeSprintCreationDoorClaim(): RunDoorId | null {
   const claimed = sprintCreationClaimedByDoor
-  sprintCreationClaimedByDoor = false
+  sprintCreationClaimedByDoor = null
   return claimed
 }
 
@@ -124,7 +173,7 @@ export function subscribeCloseSprintWorkspaceRequests(
 
 // ── The run the door should open on ──────────────────────────────────────────
 //
-// Two callers hand the door a run before it mounts:
+// Two callers hand a door a run before it mounts:
 //
 // - Creating a sprint from the door (item 1765). A sprint started here belongs to
 //   the door, not to the workspace it happens to reside in, so creating one comes

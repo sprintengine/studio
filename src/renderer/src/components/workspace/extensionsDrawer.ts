@@ -2,9 +2,14 @@ import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 
 // What the Extensions drawer IS, as data (Extensions drawer ruling, 2026-09-05).
 //
-// FIVE rows, in a fixed order the owner ruled:
+// SIX rows, in a fixed order the owner ruled:
 //
-//   Sprints · Design · Plugins · Skills · Agent CLIs
+//   Workflows · Sprints · Design · Plugins · Skills · Agent CLIs
+//
+// It was five until item 2470 split the run doors in two (owner ruling R7,
+// 2026-09-06): one noun, "sprint", named two jobs that have nothing to do with
+// each other, so Workflows and Sprints are separate rows leading to separate
+// lists. Workflows leads because it is where a goal starts.
 //
 // Registry `order` does not decide it. The earlier cut sorted doors and modal
 // surfaces together by their declared `order`, which meant the column a person
@@ -42,6 +47,7 @@ export type DrawerRow =
   | { kind: 'view'; surfaceId: string; viewId: string }
 
 export const DRAWER_ROWS: readonly DrawerRow[] = [
+  { kind: 'nav', entryId: 'workflows' },
   { kind: 'nav', entryId: 'sprints' },
   { kind: 'surface', surfaceId: 'design' },
   { kind: 'view', surfaceId: 'extensions', viewId: 'plugins' },
@@ -65,8 +71,9 @@ export const EXTENSIONS_DRAWER_SURFACE_IDS: readonly string[] = [
     EXTENSIONS_HOME_SURFACE_ID,
     // A nav row's entry id IS its surface id — that pairing is the door contract
     // (`registerSidebarNavEntry` + `registerGlobalSurface` under one id), which
-    // is why Sprints belongs here without a second list naming it. Deduplicated
-    // because three of the five rows are three VIEWS of one surface.
+    // is why Workflows and Sprints belong here without a second list naming
+    // them. Deduplicated because three of the six rows are three VIEWS of one
+    // surface.
     ...DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)),
   ]),
 ]

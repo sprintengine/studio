@@ -13,11 +13,14 @@ import {
   surfaceTakesSidebarColumn,
 } from './extensionsDrawer'
 
-// ── The five rows, in the ruled order ────────────────────────────────────────
+// ── The six rows, in the ruled order ─────────────────────────────────────────
+// Five until item 2470 split the run doors in two (owner ruling R7): Workflows
+// and Sprints are separate rows leading to separate lists, and Workflows leads
+// because it is where a goal starts.
 assert.deepEqual(
   DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.kind === 'surface' ? row.surfaceId : row.viewId)),
-  ['sprints', 'design', 'plugins', 'skills', 'agent-clis'],
-  'the drawer is Sprints · Design · Plugins · Skills · Agent CLIs, and the shell holds that order',
+  ['workflows', 'sprints', 'design', 'plugins', 'skills', 'agent-clis'],
+  'the drawer is Workflows · Sprints · Design · Plugins · Skills · Agent CLIs, and the shell holds that order',
 )
 assert.deepEqual(
   DRAWER_ROWS.filter((row) => row.kind === 'view').map((row) => (row.kind === 'view' ? row.surfaceId : '')),
@@ -30,7 +33,7 @@ assert.deepEqual(
 // and leaving lands back on the drawer rather than on the workspaces tree.
 assert.deepEqual(
   [...EXTENSIONS_DRAWER_SURFACE_IDS].sort(),
-  ['design', 'extensions', 'extensions-home', 'sprints'],
+  ['design', 'extensions', 'extensions-home', 'sprints', 'workflows'],
   'the home the glyph opens, plus every surface a row leads to',
 )
 assert.equal(EXTENSIONS_HOME_SURFACE_ID, 'extensions-home')

@@ -10,11 +10,13 @@ import {
   type SprintRailRow,
   type SprintSort,
 } from './railState'
+import { RunDoorNewRow } from './RunDoorNewRow'
+import { SPRINTS_DOOR, type RunDoorDefinition } from './runDoorCopy'
 
-// The Sprints surface rail (MC-1838): the list IS the inbox. Runs group under
-// "Needs you" (waiting on a person, honest since-dates), "Active" (genuinely
-// live), and "Recent" (everything else) — there is no separate waiting strip
-// pinned above the canvas. "New sprint" leads the rail, then the project lens,
+// Both run doors' rail (MC-1838, two doors since item 2470): the list IS the
+// inbox. Runs group under "Needs you" (waiting on a person, honest since-dates),
+// "Active" (genuinely live), and "Recent" (everything else) — there is no
+// separate waiting strip pinned above the canvas. New leads the rail, then the project lens,
 // then the search field with the sort axis behind the filter glyph — the
 // Backlog door's toolbar order (MC-1816), so the project filter sits in the
 // same place on both doors instead of leading the toolbar there and hiding
@@ -23,6 +25,13 @@ import {
 // A thin adapter over the shared SurfaceRail (backlog 1731 / T20) — list
 // semantics, ↑/↓ + j/k navigation, and row layout are the substrate's. Row
 // building, grouping, filtering, and search matching are `railState`'s.
+//
+// One rail for both doors, parameterised by the door definition: every word that
+// differs between Workflows and Sprints comes from `runDoorCopy`, and the runs
+// have already been partitioned by the surface before they reach here. The
+// door's one sentence sits at the top, under its name, and the `+` sits at the
+// END of the list where the mockup puts it — the rail's New-at-top affordance
+// stays where it has always been, so the Sprints door keeps everything it had.
 
 const ALL_PROJECTS = ' all'
 
@@ -38,6 +47,7 @@ export function sprintRowTooltip(row: SprintRailRow): string {
 }
 
 export function SprintsRail({
+  door = SPRINTS_DOOR,
   runs,
   selectedStatePath,
   projectFilter,
@@ -49,6 +59,9 @@ export function SprintsRail({
   onSort,
   onCreate,
 }: {
+  /** Which door this rail is. Defaults to Sprints, the door that predates the
+   *  split — so a caller that never heard of the other one still gets its copy. */
+  door?: RunDoorDefinition
   runs: ReadonlyArray<SprintRunSummary>
   selectedStatePath: string | null
   /** Project root the rail is narrowed to, or null for every project. */
@@ -102,7 +115,7 @@ export function SprintsRail({
   const projectScope: SurfaceRailScope | undefined =
     chips.length > 1 || strandedFilter
       ? {
-          ariaLabel: 'Filter by project',
+          ariaLabel: door.scopeAriaLabel,
           items: [
             { value: ALL_PROJECTS, label: `All projects · ${runs.length}` },
             ...chips.map((chip) => ({
@@ -110,7 +123,7 @@ export function SprintsRail({
               label: `${chip.label} · ${chip.runCount}`,
             })),
             ...(strandedFilter
-              ? [{ value: strandedFilter, label: `${basename(strandedFilter)} · no sprints` }]
+              ? [{ value: strandedFilter, label: `${basename(strandedFilter)} · no ${door.nounPlural}` }]
               : []),
           ],
           value: projectFilter ?? ALL_PROJECTS,
@@ -130,27 +143,37 @@ export function SprintsRail({
   ]
   return (
     <SurfaceRail
-      label="Sprints"
+      label={door.label}
+      // The difference between the two doors, stated once, under the door's
+      // name — and never again anywhere on the surface (item 2470).
+      intro={door.tagline}
       rows={rows}
       groups={groups}
       selectedId={selectedStatePath}
       onSelect={onSelect}
-      newAffordance={{ label: 'New sprint', onActivate: onCreate }}
+      newAffordance={{ label: door.newLabel, onActivate: onCreate }}
       scope={projectScope}
       search={{
         value: search,
         onChange: onSearch,
-        placeholder: 'Search sprints…',
-        ariaLabel: 'Search sprints across every project',
+        placeholder: door.search.placeholder,
+        ariaLabel: door.search.ariaLabel,
       }}
-      filter={{ ariaLabel: 'Filter and sort sprints', groups: filterGroups }}
+      filter={{ ariaLabel: door.filterAriaLabel, groups: filterGroups }}
       // The lens is narrower than the runs behind it. Say so, rather than
-      // letting an empty rail read as "you have no sprints". The substrate
+      // letting an empty rail read as "you have none". The substrate
       // renders it under the head at the row inset; it used to be a sibling of
       // the rail, which put it at the bottom of the column (MC-2101).
       emptyNotice={
-        runs.length > 0 ? (search.trim() ? 'No sprints match.' : 'No sprints in this project.') : undefined
+        runs.length > 0
+          ? (search.trim() ? door.emptyRail.searched : door.emptyRail.scoped)
+          : undefined
       }
+      // The `+` at the end of the list, opening inline on the row where it was
+      // (owner ruling R7). It rides `afterRows` because that is the slot INSIDE
+      // the rail's one scrollport — a form beside the list would scroll
+      // separately from the list it belongs to.
+      afterRows={<RunDoorNewRow door={door} projectFilter={projectFilter} />}
     />
   )
 }
