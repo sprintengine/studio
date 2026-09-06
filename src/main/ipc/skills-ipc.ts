@@ -4,6 +4,14 @@ import type {
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillInstalledPluginsInput,
+  SkillInstalledPluginsOutcome,
+  SkillPluginInstallInput,
+  SkillPluginInstallOutcome,
+  SkillPluginScanLinkedInput,
+  SkillPluginScanLinkedOutcome,
+  SkillPluginUninstallInput,
+  SkillPluginUninstallOutcome,
   SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
@@ -13,6 +21,7 @@ import type {
   SkillScanOutcome,
   SkillSearchInput,
   SkillSearchOutcome,
+  SkillSourceUpdateCheck,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -58,5 +67,25 @@ export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): voi
   ipcMain.handle(
     'skills:list-popular-repos',
     (): Promise<SkillPopularReposOutcome> => service.listPopularRepos()
+  )
+  ipcMain.handle(
+    'skills:scan-linked-plugin',
+    (_, input: SkillPluginScanLinkedInput): Promise<SkillPluginScanLinkedOutcome> => service.scanLinkedPlugin(input)
+  )
+  ipcMain.handle(
+    'skills:install-plugin',
+    (_, input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome> => service.installPlugin(input)
+  )
+  ipcMain.handle(
+    'skills:uninstall-plugin',
+    (_, input: SkillPluginUninstallInput): Promise<SkillPluginUninstallOutcome> => service.uninstallPlugin(input)
+  )
+  ipcMain.handle(
+    'skills:list-installed-plugins',
+    (_, input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome> => service.listInstalledPlugins(input)
+  )
+  ipcMain.handle(
+    'skills:check-source-updates',
+    (): Promise<SkillSourceUpdateCheck> => service.checkSourceUpdates()
   )
 }

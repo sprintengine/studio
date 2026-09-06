@@ -1,7 +1,7 @@
 # First-Party Marketplace Seed Registry
 
 This directory is the source registry content for the curated first-party
-marketplace seed set. When published to `hotstacklabs/sprintengine-marketplace`, this
+marketplace seed set. When published to `sprintengine/studio-releases`, this
 directory is the repository root.
 
 - Local registry path: `resources/marketplace/marketplace.json`
@@ -11,7 +11,7 @@ directory is the repository root.
 - Publish CI root workflow:
   `resources/marketplace/.github/workflows/marketplace-registry.yml`
 - Remote publication target for the T2.1 `RegistryClient` default:
-  `https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/marketplace.json`
+  `https://raw.githubusercontent.com/sprintengine/studio-releases/main/marketplace.json`
 
 Publishing keeps `marketplace.json`, `plugins/`, `icons/`,
 `trusted-publishers.json`, and `.github/workflows/marketplace-registry.yml` at
@@ -61,7 +61,7 @@ is no longer the *only* source the app will consume:
   host (`github.com`, `api.github.com`, `raw.githubusercontent.com`, plus an
   optional `MULTICODE_MARKETPLACE_EXTRA_HOSTS` list), covering the entry URL and
   every followed per-file `download_url`. First-party seed staging is still
-  scoped to `hotstacklabs/sprintengine-marketplace` (via
+  scoped to `sprintengine/studio-releases` (via
   `src/shared/marketplace/canonical-source.ts`), not implied by the source
   string.
 - **Widened registry schema** (`src/shared/marketplace/manifest.ts`): registry

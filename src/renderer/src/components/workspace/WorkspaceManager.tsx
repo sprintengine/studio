@@ -18,7 +18,7 @@ import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelF
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import { hostedModelAdditions } from '../../../../shared/hosted-model-feed'
 import type { CliVersionAdvisory } from '../../../../shared/electron-api'
-import { cliUpdateNotice, newModelsNotice, retiredModelNotices, updateReadyNotice } from '../../utils/feedNotifications'
+import { cliUpdateNotice, newModelsNotice, retiredModelNotices, sourceUpdatesNotice, updateReadyNotice } from '../../utils/feedNotifications'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
@@ -1568,6 +1568,26 @@ export default function WorkspaceManager() {
   // so plugins installed or removed while the user was away show up without an
   // app reload. Background mode avoids a loading flicker; refreshPluginCatalog
   // dedups concurrent calls during rapid focus changes.
+  // Plugin sources: the hourly check (backlog/2026-09-05-plugin-sources.md,
+  // "Update notifications") says which repositories moved past the commit
+  // they were scanned at. Only drift the check DISCOVERED is news — a source
+  // already marked stays marked on its rail row and is not announced again.
+  // Button-free, like every toast but the CLI update; Sync lives on the source.
+  useEffect(() => {
+    if (typeof window.api?.onSkillSourcesUpdated !== 'function') return
+    return window.api.onSkillSourcesUpdated((check) => {
+      const notice = sourceUpdatesNotice(check)
+      if (!notice) return
+      showToast({ tone: 'accent', title: notice.title, description: notice.description })
+      publishDiagnosticSync({
+        level: 'info',
+        source: 'marketplace',
+        title: notice.title,
+        message: notice.description,
+      })
+    })
+  }, [])
+
   // The hosted model feed: the disk copy at boot so pickers never wait on the
   // network, then every push from main (the poller, or Settings "Check now")
   // replaces the hosted layer and every picker re-derives its rows.

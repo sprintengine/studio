@@ -1,7 +1,7 @@
 // The words for the feed's notices (backlog/2026-09-04-hosted-update-and-model-
 // feed.md, "Notification rules"). Pure: the store hands in what it knows, this
 // hands back titles and lines, and the tests hold the table.
-import type { CliVersionAdvisory } from '../../../shared/electron-api'
+import type { CliVersionAdvisory, SkillSourceUpdateCheck } from '../../../shared/electron-api'
 import type { HostedModel, HostedModelFeed } from '../../../shared/hosted-model-feed'
 
 export type Notice = {
@@ -81,5 +81,21 @@ export function updateReadyNotice(appName: string, version: string | null): Noti
   return {
     title: version ? `${appName} ${version} is ready` : `${appName} update is ready`,
     description: 'Installs the next time you quit.',
+  }
+}
+
+// Plugin sources (backlog/2026-09-05-plugin-sources.md, "Update notifications"):
+// one notice per check that DISCOVERED drift, naming up to three repositories
+// and then "and N more". Sources already known to be behind are not news
+// again; their rail row keeps the mark until they are synced.
+export function sourceUpdatesNotice(check: Pick<SkillSourceUpdateCheck, 'sources' | 'newlyChanged'>): Notice | null {
+  const fresh = check.sources.filter((source) => check.newlyChanged.includes(source.sourceId))
+  if (fresh.length === 0) return null
+  const named = fresh.slice(0, 3).map((source) => source.name)
+  const rest = fresh.length - named.length
+  const list = rest > 0 ? `${named.join(', ')}, and ${rest} more` : joinNames(named)
+  return {
+    title: fresh.length === 1 ? 'A plugin source has updates' : `${fresh.length} plugin sources have updates`,
+    description: `${list} ${fresh.length === 1 ? 'has' : 'have'} moved on since you scanned. Open Plugins and press Sync to take the changes.`,
   }
 }

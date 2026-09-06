@@ -13,9 +13,11 @@ import {
   BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
   parseSkillFrontmatter,
+  scanPlugins,
   SKILL_ENTRY_FILE,
   skillSourceMonogram,
   type ScanResult,
+  type ScannedPlugin,
   type ScannedSkill,
   type SkillFileRef,
   type SkillHarness,
@@ -26,6 +28,14 @@ import type {
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillInstalledPluginsInput,
+  SkillInstalledPluginsOutcome,
+  SkillPluginInstallInput,
+  SkillPluginInstallOutcome,
+  SkillPluginScanLinkedInput,
+  SkillPluginScanLinkedOutcome,
+  SkillPluginUninstallInput,
+  SkillPluginUninstallOutcome,
   SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
@@ -35,6 +45,7 @@ import type {
   SkillScanOutcome,
   SkillSearchInput,
   SkillSearchOutcome,
+  SkillSourceUpdateCheck,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -56,9 +67,13 @@ import {
   type SkillRepoRef,
 } from './github-tree'
 import { installSkill, uninstallSkill } from './install'
+import { installPlugin, readEnabledClaudePlugins, uninstallPlugin } from './install-plugin'
 import { scanLocalSkillSource } from './local-source'
+import { createPluginInstallStore, type PluginInstallStore } from './plugin-install-store'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
+import { readPluginComponents, scanPluginTree } from './scan-plugins'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
+import { createSourceUpdateChecker } from './source-updates'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills } from './sync'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
@@ -78,6 +93,11 @@ export type SkillsServiceDeps = {
   listWorkspaceRoots?: () => string[]
   github?: SkillGithubOptions
   discovery?: SkillDiscoveryOptions
+  /** CLI ids the MCP servers a plugin ships are written for; defaults to the normaliser's own. */
+  mcpClients?: () => Promise<string[]>
+  pluginInstallStore?: PluginInstallStore
+  /** Where a check's result goes besides the caller — every window, in production. */
+  broadcastSourceUpdates?: (check: SkillSourceUpdateCheck) => void
 }
 
 export type SkillsService = {
@@ -91,6 +111,12 @@ export type SkillsService = {
   syncSource(input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome>
   search(input: SkillSearchInput): Promise<SkillSearchOutcome>
   listPopularRepos(): Promise<SkillPopularReposOutcome>
+  scanLinkedPlugin(input: SkillPluginScanLinkedInput): Promise<SkillPluginScanLinkedOutcome>
+  installPlugin(input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome>
+  uninstallPlugin(input: SkillPluginUninstallInput): Promise<SkillPluginUninstallOutcome>
+  listInstalledPlugins(input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome>
+  /** The hourly update check (source-updates.ts), also run on demand. Broadcasts its result. */
+  checkSourceUpdates(): Promise<SkillSourceUpdateCheck>
 }
 
 export function createSkillsService(
@@ -103,6 +129,13 @@ export function createSkillsService(
   const listHarnesses = deps.listHarnesses ?? (() => resolveInstalledSkillHarnesses())
   const localScans = new Map<string, ScanResult>()
   const discovery = createSkillDiscoveryClient(deps.discovery)
+  const installs = deps.pluginInstallStore ?? createPluginInstallStore(userDataDir)
+  const mcpClients = deps.mcpClients ?? (async () => ['claude-code', 'codex'])
+  const updateChecker = createSourceUpdateChecker({
+    store,
+    resolveToken: deps.resolveToken,
+    github: deps.github,
+  })
 
   const localRootFor = (id: string): string | null =>
     id === BUILTIN_SKILL_SOURCE_ID ? builtinRoot() : id === CONNECTORS_SKILL_SOURCE_ID ? connectorRoot() : null
@@ -289,6 +322,9 @@ export function createSkillsService(
       try {
         const github = { ...deps.github, token: await deps.resolveToken() }
         rescan = await scanGithubSource(ref, source.id, github)
+        // Synced to head: the head the last check recorded IS this commit now,
+        // so the drift mark clears with the scan rather than an hour later.
+        rescan.source = { ...rescan.source, headSha: rescan.source.commitSha, headCheckedAt: new Date().toISOString() }
         await store.putSource(rescan.source, rescan.scan)
       } catch (error) {
         return { ok: false, message: describeFetchError(error) }
@@ -332,6 +368,206 @@ export function createSkillsService(
     async listPopularRepos() {
       return discovery.listPopularSkillRepos(await deps.resolveToken())
     },
+
+    scanLinkedPlugin: scanLinkedPluginNow,
+    installPlugin: installPluginNow,
+    uninstallPlugin: uninstallPluginNow,
+    listInstalledPlugins: listInstalledPluginsNow,
+
+    async checkSourceUpdates() {
+      const check = await updateChecker.check()
+      deps.broadcastSourceUpdates?.(check)
+      return check
+    },
+  }
+
+  /**
+   * A linked plugin lives in another repository, and is read when opened:
+   * that repository's tree at the commit the marketplace pinned (or its head
+   * when it pinned none), the plugin's directory in it, and its skills. The
+   * result is written back into the source's scan so the read happens once.
+   */
+  async function scanLinkedPluginNow(input: SkillPluginScanLinkedInput): Promise<SkillPluginScanLinkedOutcome> {
+    const source = await store.getSource(input.sourceId ?? '')
+    if (!source) return { ok: false, message: 'That source is not in your list.' }
+    const scan = await scanFor(source.id)
+    const plugin = scanPlugins(scan ?? { plugins: [] }).find((candidate) => candidate.id === input.pluginId)
+    if (!scan || !plugin) return { ok: false, message: 'That plugin is not in this source.' }
+    if (plugin.origin.kind !== 'linked') return { ok: true, source, scan, plugin }
+    if (plugin.origin.repo === '') {
+      return { ok: false, message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.` }
+    }
+    const [owner, repo] = plugin.origin.repo.split('/')
+    const ref: SkillRepoRef = { owner, repo, ref: plugin.origin.ref }
+    try {
+      const github = { ...deps.github, token: await deps.resolveToken() }
+      const commitSha = plugin.origin.sha || (await resolveSkillRepoCommit(ref, github))
+      const tree = await fetchSkillRepoTree(ref, commitSha, github)
+      const skillScan = scanSkillTree({ entries: tree.entries, commitSha })
+      const dir = plugin.origin.path
+      const inDir = skillScan.skills.filter(
+        (skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`)
+      )
+      const skills = await enrichSkills(inDir, (skill) =>
+        fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
+          bytes.toString('utf8')
+        )
+      )
+      const read = await readPluginComponents({
+        dir,
+        entries: tree.entries,
+        skills,
+        readFile: (path) =>
+          fetchSkillRepoFile(ref, commitSha, path, github)
+            .then((bytes) => bytes.toString('utf8'))
+            .catch(() => null),
+      })
+      const updated: ScannedPlugin = {
+        ...plugin,
+        version: plugin.version || read.manifest?.version || '',
+        description: plugin.description || read.manifest?.description || '',
+        author: plugin.author || read.manifest?.author || '',
+        homepage: plugin.homepage || read.manifest?.homepage || '',
+        origin: { ...plugin.origin, sha: commitSha },
+        componentsKnown: true,
+        components: {
+          ...read.components,
+          mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
+        },
+      }
+      const nextScan: ScanResult = {
+        ...scan,
+        plugins: scanPlugins(scan).map((candidate) => (candidate.id === plugin.id ? updated : candidate)),
+      }
+      await store.putSource(source, nextScan)
+      return { ok: true, source, scan: nextScan, plugin: updated }
+    } catch (error) {
+      return { ok: false, message: describeFetchError(error) }
+    }
+  }
+
+  async function installPluginNow(input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome> {
+    const workspaceRoot = input.workspaceRoot?.trim() ?? ''
+    if (!workspaceRoot) {
+      return { ok: false, message: 'Open a workspace to install a plugin — plugins install into a workspace, not the app.' }
+    }
+    if (!existsSync(workspaceRoot)) return { ok: false, message: 'That workspace folder no longer exists.' }
+    const source = await store.getSource(input.sourceId ?? '')
+    if (!source) return { ok: false, message: 'That source is not in your list.' }
+    let scan = await scanFor(source.id)
+    let plugin = scanPlugins(scan ?? { plugins: [] }).find((candidate) => candidate.id === input.pluginId)
+    if (!scan || !plugin) return { ok: false, message: 'That plugin is not in this source.' }
+    if (!plugin.componentsKnown) {
+      const read = await scanLinkedPluginNow({ sourceId: source.id, pluginId: plugin.id })
+      if (!read.ok) return read
+      scan = read.scan
+      plugin = read.plugin
+    }
+    if (plugin.components.hooks.length > 0 && input.acknowledgedHooks !== true) {
+      return {
+        ok: false,
+        needsHookAcknowledgement: true,
+        message: `${plugin.name} runs ${plugin.components.hooks.length} hook command${plugin.components.hooks.length === 1 ? '' : 's'} on your machine. Review them, then install.`,
+      }
+    }
+    const origin = plugin.origin
+    const commitSha = origin.kind === 'linked' ? origin.sha : source.commitSha
+    const bytesRef: SkillRepoRef | null =
+      origin.kind === 'linked'
+        ? { owner: origin.repo.split('/')[0] ?? '', repo: origin.repo.split('/')[1] ?? '', ref: '' }
+        : source.kind === 'github'
+          ? githubRefFor(source)
+          : null
+    const harnesses = await listHarnesses()
+    const result = await installPlugin({
+      workspaceRoot,
+      sourceId: source.id,
+      marketplaceName: scan.marketplaceName ?? '',
+      marketplaceRepo: source.kind === 'github' ? source.repo : '',
+      plugin,
+      harnesses,
+      commitSha,
+      readSkillFile: async (skill, file) => {
+        if (bytesRef) {
+          const github = { ...deps.github, token: await deps.resolveToken() }
+          return fetchSkillRepoFile(bytesRef, commitSha, joinRepoPath(skill.id, file.path), github)
+        }
+        return readSkillBytes(source, skill, file)
+      },
+      mcpClients: await mcpClients(),
+    })
+    if (!result.ok) return result
+    await installs.put({
+      workspaceRoot,
+      sourceId: source.id,
+      pluginId: plugin.id,
+      pluginName: plugin.name,
+      marketplaceName: scan.marketplaceName ?? '',
+      claudePluginKey: result.claudePluginKey,
+      skillDirNames: [...new Set(result.harnesses.flatMap((harness) => harness.skillDirNames))],
+      mcpServerIds: result.mcpServers.map((server) => server.id),
+      commitSha,
+      installedAt: new Date().toISOString(),
+    })
+    return {
+      ok: true,
+      plugin,
+      harnesses: result.harnesses,
+      mcpServers: result.mcpServers,
+      claudePluginKey: result.claudePluginKey,
+      warnings: result.warnings,
+    }
+  }
+
+  async function uninstallPluginNow(input: SkillPluginUninstallInput): Promise<SkillPluginUninstallOutcome> {
+    const workspaceRoot = input.workspaceRoot?.trim() ?? ''
+    if (!workspaceRoot || !existsSync(workspaceRoot)) {
+      return { ok: false, message: 'That workspace folder no longer exists.' }
+    }
+    const record = await installs.get(workspaceRoot, input.sourceId ?? '', input.pluginId ?? '')
+    if (!record) return { ok: false, message: 'That plugin is not installed in this workspace.' }
+    const result = await uninstallPlugin({
+      workspaceRoot,
+      pluginId: record.pluginId,
+      marketplaceName: record.marketplaceName,
+      skillDirNames: record.skillDirNames,
+      allHarnesses: SKILL_PACK_HARNESSES,
+    })
+    if (!result.ok) return result
+    await installs.remove(workspaceRoot, record.sourceId, record.pluginId)
+    return { ...result, mcpServerIds: record.mcpServerIds }
+  }
+
+  /**
+   * What is installed, from two places: the receipts this app wrote, and the
+   * plugins the workspace's Claude settings enable — a plugin enabled by hand
+   * with `/plugin install` is installed too, and listing only our own writes
+   * would offer to install it again.
+   */
+  async function listInstalledPluginsNow(input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome> {
+    const workspaceRoot = input.workspaceRoot?.trim() ?? ''
+    if (!workspaceRoot) return { ok: true, plugins: [] }
+    const recorded = await installs.list(workspaceRoot)
+    const known = new Set(recorded.map((record) => record.claudePluginKey).filter((key) => key !== ''))
+    const enabled = await readEnabledClaudePlugins(workspaceRoot)
+    const foreign = [...enabled]
+      .filter((key) => !known.has(key))
+      .map((key): InstalledPluginRecordShape => {
+        const at = key.lastIndexOf('@')
+        return {
+          workspaceRoot,
+          sourceId: '',
+          pluginId: at === -1 ? key : key.slice(0, at),
+          pluginName: at === -1 ? key : key.slice(0, at),
+          marketplaceName: at === -1 ? '' : key.slice(at + 1),
+          claudePluginKey: key,
+          skillDirNames: [],
+          mcpServerIds: [],
+          commitSha: '',
+          installedAt: '',
+        }
+      })
+    return { ok: true, plugins: [...recorded, ...foreign] }
   }
 
   async function locateSkill(
@@ -398,7 +634,19 @@ async function scanGithubSource(
       bytes.toString('utf8')
     )
   )
-  const scan: ScanResult = { ...scanned, skills }
+  // The plugins and MCP servers the same tree declares. Their manifests are a
+  // handful of small raw reads at the pinned commit; one that fails leaves its
+  // plugin listed under the marketplace's own words.
+  const plugins = await scanPluginTree({
+    entries: tree.entries,
+    skills,
+    marketplaceManifest: manifest,
+    readFile: (path) =>
+      fetchSkillRepoFile(ref, commitSha, path, github)
+        .then((bytes) => bytes.toString('utf8'))
+        .catch(() => null),
+  })
+  const scan: ScanResult = { ...scanned, skills, ...plugins }
 
   const name = `${ref.owner}/${ref.repo}`
   return {
@@ -408,7 +656,7 @@ async function scanGithubSource(
       name: ref.repo,
       repo: name,
       monogram: skillSourceMonogram(ref.repo),
-      blurb: `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'} from ${name}.`,
+      blurb: describeSourceBlurb(name, skills.length, plugins.plugins.length, plugins.mcpServers.length),
       commitSha,
       scannedAt: new Date().toISOString(),
     },
@@ -472,4 +720,14 @@ function isUtf8Text(bytes: Buffer): boolean {
 function describeFetchError(error: unknown): string {
   if (error instanceof SkillFetchError) return error.message
   return error instanceof Error ? error.message : String(error)
+}
+
+type InstalledPluginRecordShape = import('../../shared/electron-api').InstalledPluginRecord
+
+function describeSourceBlurb(name: string, skills: number, plugins: number, servers: number): string {
+  const parts: string[] = []
+  if (plugins > 0) parts.push(`${plugins} ${plugins === 1 ? 'plugin' : 'plugins'}`)
+  if (servers > 0) parts.push(`${servers} MCP ${servers === 1 ? 'server' : 'servers'}`)
+  if (skills > 0) parts.push(`${skills} ${skills === 1 ? 'skill' : 'skills'}`)
+  return parts.length > 0 ? `${parts.join(', ')} from ${name}.` : `Nothing installable found in ${name}.`
 }

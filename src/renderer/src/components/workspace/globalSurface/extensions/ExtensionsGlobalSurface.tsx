@@ -11,7 +11,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AutomationDefinition } from '../../../../../../shared/automations/contracts'
-import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
+import type { McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
+import type { SkillHarness } from '../../../../../../shared/skills'
+import { SKILL_PACK_HARNESSES } from '../../../../../../shared/skill-harnesses'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { McpGlyph, SkillsGlyph } from '../../../ui/CapabilityGlyphs'
@@ -34,6 +36,8 @@ import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell
 import { SurfaceRail, type SurfaceRailGroup } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { getExtensionsSurfaceHost } from './extensionsSurfaceHost'
+import { PluginsSurface } from './plugins/PluginsSurface'
+import { derivePluginsKindStateLine } from './plugins/pluginsSurfaceModel'
 import { SkillsSurface } from './skills/SkillsSurface'
 import { deriveSkillsKindStateLine } from './skills/skillsSurfaceModel'
 import { useSkillSources } from './skills/useSkillSources'
@@ -52,6 +56,7 @@ import {
 // (MC-1847 C2, MC-2034).
 type ExtensionsSection =
   | 'marketplace'
+  | 'plugins'
   | 'skills'
   | 'automations'
   | 'modules'
@@ -117,8 +122,38 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const browse = useConnectorsBrowseState('Featured')
   const { facet, setFacet } = browse
   // Skill sources are read here, not inside the Skills canvas, so the rail row
-  // states the same counts the surface does instead of a second opinion.
+  // states the same counts the surface does instead of a second opinion. The
+  // same sources feed Plugins: one list, two kinds, and the chosen source is
+  // held here so switching kinds keeps it.
   const skillSources = useSkillSources(activeWorkspaceRoot)
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
+  // The harness directories a plugin's skills fan out to: the shared
+  // `.agents` dir plus every natively skill-capable CLI this machine has —
+  // the main-process rule (skill-harness-targets.ts), read from the detection
+  // the door already holds so the pane can say what will land where.
+  const harnesses = useMemo<SkillHarness[]>(() => {
+    const wanted = new Set<SkillHarness>(['agents'])
+    for (const entry of pluginCatalogEntries) {
+      if (entry.skillIntegration?.support !== 'native') continue
+      if (cliAvailability[entry.id]?.installed !== true) continue
+      const harness = entry.skillIntegration.harnessId as SkillHarness
+      if (SKILL_PACK_HARNESSES.includes(harness)) wanted.add(harness)
+    }
+    return SKILL_PACK_HARNESSES.filter((harness) => wanted.has(harness))
+  }, [pluginCatalogEntries, cliAvailability])
+  const addMcpServers = useCallback(
+    (servers: McpServerConfig[]) => {
+      for (const server of servers) sources.upsertMcpServer(server)
+    },
+    [sources],
+  )
+  const removeMcpServers = useCallback(
+    (serverIds: string[]) => {
+      for (const id of serverIds) removeMcpServer(id)
+    },
+    [removeMcpServer],
+  )
 
   const applyTargetView = useCallback(
     (view: ExtensionsSurfaceView) => {
@@ -223,6 +258,12 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     skillSources.sources,
     skillSources.scans,
   )
+  const pluginsStateLine = derivePluginsKindStateLine(
+    skillSources.sourcesLoad,
+    skillSources.sources,
+    skillSources.scans,
+    sources.registryLoad.status === 'ready' ? plugins.length : null,
+  )
 
   // ── Bar ────────────────────────────────────────────────────────────────────
   // The name, and nothing else. The counts it used to carry are each already on
@@ -247,6 +288,12 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           title: 'Featured',
           stateLine: catalogSettled ? `${readyCount} ready to launch` : 'Loading…',
           icon: <FeaturedGlyph />,
+        },
+        {
+          id: 'plugins',
+          title: 'Plugins',
+          stateLine: pluginsStateLine,
+          icon: <PluginsGlyph />,
         },
         {
           id: 'mcp-servers',
@@ -356,11 +403,43 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             onUseInAutomation={useInAutomation}
           />
         )
+      case 'plugins':
+        return (
+          <PluginsSurface
+            sources={skillSources}
+            workspaceRoot={activeWorkspaceRoot}
+            harnesses={harnesses}
+            selectedSourceId={selectedSourceId}
+            onSelectSource={setSelectedSourceId}
+            onBrowseSkills={(sourceId) => {
+              setSelectedSourceId(sourceId)
+              setSection('skills')
+            }}
+            onAddMcpServers={addMcpServers}
+            onRemoveMcpServers={removeMcpServers}
+            onConfigureGitHubToken={() => openSettingsOverlay({ initialTab: 'github' })}
+            registry={{
+              entries: plugins,
+              load:
+                sources.registryLoad.status === 'ready'
+                  ? { status: 'ready' }
+                  : sources.registryLoad.status === 'loading'
+                    ? { status: 'loading' }
+                    : { status: 'error', message: sources.registryLoad.message },
+              registryUrl: sources.registryUrl,
+              mcpSettings: sources.mcpSettings,
+              onInstalled: () => void sources.loadRegistry(true),
+              onUpsertMcpServer: sources.upsertMcpServer,
+            }}
+          />
+        )
       case 'skills':
         return (
           <SkillsSurface
             sources={skillSources}
             workspaceRoot={activeWorkspaceRoot}
+            selectedSourceId={selectedSourceId}
+            onSelectSource={setSelectedSourceId}
             onBrowseMcpServers={() => {
               setSection('marketplace')
               setFacet('All')
@@ -424,7 +503,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           canvas, not a remount. Skills brings its own nested rail and scrolls
           beside it, so it takes the region whole rather than sitting inside
           this padded scrollport. */}
-      {section === 'skills' ? (
+      {section === 'skills' || section === 'plugins' ? (
         <div key={section} className="h-full min-h-0">
           {canvas}
         </div>
@@ -449,6 +528,19 @@ function FeaturedGlyph(): JSX.Element {
         strokeWidth="1.3"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+// Four tiles with a plus: a bundle you add to. Distinct from the module
+// glyph's cube and the MCP glyph's stacked bars.
+function PluginsGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
+      <rect x="2.2" y="2.2" width="4.6" height="4.6" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9.2" y="2.2" width="4.6" height="4.6" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="2.2" y="9.2" width="4.6" height="4.6" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M11.5 9.4v4.4M9.3 11.6h4.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }

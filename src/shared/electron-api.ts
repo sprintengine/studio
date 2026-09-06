@@ -42,6 +42,7 @@ import type {
   AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
   AgentCapabilitiesWatchInput,
+  ScannedPlugin,
   ScanResult,
   SkillDiscoveryResult,
   SkillHarness,
@@ -1259,6 +1260,94 @@ export type SkillSearchInput = { query: string }
 export type SkillSearchOutcome = SkillDiscoveryResult<SkillSearchHit>
 
 export type SkillPopularReposOutcome = SkillDiscoveryResult<SkillRepoHit>
+
+// Plugins from sources (backlog/2026-09-05-plugin-sources.md). A source's
+// plugins ride in its scan; these are the calls that read a linked plugin,
+// install one into a workspace, take it out again, and list what is in.
+
+export type SkillPluginScanLinkedInput = { sourceId: string; pluginId: string }
+
+export type SkillPluginScanLinkedOutcome =
+  | { ok: true; source: SkillSource; scan: ScanResult; plugin: ScannedPlugin }
+  | { ok: false; message: string }
+
+export type SkillPluginInstallInput = {
+  sourceId: string
+  pluginId: string
+  workspaceRoot: string
+  /** Required true when the plugin declares hooks — they run shell commands. */
+  acknowledgedHooks?: boolean
+}
+
+export type SkillPluginInstallHarness = {
+  harness: SkillHarness
+  mode: 'native' | 'skills' | 'nothing'
+  skillDirNames: string[]
+  message: string
+}
+
+export type SkillPluginInstallOutcome =
+  | {
+      ok: true
+      plugin: ScannedPlugin
+      harnesses: SkillPluginInstallHarness[]
+      /** MCP servers the plugin declares, shaped for the MCP settings store. */
+      mcpServers: McpServerConfig[]
+      /** `name@marketplace` when Claude Code enabled it natively, else ''. */
+      claudePluginKey: string
+      warnings: string[]
+    }
+  | { ok: false; message: string; needsHookAcknowledgement?: boolean }
+
+export type SkillPluginUninstallInput = { sourceId: string; pluginId: string; workspaceRoot: string }
+
+export type SkillPluginUninstallOutcome =
+  | { ok: true; removedPaths: string[]; disabledClaudePluginKey: string; mcpServerIds: string[] }
+  | { ok: false; message: string }
+
+/** One installed plugin, as this app recorded it. */
+export type InstalledPluginRecord = {
+  workspaceRoot: string
+  sourceId: string
+  pluginId: string
+  pluginName: string
+  marketplaceName: string
+  claudePluginKey: string
+  skillDirNames: string[]
+  mcpServerIds: string[]
+  /** The commit the bytes were read at; '' for a registry plugin. */
+  commitSha: string
+  installedAt: string
+}
+
+export type SkillInstalledPluginsInput = { workspaceRoot: string }
+
+export type SkillInstalledPluginsOutcome =
+  | { ok: true; plugins: InstalledPluginRecord[] }
+  | { ok: false; message: string }
+
+/** One repository source, as the hourly update check saw it. */
+export type SkillSourceUpdateEntry = {
+  sourceId: string
+  /** `owner/name`. */
+  name: string
+  headSha: string
+  /** The head differs from the commit the source was scanned at. */
+  changed: boolean
+}
+
+/**
+ * What an update check found. `newlyChanged` is the drift THIS check
+ * discovered (worth a toast); `changed` is every source currently behind its
+ * head (what the rails mark). Broadcast on `skills:sources-updated`.
+ */
+export type SkillSourceUpdateCheck = {
+  checkedAt: string
+  sources: SkillSourceUpdateEntry[]
+  changed: string[]
+  newlyChanged: string[]
+  failures: { sourceId: string; message: string }[]
+}
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -3627,6 +3716,14 @@ export type ElectronApi = {
   skillsSyncSource: (input: SkillSyncSourceInput) => Promise<SkillSyncSourceOutcome>
   skillsSearch: (input: SkillSearchInput) => Promise<SkillSearchOutcome>
   skillsListPopularRepos: () => Promise<SkillPopularReposOutcome>
+  skillsScanLinkedPlugin: (input: SkillPluginScanLinkedInput) => Promise<SkillPluginScanLinkedOutcome>
+  skillsInstallPlugin: (input: SkillPluginInstallInput) => Promise<SkillPluginInstallOutcome>
+  skillsUninstallPlugin: (input: SkillPluginUninstallInput) => Promise<SkillPluginUninstallOutcome>
+  skillsListInstalledPlugins: (input: SkillInstalledPluginsInput) => Promise<SkillInstalledPluginsOutcome>
+  /** Run the source update check now (Settings "Check now", or a test). */
+  skillsCheckSourceUpdates: () => Promise<SkillSourceUpdateCheck>
+  /** Every check's result, pushed from main — the poller's hourly leg or a manual check. */
+  onSkillSourcesUpdated: (cb: (check: SkillSourceUpdateCheck) => void) => () => void
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>

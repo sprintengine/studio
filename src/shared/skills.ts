@@ -31,6 +31,18 @@ export type SkillSource = {
   commitSha: string
   /** ISO timestamp of the cached scan; '' when never scanned. */
   scannedAt: string
+  /**
+   * The repository's head the last update check resolved, when it ran. A head
+   * that differs from `commitSha` is an update the person can apply with Sync
+   * (backlog/2026-09-05-plugin-sources.md, "Update notifications").
+   */
+  headSha?: string
+  headCheckedAt?: string
+}
+
+/** True when a check has seen the source's repository move past the scanned commit. */
+export function sourceHasUpdate(source: Pick<SkillSource, 'commitSha' | 'headSha'>): boolean {
+  return Boolean(source.headSha) && source.commitSha !== '' && source.headSha !== source.commitSha
 }
 
 /**
@@ -65,6 +77,150 @@ export type ScanResult = {
   groupingSignal: SkillGroupingSignal
   fileCount: number
   commitSha: string
+  /**
+   * What the repository turned out to be, and the plugins and MCP servers it
+   * declares (backlog/2026-09-05-plugin-sources.md). Optional because scans
+   * cached before plugins existed carry none; read them through
+   * `scanPlugins()` / `scanMcpServers()` / `scanShape()`, never directly.
+   */
+  shape?: SourceShape
+  /** The `name` a `.claude-plugin/marketplace.json` gives itself; '' without one. */
+  marketplaceName?: string
+  plugins?: ScannedPlugin[]
+  mcpServers?: ScannedMcpServer[]
+}
+
+// Plugins and MCP servers: the other two kinds a source can hold.
+//
+// A *plugin* is Claude Code's bundle shape — `.claude-plugin/plugin.json` over
+// `skills/`, `commands/`, `agents/`, `hooks/hooks.json` and `.mcp.json` — or a
+// registry entry projected into the same shape. A source lists its plugins
+// from its `.claude-plugin/marketplace.json` when it has one (a marketplace),
+// else from every plugin manifest in its tree.
+
+export type SourceShape =
+  | 'claude-marketplace'
+  | 'claude-plugin'
+  | 'mcp-server'
+  | 'skills'
+  | 'mixed'
+  | 'empty'
+
+export const SOURCE_SHAPE_LABEL: Record<SourceShape, string> = {
+  'claude-marketplace': 'Claude Code plugin marketplace',
+  'claude-plugin': 'Claude Code plugin',
+  'mcp-server': 'MCP server',
+  skills: 'Skills',
+  mixed: 'Skills and MCP servers',
+  empty: 'Nothing installable',
+}
+
+/** Where a plugin's bytes live, which is also where its skills are read from. */
+export type ScannedPluginOrigin =
+  /** A directory in the source's own tree, '' for the root. */
+  | { kind: 'in-tree'; path: string }
+  /**
+   * A marketplace entry pointing at another repository. `sha` is the commit
+   * the marketplace pinned ('' when it pinned none), `path` the directory
+   * inside that repository ('' for the root). Its components are unknown until
+   * the plugin is opened and that repository is read.
+   */
+  | { kind: 'linked'; repo: string; ref: string; sha: string; path: string; url: string }
+  /** A marketplace-registry entry (the Multicode source). */
+  | { kind: 'registry'; entryId: string; sourceUrl: string }
+
+export type ScannedPluginHook = {
+  /** `PreToolUse`, `Stop`, … — the event as the plugin names it. */
+  event: string
+  /** The tool matcher, '' when the hook fires on every tool. */
+  matcher: string
+  /** The shell command, verbatim. This is what the trust prompt shows. */
+  command: string
+}
+
+/**
+ * An MCP server a source declares, in the shape `McpServerConfig` takes once
+ * installed. `declaredIn` is the repo-relative path of the file that declared
+ * it; `declaredBy` the plugin id when a plugin ships it, '' otherwise.
+ */
+export type ScannedMcpServer = {
+  id: string
+  name: string
+  description: string
+  transport: 'stdio' | 'http' | 'sse'
+  command: string
+  args: string[]
+  url: string
+  env: Record<string, string>
+  envVarNames: string[]
+  headers: Record<string, string>
+  declaredIn: string
+  declaredBy: string
+}
+
+export type ScannedPluginComponents = {
+  /** The plugin's skills, whole: read from wherever the plugin's bytes live. */
+  skills: ScannedSkill[]
+  /** Command names (`commands/<name>.md`). */
+  commands: string[]
+  /** Agent names (`agents/<name>.md`). */
+  agents: string[]
+  hooks: ScannedPluginHook[]
+  mcpServers: ScannedMcpServer[]
+  /** Skills the entry names but that shipped with no readable directory. */
+  missingSkills: string[]
+}
+
+export type ScannedPlugin = {
+  /** The marketplace name, or the manifest name, or the directory name. */
+  id: string
+  name: string
+  description: string
+  version: string
+  category: string
+  author: string
+  homepage: string
+  origin: ScannedPluginOrigin
+  /**
+   * False for a linked plugin whose repository has not been read yet: its
+   * components are unknown, not empty, and the surface must say so.
+   */
+  componentsKnown: boolean
+  components: ScannedPluginComponents
+}
+
+export function scanPlugins(scan: Pick<ScanResult, 'plugins'>): ScannedPlugin[] {
+  return scan.plugins ?? []
+}
+
+export function scanMcpServers(scan: Pick<ScanResult, 'mcpServers'>): ScannedMcpServer[] {
+  return scan.mcpServers ?? []
+}
+
+/** The shape, derived when the scan predates the field. */
+export function scanShape(scan: ScanResult): SourceShape {
+  if (scan.shape) return scan.shape
+  return scan.skills.length > 0 ? 'skills' : 'empty'
+}
+
+export function emptyPluginComponents(): ScannedPluginComponents {
+  return { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], missingSkills: [] }
+}
+
+/** The words a row uses for what a plugin ships: "4 skills · 2 commands · 1 MCP". */
+export function describePluginComponents(plugin: ScannedPlugin): string {
+  if (!plugin.componentsKnown) return 'Read when opened'
+  const c = plugin.components
+  const parts: string[] = []
+  const count = (n: number, one: string, many: string): void => {
+    if (n > 0) parts.push(`${n} ${n === 1 ? one : many}`)
+  }
+  count(c.skills.length, 'skill', 'skills')
+  count(c.commands.length, 'command', 'commands')
+  count(c.agents.length, 'agent', 'agents')
+  count(c.mcpServers.length, 'MCP', 'MCP')
+  count(c.hooks.length, 'hook', 'hooks')
+  return parts.length > 0 ? parts.join(' · ') : 'No components declared'
 }
 
 export type SkillSourceLayout = 'solo' | 'flat' | 'grouped' | 'search' | 'none'

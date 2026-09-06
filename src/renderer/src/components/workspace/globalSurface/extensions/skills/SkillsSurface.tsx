@@ -14,19 +14,18 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
 import { PlusIcon } from '../../../../AppIcons'
 import { GhostButton, InlineNotice, OutlineButton, Spinner } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
-import { SurfaceCanvasState, SurfaceRail, type SurfaceRailRow } from '../../surfaceSubstrate'
+import { SurfaceCanvasState } from '../../surfaceSubstrate'
+import { SourcesRail } from '../sources/SourcesRail'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
 import { addedRepoKeys } from './discoverModel'
 import { SkillPage } from './SkillPage'
 import { SkillSourceCanvas } from './SkillSourceCanvas'
 import { SkillsDiscover } from './SkillsDiscover'
-import { SourceMonogram } from './SourceMonogram'
 import type { SkillSourcesState } from './useSkillSources'
 import {
   deriveInstallAvailability,
-  deriveSourceRailRows,
   findSkill,
+  skillCountLine,
   skillSourceCommitsUrl,
   sourceDisplayName,
   summarizeInstallRun,
@@ -46,10 +45,16 @@ export function SkillsSurface({
   workspaceRoot,
   onBrowseMcpServers,
   onConfigureGitHubToken,
+  selectedSourceId = null,
+  onSelectSource,
 }: {
   /** Owned by the door, so its rail row can state the same counts this does. */
   sources: SkillSourcesState
   workspaceRoot: string | null
+  /** The source open across kinds — the door holds it so switching to Plugins
+   *  and back keeps the same source. Omitted, the surface keeps its own. */
+  selectedSourceId?: string | null
+  onSelectSource?: (sourceId: string) => void
   /** The connector-skills deflection: those skills are browsed with their servers. */
   onBrowseMcpServers: () => void
   /** Opens where the GitHub token is set — Discover's code search requires one. */
@@ -77,19 +82,36 @@ export function SkillsSurface({
     error: string | null
   } | null>(null)
 
-  // Land on the first source rather than an index the rail already replaces.
+  // Land on the source the door holds, else the first — never an index the
+  // rail already replaces.
   useEffect(() => {
     if (view !== null || sources.sources.length === 0) return
-    setView({ kind: 'source', sourceId: sources.sources[0].id })
-  }, [sources.sources, view])
+    const preferred = sources.sources.find((source) => source.id === selectedSourceId)
+    setView({ kind: 'source', sourceId: (preferred ?? sources.sources[0]).id })
+  }, [sources.sources, view, selectedSourceId])
 
-  const openSource = useCallback((sourceId: string) => {
-    setView({ kind: 'source', sourceId })
+  const openSource = useCallback(
+    (sourceId: string) => {
+      setView({ kind: 'source', sourceId })
+      setActiveGroup(null)
+      setQuery('')
+      setSelected(new Set())
+      setInstallError(null)
+      onSelectSource?.(sourceId)
+    },
+    [onSelectSource],
+  )
+
+  // The door switched source while another kind was open: follow it.
+  useEffect(() => {
+    if (!selectedSourceId || !view || view.kind === 'discover' || view.sourceId === selectedSourceId) return
+    if (!sources.sources.some((source) => source.id === selectedSourceId)) return
+    setView({ kind: 'source', sourceId: selectedSourceId })
     setActiveGroup(null)
     setQuery('')
     setSelected(new Set())
-    setInstallError(null)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the door's choice only when it changes
+  }, [selectedSourceId])
 
   const activeSourceId = view && view.kind !== 'discover' ? view.sourceId : null
   const activeSource = useMemo(
@@ -242,45 +264,15 @@ export function SkillsSurface({
     )
   }
 
-  const railRows: SurfaceRailRow[] = deriveSourceRailRows(sources.sources, sources.scans).map((row) => ({
-    id: row.id,
-    title: row.name,
-    stateLine: row.stateLine,
-    tooltip: row.tooltip,
-    icon: <SourceMonogram monogram={row.monogram} />,
-  }))
-
   const rail = (
-    <nav
-      aria-label="Skill sources"
-      className="flex w-[216px] shrink-0 flex-col overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-2.5"
-    >
-      <SurfaceRail
-        label="Sources"
-        rows={railRows}
-        selectedId={view?.kind === 'discover' ? null : (activeSourceId ?? null)}
-        onSelect={openSource}
-        newAffordance={{ label: 'Add a source', onActivate: () => setAddRepo('') }}
-      />
-      <div className="mt-auto border-t border-[color:var(--border-subtle)] pt-2">
-        <button
-          type="button"
-          aria-current={view?.kind === 'discover' ? 'true' : undefined}
-          onClick={() => setView({ kind: 'discover' })}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-            view?.kind === 'discover'
-              ? 'bg-[color:var(--bg-selected)]'
-              : 'hover:bg-[color:var(--bg-hover)]'
-          }`}
-        >
-          <CompassGlyph />
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-body font-medium text-[color:var(--text-strong)]">Discover</span>
-            <span className="truncate text-meta text-[color:var(--text-subtle)]">Skills on GitHub</span>
-          </span>
-        </button>
-      </div>
-    </nav>
+    <SourcesRail
+      ariaLabel="Skill sources"
+      rows={sources.sources.map((source) => ({ source, stateLine: skillCountLine(sources.scans[source.id]) }))}
+      selectedId={activeSourceId ?? null}
+      onSelect={openSource}
+      onAdd={() => setAddRepo('')}
+      discover={{ subtitle: 'Skills on GitHub', active: view?.kind === 'discover', onOpen: () => setView({ kind: 'discover' }) }}
+    />
   )
 
   return (
@@ -393,14 +385,5 @@ export function SkillsSurface({
         }}
       />
     </div>
-  )
-}
-
-function CompassGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-md shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="m10.2 5.8-1.3 3.1-3.1 1.3 1.3-3.1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-    </svg>
   )
 }

@@ -1,5 +1,6 @@
 // Single source of truth for the first-party Multicode marketplace registry
-// location (hotstacklabs/sprintengine-marketplace @ main). The registry client's
+// location: the public `sprintengine/studio-releases` repository, which also
+// carries the app's releases and the hosted model feed. The registry client's
 // raw.githubusercontent.com URL, the plugin downloader's GitHub contents API
 // and source-pin check, and the verify-marketplace canonical source path all
 // resolve their first-party scoping from this constant so the three former
@@ -11,13 +12,13 @@ export type MarketplaceCanonicalSource = {
   ref: string
 }
 
-// Repointed 2026-08-02 from `multicode-labs/marketplace`, which never existed
-// on GitHub — neither as a user nor an org — so the default registry URL had
-// always resolved to nothing. MC-1671 flagged this as the same drift as the
-// auto-update feed when the account moved to hotstacklabs, and asked for it to
-// be checked at the same time; this is that check, landing late.
+// Repointed 2026-09-05 (backlog/2026-09-05-plugin-sources.md, "Hosting") from
+// `hotstacklabs/sprintengine-marketplace`, which redirects to an EMPTY public
+// repository — the registry read is bundled-first, so nobody noticed. The
+// releases repo is already public, already fetched hourly for the model feed,
+// and already edited by pull request; one catalogue lives there now.
 export const MARKETPLACE_CANONICAL_SOURCE: MarketplaceCanonicalSource = {
-  owner: 'hotstacklabs',
-  repo: 'sprintengine-marketplace',
+  owner: 'sprintengine',
+  repo: 'studio-releases',
   ref: 'main',
 }

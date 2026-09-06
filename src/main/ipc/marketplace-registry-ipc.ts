@@ -5,7 +5,6 @@ import {
   MarketplaceRegistryClient,
   configuredMarketplaceRegistryUrl,
   defaultMarketplaceRegistryCachePath,
-  isMarketplaceRegistryOverrideConfigured,
 } from '../marketplace/registry-client'
 
 export type MarketplaceRegistryReader = {
@@ -62,9 +61,12 @@ export function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryCli
   return new MarketplaceRegistryClient({
     registryUrl: configuredMarketplaceRegistryUrl(),
     cachePath: defaultMarketplaceRegistryCachePath(app.getPath('userData')),
-    // No override -> the committed snapshot-generated seed is the registry;
-    // the env override keeps the full remote fetch/ETag/cache path.
-    preferBundledSeed: !isMarketplaceRegistryOverrideConfigured(),
+    // Remote first, the model feed's rule (backlog/2026-09-05-plugin-sources.md,
+    // "Hosting"): the index lives in the public releases repo and is edited
+    // there by pull request, so a fetch with ETag is how an added or updated
+    // plugin reaches every machine without an app release. The committed seed
+    // is the offline and first-boot fallback, never the preferred read.
+    preferBundledSeed: false,
   })
 }
 
