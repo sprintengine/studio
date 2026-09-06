@@ -26,7 +26,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
-import { observedCheckoutKind } from '../../../../shared/observed-checkout'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
@@ -50,6 +49,7 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabCheckout, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { agentCheckoutOf } from './agentCheckout'
 import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
@@ -1262,36 +1262,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       } else {
         renderValues.leading = null
       }
-      // Where the agent runs. Observed first (MC-2440): the session's own hooks
-      // report its cwd and git resolves it, so an agent that created a worktree
-      // and moved into it — or left one — is shown where it actually is. Until
-      // that answers, launch intent: workspace-level (any agent in a worktree-
-      // backed workspace, because the cwd-redirect slices run every terminal in
-      // the worktree) or the per-agent persisted `execution.mode === 'worktree'`.
-      const observed = agentSession?.observedCheckout
-      const observedKind = observedCheckoutKind(observed)
-      const launchWorktree: { cwd: string | null; branch: string | null } | null =
-        worktreeGitRoot
-          ? { cwd: worktreeGitRoot, branch: worktreeBranch }
-          : agent?.execution.mode === 'worktree'
-            ? { cwd: agent.execution.cwd ?? null, branch: worktreeBranch }
-            : null
+      // Where the agent runs: the ONE resolution every surface shares
+      // (agentCheckout.ts) — observed first, launch intent until git answers.
       // The hover path is the observed cwd itself (where the agent sits, which
       // may be a subdirectory of the checkout), never the git root.
-      const agentCheckout: AgentTabCheckout | null =
-        observed && observedKind === 'worktree'
-          ? { kind: 'worktree', branch: observed.branch, cwd: observed.cwd, observed: true }
-          : observed && observedKind === 'main'
-            ? { kind: 'main', branch: observed.branch, cwd: observed.cwd, observed: true }
-            : observed && observedKind === 'folder'
-              ? { kind: 'folder', cwd: observed.cwd, observed: true }
-              : observed && observedKind === 'missing'
-                ? { kind: 'missing', cwd: observed.cwd, observed: true }
-                : launchWorktree
-                  ? { kind: 'worktree', ...launchWorktree, observed: false }
-                  : observed
-                    ? { kind: 'unverified', cwd: observed.cwd, observed: true }
-                    : null
+      const observed = agentSession?.observedCheckout
+      const agentCheckout: AgentTabCheckout | null = agentCheckoutOf(agentSession, {
+        workspaceWorktree: worktreeGitRoot ? { gitRoot: worktreeGitRoot, branch: worktreeBranch } : null,
+        execution: agent?.execution ?? null,
+      })
       // The tab glyph marks a worktree, in the danger tone when its directory
       // is gone: the workspace-level focus-time check covers a launch-intent
       // worktree and an observed one at the same root; git's own answer covers

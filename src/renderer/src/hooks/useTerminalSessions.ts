@@ -154,16 +154,7 @@ export function deriveWorkspaceIdleSince(
   let idleSince: number | null = null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
-    const activity = session.activity
-    const at = activity.kind === 'failed'
-      ? activity.at
-      : typeof session.lastTurnEndedAt === 'number'
-        ? session.lastTurnEndedAt
-        : activity.kind === 'idle'
-          ? activity.since
-          : activity.kind === 'exited'
-            ? activity.at
-            : null
+    const at = sessionIdleSince(session)
     if (at !== null && (idleSince === null || at > idleSince)) idleSince = at
   }
   if (idleSince !== null) return idleSince
@@ -239,14 +230,63 @@ export function deriveWorkspaceWorkingSince(
   let since: number | null = null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
-    if (session.activity.kind !== 'working') continue
-    if (!isHookReportedTurnInFlight(session)) continue
-    const promptAt = typeof session.lastPrompt?.at === 'number' ? session.lastPrompt.at : 0
-    const startedTurnAt = Math.max(session.activity.since, promptAt)
+    const startedTurnAt = sessionWorkingSince(session)
+    if (startedTurnAt === null) continue
     // The longest-running turn holds the row: one workspace, one clock.
     if (since === null || startedTurnAt < since) since = startedTurnAt
   }
   return since
+}
+
+/**
+ * When THIS session's turn in flight began — the clock behind a sidebar
+ * terminal line's "working for 4m" (sidebar-lists-every-terminal) — or null
+ * when it is not mid-turn. The per-session half of
+ * {@link deriveWorkspaceWorkingSince}: the workspace's clock is the fold of
+ * these, so a row and its lines can never disagree on who is working.
+ */
+export function sessionWorkingSince(session: TerminalSessionSnapshot): number | null {
+  if (session.activity.kind !== 'working') return null
+  if (!isHookReportedTurnInFlight(session)) return null
+  const promptAt = typeof session.lastPrompt?.at === 'number' ? session.lastPrompt.at : 0
+  return Math.max(session.activity.since, promptAt)
+}
+
+/**
+ * When THIS session last stopped doing something — its last turn end, its
+ * failure, its idle or exit stamp — or null when nothing is known. The
+ * per-session half of {@link deriveWorkspaceIdleSince}, which folds these and
+ * then falls back to the workspace's persisted stamps.
+ */
+export function sessionIdleSince(session: TerminalSessionSnapshot): number | null {
+  const activity = session.activity
+  return activity.kind === 'failed'
+    ? activity.at
+    : typeof session.lastTurnEndedAt === 'number'
+      ? session.lastTurnEndedAt
+      : activity.kind === 'idle'
+        ? activity.since
+        : activity.kind === 'exited'
+          ? activity.at
+          : null
+}
+
+export type SessionRecency = {
+  /** The turn in flight began here; null when the session is not mid-turn. */
+  workingSince: number | null
+  /** A live agent blocked on a prompt or permission (hook-authoritative). */
+  needsInput: boolean
+  /** The last moment it stopped; null when nothing is known yet. */
+  idleSince: number | null
+}
+
+/** One terminal's recency, for the sidebar line that describes it alone. */
+export function sessionRecencyOf(session: TerminalSessionSnapshot): SessionRecency {
+  return {
+    workingSince: sessionWorkingSince(session),
+    needsInput: session.kind === 'agent' && session.processAlive && session.agentState?.phase === 'awaiting_input',
+    idleSince: sessionIdleSince(session),
+  }
 }
 
 export function deriveWorkspaceDisplayActivity(
