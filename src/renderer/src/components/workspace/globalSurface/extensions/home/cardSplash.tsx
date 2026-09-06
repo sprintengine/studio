@@ -6,13 +6,14 @@
 // body. The caption-under-picture and three-column variants were considered
 // and rejected, so the overlay is not a variant here — it is the treatment.
 //
-// That choice buys the poster look and costs two safe areas, and both are
-// encoded below rather than left to whoever commissions the artwork. The
-// bottom 38% of the plate is where the title lands, so nothing the eye needs
-// may happen there; the top-right corner belongs to the stamp for the same
-// reason. The mockup draws the first of these as a dashed band over Frame 1
-// (`.safe .band`, `height: 38%`) — here it is a number the scrim is built from
-// and a constant a future artwork pass can assert against.
+// That choice buys the poster look and costs two safe areas, and both belong to
+// whoever commissions the artwork rather than to this file. The bottom third of
+// the plate is where the title lands, so nothing the eye needs may happen down
+// there; the top-right corner belongs to the stamp for the same reason. The
+// mockup draws the first of these as a dashed band over Frame 1 (`.safe .band`,
+// `height: 38%`). It is a brief, not a constant: the scrim below is a fade, not
+// a floor, so the band is where the artwork must go quiet rather than where the
+// page stops showing it.
 //
 // The pieces are separate components rather than slots on one, because the
 // card composes them and the card is item 2468's business. They carry no
@@ -24,17 +25,22 @@
 import React from 'react'
 
 /**
- * The share of the plate's height the title lands in. The artwork has to stay
- * quiet down here; the scrim below is how the page enforces it in the meantime.
- */
-export const SPLASH_TITLE_SAFE_AREA = 0.38
-
-/**
- * Where the scrim finishes fading. Deliberately past the safe area rather than
- * level with it: a gradient that ended exactly at the top of the title band
- * would put its steepest slope right behind the first line of the heading. The
- * fade completes at 64% of the plate's height, well clear of the 38% band, so
- * the title reads over flat colour and the transition happens above it.
+ * Where the scrim finishes fading.
+ *
+ * It is a fade, and it is worth being exact about what that means for the title
+ * rather than claiming more than it does. `linear-gradient(to top, S 0%, S 10%,
+ * transparent 64%)` is flat surface for the bottom tenth of the plate and then
+ * a straight ramp to nothing at 64%. The title band starts at 38%, where the
+ * scrim is still about half opaque — so the FIRST line of a heading sits on
+ * near-flat ground and the LAST line sits in the fade, over whatever the
+ * picture is doing there.
+ *
+ * That is the mockup's own rendering and it is the right one: a gradient that
+ * went flat at the top of the band would put its steepest slope directly behind
+ * the heading, which is the artefact you actually see. The cost is that the
+ * artwork has to hold up its end, which is exactly why the shot list asks for a
+ * quiet bottom third and why the title is clamped to two lines below — a third
+ * line would climb further into the fade than the picture can be trusted for.
  */
 const SCRIM_CLEAR_STOP = '64%'
 
@@ -59,6 +65,11 @@ export function CardSplash({
 }): JSX.Element {
   return (
     <div
+      // design-tokens-allow: 330px is the mockup's cap on the hero plate
+      // (`2026-09-06-extensions-home.html`, `.card--wide-hero .splash`). It is
+      // the size of a picture, not a step of spacing: the ratio does the work
+      // and this only stops a very wide window turning the hero into a
+      // billboard, so there is no scale it could be taken from.
       className={`relative w-full overflow-hidden bg-[color:var(--bg-surface-raised)] ${
         shape === 'hero' ? 'aspect-[2.7/1] max-h-[330px]' : 'aspect-[16/9]'
       }`}
@@ -96,9 +107,15 @@ export function CardSplashScrim(): JSX.Element {
 }
 
 /**
- * The title, over the picture, in the safe area the scrim has quietened. The
- * hero wears the same treatment at a larger size and with room beside it for
- * the dek and the button — hence the two shapes rather than two components.
+ * The title, over the picture, in the band the scrim has quietened. The hero
+ * wears the same treatment at a larger size and with room beside it for the dek
+ * and the button — hence the two shapes rather than two components.
+ *
+ * Clamped to two lines in both shapes. The overlay is absolutely positioned, so
+ * a long title cannot push the plate out of shape whatever happens; what it CAN
+ * do is climb out of the band the scrim quietens and set its top line over the
+ * open picture. Two lines is where the band ends, so two lines is where the
+ * title ends.
  *
  * The hero's size is derived from the title step rather than typed as a pixel
  * value, so a change to the type scale carries it.
@@ -116,7 +133,7 @@ export function CardSplashTitle({
     return (
       <div className="absolute inset-x-0 bottom-0 flex items-end gap-5 p-6">
         <div className="min-w-0 flex-1">
-          <h3 className="m-0 max-w-[18ch] text-[length:calc(var(--text-size-lg)*1.5)] leading-tight font-semibold tracking-tight text-balance text-[color:var(--text-strong)]">
+          <h3 className="m-0 line-clamp-2 max-w-[18ch] text-[length:calc(var(--text-size-lg)*1.5)] leading-tight font-semibold tracking-tight text-balance text-[color:var(--text-strong)]">
             {title}
           </h3>
           {children}
@@ -126,7 +143,7 @@ export function CardSplashTitle({
   }
   return (
     <div className="absolute inset-x-0 bottom-0 px-4 pt-5 pb-3">
-      <h3 className="m-0 text-title font-semibold tracking-tight text-balance text-[color:var(--text-strong)]">
+      <h3 className="m-0 line-clamp-2 text-title font-semibold tracking-tight text-balance text-[color:var(--text-strong)]">
         {title}
       </h3>
       {children}
@@ -137,15 +154,18 @@ export function CardSplashTitle({
 /**
  * The stamp: one word, top right, saying what the card is.
  *
- * The mockup sets it in uppercase with tracking. The design system rejects
- * uppercase letter-spaced labels as hierarchy (`principles.md` "Type", policed
- * as the `uppercase-tracked` conformance rule), so the stamp keeps the
- * mockup's geometry — the pill, the hairline, the corner — and drops the
- * transform. The label is passed in already cased.
+ * The mockup sets it in uppercase with tracking, and it is the PAIRING the
+ * design system rejects — `principles.md` "Type" refuses uppercase letter-spaced
+ * labels as hierarchy, policed as the `uppercase-tracked` conformance rule and
+ * as `no-uppercase-tracking` in the token lint. Uppercase on its own is neither
+ * rule's business. So the stamp keeps the mockup's drawing — the pill, the
+ * hairline, the corner, the case — and drops the letter-spacing alone. The
+ * label is passed in already cased; the transform is what makes it look drawn
+ * rather than typed.
  */
 export function CardSplashStamp({ label }: { label: string }): JSX.Element {
   return (
-    <span className="absolute top-2.5 right-2.5 z-10 inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium text-[color:var(--text-muted)]">
+    <span className="absolute top-2.5 right-2.5 z-10 inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium uppercase text-[color:var(--text-muted)]">
       {label}
     </span>
   )

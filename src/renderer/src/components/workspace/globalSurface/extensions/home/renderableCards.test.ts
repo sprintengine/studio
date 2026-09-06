@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
-import { CARD_ART, hasCardArt } from './cardArt'
-import { SPLASH_TITLE_SAFE_AREA } from './cardSplash'
+import { CARD_ART, CARD_ART_NAMES, hasCardArt } from './cardArt'
 import { renderableCards } from './renderableCards'
 
 // The owner ruled on 2026-09-06 that a card whose artwork this build does not
@@ -29,10 +28,18 @@ const card = (over: Partial<HostedCard> & { slug: string; art: string }): Hosted
   ...over,
 })
 
-run('the artwork the mockups draw all ships', () => {
-  for (const name of ['browser', 'city', 'split', 'tokens', 'braces', 'plane', 'clock', 'graph', 'spark']) {
-    assert.equal(hasCardArt(name), true, `${name} is named by the mockups and must resolve`)
+run('every name the registry publishes resolves to a plate', () => {
+  // Read from the list the seed gate reads, rather than restated here: a second
+  // copy would go stale the day a plate was added, and this is the assertion
+  // that would have to notice.
+  for (const name of CARD_ART_NAMES) {
+    assert.equal(hasCardArt(name), true, `${name} is published by the registry and must resolve`)
   }
+  assert.equal(
+    Object.keys(CARD_ART).length,
+    CARD_ART_NAMES.length,
+    'the registry holds a plate for every published name and nothing besides',
+  )
 })
 
 run('a name this build does not hold does not resolve', () => {
@@ -82,10 +89,6 @@ run('an empty list is returned as it came', () => {
 run('a feed of nothing this build can draw renders nothing', () => {
   const cards = [card({ slug: 'a', art: 'holodeck' }), card({ slug: 'b', art: 'https://example.com/x.png' })]
   assert.deepEqual(renderableCards(cards), [], 'no card falls back to a grey rectangle')
-})
-
-run('the title safe area is the bottom 38% the mockup marks out', () => {
-  assert.equal(SPLASH_TITLE_SAFE_AREA, 0.38)
 })
 
 console.log('card art: ok')

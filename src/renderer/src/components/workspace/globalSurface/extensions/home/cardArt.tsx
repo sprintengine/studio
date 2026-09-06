@@ -23,20 +23,16 @@
 // both modes with no per-mode override and cost nothing to ship. Real captures
 // replace these plate-for-plate later; this record is the seam they replace
 // them at.
+//
+// Every plate is decoration. Not one of them carries a fact a reader needs, and
+// the strings inside them are fake window chrome, so the whole picture is
+// hidden from assistive technology — see `CardArt` at the foot of this file.
 
 import React from 'react'
 
-/** Artwork this build ships. A card naming anything else does not render. */
-export type CardArtName =
-  | 'browser'
-  | 'city'
-  | 'split'
-  | 'tokens'
-  | 'braces'
-  | 'plane'
-  | 'clock'
-  | 'graph'
-  | 'spark'
+import { CARD_ART_NAMES, type CardArtName } from './cardArtNames'
+
+export { CARD_ART_NAMES, type CardArtName }
 
 /**
  * The two plate treatments the mockup uses, and every plate is one of them.
@@ -52,13 +48,20 @@ export type CardArtName =
  * standing on it.
  */
 
+/**
+ * The plates that are line art, which is all of them but `board`: the board is
+ * built out of real elements because the four lanes and the tones in them ARE
+ * the picture, and a drawing of a board is not a board.
+ */
+type GlyphName = Exclude<CardArtName, 'board'>
+
 /** Line art at 96×96 in `currentColor`, ported from the mockup's sprite. */
 function Glyph({
   name,
   className,
   strokeWidth = 2,
 }: {
-  name: CardArtName
+  name: GlyphName
   className?: string
   strokeWidth?: number
 }): JSX.Element {
@@ -79,7 +82,7 @@ function Glyph({
   )
 }
 
-const GLYPH_PATHS: Record<CardArtName, JSX.Element> = {
+const GLYPH_PATHS: Record<GlyphName, JSX.Element> = {
   browser: (
     <>
       <rect x="10" y="18" width="76" height="56" rx="5" />
@@ -168,10 +171,18 @@ const GLYPH_PATHS: Record<CardArtName, JSX.Element> = {
 }
 
 /**
- * The wash that sits over the whole plate. It is a layer rather than a
- * pseudo-element so the tone is a prop rather than a class the caller has to
- * remember, and it is painted by the artwork rather than by the splash frame:
- * the frame knows the shape of the picture, the artwork knows its temperature.
+ * The wash that sits over the whole plate.
+ *
+ * It is a layer rather than a pseudo-element so the tone is a prop rather than
+ * a class the caller has to remember, and it is painted by the ARTWORK rather
+ * than by the splash frame. That is a trade, and it is worth writing down: the
+ * mockup hangs temperature on the frame (`.splash--warm`), which would make it
+ * a per-card field the feed could set, and we hang it on the picture instead.
+ * The frame knows the shape of the plate; the plate knows its own temperature.
+ * The consequence is that a card cannot warm or cool the artwork it names —
+ * `city` is warm because a picture of somebody's street is warm, and no card
+ * that names `city` may decide otherwise. If a card ever needs that knob it
+ * belongs on the feed's schema and on the frame, not smuggled in here.
  */
 function PlateWash({ tone }: { tone: PlateTone }): JSX.Element {
   return (
@@ -191,10 +202,20 @@ type PlateTone = 'accent' | 'warm'
  * The framed app window. Inset on three sides and flush with the bottom edge:
  * a promo screenshot runs off the frame, and a shot that stopped short of it
  * would read as a panel inside the card instead of a picture of software.
+ *
+ * The label is CHROME, not copy. It is the strip of text a window manager would
+ * be drawing, so it says where the window is — an app name, a URL, a file path
+ * — and it never says what the software just did. A label that made a claim
+ * would be a second, unedited headline sitting two centimetres above the card's
+ * real one, free to contradict it: the same plate serves whichever card names
+ * it, and the card's title is the only place the product speaks.
  */
 function Shot({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
-    <div className="absolute inset-x-5 top-5 bottom-0 flex flex-col overflow-hidden rounded-t-[var(--radius-sm)] border border-b-0 border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
+    <div
+      aria-hidden="true"
+      className="absolute inset-x-5 top-5 bottom-0 flex flex-col overflow-hidden rounded-t-[var(--radius-sm)] border border-b-0 border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]"
+    >
       <div className="flex flex-none items-center gap-1.5 border-b border-[color:var(--border-subtle)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
         <i className="size-1.5 rounded-full bg-[color:var(--border-strong)]" />
         <i className="size-1.5 rounded-full bg-[color:var(--border-strong)]" />
@@ -214,16 +235,70 @@ function Line({ width, tone }: { width: string; tone?: 'ink' | 'accent' }): JSX.
       : tone === 'accent'
         ? 'bg-[color:var(--accent-primary)] opacity-50'
         : 'bg-[color:var(--border-subtle)]'
-  return <span className={`h-1.5 rounded-full ${fill}`} style={{ width }} />
+  return <span aria-hidden="true" className={`h-1.5 rounded-full ${fill}`} style={{ width }} />
 }
 
 /** The narrow column down the left of a shot, so the window reads as an app. */
 function ShotRail(): JSX.Element {
   return (
-    <div className="flex w-[22%] flex-none flex-col gap-1 border-r border-[color:var(--border-subtle)] p-2">
+    <div
+      aria-hidden="true"
+      className="flex w-[22%] flex-none flex-col gap-1 border-r border-[color:var(--border-subtle)] p-2"
+    >
       <Line width="85%" />
       <Line width="70%" />
       <Line width="50%" />
+    </div>
+  )
+}
+
+/**
+ * The glyph as a shot stands it: centred in the window body at the size the
+ * mockup draws it.
+ *
+ * One component rather than five call sites, so the plate size is written once.
+ * design-tokens-allow: 76px is the mockup's own figure for a glyph inside a
+ * shot (`2026-09-06-extensions-home.html`, `.shot-main svg`). It is the size of
+ * a picture, not a step of spacing, and the icon ramp it would otherwise come
+ * from tops out at 20px because it exists for chrome icons.
+ */
+function ShotGlyph({ name }: { name: GlyphName }): JSX.Element {
+  return <Glyph name={name} className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
+}
+
+/**
+ * One lane of the miniature board, and the chiplets standing in it.
+ *
+ * The mockup labels the lanes — Todo, Ready, Running, Done — at 7px, which is
+ * below the 10px floor the design system holds every label to, and a decorative
+ * plate is the last thing that should be buying an exception to it. The labels
+ * are dropped rather than grown: at card size a lane is a finger wide, the warn
+ * and good tones already say which lane is which, and the geometry is what
+ * makes the picture read as a board. The alternative on the table was throwing
+ * out the whole composition over a caption nobody stops to read.
+ *
+ * The lane ground is the raised surface where the mockup uses the themed canvas
+ * (`--sem-color-bg-app`): a door never paints the canvas — that colour is the
+ * sidebar's identity, and the gate at `scripts/lint-door-surfaces.mjs` holds
+ * every surface under `globalSurface/` to it. A lane that lifts off the window
+ * instead of sinking into it separates just as well, and keeps the plate inside
+ * the door's own palette.
+ */
+function BoardLane({ count, tone }: { count: number; tone?: 'run' | 'done' }): JSX.Element {
+  const chiplet =
+    tone === 'run'
+      ? 'bg-[color:var(--tone-warn-soft)] shadow-[inset_0_0_0_1px_var(--tone-warn)]'
+      : tone === 'done'
+        ? 'bg-[color:var(--tone-good-soft)] shadow-[inset_0_0_0_1px_var(--tone-good)]'
+        : 'bg-[color:var(--bg-surface)] shadow-[inset_0_0_0_1px_var(--border-subtle)]'
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col gap-0.5 overflow-hidden rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] p-1"
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <span key={index} className={`h-3 flex-none rounded-[var(--radius-xs)] ${chiplet}`} />
+      ))}
     </div>
   )
 }
@@ -245,6 +320,7 @@ function Scene({
 }): JSX.Element {
   return (
     <div
+      aria-hidden="true"
       className="absolute inset-0 grid items-end overflow-hidden"
       style={{
         backgroundImage:
@@ -264,7 +340,7 @@ function Scene({
 }
 
 /** The glyph as a scene stands it: centred, large, and running off the bottom. */
-function SceneGlyph({ name, strokeWidth }: { name: CardArtName; strokeWidth: number }): JSX.Element {
+function SceneGlyph({ name, strokeWidth }: { name: GlyphName; strokeWidth: number }): JSX.Element {
   return (
     <Glyph
       name={name}
@@ -286,11 +362,11 @@ export const CARD_ART: Record<CardArtName, () => JSX.Element> = {
   browser: () => (
     <>
       <PlateWash tone="accent" />
-      <Shot label="localhost:5173 — driven by an agent">
+      <Shot label="localhost:5173">
         <ShotRail />
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-2">
           <Line width="50%" tone="ink" />
-          <Glyph name="browser" className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
+          <ShotGlyph name="browser" />
           <Line width="85%" />
         </div>
       </Shot>
@@ -308,9 +384,28 @@ export const CARD_ART: Record<CardArtName, () => JSX.Element> = {
   split: () => (
     <>
       <PlateWash tone="accent" />
-      <Shot label="Studio — beside the app it drove">
+      <Shot label="SprintEngine Studio">
         <div className="flex min-w-0 flex-1 flex-col justify-center p-2">
-          <Glyph name="split" className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
+          <ShotGlyph name="split" />
+        </div>
+      </Shot>
+    </>
+  ),
+  // A · the product working, and the plate the hero wears. The miniature board
+  // the mockups put behind the wide card (`2026-09-06-extensions-home.html`
+  // `.shot-board`): four lanes, chiplets for the work in them, and the warn and
+  // good tones carrying a run that is halfway through. It is the one picture in
+  // the set that shows the product's actual shape rather than a symbol for it,
+  // which is why the hero gets it and `split` does not.
+  board: () => (
+    <>
+      <PlateWash tone="accent" />
+      <Shot label="SprintEngine Studio">
+        <div className="grid min-w-0 flex-1 grid-cols-4 gap-1 p-2">
+          <BoardLane count={5} />
+          <BoardLane count={3} />
+          <BoardLane count={4} tone="run" />
+          <BoardLane count={4} tone="done" />
         </div>
       </Shot>
     </>
@@ -320,7 +415,7 @@ export const CARD_ART: Record<CardArtName, () => JSX.Element> = {
       <PlateWash tone="accent" />
       <Shot label="design-system / foundations / tokens.css">
         <div className="flex min-w-0 flex-1 flex-col justify-center p-2">
-          <Glyph name="tokens" className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
+          <ShotGlyph name="tokens" />
         </div>
       </Shot>
     </>
@@ -328,11 +423,11 @@ export const CARD_ART: Record<CardArtName, () => JSX.Element> = {
   graph: () => (
     <>
       <PlateWash tone="accent" />
-      <Shot label="SprintEngine Studio — the run graph">
+      <Shot label="SprintEngine Studio">
         <ShotRail />
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-2">
           <Line width="50%" tone="ink" />
-          <Glyph name="graph" className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
+          <ShotGlyph name="graph" />
           <Line width="35%" tone="accent" />
         </div>
       </Shot>
@@ -372,9 +467,21 @@ export function hasCardArt(name: string): boolean {
  * The plate for a name, or null when this build does not hold it. Null rather
  * than a placeholder, on purpose: a caller that has not already dropped the
  * card through `renderableCards` must not be handed something to paint.
+ *
+ * The wrapper is not decoration. A plate is a picture of software and the words
+ * inside it are fake window chrome — a URL, a file path, an app name — so a
+ * screen reader working down the home grid would otherwise read four strings of
+ * furniture interleaved with the real card titles. One element, hidden, and the
+ * whole picture goes quiet; the plates carry `aria-hidden` at their own roots
+ * too, because `CARD_ART` is exported and a plate reached directly must be just
+ * as inert as one reached through here.
  */
 export function CardArt({ name }: { name: string }): JSX.Element | null {
   if (!hasCardArt(name)) return null
   const Plate = CARD_ART[name as CardArtName]
-  return <Plate />
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+      <Plate />
+    </div>
+  )
 }

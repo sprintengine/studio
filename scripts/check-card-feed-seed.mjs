@@ -17,15 +17,18 @@
 //     dropped (a dropped seed row is a card the installer wrote and this build
 //     cannot read — always a mistake here, whatever it is in the hosted file);
 //   - exactly one hero, and at least one card;
-//   - every id every action names resolves against a file in this repository.
+//   - every id every action names resolves against a file in this repository;
+//   - every card's `art` names artwork the renderer actually holds. A card
+//     whose artwork this build does not have is not rendered at all (the
+//     owner's 2026-09-06 ruling, enforced in renderableCards.ts), so a seed
+//     card with a misspelt `art` is not a card that looks wrong — it is a card
+//     nobody ever sees, and a fresh install quietly opens on a shorter page.
 //
-// The parser is the real one, built out of src/shared/hosted-card-feed.ts with
-// esbuild rather than re-implemented here: a second copy of the schema would
-// drift from the first, and this gate exists to catch drift.
-//
-// NOT asserted yet: that `art` names an artwork the app ships. No build ships
-// card artwork — the renderer that draws it is item 2467 — so there is nothing
-// to resolve against. Add it here the day the artwork lands.
+// Both lists are the real ones, built out of the renderer's own modules with
+// esbuild rather than re-typed here: the parser from src/shared/hosted-card-feed
+// .ts, and the artwork names from the registry's cardArtNames.ts. A second copy
+// of either would drift from the first the day somebody edited it, and drift is
+// the thing this gate exists to catch.
 import { build } from 'esbuild'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -47,16 +50,30 @@ const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis'])
 // repository once the feed is hosted; the seed we ship is vouched for by us.
 const CLONE_OWNER = 'sprintengine'
 
-const outfile = join(root, 'node_modules', '.cache', 'multicode', 'check-card-feed-seed.parser.mjs')
-await build({
-  entryPoints: [join(root, 'src', 'shared', 'hosted-card-feed.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  outfile,
-  logLevel: 'silent',
-})
-const { parseHostedCardFeed } = await import(pathToFileURL(outfile).href)
+// Bundle a renderer/shared module and import it, so this gate reads the real
+// thing rather than a copy of it.
+async function shipped(relative, name) {
+  const outfile = join(root, 'node_modules', '.cache', 'multicode', `check-card-feed-seed.${name}.mjs`)
+  await build({
+    entryPoints: [join(root, ...relative)],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile,
+    logLevel: 'silent',
+  })
+  return import(pathToFileURL(outfile).href)
+}
+
+const { parseHostedCardFeed } = await shipped(['src', 'shared', 'hosted-card-feed.ts'], 'parser')
+// The artwork the renderer ships, from the registry's own list. It is a plain
+// .ts holding nothing but names precisely so this script can read it — the
+// plates themselves are JSX and could not be bundled for node.
+const { CARD_ART_NAMES } = await shipped(
+  ['src', 'renderer', 'src', 'components', 'workspace', 'globalSurface', 'extensions', 'home', 'cardArtNames.ts'],
+  'card-art-names',
+)
+const artNames = new Set(CARD_ART_NAMES)
 
 let body
 try {
@@ -115,6 +132,9 @@ function studioSkillDir(id) {
 
 for (const card of cards) {
   const where = `"${card.slug}"`
+  if (!artNames.has(card.art)) {
+    errors.push(`${where}: art "${card.art}" is not artwork this build ships; the card would not render at all (one of: ${[...artNames].join(', ')})`)
+  }
   // Skills a card installs are named again by `open.chat`, by the directory
   // name they land under — the shape workspace-skills-service.ts gives a
   // WorkspaceSkill id.
@@ -179,4 +199,4 @@ if (errors.length) {
   process.exit(1)
 }
 const actions = cards.reduce((n, card) => n + card.go.length, 0)
-console.log(`card feed seed ok: ${cards.length} cards, ${actions} actions, every id resolves, updated ${parsed.feed.updatedAt}`)
+console.log(`card feed seed ok: ${cards.length} cards, ${actions} actions, every id and every plate resolves, updated ${parsed.feed.updatedAt}`)

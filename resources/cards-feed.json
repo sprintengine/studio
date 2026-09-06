@@ -7,7 +7,7 @@
       "kind": "workflow",
       "title": "Big task? No problem.",
       "dek": "Hand it something too big for one sitting. An architect reads your repository, decides what the work actually is, and a roster of agents runs the pieces in parallel while you watch the board.",
-      "art": "split",
+      "art": "board",
       "publishedAt": "2026-09-06",
       "hero": true,
       "go": [
