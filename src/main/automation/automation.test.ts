@@ -2082,7 +2082,28 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
   assert.equal(webhookCreate.isError, undefined, 'a non-agent action is unaffected by the preset gate')
   assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
 
-  // An explicitly-named allowed preset still passes through verbatim.
+  // The pre-MC-2210 spelling of bypass is the SAME preset, so it must hit the
+  // same ceiling. Comparing the raw string let `bypass_all` through here and be
+  // normalized to `bypass` downstream — an unattended agent nobody consented to
+  // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
+  const legacyBypass = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Nightly',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+    },
+  })
+  assert.equal(legacyBypass.isError, true, 'the legacy spelling of bypass is refused too')
+  assert.equal(
+    (legacyBypass.structuredContent as { error: { code: string } }).error.code,
+    'permission_preset_not_allowed',
+  )
+  assert.equal(created.length, 1, 'the legacy-bypass draft never reaches the create pipeline')
+
+  // An explicitly-named allowed preset still passes through verbatim. `default`
+  // is the legacy spelling of `manual`, which is allowed here — only bypass is
+  // refused — so it stays accepted for definitions written before the rename.
   for (const preset of ['default', 'auto'] as const) {
     const allowed = await tool(tools, 'automation.create').handler({
       workspaceId: 'ws-1',

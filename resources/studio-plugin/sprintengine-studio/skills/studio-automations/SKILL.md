@@ -31,11 +31,18 @@ checks, schedule validation, workspace-root trust. The definition carries
 optional `status`. Read the tool's schema for the trigger and action kinds this
 build actually holds rather than assuming a vocabulary.
 
-An agent-backed action must name `permissionPreset` as `"default"` or `"auto"`.
-Naming none would run the agent unattended on `bypass`, which this surface
-refuses outright — that preset can only be set by a person, inside the app. If
-an automation genuinely needs it, say so and let the user set it; do not work
-around the refusal.
+An agent-backed action must name `permissionPreset`, and on this surface the
+answer is almost always `auto`. The vocabulary is `none`, `manual`, `auto`,
+`bypass`. Naming none at all resolves to `bypass`, which this surface refuses
+outright — that preset can only be set by a person, inside the app, and its
+pre-rename spelling `bypass_all` is refused with it. If an automation genuinely
+needs bypass, say so and let the user set it; do not work around the refusal.
+
+`manual` is accepted here but is rarely what you want: an automation agent has
+nobody at its terminal, so it stops at the first approval prompt and hangs the
+run until the idle reaper fails it. `default` is the pre-rename spelling of
+`manual` and carries the same problem — old definitions still using it are
+honoured, but do not write it into a new one.
 
 ## Run
 

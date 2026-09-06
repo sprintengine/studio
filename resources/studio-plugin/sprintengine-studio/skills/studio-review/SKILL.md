@@ -52,10 +52,13 @@ as its output spec. Read it before writing a brief; this skill does not restate
 it, and a restatement would drift.
 
 The shape in one breath: `schemaVersion: 1`, a `changeSetId` equal to the change
-set you walked, an `overview` (`intent`, `blastRadius`, `readingGuide`,
-`complexity`), ordered `steps` each with a `narrative` and per-file `why` lines
-and line-anchored `annotations`, the `knowledgeRefs` you actually consulted, and
-an honest `coverage` split into `assignedPaths` and `unassignedPaths`.
+set you walked, a non-empty `generatedAt`, an `overview` (`intent`,
+`blastRadius`, `readingGuide`, `complexity`), ordered `steps` each with a
+`narrative` and per-file `why` lines and line-anchored `annotations`, the
+`knowledgeRefs` you actually consulted, and an honest `coverage` split into
+`assignedPaths` and `unassignedPaths`. `headSha` and `changeMap` are the only
+optional members of that list — omitting any of the others is `brief_invalid`,
+and `generatedAt` is the one easiest to forget.
 
 Every non-binary file in the change set belongs to exactly one step, or is named
 in `coverage.unassignedPaths`. Unassigned paths render as a visible warning to

@@ -45,8 +45,9 @@ must equal the task's current status and only the owner may call it. `outcome`
 is `pass` (reviewed, nothing to fix), `pass_with_fixes` (found issues and fixed
 them in this session), or `escalate` (a plan contradiction, scope change or
 product decision blocks you — `needsInputQuestion` is then required). Record
-what you found, including what you fixed, as `findingJson` with
-`{kind, severity, area, title?}`.
+what you found, including what you fixed, as `findingJson` — an ARRAY of
+findings, each `{kind, severity, area, title?}`, even when there is only one.
+`issueJson` takes the same shape.
 
 The walk is strictly forward and each phase is visited at most once. Fixes you
 make during a phase are smoke-checked in place, never re-reviewed by re-entering
@@ -122,17 +123,27 @@ one of `architect_plan`, `product_strategy`, `requirements`, `html_mockup`,
 `design_notes`, `branding`, `security_review`, `code_review`, `spec_review`,
 `performance_review`, `production_readiness_review`, `cross_platform_review`,
 `validation_report`; other values are rejected. Set `ready: true` only when the
-artifact must wait for human approval. `sprintengine_artifact_ready`,
-`sprintengine_artifact_approve` and `sprintengine_artifact_request_changes` move
-it; `sprintengine_artifact_list` reads. Artifact statuses are `draft`,
+artifact must wait for human approval. `sprintengine_artifact_ready` hands it
+over; `sprintengine_artifact_list` reads. Artifact statuses are `draft`,
 `recorded`, `ready_for_review`, `approved`, `changes_requested`, `superseded`.
+
+**Adjudicating an artifact is not yours.** `sprintengine_artifact_approve` and
+`sprintengine_artifact_request_changes` are planning tools: the architect (or a
+roleless agent, or the human Inbox loop) holds them, and a worker calling one
+gets `tool_not_permitted_for_role`. Review is not a rework channel back onto a
+task. What a worker holds is `sprintengine_artifact_add`,
+`sprintengine_artifact_list` and `sprintengine_artifact_ready`.
 
 ## Version control inside a run
 
 Publish commits for you. Reach for `sprintengine_vcs_status` and
 `sprintengine_vcs_commit` only when publish cannot represent what you need, and
-`sprintengine_vcs_pr` when you are asked to open the run's pull request.
-`sprintengine_vcs_request_repo` declares an additional project root.
+`sprintengine_vcs_request_repo` to declare an additional project root. Those
+three are the worker's whole VCS surface.
+
+`sprintengine_vcs_pr` is a planning tool, not one of them: a worker calling it
+gets `tool_not_permitted_for_role`. Opening the run's pull request belongs to
+the architect, a roleless agent, or an operator through `sprint_pr_create`.
 
 ## Steering a run from outside
 
@@ -151,17 +162,21 @@ confirms nothing. `sprint_cancel` is terminal.
 new workspace. Pass `sourceRef` to plan from a backlog item or epic (or a plan
 file or HTML mockup) — `goal` may then be empty because it derives from the item
 heading, and for a backlog source the execution link is written. Permissions are
-not selectable: a goal-only run is pinned to `default` so an external caller
-with no human-authored source cannot self-escalate, while a source-launched run
+not selectable: a goal-only run is pinned to `manual` so an external caller with
+no human-authored source cannot self-escalate, while a source-launched run
 spawns in bypass. With `startRunner` the run is handed to the scheduler; without
 it the run sits in manual until a person opens it. Read `cli_runtime_list`
 before passing `runtime`, `roleClis`, `roleModels` or `roleEfforts` — those are
 otherwise blind strings, and only rows with `agentSelectable: true` may staff a
 run.
 
-Task-level operator tools: `sprint_task_create` (`role` must be assignable;
-`acceptanceCriteria`, `implementationNotes` and `notes` are arrays of non-empty
-strings, never a bare string), `sprint_task_update`, `sprint_task_comment`,
+Task-level operator tools: `sprint_task_create` (`title` and `role` are both
+required, and `role` must be one of nine — `architect`, `product`, `developer`,
+`frontend`, `tester`, `security`, `performance`,
+`production_readiness_reviewer`, `cross_platform` — so this tool cannot add work
+to a roleless run, which has no role to name; `acceptanceCriteria`,
+`implementationNotes` and `notes` are arrays of non-empty strings, never a bare
+string), `sprint_task_update`, `sprint_task_comment`,
 `sprint_task_set_status` (`todo`, `in_progress`, `review`, `needs_input`,
 `done`, `canceled` — the common use is reopening a reviewed task as
 `in_progress` for rework under its original owner), and

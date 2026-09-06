@@ -858,7 +858,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
-          description: 'CLI permission preset. Only "default" or "auto"; "bypass" is refused on this surface.',
+          description:
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
+            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
+            + '("default", "auto_workspace") are not accepted here at all.',
         },
         specialistId: { type: 'string', description: 'Launch as this specialist rather than a general agent; the renderer resolves it and fails if unknown.' },
         connectorId: {
@@ -1175,7 +1178,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset. Only "default" or "auto"; "bypass" is refused on this surface. '
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
+            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
+            + '("default", "auto_workspace") are not accepted here at all. '
             + "Omit to take this machine's own spawn default.",
         },
       },
@@ -1758,7 +1763,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
-          description: 'CLI permission preset. Only "default" or "auto"; "bypass" is refused on this surface.',
+          description:
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
+            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
+            + '("default", "auto_workspace") are not accepted here at all.',
         },
         worktree: {
           type: 'object',
@@ -1864,8 +1872,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'Create an Automation definition through the same validated pipeline the UI uses (provider/permission '
       + 'checks, schedule validation, workspace-root trust). The definition object carries name, trigger '
       + '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name '
-      + 'permissionPreset "default" or "auto": naming none runs the agent unattended on "bypass", '
-      + 'which is refused on this surface — that preset can only be set by a person in the app.',
+      + 'permissionPreset "auto": naming none runs the agent unattended on "bypass", which is refused on '
+      + 'this surface — that preset can only be set by a person in the app. "manual" is accepted but is '
+      + 'rarely what you want here: an automation agent has nobody at its terminal, so it stops at the '
+      + 'first approval prompt and hangs the run until the idle reaper fails it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1887,12 +1897,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('invalid_arguments', '"definition" must be an object.')
       }
       const preset = resolvedActionPermissionPreset(args.definition)
-      if (preset === 'bypass') {
+      // Normalized before the compare, exactly as validatePermissionPreset does
+      // above and for the same reason: a definition naming the pre-MC-2210
+      // `bypass_all` cleared this ceiling on the raw string and was then
+      // normalized to `bypass` downstream (parseSpawnAgentConfig), which is the
+      // unattended self-escalation the ceiling exists to prevent
+      // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
+      // A value outside the vocabulary normalizes to `manual`, which the create
+      // pipeline then rejects on its own terms.
+      if (preset !== null && normalizeCliPermissionPreset(preset as SprintEngineCliPermissionPreset) === 'bypass') {
         return failure(
           'permission_preset_not_allowed',
           'Automations created over the automation surface may not run on permissionPreset "bypass", which is '
-            + 'what an agent-backed automation runs on when it names no preset — name "default" or "auto" '
-            + 'explicitly. A person can set that preset in the Automations panel if it is genuinely needed.'
+            + 'what an agent-backed automation runs on when it names no preset — name "auto" explicitly. '
+            + 'A person can set that preset in the Automations panel if it is genuinely needed.'
         )
       }
       const resolved = resolveWorkspaceRoot(workspaceId)
@@ -2172,7 +2190,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       + 'backlog item or epic (or any project-relative plan file or HTML mockup) — the architect then plans '
       + 'against the item and its children, and for a backlog source the execution link is written; '
       + '`goal` may be empty because it derives from the item heading. '
-      + 'CLI PERMISSIONS are not selectable here and differ by path: a goal-only run is pinned to "default" '
+      + 'CLI PERMISSIONS are not selectable here and differ by path: a goal-only run is pinned to "manual" '
       + '(an external caller with no human-authored source never self-escalates), while a source-launched run '
       + 'spawns its agents in bypass — the unwatched plan-sourced contract automations already '
       + 'run under. A person can create the run in the app if that is not what you want. '

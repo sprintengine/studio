@@ -39,11 +39,15 @@ permission preset, specialist and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 
-`terminal_create` opens a bare terminal on this machine and returns a session id
-ready to attach. Name the workspace by `workspaceId` or by `workspaceName`. The
-CLI and permission preset default to this machine's own launch settings unless
-you name them. `bypass` is refused here as everywhere on this surface; if a task
-genuinely needs it, say so and let a person set it in the app.
+`terminal_create` starts an AGENT terminal on this machine and returns a session
+id ready to attach — it launches a CLI under a permission preset through the
+same path `agent_launch` uses, and `terminal_list`'s `kind` filter counts it as
+`agent`, not as a plain shell. There is no tool here that opens a bare shell.
+Name the workspace by `workspaceId` or by `workspaceName`. The CLI and
+permission preset default to this machine's own launch settings unless you name
+them; when you do name one it must be `manual` or `auto`. `bypass` is refused
+here as everywhere on this surface, and so is its old spelling `bypass_all`; if
+a task genuinely needs it, say so and let a person set it in the app.
 
 `terminal_list` lists open sessions — session id, agent name, CLI, working
 directory, workspace, whether the process is live or the session is paused, and
@@ -90,9 +94,12 @@ unreachable from a remote client, by design. `tailnet_status` and
 `tailnet_list_peers` read; `tailnet_set_enabled`, `tailnet_revoke_device`,
 `tailnet_approve_pair_request` and `tailnet_deny_pair_request` change pairing
 state. `tailnet_offer_pairing` returns the pairing code and the
-`multicode-tailnet://` URL **once** — neither is re-readable afterwards, so
-deliver it to the person who asked in the same reply or it is lost and the offer
-must be cancelled and re-made.
+`multicode-tailnet://` URL **once** — neither is re-readable afterwards, and
+`tailnet_status` never returns them — so deliver them to the person who asked in
+the same reply or they are lost. A lost code is recovered by offering again,
+which replaces the outstanding offer rather than needing a cancel first; that
+also invalidates one a person may be part-way through redeeming, so say that you
+are replacing it. The code does not survive an app restart.
 
 ## Reaching this surface without the app running
 
