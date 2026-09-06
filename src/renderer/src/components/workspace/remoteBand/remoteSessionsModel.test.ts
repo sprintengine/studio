@@ -35,6 +35,7 @@ const terminal = (over: Partial<FleetTerminal>): FleetTerminal => ({
   processAlive: true,
   suspended: false,
   phase: 'working',
+  phaseSince: 1_000,
   workspaceName: 'relay',
   git: { branch: 'agent/fix', additions: 12, deletions: 3, changedFiles: 2, scope: 'worktree' },
   ...over,
@@ -118,9 +119,14 @@ const band = buildRemoteBand({
 })
 assert.deepEqual(band.map((group) => group.machineName), ['dev-macbook-air', 'studio'], 'machines in name order')
 const airGroup = band[0]!
-assert.deepEqual(airGroup.rows.map((row) => row.sessionId), ['s1', 's3', 'sh'], 'agents first, running before paused, then the shell; an exited pty is not a row')
+// Conversations only (owner ruling 2026-09-05): a plain shell is not a row,
+// nor is an exited pty; a paused agent still is, last.
+assert.deepEqual(airGroup.rows.map((row) => row.sessionId), ['s1', 's3'], 'agents, working before paused; the shell and the exited pty are not rows')
 const ada = airGroup.rows[0]!
 assert.equal(ada.title, 'Ada')
+assert.equal(ada.activity, 'working')
+assert.equal(ada.since, 1_000, 'how long it has been working rides the row')
+assert.equal(airGroup.rows[1]!.activity, 'paused')
 assert.equal(ada.branch, 'agent/fix')
 assert.equal(ada.additions, 12)
 assert.equal(ada.diffScope, 'worktree')
@@ -128,15 +134,12 @@ assert.equal(ada.workspaceName, 'relay')
 assert.equal(ada.workspaceRoot, '/Users/air/relay', 'the folder comes from the browse\'s workspace list')
 assert.equal(ada.repository?.name, 'relay')
 assert.equal(ada.attachedWorkspaceId, 'w1', 'the stamped workspace is this row')
-assert.equal(airGroup.rows[2]!.title, 'Terminal')
-assert.equal(airGroup.rows[2]!.workspaceName, 'relay', 'a shell with no name of its own takes its workspace\'s')
 assert.deepEqual(airGroup.parked, [], 'a remote-born row whose session is listed is not parked as well')
 assert.equal(airGroup.stale, false)
 assert.equal(airGroup.phase?.phase, 'reachable')
 
 const studioGroup = band[1]!
 assert.deepEqual(studioGroup.rows, [], 'a machine not yet read has no rows')
-assert.equal(studioGroup.notice, null)
 assert.equal(studioGroup.phase?.phase, 'paired', 'and no check yet: paired is all that is known')
 
 // A machine that went quiet keeps its rows, dimmed, and a remote-born row
@@ -152,8 +155,8 @@ assert.equal(quiet[0]!.stale, true, 'rows from an earlier read on a machine that
 assert.deepEqual(quiet[0]!.rows.map((row) => row.title), ['Zed'])
 assert.deepEqual(quiet[0]!.parked.map((entry) => entry.id), ['w1'], 'the row born there stays, parked')
 assert.equal(quiet[0]!.phase?.phase, 'unreachable')
-
-// A pairing granted no terminal scope says so in place of rows.
+// No notices (owner ruling 2026-09-05): a scope gap or a revocation is not a
+// sidebar sentence. The band lists conversations and nothing else.
 const gapped = buildRemoteBand({
   connections: [air],
   browses: new Map([['c1', { browse: browse({ gaps: [{ part: 'terminals', code: 'scope_required', message: 'This pairing may not see that machine\'s terminals.' }] }), loading: false, error: null, at: 3 }]]),
@@ -161,18 +164,9 @@ const gapped = buildRemoteBand({
   reachability,
   workspaces: [],
 })
-assert.match(gapped[0]!.notice ?? '', /may not see/u)
+assert.deepEqual(gapped[0]!.rows, [])
 assert.equal(gapped[0]!.stale, false)
-
-// Revoked over there outranks every other notice.
-const revoked = buildRemoteBand({
-  connections: [air],
-  browses: new Map([['c1', { browse: browse({ unauthorized: true, gaps: [{ part: 'terminals', code: 'x', message: 'gap' }] }), loading: false, error: null, at: 3 }]]),
-  attachments,
-  reachability,
-  workspaces: [],
-})
-assert.match(revoked[0]!.notice ?? '', /Settings → Remote/u)
+assert.ok(!('notice' in gapped[0]!), 'the band carries no sentence for a machine with nothing to open')
 
 // Rows born on a machine no longer paired keep a home, with nothing to ask.
 const orphaned = buildRemoteBand({

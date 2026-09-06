@@ -48,7 +48,7 @@ import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
-import { RemotePopover, remoteGlyphState, remoteGlyphToneClass, useOpenRemoteSettings } from './topbar/RemotePopover'
+import { RemotePopover, remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemoteSettings } from './topbar/RemotePopover'
 import { useTailnetPresence } from './topbar/useTailnetPresence'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -649,19 +649,7 @@ export function WorkspaceActions({
               placement="bottom-end"
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
                 <Tooltip
-                  content={
-                    remoteState.requestCount > 0
-                      ? 'Remote — a pair request is waiting'
-                      : remoteState.degraded
-                        ? 'Remote — a machine is not answering'
-                        : remoteState.driving
-                          ? 'Remote — a device is driving a terminal here'
-                          : remoteState.connected
-                            ? 'Remote — a device is connected'
-                            : remoteState.serving
-                              ? 'Remote — serving'
-                              : 'Remote'
-                  }
+                  content={remoteGlyphTooltip(remoteState)}
                   placement="bottom"
                 >
                   <IconButton
@@ -690,8 +678,14 @@ export function WorkspaceActions({
                     >
                       <RemoteMachineGlyph className={`size-icon-md ${remoteGlyphToneClass(remoteState)}`} />
                     </ChangePulse>
+                    {/* The count the glyph wears (owner ruling 2026-09-05):
+                        machines answering right now, the way the terminal
+                        glyph counts open sessions. A waiting pair request
+                        outranks it — that one asks for a person. */}
                     {remoteState.requestCount > 0 ? (
                       <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
+                    ) : remoteState.answering > 0 ? (
+                      <Badge corner decorative tone="good" count={remoteState.answering} max={9} />
                     ) : null}
                   </IconButton>
                 </Tooltip>

@@ -200,22 +200,21 @@ async function main(): Promise<void> {
   const remoteHeader = headers[0]!
   assert.ok(remoteHeader.querySelector('svg'), 'the band header carries the shared machine glyph')
   const remoteSection = remoteHeader.closest('section')!
-  const machineLines = [...remoteSection.querySelectorAll('[data-remote-machine]')].map((node) =>
-    node.getAttribute('data-remote-machine')
-  )
-  assert.deepEqual(machineLines, ['MacBook Air'], "one machine line, named for the rows' provenance")
-  const remoteRows = [...remoteSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')
+  // Owner ruling 2026-09-05: one flat list, no machine lines. Every band row
+  // leads with the machine glyph, and the machine's name is the glyph's
+  // tooltip and accessible name — never the row's own text.
+  assert.equal(remoteSection.querySelectorAll('[data-remote-machine]').length, 0, 'no machine line')
+  const remoteRowNodes = [...remoteSection.querySelectorAll('[role="treeitem"]')]
+  const remoteRows = remoteRowNodes.map((row) => row.textContent ?? '')
   for (const name of ['Zulu', 'Charlie', 'Delta', 'Foxtrot']) {
     assert.ok(remoteRows.some((text) => text.includes(name)), `${name}, born on the Air, is a row of the band`)
   }
-  // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): line 2 —
-  // provenance included — exists only while the row has an open terminal. The
-  // row whose pane is open wears the machine; the row whose pane closed is a
-  // one-liner, and its provenance is the machine line's above.
-  assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('MacBook Air'),
-    'the row with an open pane wears the provenance mark')
-  assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('MacBook Air'),
-    'the row whose pane closed has no second line — the machine line names it')
+  for (const row of remoteRowNodes) {
+    assert.equal(row.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph'), 'MacBook Air',
+      'every band row leads with the glyph that names its machine')
+    assert.ok(!(row.textContent ?? '').includes('MacBook Air'), 'and the name is not row text')
+  }
+  assert.doesNotMatch(remoteSection.textContent ?? '', /No sessions open/, 'no empty-state sentence in the band')
   assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('agent/fix'),
     'the live remote row names the branch its create landed on')
   assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('agent/fix'),

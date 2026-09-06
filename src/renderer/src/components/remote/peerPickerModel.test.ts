@@ -129,7 +129,9 @@ assert.equal(fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ 
 const live = new Map([['pane', { attachId: 'pane', connectionId: 'tnc_1', machineName: 'x', sessionId: 's1', state: 'live' as const, detail: '' }]])
 assert.equal(fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase, 'connected')
 
-assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), 'reachable · checked just now')
+// Owner ruling 2026-09-05: a machine that answers gets no words — the green
+// glyph is the whole message, and when the check ran is not a fact anyone acts on.
+assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), '')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · 2 h')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW), 'not answering · never reached')
 assert.equal(machinePhaseText('air', { phase: 'revoked', detail: 'x' }, NOW), 'revoked there — pair again to reconnect')

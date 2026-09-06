@@ -80,7 +80,7 @@ const bridge = {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { RemotePopover, deviceLivenessText, fleetMachinePhase, machinePhaseText, remoteGlyphState, remoteGlyphToneClass } from './RemotePopover'
+import { RemotePopover, deviceLivenessText, fleetMachinePhase, machinePhaseText, remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip } from './RemotePopover'
 import { drivenTerminalView, shortMachineName } from '../../remote/machineRowModel'
 import { fleetLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
 import { useToastStore } from '../../../store/toastStore'
@@ -369,10 +369,18 @@ run('the glyph itself carries the state: green for serving or connected, pulsing
     }),
   })
   assert.match(tone(waiting), /animate-pulse[\s\S]*tone-warn/, 'a waiting pair request wants a person')
+  // Owner ruling 2026-09-05: a machine that stopped answering says so on its
+  // own glyph in the popover; the top-bar glyph stays green while this Mac is
+  // reachable, and only a pair request may pulse it.
   assert.match(
-    tone(presence({ fleet: [connection()], fleetAttachments: attachments([{ attachId: 'a', state: 'offline' }]) })),
-    /tone-warn/,
-    'so does a machine that stopped answering'
+    tone(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach({ reachable: false, detail: 'no answer' })]]) })),
+    /tone-good/,
+    'a quiet machine does not alarm the glyph'
+  )
+  assert.doesNotMatch(
+    tone(presence({ status: status({ running: false, lastError: 'Tailnet remote control is enabled but no Tailscale interface was found.' }) })),
+    /tone-good|tone-warn|tone-error/,
+    'off the tailnet the glyph is the default ink — grey, never red: offline is not an error'
   )
   assert.equal(
     tone(presence({ status: status({ running: false, endpoint: null }) })),
@@ -424,7 +432,13 @@ run('the popover lists the driving device and the machines — no addresses anyw
   assert.doesNotMatch(markup, /100\.91\.70\.66/, 'this machine\u2019s endpoint is not here')
   assert.doesNotMatch(markup, /100\.106\.119\.1/, 'nor the peer the transport saw')
   assert.doesNotMatch(markup, /This machine/, 'one list, not two headings')
-  assert.match(markup, /Serving/, 'whether this Studio is reachable at all still reads, in words')
+  // Owner ruling 2026-09-05: the header is the name and the count. Whether
+  // this Mac is on the tailnet is the glyph's ink and the glyph's tooltip.
+  assert.doesNotMatch(markup, /Serving/, 'no listener word in the header')
+  for (const row of mounted.querySelectorAll('[data-machine-phase]')) {
+    assert.doesNotMatch(row.innerHTML, /rounded-full/, 'no status dot on a machine row — the glyph is the status')
+  }
+  assert.match(markup, /data-tailnet-listening="true"/)
   assert.match(markup, /Sprint Engine Android/)
   assert.match(markup, /Driving /, 'what it is driving reads on its own line')
   assert.doesNotMatch(markup, /agent-standup/, 'never the session id — the one thing on the row nobody can read')
@@ -433,14 +447,9 @@ run('the popover lists the driving device and the machines — no addresses anyw
   // Connected is green and steady, driving or not: amber is this app's word
   // for "someone has to do something", and a phone typing into a terminal is
   // the feature working (owner ruling 2026-09-05).
-  const drivingDot = mounted.querySelector('[aria-label="Driving a terminal"]')
-  assert.ok(drivingDot, 'the driving device carries a dot')
-  assert.doesNotMatch(drivingDot?.className ?? '', /status-dot-pulse/, 'nothing pulses for a phone doing its job')
-  assert.match(
-    drivingDot?.getAttribute('style') ?? '',
-    /--tone-good/,
-    'and it is green'
-  )
+  const drivingGlyph = mounted.querySelector('[aria-label="Driving a terminal"]')
+  assert.ok(drivingGlyph, 'the driving device is announced on its glyph')
+  assert.match(drivingGlyph?.innerHTML ?? '', /--tone-good/, 'and the glyph is green')
   assert.ok(buttonLabelled(mounted, /^Revoke Sprint Engine Android$/), 'a red X revokes the device — the word is in its name and tooltip')
   // The card: the proven node and the declared name, each labelled.
   assert.match(markup, /dev-macbook-air/)
@@ -461,7 +470,8 @@ run('the popover lists the driving device and the machines — no addresses anyw
   // Machines: the shared remote glyph leads the row, the phase dot and text follow.
   assert.match(markup, /Conal’s MacBook Air/)
   assert.match(markup, /2 terminals attached/)
-  assert.match(markup, /aria-label="Connected"/, 'the connected phase dot')
+  assert.match(markup, /data-machine-answering="true"/, 'a machine with a live link is answering')
+  assert.match(markup, /aria-label="Answering"/, 'said on its glyph')
   assert.match(markup, /Remote settings/)
   unmount()
 })
@@ -480,11 +490,10 @@ run('machine rows narrate the transitional and failed phases with the phase dot 
   )
   const markup = mounted.innerHTML
   assert.match(markup, /Reconnecting to Conal’s MacBook Air…/)
-  assert.match(markup, /aria-label="Reconnecting"/)
-  assert.match(markup, /status-dot-pulse/, 'the transitional phase carries the halo')
+  assert.doesNotMatch(markup, /status-dot-pulse/, 'no dots: the words carry the transitional phase, the glyph stays in the default ink')
   assert.match(markup, /Mini is not answering/)
   assert.match(markup, /aria-label="Not answering"/)
-  assert.match(markup, /aria-label="Paired"/, 'a machine with no link is paired, nothing more claimed')
+  assert.match(markup, /paired/, 'a machine with no link is paired, nothing more claimed')
   assert.equal((markup.match(/<svg/g) ?? []).length >= 3, true, 'the remote glyph leads every machine row')
   unmount()
 })
@@ -595,6 +604,36 @@ run('a quiet popover says so rather than rendering empty sections', () => {
   assert.match(mounted.innerHTML, /Add a machine…/, 'the way in is offered from the popover itself')
   assert.match(mounted.innerHTML, /Remote settings/, 'beside the settings tab that holds the rest')
   assert.doesNotMatch(mounted.innerHTML, /Open Fleet/, 'the Fleet panel is retired — no button into it')
+  unmount()
+})
+
+run('off the tailnet the popover says nothing in its header and grays every machine; the words are the glyph tooltip\'s', () => {
+  const error = 'Tailnet remote control is enabled but no Tailscale address was found.'
+  const p = presence({
+    status: status({ running: false, lastError: error }),
+    fleet: [connection()],
+    fleetReachability: new Map([['conn-1', reach()]]),
+  })
+  const mounted = mount(popover(p))
+  const header = mounted.querySelector('header')
+  assert.ok(header, 'the panel header is there')
+  // Owner ruling 2026-09-05: no dot and no sentence in the header. The glyph
+  // that opened this popover is grey, its tooltip says why, and every row is
+  // drawn in disabled ink — remembered, not reachable.
+  assert.doesNotMatch(header!.textContent ?? '', /Tailnet remote control|Not serving|Serving/, 'the header is the name and the count')
+  assert.ok(!header!.querySelector('[class*="status-dot"]'), 'and carries no dot')
+  assert.match(mounted.innerHTML, /data-tailnet-listening="false"/)
+  assert.match(mounted.innerHTML, /aria-label="Not connected to Tailscale"/, 'the machine glyph says why it is grey')
+  assert.match(mounted.innerHTML, /--text-disabled/, 'the machine row is in disabled ink')
+  assert.doesNotMatch(mounted.innerHTML, /Check whether/, 'no Retry: nothing here can ask')
+  assert.doesNotMatch(mounted.innerHTML, /data-machine-answering="true"/, 'a machine main last saw answering is not claimed answering now')
+  const state = remoteGlyphState(p)
+  assert.equal(state.serving, false)
+  assert.equal(state.answering, 0, 'nothing answers while this Mac is off the tailnet')
+  assert.match(remoteGlyphTooltip(state), /not connected to Tailscale/)
+  assert.match(remoteGlyphTooltip(state), /no Tailscale address/, 'the error rides the tooltip')
+  assert.match(remoteGlyphTooltip(remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach()]]) }))), /live · 1 machine answering/)
+  assert.equal(remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach()]]) })).answering, 1, 'the count the glyph wears')
   unmount()
 })
 
@@ -756,8 +795,12 @@ run('machine rows read main’s reachability when no pane is open: reachable, no
     />
   )
   const markup = mounted.innerHTML
-  assert.match(markup, /reachable · checked just now/)
-  assert.match(markup, /aria-label="Reachable"/)
+  // A machine that answers gets no line under its name (owner ruling
+  // 2026-09-05): green is the whole message, and when the check ran is not a
+  // fact anyone acts on.
+  assert.doesNotMatch(markup, /checked just now/)
+  assert.match(markup, /data-machine-answering="true"/)
+  assert.match(markup, /aria-label="Answering"/)
   assert.match(markup, /not answering · 2 h/, 'how long it has been silent — not a second clause about when it last was not')
   assert.doesNotMatch(markup, /last reached/)
   assert.match(markup, /revoked there — pair again to reconnect/)

@@ -19,6 +19,8 @@ const ATTACHMENT_SETTLE_MS = 750
 export type RemoteSessions = {
   presence: TailnetPresence
   browses: ReadonlyMap<string, RemoteBrowseEntry>
+  /** This Mac is on the tailnet: the band may draw what it read from over there. */
+  listening: boolean
   /** Read one machine now, or every machine that may be asked. */
   refresh: (connectionId?: string) => void
 }
@@ -35,8 +37,13 @@ function withEntry(
   return next
 }
 
-export function useRemoteSessions({ enabled }: { enabled: boolean }): RemoteSessions {
+export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): RemoteSessions {
   const presence = useTailnetPresence()
+  // Off the tailnet nothing over there can answer, so nothing is asked
+  // (owner ruling 2026-09-05): the band draws only what is open here until
+  // the listener is back, and the first read after that is the mount read.
+  const listening = presence.status?.running === true
+  const enabled = wanted && listening
   const [browses, setBrowses] = useState<ReadonlyMap<string, RemoteBrowseEntry>>(() => new Map())
   const browsesRef = useRef(browses)
   browsesRef.current = browses
@@ -168,5 +175,5 @@ export function useRemoteSessions({ enabled }: { enabled: boolean }): RemoteSess
     [fleet, fleetReachability, browse]
   )
 
-  return { presence, browses, refresh }
+  return { presence, browses, listening, refresh }
 }

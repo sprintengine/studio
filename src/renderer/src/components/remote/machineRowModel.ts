@@ -1,6 +1,6 @@
 import type { FleetLiveAttachment, FleetLinkState, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { StatusTone } from '../ui/tokens'
-import { ago, since } from './peerPickerModel'
+import { since } from './peerPickerModel'
 
 // A paired machine's row, wherever one is drawn (the Remote popover, the
 // Fleet, Settings): its phase from the links this app holds to it, and —
@@ -70,7 +70,9 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
     case 'checking':
       return 'checking…'
     case 'reachable':
-      return `reachable · checked ${ago(phase.checkedAt, now)}`
+      // Nothing (owner ruling 2026-09-05): the green glyph is the whole
+      // message, and when the check ran is not a fact anyone acts on.
+      return ''
     case 'unreachable':
       // How long it has been silent, not a second clause about when it last
       // was not: the state is already named, and the row has a Retry and a
@@ -79,6 +81,22 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
     case 'revoked':
       return 'revoked there — pair again to reconnect'
   }
+}
+
+/**
+ * The machine glyph's ink, which is the row's whole status vocabulary (owner
+ * ruling 2026-09-05: no status dots in the Remote popover — the glyph is
+ * green when the machine answers and the default ink when it does not).
+ * Transitional phases keep the default ink too: the text beside the name
+ * says "connecting…", and a colour for "almost" is a colour nobody reads.
+ */
+export function machineGlyphToneClass(phase: FleetMachinePhase): string {
+  return phase.phase === 'connected' || phase.phase === 'reachable' ? 'text-[color:var(--tone-good)]' : 'text-[color:var(--text-subtle)]'
+}
+
+/** Whether a phase means the machine is answering right now — what the top bar's count adds up. */
+export function machineIsAnswering(phase: FleetMachinePhase): boolean {
+  return phase.phase === 'connected' || phase.phase === 'reachable'
 }
 
 /** Which row action a phase earns: Retry for a machine that stopped answering, Pair again for one that revoked us. */

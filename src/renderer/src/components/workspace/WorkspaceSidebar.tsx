@@ -55,8 +55,14 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
-import { buildRemoteBand, openSpecOf, type RemoteSessionOpenSpec, type RemoteSessionRow } from './remoteBand/remoteSessionsModel'
-import { MACHINE_PHASE_DOT, machinePhaseText, shortMachineName } from '../remote/machineRowModel'
+import {
+  buildRemoteBand,
+  openSpecOf,
+  remoteBandItems,
+  type RemoteSessionOpenSpec,
+  type RemoteSessionRow,
+} from './remoteBand/remoteSessionsModel'
+import { shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
 import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
@@ -834,6 +840,23 @@ export function AttentionPulse({
  * tick relaxes to 30s once the turn is past a minute and the seconds stop
  * mattering.
  */
+/**
+ * The mark a band row leads with (owner ruling 2026-09-05): the machine
+ * glyph, and the machine's name only on hover. The band has no machine lines,
+ * so this is the one place a row says where it lives — and it says it in the
+ * tooltip and the accessible name, not in the row's own width.
+ */
+function RemoteRowGlyph({ machineName }: { machineName: string }) {
+  const short = shortMachineName(machineName)
+  return (
+    <Tooltip content={`On ${short}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+      <span role="img" aria-label={`On ${short}`} className="flex shrink-0 items-center" data-remote-row-glyph={machineName}>
+        <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
+      </span>
+    </Tooltip>
+  )
+}
+
 export function WorkingElapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now())
   const withinFirstMinute = now - since < 60_000
@@ -948,14 +971,14 @@ export function WorkspaceRowMeta({
           (ignored there); the one pictorial part, the provenance glyph pair,
           is the img. */}
       {fleetMachines.length > 0 ? (
-        <span
-          role="img"
-          aria-label={`Remote: ${fleetMachines.join(', ')}`}
-          className="flex min-w-[5ch] shrink items-center gap-1"
-        >
-          <RemoteMachineGlyph className="icon-xs shrink-0" />
-          <TruncatedText as="span" text={fleetMachines.join(', ')} className="min-w-0" />
-        </span>
+        // The glyph alone (owner ruling 2026-09-05): the machine's name is
+        // the tooltip's, not the row's — a name on every row said the same
+        // thing the heading above it did, and it took the branch's room.
+        <Tooltip content={`On ${fleetMachines.map(shortMachineName).join(', ')}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+          <span role="img" aria-label={`Remote: ${fleetMachines.join(', ')}`} className="flex shrink-0 items-center">
+            <RemoteMachineGlyph className="icon-xs shrink-0" />
+          </span>
+        </Tooltip>
       ) : null}
       {branch ? (
         <span className="flex min-w-[3ch] shrink-[3] items-center gap-1 font-mono text-micro">
@@ -1394,7 +1417,7 @@ export default function WorkspaceSidebar({
   // paired machine's sessions, read only while the band is open and this rail
   // is the one showing; a machine that is asleep is drawn from its last read.
   const remoteSessions = useRemoteSessions({ enabled: !remoteCollapsed && !contextRailActive })
-  const { presence: remotePresence, browses: remoteBrowses } = remoteSessions
+  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening } = remoteSessions
   const remoteGroups = useMemo(
     () =>
       buildRemoteBand({
@@ -1405,6 +1428,13 @@ export default function WorkspaceSidebar({
         workspaces: railWorkspaces,
       }),
     [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
+  )
+  // One flat list, no machine headings (owner ruling 2026-09-05): the glyph
+  // on each row says where it lives. Empty — and so the band absent — until
+  // there is a conversation to open, or a window here that was born over there.
+  const remoteItems = useMemo(
+    () => remoteBandItems(remoteGroups, remoteListening, railWorkspaces),
+    [remoteGroups, remoteListening, railWorkspaces]
   )
 
   // A workspace is "live" while it shows a status dot — working, failed, or
@@ -1820,7 +1850,15 @@ export default function WorkspaceSidebar({
     [extractTabIntoNewWorkspace]
   )
 
-  const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
+  const renderWorkspaceRow = (
+    workspace: Workspace,
+    fKey: string,
+    options?: {
+      keyPrefix?: string
+      /** The band's rows lead with the machine glyph; its tooltip is where the machine is named. */
+      remoteMachine?: string
+    }
+  ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
     // workspace row is "current" — the door row carries the selection, so a
     // highlighted project row here would be a second, conflicting selected state.
@@ -1881,7 +1919,9 @@ export default function WorkspaceSidebar({
     // no line 2. (The poll above already asks about live rows only; the gate
     // here keeps the render honest even mid-transition.)
     const rowIsLive = rowSessions.length > 0
-    const fleetMachines = rowIsLive ? provenanceMachinesOf(workspace) : []
+    // A band row names its machine on the title glyph, so line 2 does not
+    // say it again; a local row that holds a remote pane still marks it there.
+    const fleetMachines = rowIsLive && !options?.remoteMachine ? provenanceMachinesOf(workspace) : []
     const gitSummary = rowIsLive ? gitSummaries[workspace.id] : undefined
     // A remote-born row's checkout is on another disk, so its branch is the
     // one stamped at the create (checkout-and-branch-on-remote-create); the
@@ -2098,6 +2138,7 @@ export default function WorkspaceSidebar({
           <span
             className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
           >
+            {options?.remoteMachine ? <RemoteRowGlyph machineName={options.remoteMachine} /> : null}
             {starred ? (
               <StarGlyph
                 filled
@@ -2163,44 +2204,70 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // A session on a paired machine that no workspace here is attached to
+  // A conversation on a paired machine that no workspace here is attached to
   // (remote-sessions-in-the-sidebar): the same two-line shape as a workspace
-  // row — title, then heads · machine · branch · diff with the status in the
-  // seat — and opening it attaches here. No drag, rename, or close: those are
-  // a workspace's, and this row has none until it is opened.
-  const renderRemoteSessionRow = (row: RemoteSessionRow) => {
+  // row — the machine glyph and the title, then heads · branch · diff with the
+  // status in the seat — and opening it attaches here. No drag, rename, or
+  // close: those are a workspace's, and this row has none until it is opened.
+  //
+  // The seat and the surface are the local rows' own (owner ruling
+  // 2026-09-05): the working dots with how long the turn has run, the gold
+  // surface for a turn waiting on a person, a quiet time since an idle row
+  // last worked. No status dot — that vocabulary was already spoken for.
+  const renderRemoteSessionRow = (row: RemoteSessionRow, machineName: string) => {
     const rowKey = `remote-session-${row.key}`
     const open = () => onOpenRemoteSession?.(openSpecOf(row))
+    const needsAttention = row.activity === 'needs-input'
+    const sinceText = row.since !== null ? formatRelativeMs(row.since, now) : ''
+    const surface = needsAttention
+      ? attentionRowClass(false)
+      : row.activity === 'paused'
+        ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
+        : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
     return (
       <div
         key={rowKey}
         data-row-key={rowKey}
         data-remote-session={row.sessionId}
+        data-remote-activity={row.activity}
         tabIndex={rovingKey === rowKey ? 0 : -1}
         onFocus={() => setRovingKey(rowKey)}
         onKeyDown={(event) => handleTreeRowKeyDown(event, null, open)}
         onClick={open}
         // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column
-        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${surface} ${FOCUS_RING_CLASS}`}
         role="treeitem"
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            {/* Weight marks a running pty, the way residency bolds a local row. */}
-            <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.live ? 'font-semibold' : ''}`} />
-            <span className="sr-only"> (on {row.machineName}, not open here)</span>
+            <RemoteRowGlyph machineName={machineName} />
+            {/* Weight marks a running turn, the way residency bolds a local row. */}
+            <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.activity === 'working' ? 'font-semibold' : ''}`} />
+            <span className="sr-only"> (on {machineName}, not open here)</span>
+            {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
+            {row.activity === 'paused' ? <span className="sr-only"> (paused)</span> : null}
           </span>
         </div>
         <WorkspaceRowMeta
           sessions={[{ sessionId: row.sessionId, ...(row.cli ? { cli: row.cli } : {}), remote: true }]}
-          fleetMachines={[row.machineName]}
+          fleetMachines={[]}
           branch={row.branch}
           additions={row.additions}
           deletions={row.deletions}
           diffScope={row.diffScope}
           trailing={
-            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
-              <StatusDot tone={row.status.tone} pulse={row.status.tone === 'good' && row.live} label={row.status.label} />
+            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end gap-1 pl-2">
+              {row.activity === 'working' ? (
+                <>
+                  <AgentWorkingDots label="Agent working" />
+                  {row.since !== null ? <WorkingElapsed since={row.since} /> : null}
+                </>
+              ) : sinceText ? (
+                <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                  <span aria-hidden="true">{sinceText}</span>
+                  <span className="sr-only">{row.activity === 'paused' ? 'Paused' : 'Idle'} {formatRelativeMsAgo(row.since!, now)}</span>
+                </span>
+              ) : null}
             </span>
           }
         />
@@ -2518,7 +2585,7 @@ export default function WorkspaceSidebar({
             — above the folders, one icon slot, collapsible. Machine management
             is not here (epic decision 3): Settings → Remote and the top bar's
             Remote glyph add, forget, and revoke. */}
-        {remoteGroups.length > 0 ? (
+        {remoteItems.length > 0 ? (
           <section className="relative pt-1" aria-label="Remote sessions">
             <button
               type="button"
@@ -2547,49 +2614,27 @@ export default function WorkspaceSidebar({
               </span>
             </button>
             <div id="ws-remote-body" hidden={remoteCollapsed}>
+              {/* One flat list in activity order, no machine lines and no
+                  "No sessions open" (owner ruling 2026-09-05): the glyph on
+                  each row says where it lives, and a band with nothing to
+                  open is not drawn at all. Rows from an earlier read on a
+                  machine that is not answering now are kept, drawn quieter,
+                  still openable — the attach itself says whether it answers. */}
               {!remoteCollapsed
-                ? remoteGroups.map((group) => {
-                    const dot = group.phase ? MACHINE_PHASE_DOT[group.phase.phase] : null
-                    const phaseText = group.phase
-                      ? machinePhaseText(group.machineName, group.phase, now)
-                      : `${group.machineName} is no longer paired here`
-                    const empty = group.rows.length === 0 && group.parked.length === 0
-                    return (
-                      <div key={group.key} data-remote-machine={group.machineName}>
-                        {/* design-tokens-allow: alignment — the machine line shares the rows' 26px inset so its name sits on the content column */}
-                        <div
-                          className="flex h-control-xs min-w-0 items-center gap-1.5 pl-[26px] pr-2 text-meta text-[color:var(--text-muted)]"
-                          title={phaseText}
-                        >
-                          {dot ? <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} /> : null}
-                          <span className="min-w-0 truncate font-medium text-[color:var(--text-default)]">
-                            {shortMachineName(group.machineName)}
-                          </span>
-                          {group.loading && empty ? <span className="shrink-0">reading…</span> : null}
-                        </div>
-                        {/* Rows from an earlier read on a machine that is not
-                            answering now: kept, drawn quieter, still openable
-                            — the attach itself says whether it answers. */}
-                        <div className={group.stale ? 'opacity-60' : ''}>
-                          {group.rows.map((row) => {
-                            const attached = row.attachedWorkspaceId ? workspaceById.get(row.attachedWorkspaceId) : undefined
-                            return attached
-                              ? renderWorkspaceRow(attached, `remote:${group.key}`, { keyPrefix: 'remote-' })
-                              : renderRemoteSessionRow(row)
-                          })}
-                          {group.parked.map((workspace) =>
-                            renderWorkspaceRow(workspace, `remote:${group.key}`, { keyPrefix: 'remote-' })
-                          )}
-                        </div>
-                        {empty && !group.loading ? (
-                          <>
-                            {/* design-tokens-allow: alignment — the notice takes the rows' 26px inset */}
-                            <p className="pl-[26px] pr-2 py-1 text-meta text-[color:var(--text-subtle)]">
-                              {group.notice ?? 'No sessions open.'}
-                            </p>
-                          </>
-                        ) : null}
+                ? remoteItems.map((item) => {
+                    const node =
+                      item.kind === 'workspace'
+                        ? renderWorkspaceRow(item.workspace, `remote:${item.machineName}`, {
+                            keyPrefix: 'remote-',
+                            remoteMachine: item.machineName,
+                          })
+                        : renderRemoteSessionRow(item.row, item.machineName)
+                    return item.stale ? (
+                      <div key={item.key} className="opacity-60">
+                        {node}
                       </div>
+                    ) : (
+                      <React.Fragment key={item.key}>{node}</React.Fragment>
                     )
                   })
                 : null}

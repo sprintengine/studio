@@ -105,7 +105,10 @@ run('truncation is an ordered give-way: branch first, then machine, never heads 
     trailing: <span className="ml-auto shrink-0">seat</span>,
   })
   assert.match(markup, /min-w-\[3ch\] shrink-\[3\] items-center gap-1 font-mono/, 'the branch shrinks first (weight 3) to its floor')
-  assert.match(markup, /min-w-\[5ch\] shrink items-center gap-1/, 'the machine name shrinks after it (weight 1) to its own floor')
+  // Owner ruling 2026-09-05: the machine is a glyph whose tooltip names it,
+  // so there is no machine name on the line to shrink at all.
+  assert.doesNotMatch(markup, /Conal’s MacBook Air<\/span>/, 'the machine name is not line text')
+  assert.match(markup, /aria-label="Remote: Conal’s MacBook Air"/, 'it is the glyph\'s accessible name')
   assert.doesNotMatch(markup, /max-w-\[45%\]/, 'no fixed cap on the machine name')
   assert.match(markup, /flex shrink-0 items-center" role="img" aria-label="1 open terminal"/, 'heads never shrink')
   assert.match(markup, /inline-flex shrink-0/, 'the diff never shrinks')
