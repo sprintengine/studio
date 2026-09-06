@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 
 // The toast host's event bridges (remote-sessions-ux / toast-host-region +
-// incoming-pair-request-prompt), mounted for real: the pair-request toast
-// announces, never carries the code, and is RETRACTED when the request
-// resolves from any surface — while one the person dismissed stays dismissed.
+// incoming-pair-request-prompt), mounted for real: the pair-request toast is
+// ANSWERED where it arrives (owner ruling 2026-09-05) — a code field and two
+// answers, never the code itself, no pointer to another surface — and is
+// RETRACTED when the request resolves from anywhere, while one the person
+// dismissed stays dismissed.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -15,12 +17,27 @@ const anyGlobal = globalThis as unknown as Record<string, unknown>
 anyGlobal.window = dom.window
 anyGlobal.document = dom.window.document
 anyGlobal.HTMLElement = dom.window.HTMLElement
+// React's controlled-input change detection needs the real constructors on
+// the global, or a synthetic `input` event never reaches onChange.
+anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
+anyGlobal.HTMLButtonElement = dom.window.HTMLButtonElement
 anyGlobal.Node = dom.window.Node
+// React DOM's legacy change-event polyfill (it decided at load that no DOM
+// existed) watches the focused element through IE's attachEvent/detachEvent;
+// jsdom has neither, so `typeInto` needs them as no-ops. Same shim as
+// RemotePopover.test.tsx.
+const inputProto = dom.window.HTMLInputElement.prototype as unknown as Record<string, unknown>
+inputProto.attachEvent = () => {}
+inputProto.detachEvent = () => {}
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
 type Handler<T> = (payload: T) => void
 const tailnetHandlers: Array<Handler<unknown>> = []
 const fleetHandlers: Array<Handler<unknown>> = []
+const bridge = {
+  approveCalls: [] as Array<{ id: string; scopes: string[]; code: string }>,
+  denyCalls: [] as string[],
+}
 ;(dom.window as unknown as { api: unknown }).api = {
   onTailnetEvent: (cb: Handler<unknown>) => {
     tailnetHandlers.push(cb)
@@ -29,6 +46,14 @@ const fleetHandlers: Array<Handler<unknown>> = []
   onFleetEvent: (cb: Handler<unknown>) => {
     fleetHandlers.push(cb)
     return () => fleetHandlers.splice(fleetHandlers.indexOf(cb), 1)
+  },
+  tailnetApprovePairRequest: (id: string, scopes: string[], code: string) => {
+    bridge.approveCalls.push({ id, scopes, code })
+    return Promise.resolve({ ok: true })
+  },
+  tailnetDenyPairRequest: (id: string) => {
+    bridge.denyCalls.push(id)
+    return Promise.resolve({})
   },
 }
 
@@ -50,6 +75,21 @@ function run(name: string, fn: () => void): void {
     console.error(error)
   }
 }
+// The answer-in-place tests click through IPC promises; they queue behind the
+// synchronous ones rather than interleaving with them.
+let queue: Promise<void> = Promise.resolve()
+function runAsync(name: string, fn: () => Promise<void>): void {
+  queue = queue
+    .then(async () => {
+      await fn()
+      console.log(`ok - ${name}`)
+    })
+    .catch((error) => {
+      failures += 1
+      console.error(`not ok - ${name}`)
+      console.error(error)
+    })
+}
 
 let revision = 0
 function pairEvent(
@@ -57,12 +97,50 @@ function pairEvent(
   requestId = 'req1',
   peerNode: string | null = null
 ): unknown {
+  // The push payload carries the status the event happened to, and the toast
+  // reads the waiting request out of it — the body cannot be drawn from the
+  // event alone.
+  const waiting = {
+    id: requestId,
+    deviceName: 'macbook-air',
+    peerNode,
+    peerAddress: '100.4.4.4',
+    comparisonCode: '481972',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+  }
   return {
     revision: ++revision,
     event: { kind: 'pair-request', phase, requestId, deviceName: 'macbook-air', peerNode },
-    status: {},
+    status: { pairRequests: phase === 'received' ? [waiting] : [] },
     live: { revision, devices: [] },
   }
+}
+async function typeInto(input: Element | null, value: string): Promise<void> {
+  assert.ok(input instanceof dom.window.HTMLInputElement, 'the code field exists')
+  const field = input as HTMLInputElement
+  await act(async () => {
+    field.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+    setter?.call(field, value)
+    field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    field.dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true }))
+  })
+}
+function buttonNamed(mounted: HTMLElement, text: RegExp): HTMLButtonElement | null {
+  return [...mounted.querySelectorAll('button')].find((button) => text.test(button.textContent ?? '')) ?? null
+}
+function click(element: Element | null): void {
+  assert.ok(element, 'the element to click exists')
+  act(() => {
+    element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+}
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 }
 
 function fleetEvent(body: Record<string, unknown>): unknown {
@@ -109,13 +187,17 @@ function reset(): void {
   })
 }
 
-run('a pair request announces as a persistent warn toast, without the code', () => {
+run('a pair request arrives as a persistent warn toast that can be answered in place, without showing the code', () => {
   reset()
   const mounted = mount()
   fireTailnet(pairEvent('received'))
   assert.match(mounted.innerHTML, /Pair request from macbook-air/)
   assert.match(mounted.innerHTML, /role="alert"/, 'warn interrupts and persists')
-  assert.doesNotMatch(mounted.innerHTML, /\d{6}/, 'no comparison code in the announcement')
+  assert.doesNotMatch(mounted.innerHTML, /481972/, 'the comparison code is typed here, never shown')
+  assert.ok(mounted.querySelector('input[inputmode="numeric"]'), 'the code field is on the toast')
+  assert.ok(buttonNamed(mounted, /^Allow/)?.disabled, 'Allow is dead until six digits are typed')
+  assert.ok(buttonNamed(mounted, /^Decline/), 'and the request can be refused from here')
+  assert.doesNotMatch(mounted.innerHTML, /Remote glyph|Settings/, 'no pointer elsewhere — this surface answers')
   unmount()
 })
 
@@ -129,12 +211,43 @@ run('the same request announced twice is one toast', () => {
   void mounted
 })
 
-run('the toast names the transport-proven node first and the self-declared name second', () => {
+run('the toast names the transport-proven node, shortened, and says nothing else about it', () => {
   reset()
   const mounted = mount()
-  fireTailnet(pairEvent('received', 'req-named', 'dev-macbook-air'))
-  assert.match(mounted.innerHTML, /Pair request from dev-macbook-air/)
-  assert.match(mounted.innerHTML, /Calls itself “macbook-air”/)
+  fireTailnet(pairEvent('received', 'req-named', 'dev-macbook-air.tail1234.ts.net'))
+  assert.match(mounted.innerHTML, /Pair request from dev-macbook-air<|Pair request from dev-macbook-air\b/)
+  assert.doesNotMatch(mounted.innerHTML, /tail1234/, 'the tailnet tail is the same on every machine — not a name')
+  assert.doesNotMatch(mounted.innerHTML, /Calls itself/, 'the second identity belongs on the card, not the announcement')
+  unmount()
+})
+
+runAsync('typing the code and pressing Allow answers from the toast, granting the defaults — never terminal control', async () => {
+  reset()
+  bridge.approveCalls.length = 0
+  const mounted = mount()
+  fireTailnet(pairEvent('received', 'req-answer', 'dev-macbook-air'))
+  await typeInto(mounted.querySelector('input[inputmode="numeric"]'), '48 19 72')
+  click(buttonNamed(mounted, /^Allow/))
+  await flush()
+  assert.equal(bridge.approveCalls.length, 1, 'one approval')
+  assert.equal(bridge.approveCalls[0]?.id, 'req-answer')
+  assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most')
+  assert.ok(bridge.approveCalls[0]?.scopes.includes('workspace:operate'), 'the default families are granted')
+  assert.ok(
+    !bridge.approveCalls[0]?.scopes.includes('terminal:control'),
+    'arbitrary shell is never granted by a surface that did not show the words'
+  )
+  unmount()
+})
+
+runAsync('Decline from the toast refuses the request main is holding', async () => {
+  reset()
+  bridge.denyCalls.length = 0
+  const mounted = mount()
+  fireTailnet(pairEvent('received', 'req-no', 'dev-macbook-air'))
+  click(buttonNamed(mounted, /^Decline/))
+  await flush()
+  assert.deepEqual(bridge.denyCalls, ['req-no'])
   unmount()
 })
 
@@ -234,8 +347,10 @@ run('a pane closed for good retracts the loss toast without claiming a recovery'
   unmount()
 })
 
-if (failures > 0) {
-  console.error(`ToastHost.test.tsx: ${failures} failing`)
-  process.exit(1)
-}
-console.log('ToastHost.test.tsx: ok')
+void queue.then(() => {
+  if (failures > 0) {
+    console.error(`ToastHost.test.tsx: ${failures} failing`)
+    process.exit(1)
+  }
+  console.log('ToastHost.test.tsx: ok')
+})

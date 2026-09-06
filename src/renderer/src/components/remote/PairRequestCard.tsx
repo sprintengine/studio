@@ -1,9 +1,9 @@
 import React from 'react'
 
-import { PAIR_REQUEST_CODE_ATTEMPTS, type TailnetPairRequest, type TailnetScope } from '../../../../shared/tailnet'
+import { PAIR_REQUEST_CODE_ATTEMPTS, type TailnetPairRequest } from '../../../../shared/tailnet'
 import { Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { pairRequestAnswerable } from '../settings/tailnetPanelModel'
-import { showToast } from '../../store/toastStore'
+import { PAIR_SCOPE_ROWS, usePairRequestAnswer } from './pairRequestAnswer'
 
 // The ACTING surface for a request from another machine, shared by the
 // Remote popover and Settings → Remote (pair-from-the-scan-and-stay-paired,
@@ -12,25 +12,13 @@ import { showToast } from '../../store/toastStore'
 // screen — the binding the comparison code was always for, enforced rather
 // than trusted. Main compares; a wrong code is refused inline; the third
 // wrong code declines the request. Approval and denial go through the exact
-// IPC both surfaces always used, and resolution reaches every surface over
-// the push channel, so no double-approve is possible.
-
-// The scope choices, in the mockup's four combined rows: operate implies read
-// within a family (shared/tailnet's own rule), so one checkbox per family
-// grants the pair, and the terminal tier — arbitrary shell — stays its own
-// named line, never bundled and never pre-ticked.
-export const PAIR_SCOPE_ROWS: Array<{ label: string; scopes: TailnetScope[]; note?: string; defaultOn: boolean }> = [
-  { label: 'Workspaces — read & operate', scopes: ['workspace:read', 'workspace:operate'], defaultOn: true },
-  { label: 'Sprints — read & operate', scopes: ['sprint:read', 'sprint:operate'], defaultOn: true },
-  { label: 'Backlog — read & operate', scopes: ['backlog:read', 'backlog:operate'], defaultOn: true },
-  { label: 'Horizons — read & operate', scopes: ['horizon:read', 'horizon:operate'], defaultOn: true },
-  { label: 'Terminals — control', scopes: ['terminal:observe', 'terminal:control'], note: 'arbitrary shell', defaultOn: false },
-]
-
-/** Digits only, at most six: "481 972" read off a screen is the same answer as "481972". */
-export function normalizeTypedCode(value: string): string {
-  return value.replace(/\D/gu, '').slice(0, 6)
-}
+// IPC both surfaces always used (`usePairRequestAnswer`), and resolution
+// reaches every surface over the push channel, so no double-approve is
+// possible.
+//
+// This is the surface that CHOOSES SCOPES. The toast the request arrives as
+// answers with the defaults alone (`DEFAULT_PAIR_SCOPES`); anyone who wants
+// to hand over terminal control comes here.
 
 export function PairRequestCard({
   request,
@@ -45,9 +33,7 @@ export function PairRequestCard({
   const [granted, setGranted] = React.useState<ReadonlySet<string>>(
     () => new Set(PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).map((row) => row.label))
   )
-  const [code, setCode] = React.useState('')
-  const [codeError, setCodeError] = React.useState<string | null>(null)
-  const [busy, setBusy] = React.useState<'allow' | 'decline' | null>(null)
+  const { code, setCode, codeError, busy, answer } = usePairRequestAnswer(request.id)
   const inputId = React.useId()
   const helpId = `${inputId}-help`
   const msLeft = Math.max(0, Date.parse(request.expiresAt) - now)
@@ -59,38 +45,6 @@ export function PairRequestCard({
   const answerable = pairRequestAnswerable(request, now)
   const disabled = busy !== null || !answerable.canAnswer
   const asker = request.peerNode ?? request.peerAddress
-
-  const answer = async (kind: 'allow' | 'decline'): Promise<void> => {
-    if (busy) return
-    setBusy(kind)
-    try {
-      if (kind === 'allow') {
-        const result = await window.api.tailnetApprovePairRequest(request.id, scopes, code)
-        if (!result.ok) {
-          if (result.code === 'code_mismatch') {
-            // Inline, beside the field, in the words main used: the person
-            // is mid-typing and a toast would be over their shoulder.
-            setCodeError(result.message)
-            setCode('')
-            return
-          }
-          // `request_not_found` is an answer, not an exception — answered
-          // elsewhere or lapsed under the cursor — and swallowing it would
-          // leave a person who pressed Allow believing they had paired.
-          showToast({ tone: 'error', title: 'Could not approve the pair request', description: result.message })
-        }
-      } else await window.api.tailnetDenyPairRequest(request.id)
-      // The push channel clears the card everywhere; nothing to do locally.
-    } catch (error) {
-      showToast({
-        tone: 'error',
-        title: kind === 'allow' ? 'Could not approve the pair request' : 'Could not decline the pair request',
-        description: error instanceof Error ? error.message : String(error),
-      })
-    } finally {
-      setBusy(null)
-    }
-  }
 
   const frame =
     variant === 'card'
@@ -121,12 +75,9 @@ export function PairRequestCard({
         <Input
           id={inputId}
           value={code}
-          onChange={(event) => {
-            setCode(normalizeTypedCode(event.target.value))
-            if (codeError) setCodeError(null)
-          }}
+          onChange={(event) => setCode(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && code.length === 6 && !disabled && scopes.length > 0) void answer('allow')
+            if (event.key === 'Enter' && code.length === 6 && !disabled && scopes.length > 0) void answer('allow', scopes)
           }}
           inputMode="numeric"
           pattern="[0-9]*"
@@ -171,13 +122,13 @@ export function PairRequestCard({
           {answerable.canAnswer ? `${minutes}:${String(seconds).padStart(2, '0')}` : 'Lapsed'}
         </span>
         <span className="flex-1" />
-        <OutlineButton size="sm" disabled={disabled} onClick={() => void answer('decline')}>
+        <OutlineButton size="sm" disabled={disabled} onClick={() => void answer('decline', scopes)}>
           {busy === 'decline' ? 'Declining…' : 'Decline'}
         </OutlineButton>
         <PrimaryButton
           size="sm"
           disabled={disabled || scopes.length === 0 || code.length !== 6}
-          onClick={() => void answer('allow')}
+          onClick={() => void answer('allow', scopes)}
         >
           {busy === 'allow' ? 'Allowing…' : 'Allow'}
         </PrimaryButton>

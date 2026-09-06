@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import CliIcon from '../CliIcon'
 import { GhostButton, PrimaryButton } from './Buttons'
 import { TONE_COLOR_VAR, type Tone } from './tokens'
@@ -46,6 +46,10 @@ type ToastProps = {
   /** The action row. The CLI-update toast is the ONE toast that carries one
    *  (owner ruling 2026-09-04); the toast spec's action-row variant. */
   actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; run: () => void }>
+  /** The acting body, under the description: the pair-request toast's code
+   *  field and its answers (owner ruling 2026-09-05, the toast spec's
+   *  answer-in-place variant). One producer; see the store's `content`. */
+  content?: ReactNode
 }
 
 export function Toast({
@@ -57,6 +61,7 @@ export function Toast({
   className,
   cli,
   actions,
+  content,
 }: ToastProps) {
   const resolved = autoDismissMs ?? TOAST_AUTO_DISMISS_MS[tone]
 
@@ -110,6 +115,7 @@ export function Toast({
             {description}
           </div>
         ) : null}
+        {content}
         {actions && actions.length > 0 ? (
           <div className="mt-2 flex justify-end gap-1.5">
             {actions.map((action) =>

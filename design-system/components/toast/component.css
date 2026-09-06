@@ -174,3 +174,41 @@
   gap: var(--sem-space-xs);
   margin-top: var(--sem-space-md);
 }
+
+/* The answer-in-place variant (owner ruling 2026-09-05): the incoming pair
+ * request is the ONE toast in the system carrying a field. Its whole answer is
+ * six digits read off the screen of the machine asking, and every other route
+ * to typing them — a popover, a settings tab — sends the person away from the
+ * thing they are looking at. The row is the field, then the refusal, then the
+ * answer; the help line under it carries the instruction and, in the danger
+ * ink, whatever the comparison refused. Persistence follows the field: a toast
+ * holding a half-typed code never dismisses itself. A second consumer of this
+ * variant is a design decision to record in component.md, not a styling
+ * choice — a toast is still not a form, and anything with more than one field
+ * is a modal. */
+.ds-toast-answer {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-top: var(--sem-space-sm);
+}
+
+/* The field takes its measure from the six digits it holds and pushes the two
+ * answers to the trailing edge. */
+.ds-toast-code {
+  width: 92px;
+  margin-right: auto;
+  text-align: center;
+  font-family: var(--sem-font-family-mono);
+  letter-spacing: 0.2em;
+}
+
+.ds-toast-help {
+  margin: var(--sem-space-3xs) 0 0;
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+}
+
+.ds-toast-help[data-state='refused'] {
+  color: var(--sem-color-status-danger);
+}

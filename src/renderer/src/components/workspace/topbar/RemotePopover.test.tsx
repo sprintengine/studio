@@ -42,6 +42,8 @@ const bridge = {
   approveCalls: [] as Array<{ id: string; scopes: string[]; code: string }>,
   reachabilityCalls: [] as Array<string | undefined>,
   cancelCalls: [] as string[],
+  forgetCalls: [] as string[],
+  terminalSessions: [] as Array<Record<string, unknown>>,
 }
 ;(dom.window as unknown as { api: unknown }).api = {
   tailnetRevokeDevice: (deviceId: string) => {
@@ -64,15 +66,26 @@ const bridge = {
     bridge.cancelCalls.push(requestId)
     return Promise.resolve()
   },
+  fleetForget: (connectionId: string) => {
+    bridge.forgetCalls.push(connectionId)
+    return Promise.resolve([])
+  },
+  // The driven-terminal line reads the terminal-session store, which seeds
+  // itself from these two.
+  terminalList: () => Promise.resolve(bridge.terminalSessions),
+  onTerminalSessionsChanged: () => () => {},
 }
 
 /* eslint-disable import/first -- jsdom globals must exist before React mounts */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { RemotePopover, deviceLivenessText, fleetMachinePhase, machinePhaseText, remoteGlyphState } from './RemotePopover'
+import { RemotePopover, deviceLivenessText, fleetMachinePhase, machinePhaseText, remoteGlyphState, remoteGlyphToneClass } from './RemotePopover'
+import { drivenTerminalView, shortMachineName } from '../../remote/machineRowModel'
 import { fleetLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
 import { useToastStore } from '../../../store/toastStore'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { refreshTerminalSessions } from '../../../hooks/terminalSessionsStore'
 import type { TailnetLiveDevice, TailnetRemoteStatus } from '../../../../../shared/tailnet'
 import type { FleetConnection, FleetLiveAttachment, FleetMachineReachability } from '../../../../../shared/tailnet-fleet'
 
@@ -225,8 +238,8 @@ async function flush(): Promise<void> {
     await Promise.resolve()
   })
 }
-function popover(p: TailnetPresence, onOpenFleet: (() => void) | null = () => {}) {
-  return <RemotePopover presence={p} onOpenFleet={onOpenFleet} onOpenRemoteSettings={() => {}} />
+function popover(p: TailnetPresence, onOpenRemoteSettings: () => void = () => {}) {
+  return <RemotePopover presence={p} onOpenRemoteSettings={onOpenRemoteSettings} />
 }
 
 // ── derivation ───────────────────────────────────────────────────────────
@@ -321,9 +334,58 @@ run('device liveness reads "Connected for" from the socket, else "Last seen" fro
   assert.equal(deviceLivenessText({ connectedSince: null, lastActivityAt: now - 3 * 60_000 }, now), 'Last seen 3m ago')
 })
 
+run('the glyph itself carries the state: green for serving or connected, pulsing amber only when someone is wanted', () => {
+  const tone = (p: TailnetPresence) => remoteGlyphToneClass(remoteGlyphState(p))
+  assert.match(tone(presence()), /tone-good/, 'serving alone is green — this Studio can be reached')
+  assert.match(
+    tone(presence({ live: { revision: 1, devices: [device({ attachedTerminalSessions: ['t1'] })] } })),
+    /tone-good/,
+    'a phone driving a terminal is the feature working, not a summons'
+  )
+  assert.doesNotMatch(
+    tone(presence({ live: { revision: 1, devices: [device()] } })),
+    /animate-pulse/,
+    'and green never pulses'
+  )
+  const waiting = presence({
+    status: status({
+      pairRequests: [
+        {
+          id: 'r1',
+          deviceName: 'air',
+          peerNode: null,
+          peerAddress: '100.9.9.9',
+          comparisonCode: '000000',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      ],
+    }),
+  })
+  assert.match(tone(waiting), /animate-pulse[\s\S]*tone-warn/, 'a waiting pair request wants a person')
+  assert.match(
+    tone(presence({ fleet: [connection()], fleetAttachments: attachments([{ attachId: 'a', state: 'offline' }]) })),
+    /tone-warn/,
+    'so does a machine that stopped answering'
+  )
+  assert.equal(
+    tone(presence({ status: status({ running: false, endpoint: null }) })),
+    '',
+    'idle remote takes the default ink'
+  )
+})
+
+run('a machine is named by its first label: the tailnet tail is the same on every row', () => {
+  assert.equal(shortMachineName('dev-macbook-air.tail1234.ts.net'), 'dev-macbook-air')
+  assert.equal(shortMachineName('android-phone'), 'android-phone')
+  assert.equal(shortMachineName('Conal’s MacBook Air'), 'Conal’s MacBook Air', 'a typed name is left alone')
+  assert.equal(shortMachineName('Air. Studio'), 'Air. Studio', 'a full stop in a name is not a domain')
+  assert.equal(shortMachineName('100.106.119.1'), '100.106.119.1', 'an address is not shortened into a lie')
+})
+
 // ── the surface ──────────────────────────────────────────────────────────
 
-run('the popover names the endpoint and driving device, and hosts the ACTING pair-request card with both identities labelled', () => {
+run('the popover lists the driving device and the machines — no addresses anywhere — and hosts the ACTING pair-request card', () => {
   const mounted = mount(
     popover(
       presence({
@@ -350,13 +412,29 @@ run('the popover names the endpoint and driving device, and hosts the ACTING pai
     )
   )
   const markup = mounted.innerHTML
-  assert.match(markup, /100\.91\.70\.66:8471/, 'the listener endpoint reads in mono')
+  // Owner ruling 2026-09-05: a popover opened on a shared screen does not
+  // enumerate a tailnet. No listening endpoint, no peer address, no machine's
+  // endpoint — the state is the answer, and Settings → Remote holds the rest.
+  assert.doesNotMatch(markup, /100\.91\.70\.66/, 'this machine\u2019s endpoint is not here')
+  assert.doesNotMatch(markup, /100\.106\.119\.1/, 'nor the peer the transport saw')
+  assert.doesNotMatch(markup, /This machine/, 'one list, not two headings')
+  assert.match(markup, /Serving/, 'whether this Studio is reachable at all still reads, in words')
   assert.match(markup, /Sprint Engine Android/)
-  assert.match(markup, /driving/)
-  assert.match(markup, /agent-standup/, 'the driven session is NAMED, not counted')
+  assert.match(markup, /Driving /, 'what it is driving reads on its own line')
+  assert.doesNotMatch(markup, /agent-standup/, 'never the session id — the one thing on the row nobody can read')
   assert.match(markup, /Connected for 12m/, 'connected-for from connectedSince')
   assert.match(markup, /tabular-nums/, 'durations in tabular figures')
-  assert.match(markup, /100\.106\.119\.1/, 'the peer the transport saw')
+  // Connected is green and steady, driving or not: amber is this app's word
+  // for "someone has to do something", and a phone typing into a terminal is
+  // the feature working (owner ruling 2026-09-05).
+  const drivingDot = mounted.querySelector('[aria-label="Driving a terminal"]')
+  assert.ok(drivingDot, 'the driving device carries a dot')
+  assert.doesNotMatch(drivingDot?.className ?? '', /status-dot-pulse/, 'nothing pulses for a phone doing its job')
+  assert.match(
+    drivingDot?.getAttribute('style') ?? '',
+    /--tone-good/,
+    'and it is green'
+  )
   assert.match(markup, /Revoke/)
   // The card: the proven node and the declared name, each labelled.
   assert.match(markup, /dev-macbook-air/)
@@ -378,7 +456,6 @@ run('the popover names the endpoint and driving device, and hosts the ACTING pai
   assert.match(markup, /Conal’s MacBook Air/)
   assert.match(markup, /2 terminals attached/)
   assert.match(markup, /aria-label="Connected"/, 'the connected phase dot')
-  assert.match(markup, /Open Fleet/)
   assert.match(markup, /Remote settings/)
   unmount()
 })
@@ -506,11 +583,78 @@ run('Revoke is busy while pending, and a failure lands as an error toast', async
 })
 
 run('a quiet popover says so rather than rendering empty sections', () => {
-  const mounted = mount(popover(presence(), null))
-  assert.match(mounted.innerHTML, /No device is connected right now\./)
-  assert.match(mounted.innerHTML, /No machines paired\./)
+  const mounted = mount(popover(presence()))
+  assert.match(mounted.innerHTML, /No machines connected\./)
+  assert.doesNotMatch(mounted.innerHTML, /No machines paired\./, 'one list, one empty line')
   assert.match(mounted.innerHTML, /Add a machine…/, 'the way in is offered from the popover itself')
-  assert.doesNotMatch(mounted.innerHTML, /Open Fleet/, 'no workspace to dock the Fleet into, no dead button')
+  assert.match(mounted.innerHTML, /Remote settings/, 'beside the settings tab that holds the rest')
+  assert.doesNotMatch(mounted.innerHTML, /Open Fleet/, 'the Fleet panel is retired — no button into it')
+  unmount()
+})
+
+run('what a phone is driving is resolved to a name, and an unplaceable session still gets a line', () => {
+  const sessions = [
+    { sessionId: 's-agent', workspaceId: 'ws1', agentId: 'a1', agentName: 'launch-checks' },
+    { sessionId: 's-loose', agentName: 'guided-brief-7' },
+  ]
+  const named = drivenTerminalView('s-agent', sessions, () => 'Fix the login bug')
+  assert.equal(named.label, 'Fix the login bug', 'the workspace agent’s own name wins')
+  assert.deepEqual(named.target, { workspaceId: 'ws1', agentId: 'a1' })
+  assert.equal(
+    drivenTerminalView('s-agent', sessions, () => null).label,
+    'launch-checks',
+    'else the session manager’s label'
+  )
+  assert.deepEqual(drivenTerminalView('s-loose', sessions, () => null), { label: 'guided-brief-7', target: null })
+  assert.deepEqual(drivenTerminalView('s-gone', sessions, () => null), { label: 'a terminal', target: null })
+})
+
+run('the driven line names the agent and opens it — never the session id', async () => {
+  bridge.terminalSessions = [
+    { sessionId: 'sess-1', workspaceId: 'ws1', agentId: 'agent-1', agentName: 'launch-checks', processAlive: true, kind: 'agent', activity: { kind: 'idle', since: 0 } },
+  ]
+  act(() => {
+    useWorkspaceStore.setState({
+      activeWorkspaceId: null,
+      workspaces: [
+        { id: 'ws1', name: 'multicode', agents: { 'agent-1': { id: 'agent-1', name: 'Fix the login bug' } } },
+      ],
+    } as never)
+  })
+  const mounted = mount(
+    popover(presence({ live: { revision: 1, devices: [device({ attachedTerminalSessions: ['sess-1'] })] } }))
+  )
+  // The terminal-session store seeds itself from `terminalList`; the test
+  // asks for that read rather than racing the store's own connect.
+  await act(async () => {
+    await refreshTerminalSessions()
+  })
+  const link = buttonNamed(mounted, /Fix the login bug/)
+  assert.ok(link, 'the agent is named, and it is a button')
+  assert.doesNotMatch(mounted.innerHTML, /sess-1/, 'the session id is gone from the surface')
+  click(link)
+  await flush()
+  assert.equal(
+    useWorkspaceStore.getState().activeWorkspaceId,
+    'ws1',
+    'clicking it goes to the workspace holding that agent'
+  )
+  bridge.terminalSessions = []
+  unmount()
+})
+
+run('a paired machine can be dropped from here, and the half only they can do is said', async () => {
+  act(() => {
+    useToastStore.setState({ toasts: [] })
+  })
+  bridge.forgetCalls.length = 0
+  const mounted = mount(popover(presence({ fleet: [connection()] })))
+  click(buttonNamed(mounted, /^Disconnect/))
+  await flush()
+  assert.deepEqual(bridge.forgetCalls, ['conn-1'])
+  const toast = useToastStore.getState().toasts[0]
+  assert.match(toast?.title ?? '', /Conal’s MacBook Air disconnected/)
+  assert.match(toast?.description ?? '', /Revoke “mini”/, 'the grant over there is theirs to end')
   unmount()
 })
 
@@ -600,10 +744,9 @@ run('machine rows read main’s reachability when no pane is open: reachable, no
           ['conn-3', reach({ connectionId: 'conn-3', machineName: 'Old box', reachable: false, unauthorized: true, detail: 'Unauthorized.' })],
         ]),
       })}
-      onOpenFleet={() => {
+      onOpenRemoteSettings={() => {
         pairAgain += 1
       }}
-      onOpenRemoteSettings={() => {}}
     />
   )
   const markup = mounted.innerHTML

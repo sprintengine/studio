@@ -6,6 +6,7 @@
 <title>Toast</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="../input/component.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
@@ -89,6 +90,21 @@
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       </button>
     </div>
+    <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Pair request from dev-macbook-air</div>
+        <div class="ds-toast-answer">
+          <input class="ds-input ds-toast-code" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="Code shown on dev-macbook-air" aria-describedby="pair-help-light" />
+          <button type="button" class="ds-button ds-button--ghost ds-button--sm">Decline</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--sm">Allow</button>
+        </div>
+        <p class="ds-toast-help" id="pair-help-light">Type the code it is showing.</p>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
     <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
@@ -116,6 +132,21 @@
       <div class="ds-toast-content">
         <div class="ds-toast-title">Sprint archived</div>
         <div class="ds-toast-description">Its board left the rail; the run branch stays.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Pair request from android-phone</div>
+        <div class="ds-toast-answer">
+          <input class="ds-input ds-toast-code" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="Code shown on android-phone" aria-describedby="pair-help-dark" />
+          <button type="button" class="ds-button ds-button--ghost ds-button--sm">Decline</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--sm">Allow</button>
+        </div>
+        <p class="ds-toast-help" id="pair-help-dark">Type the code it is showing.</p>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>

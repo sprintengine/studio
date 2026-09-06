@@ -6,7 +6,7 @@ import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { Checkbox, OutlineButton, PrimaryButton, StatusDot, Tooltip } from '../ui'
 import { RemoteMachineGlyph } from '../AppIcons'
 import { connectDirectionNote, peerPickerView } from './peerPickerModel'
-import { PAIR_SCOPE_ROWS } from './PairRequestCard'
+import { DEFAULT_PAIR_SCOPES } from './pairRequestAnswer'
 
 // The one machine picker (pair-from-the-scan-and-stay-paired, phase 1),
 // rendered by Settings → Remote and the Fleet alike. Scan, see every machine
@@ -53,10 +53,7 @@ export function PeerPicker({
   // default, the terminal tier never — arbitrary shell on THIS machine is a
   // grant nobody ticked by default, in either direction.
   const [reverse, setReverse] = React.useState(true)
-  const reverseScopes = React.useMemo(
-    () => PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).flatMap((row) => row.scopes),
-    []
-  )
+  const reverseScopes = DEFAULT_PAIR_SCOPES
   const offerReverse = canOfferReverse && reverse
 
   return (

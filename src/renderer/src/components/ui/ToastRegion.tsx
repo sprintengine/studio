@@ -27,6 +27,7 @@ export function ToastRegion() {
           description={toast.description}
           cli={toast.cli}
           actions={toast.actions}
+          content={toast.content}
           autoDismissMs={toast.autoDismissMs}
           onDismiss={() => dismissToast(toast.id)}
           className="pointer-events-auto"
