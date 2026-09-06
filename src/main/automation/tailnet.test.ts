@@ -20,6 +20,7 @@ import {
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
+import { TAILNET_EVENTS_PATH } from './tailnet/tailnet-routes'
 import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
 import {
   isAllowedTailnetBindAddress,
@@ -100,6 +101,8 @@ async function startHarness(
     terminals?: TerminalRemoteHost | null
     /** Serve a real tool set instead of the named stubs (the whole-flow case). */
     tools?: McpToolRegistration[]
+    /** The change feed's push floor; the feed test shortens it. */
+    changePushIntervalMs?: number
   } = {}
 ): Promise<Harness> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-'))
@@ -124,6 +127,7 @@ async function startHarness(
       if (!MUTATIONS.has(tool)) return
       audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
     },
+    ...(options.changePushIntervalMs !== undefined ? { changePushIntervalMs: options.changePushIntervalMs } : {}),
   })
   await server.start()
   const address = server.address()
@@ -1203,6 +1207,45 @@ export async function testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity(): 
   }
 }
 
+// The change feed (2026-09-05): a paired device opens the events route and
+// hears "changed" once per burst, never per change; a watcher is not a
+// connection; a revocation reaches the feed like every other socket.
+export async function testTheChangeFeedPushesOncePerBurstAndFollowsRevocation(): Promise<void> {
+  const harness = await startHarness({ changePushIntervalMs: 80 })
+  try {
+    const device = await pairDevice(harness, { name: 'watcher', scopes: ['workspace:read'] })
+    const ticket = (await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })).body as {
+      ticket: string
+    }
+    const feed = await openWebSocket(harness.port, ticket.ticket, { path: TAILNET_EVENTS_PATH })
+    assert.ok(feed.handshake.startsWith('HTTP/1.1 101'), `the events route upgrades: ${feed.handshake.split('\r\n')[0]}`)
+    const hello = await feed.nextMessage()
+    assert.equal(hello.type, 'hello')
+    assert.deepEqual(hello.revisions, { terminals: 0, workspaces: 0 })
+    assert.equal(harness.server.eventStreamCount(), 1)
+    assert.equal(harness.server.streamCount(), 0, 'a watcher is not an RPC connection')
+
+    harness.server.notifyTerminalsChanged()
+    assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'terminals', revision: 1 })
+
+    // A burst inside the floor is one push per kind, carrying the last revision.
+    harness.server.notifyTerminalsChanged()
+    harness.server.notifyTerminalsChanged()
+    harness.server.notifyWorkspacesChanged()
+    const pushed = [await feed.nextMessage(), await feed.nextMessage()]
+    assert.deepEqual(
+      pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(),
+      ['terminals:3', 'workspaces:1']
+    )
+
+    assert.equal(harness.devices.revokeDevice(device.deviceId), true)
+    assert.equal(await feed.closed, 4401, 'a revocation closes the feed with the revoked code')
+    assert.equal(harness.server.eventStreamCount(), 0)
+  } finally {
+    await harness.close()
+  }
+}
+
 export async function testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity(): Promise<void> {
   const harness = await startHarness({ peerNode: 'mac-mini.tail1234.ts.net' })
   try {
@@ -2006,6 +2049,7 @@ const tests = [
   testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing,
   testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
   testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,
+  testTheChangeFeedPushesOncePerBurstAndFollowsRevocation,
   testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable,
   testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl,
   testRevocationLandsOnTheNextRequestAndKillsLiveStreams,

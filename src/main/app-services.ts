@@ -1019,6 +1019,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   tailnetToolsFrontDoor = automationService
+  // The change feed (2026-09-05): paired devices used to poll terminal.list
+  // and workspace.list every thirty seconds; now the runtime's own coalesced
+  // sessions beat, and the registry's accepted events, become one small push
+  // each, and a device re-reads only when told to. Both are throttled in the
+  // listener, so a burst here is one push there.
+  terminalRuntime.subscribeSessionsChanged(() => automationService.notifyTerminalsChanged())
+  workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
   // Staying paired across sleep (phase 4): waking re-checks every paired
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.

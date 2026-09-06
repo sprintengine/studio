@@ -98,10 +98,12 @@ function assertRemoveDeletes(): void {
   store.remove('session-abc')
 }
 
-function assertSweepExpiredRemovesOnlyOldSidecars(): void {
+async function assertSweepExpiredRemovesOnlyOldSidecars(): Promise<void> {
   const { store, dir } = makeStore()
   store.write(sampleSidecar({ sessionId: 'session-fresh' }))
   store.write(sampleSidecar({ sessionId: 'session-stale' }))
+  // Writes are queued off the main thread; the sweep reads the disk.
+  await store.flush()
   const staleAge = new Date(Date.now() - TERMINAL_SNAPSHOT_SIDECAR_TTL_MS - 60_000)
   utimesSync(join(dir, 'session-stale.json'), staleAge, staleAge)
 
@@ -116,10 +118,13 @@ function assertSweepWithoutDirIsSilent(): void {
   assert.deepEqual(store.sweepExpired(), [], 'sweeping a never-created dir is a silent no-op')
 }
 
-function assertRawReplayRoundTrip(): void {
+async function assertRawReplayRoundTrip(): Promise<void> {
   const { store } = makeStore()
   const sidecar = sampleSidecar({ sessionId: 'session-raw', snapshot: undefined, rawReplay: 'raw pty bytes [1mbold[0m' })
   store.write(sidecar)
+  // Read the disk copy, not the queued object, since the point is what
+  // serialization kept.
+  await store.flush()
   // Compare with JSON round-trip semantics: undefined-valued keys are dropped
   // by serialization, which is exactly what the disk copy should contain.
   assert.deepEqual(
@@ -129,16 +134,37 @@ function assertRawReplayRoundTrip(): void {
   )
 }
 
-function main(): void {
+async function assertQueuedWritesLandInOrderAndRemoveWins(): Promise<void> {
+  const { store } = makeStore()
+  // Two writes for one session land in order: the later one is what is read,
+  // before and after the flush.
+  store.write(sampleSidecar({ sessionId: 'session-order', cols: 80 }))
+  store.write(sampleSidecar({ sessionId: 'session-order', cols: 200 }))
+  assert.equal(store.read('session-order')?.cols, 200, 'the queued newest write is readable at once')
+  await store.flush()
+  assert.equal(store.read('session-order')?.cols, 200, 'and it is what landed on disk')
+  // A remove after a queued write wins: nothing resurrects the sidecar.
+  store.write(sampleSidecar({ sessionId: 'session-gone' }))
+  store.remove('session-gone')
+  assert.equal(store.read('session-gone'), null, 'removed at once')
+  await store.flush()
+  assert.equal(store.read('session-gone'), null, 'and the queued write did not bring it back')
+}
+
+async function main(): Promise<void> {
   assertWriteReadRoundTrip()
   assertMissingReadsNull()
   assertMalformedReadsNull()
   assertUnsafeSessionIdsAreInert()
   assertRemoveDeletes()
-  assertSweepExpiredRemovesOnlyOldSidecars()
+  await assertSweepExpiredRemovesOnlyOldSidecars()
   assertSweepWithoutDirIsSilent()
-  assertRawReplayRoundTrip()
+  await assertRawReplayRoundTrip()
+  await assertQueuedWritesLandInOrderAndRemoveWins()
   console.log('terminal-snapshot-sidecar tests passed')
 }
 
-main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

@@ -14,6 +14,7 @@ import {
   TAILNET_PAIR_PATH,
   TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
+  TAILNET_EVENTS_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
@@ -478,17 +479,55 @@ export async function openRemoteTerminalSocket(input: {
     }
   }
 
-  const upgraded = await upgradeTerminalSocket(input.endpoint, ticket, input.sessionId)
+  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_TERMINAL_PATH, { sessionId: input.sessionId })
   if (!upgraded.ok) return upgraded
 
   return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
 }
 
-/** Open the TCP socket and complete the RFC 6455 handshake against the terminal route. */
-function upgradeTerminalSocket(
+/**
+ * Watch one machine's change feed (2026-09-05): a `changed` frame says its
+ * terminal list or workspace list moved, and the caller re-reads. The same
+ * ticket-then-upgrade the terminal attach uses, on the events route; frames
+ * arrive on `onFrame` as plain objects, exactly as terminal frames do.
+ */
+export async function openRemoteEventsSocket(input: {
+  endpoint: TailnetEndpoint
+  token: string
+  handlers: RemoteTerminalSocketHandlers
+}): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
+  let ticketAnswer: JsonAnswer
+  try {
+    ticketAnswer = await requestTailnetJson({
+      endpoint: input.endpoint,
+      method: 'POST',
+      path: TAILNET_WS_TICKET_PATH,
+      token: input.token,
+      body: {},
+    })
+  } catch (error) {
+    return { ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }
+  }
+  if (ticketAnswer.status === 401) return { ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE }
+  const ticket = asRecord(ticketAnswer.body)?.ticket
+  if (ticketAnswer.status !== 200 || typeof ticket !== 'string') {
+    return {
+      ok: false,
+      code: `http_${ticketAnswer.status}`,
+      message: `That machine would not open a change feed (HTTP ${ticketAnswer.status}).`,
+    }
+  }
+  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_EVENTS_PATH, {})
+  if (!upgraded.ok) return upgraded
+  return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
+}
+
+/** Open the TCP socket and complete the RFC 6455 handshake against one of the listener's WebSocket routes. */
+function upgradeSocket(
   endpoint: TailnetEndpoint,
   ticket: string,
-  sessionId: string
+  path: string,
+  query: Record<string, string>
 ): Promise<RemoteCallOutcome<{ socket: Socket; leftover: Buffer }>> {
   return new Promise((resolve) => {
     const key = randomBytes(16).toString('base64')
@@ -552,10 +591,10 @@ function upgradeTerminalSocket(
     socket.on('close', onClose)
     socket.on('data', onData)
     socket.on('connect', () => {
-      const query = new URLSearchParams({ ticket, sessionId })
+      const search = new URLSearchParams({ ticket, ...query })
       socket.write(
         [
-          `GET ${TAILNET_TERMINAL_PATH}?${query.toString()} HTTP/1.1`,
+          `GET ${path}?${search.toString()} HTTP/1.1`,
           `Host: ${formatTailnetEndpoint(endpoint)}`,
           'Upgrade: websocket',
           'Connection: Upgrade',

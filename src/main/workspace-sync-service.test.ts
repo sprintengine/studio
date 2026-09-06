@@ -307,6 +307,25 @@ async function main(): Promise<void> {
     'the closed window is dropped from the service snapshot',
   )
 
+  // The snapshot is cloned once per registry mutation, not once per read: two
+  // reads of an unchanged registry are the same object, and a mutation hands
+  // back a new one. This is what keeps a remote `terminal.list` — one name
+  // lookup per session — from cloning the whole registry per row.
+  const cachedA = service.getSnapshot()
+  const cachedB = service.getSnapshot()
+  assert.equal(cachedA, cachedB, 'an unchanged registry serves the same snapshot object')
+  const renamed = service.updateWorkspaceFields('ws-two', { name: 'Renamed' }, 'automation')
+  assert.equal(renamed.ok, true, 'the field update is accepted')
+  const cachedC = service.getSnapshot()
+  assert.notEqual(cachedC, cachedA, 'a mutation invalidates the cached snapshot')
+  assert.equal(cachedC.state.workspaces.find((entry) => entry.id === 'ws-two')?.name, 'Renamed')
+  assert.equal(
+    cachedA.state.workspaces.find((entry) => entry.id === 'ws-two')?.name,
+    'ws-two',
+    'the earlier snapshot is still the clone it was, untouched by the mutation'
+  )
+  assert.equal(service.getSnapshot(), cachedC, 'and the new snapshot is cached in turn')
+
   console.log('workspace-sync-service.test.ts: ok')
 }
 

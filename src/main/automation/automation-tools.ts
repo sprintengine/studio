@@ -1050,6 +1050,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('invalid_kind', 'The "kind" filter accepts "agent" or "terminal".')
       }
       const workspaceId = optionalString(args.workspaceId)
+      // The name lookup reads the sync snapshot ONCE for the whole answer. It
+      // used to go through `findWorkspace` per session, and each of those took
+      // a fresh snapshot — a whole-registry clone per row, every 30 seconds
+      // per paired machine, which was the main-thread stall of 2026-09-05.
+      const workspaceNames = new Map(
+        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace.name])
+      )
       const sessions = await Promise.all(
         backends
           .listTerminalSessions()
@@ -1060,10 +1067,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             // The phone's thread row (multicode-mobile id 81) carries the same
             // second line the sidebar does: the workspace's display name, and the
             // checkout's branch and diff read through the sidebar's own summary
-            // share (one read per checkout per sweep, held 15s). Both are
-            // additive and null when unknown, so an older phone reads the row as
-            // before and a newer one never guesses.
-            workspaceName: (session.workspaceId ? findWorkspace(session.workspaceId)?.name : null) ?? null,
+            // share (one read per checkout per hold window, at most four reads
+            // in flight). Both are additive and null when unknown, so an older
+            // phone reads the row as before and a newer one never guesses.
+            workspaceName: (session.workspaceId ? workspaceNames.get(session.workspaceId) : null) ?? null,
             git: await terminalGitSummary(session),
           }))
       )
@@ -2957,6 +2964,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 async function terminalGitSummary(
   session: TerminalSessionSnapshot
 ): Promise<{ branch: string | null; additions: number; deletions: number; changedFiles: number; scope: string } | null> {
+  // Only a running session is asked about — the sidebar's own rule (owner
+  // ruling 2026-09-04, the-diff-an-agent-made decision 9): a parked or exited
+  // chat's numbers would be the checkout's present state, not anything the
+  // chat did. It is also what keeps a network read from fanning git out to
+  // every checkout the runtime has ever held a session in.
+  if (!session.processAlive) return null
   const checkoutPath = session.worktreePath ?? session.cwd
   if (!checkoutPath) return null
   try {

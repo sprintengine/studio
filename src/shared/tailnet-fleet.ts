@@ -331,6 +331,13 @@ export type FleetEvent =
       detail?: string
     }
   | ({ kind: 'machine-reachability'; revision: number } & FleetMachineReachability)
+  /**
+   * A paired machine said its terminal list or workspace list changed
+   * (2026-09-05, the change feed). Carries nothing else: a surface that
+   * shows that machine re-reads it through the fleet's browse, which is the
+   * read it already knows how to do — and no longer does on a timer.
+   */
+  | { kind: 'remote-changed'; revision: number; connectionId: string; machineName: string; what: 'terminals' | 'workspaces' }
 
 /**
  * One pane's link to one remote session. Keyed by `attachId` — the pane —
