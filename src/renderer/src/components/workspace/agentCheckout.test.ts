@@ -63,7 +63,7 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
     noIntent
   )
   assert.deepEqual(checkout, { kind: 'folder', cwd: '/tmp/scratch', gitRoot: null, observed: true })
-  assert.equal(agentCheckoutProbePath(checkout, '/repo'), '/repo')
+  assert.equal(agentCheckoutProbePath(checkout, '/repo'), null, 'the workspace branch is not a folder-bound agent’s answer')
 }
 
 // The observed directory vanished (a pruned worktree).
@@ -128,7 +128,7 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 {
   const checkout = agentCheckoutOf(undefined, { workspaceWorktree: null, execution: { mode: 'worktree', cwd: null } })
   assert.equal(checkout?.kind, 'worktree')
-  assert.equal(agentCheckoutProbePath(checkout, '/repo'), '/repo')
+  assert.equal(agentCheckoutProbePath(checkout, '/repo'), null, 'a worktree with no cwd is not the workspace checkout')
 }
 
 // A main-checkout launch in a plain workspace says nothing until observed.

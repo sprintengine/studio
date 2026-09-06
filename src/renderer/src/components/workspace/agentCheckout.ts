@@ -67,11 +67,13 @@ export function agentCheckoutOf(
 }
 
 /**
- * The checkout a surface should ask git about for this agent, or the
- * fallback when the agent's own answer names no checkout — a folder, a
- * removed directory, an unverified path, or no observation and no intent.
- * The fallback is the caller's notion of the workspace's checkout.
+ * The checkout a surface should ask git about for this agent. The fallback —
+ * the caller's notion of the workspace's checkout — applies only when
+ * NOTHING is known: no observation and no launch intent. An agent git has
+ * placed in a plain folder, a removed directory or an unverifiable path has
+ * no checkout to ask about, and the workspace's branch is not its answer;
+ * a worktree intended but never given a cwd is the same.
  */
 export function agentCheckoutProbePath(checkout: AgentCheckout | null, fallback: string | null): string | null {
-  return checkout?.gitRoot ?? fallback
+  return checkout === null ? fallback : checkout.gitRoot
 }

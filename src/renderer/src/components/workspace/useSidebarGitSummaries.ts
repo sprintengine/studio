@@ -43,10 +43,10 @@ const REFRESH_MS = 60_000
 const CONCURRENCY = 4
 
 /**
- * What the poll needs off a workspace: its id, and enough of it to resolve the
- * checkout its agents work in. Callers pass whole `Workspace` records.
+ * What resolving a workspace's checkout needs off it. Callers pass whole
+ * `Workspace` records.
  */
-type SummaryInput = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'sprintEngineState'>
+type SummaryInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
 
 /**
  * The checkout a workspace's row reports on: its worktree when it has one, its

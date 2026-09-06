@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { checkoutPathFor, useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
+import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -880,111 +883,102 @@ export function WorkingElapsed({ since }: { since: number }) {
 }
 
 /**
- * The row's second line (remote-sessions-ux / two-line-session-rows): agent
- * heads · provenance · branch · diff, with the status seat holding the trailing
- * edge. Line 1 is now the title alone.
+ * One terminal's line under a row's title (sidebar-lists-every-terminal):
+ * mark · name · branch · ±lines · seat. The row shows one per live terminal
+ * in place of the head pile and the single row-level branch it used to
+ * carry: the lines are the count, and each says where IT is — an agent in a
+ * worktree of its own reads at full strength, with the path on hover.
  *
- * Owner ruling 2026-09-04: the status cluster used to sit on line 1, where its
- * permanently reserved 44px cost every title a fifth of the sidebar's content
- * column for a mark that is usually a single dot. It moved here — `trailing` is
- * that seat, passed in by the row so this component stays pure — and the diff
- * stat, which used to hold this edge, moved left to sit against the branch it
- * describes. Line-row's rule now holds on line 1: the title is the row's one
- * priority and it claims the width.
+ * Truncation is an ordered give-way, not a fixed cap: the name yields first
+ * (weight 4 — it is also the tab's title), the branch second (weight 3) down
+ * to its floor; the mark, the diff and the seat never shrink. The line
+ * clips at the row's gutter rather than spilling past it.
+ *
+ * `seatOverlay` is the row's hover-revealed actions, handed to the first
+ * line only; the seat's own content steps aside for it on hover, as the
+ * row-level seat always did.
  */
-export function WorkspaceRowMeta({
-  sessions,
-  fleetMachines,
-  branch,
-  additions,
-  deletions,
-  diffScope = 'folder',
-  trailing,
+export function TerminalLineView({
+  line,
+  now,
+  seatOverlay,
+  disambiguate = false,
 }: {
-  /** One entry per open terminal: local live sessions and fleet panes alike. */
-  sessions: ReadonlyArray<{ sessionId: string; cli?: string; remote?: boolean }>
-  fleetMachines: string[]
-  branch: string | null
-  additions: number
-  deletions: number
-  /**
-   * How much the ±lines may claim (the-diff-an-agent-made / branch-scoped-row-diff):
-   * `worktree` this chat's own checkout, `branch` a shared checkout's branch —
-   * which may carry a person's commits — or `folder` the repo's uncommitted state.
-   */
-  diffScope?: 'worktree' | 'branch' | 'folder'
-  trailing?: React.ReactNode
+  line: TerminalLine
+  now: number
+  seatOverlay?: React.ReactNode
+  /** More than one line on the row: a waiting line wears the warn dot so the gold surface says WHICH. */
+  disambiguate?: boolean
 }) {
-  const shown = sessions.slice(0, 3)
-  const overflow = sessions.length - shown.length
-  const hasDiff = additions > 0 || deletions > 0
+  const markLabel = line.cli
+    ? labelForCliRuntime(line.cli as AgentCli)
+    : line.kind === 'remote'
+      ? 'Remote terminal'
+      : 'Terminal'
+  const hasDiff = line.additions > 0 || line.deletions > 0
+  const idleText = line.idleSince !== null ? formatRelativeMs(line.idleSince, now) : ''
   return (
-    // overflow-hidden: under squeeze the flexible segments give way in order
-    // (below) and nothing ever spills past the row's gutter.
-    <div className="flex min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
-      {sessions.length > 0 ? (
-        <span
-          className="flex shrink-0 items-center"
-          role="img"
-          aria-label={`${sessions.length} open terminal${sessions.length === 1 ? '' : 's'}`}
-        >
-          {shown.map((session, index) => (
-            <span
-              key={session.sessionId}
-              // One chip per open terminal, overlapped like a face pile. The
-              // ring is the row's own ground so the overlap reads as depth on
-              // any row state; provider mark from the tab strip's vocabulary.
-              className={`flex size-icon-sm items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] ${
-                index > 0 ? '-ml-1.5' : ''
-              }`}
-            >
-              {session.cli ? (
-                <CliIcon cli={session.cli} className="icon-xs" />
-              ) : session.remote ? (
-                // A remote pane whose tab names no CLI: a neutral chip — the
-                // disc alone says "a terminal", the provenance segment beside
-                // it says where. Nothing is inferred from the pane.
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-[color:var(--text-disabled)]" />
-              ) : (
-                // A plain shell wears the prompt mark; drawn, not typed, so the
-                // chip never needs type below the 11px floor.
-                <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
-                  <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                </svg>
-              )}
-            </span>
-          ))}
-          {overflow > 0 ? (
-            <span className="-ml-1.5 flex h-icon-sm min-w-icon-sm items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-0.5 text-micro font-medium tabular-nums text-[color:var(--text-muted)]">
-              +{overflow}
-            </span>
-          ) : null}
-        </span>
+    <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
+      <span
+        role="img"
+        aria-label={markLabel}
+        // The provider mark in the tab strip's vocabulary; a plain shell wears
+        // the prompt mark, drawn, not typed, so it never needs type below the
+        // 11px floor; a remote pane with no CLI wears the machine glyph.
+        className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
+      >
+        {line.cli ? (
+          <CliIcon cli={line.cli} className="icon-xs" />
+        ) : line.kind === 'remote' ? (
+          <RemoteMachineGlyph className="icon-xs text-[color:var(--text-muted)]" />
+        ) : (
+          <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
+            <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        )}
+      </span>
+      {line.name ? (
+        <TruncatedText as="span" text={line.name} className="min-w-[3ch] shrink-[4] text-[color:var(--text-muted)]" />
       ) : null}
-      {/* Truncation order under squeeze (acceptance): an ordered give-way,
-          not a fixed cap. The branch is the most flexible segment (shrink
-          weight 3) and yields first, down to its floor; the machine name
-          (weight 1) yields after it, down to its own; heads, diff, the Done
-          chip and the seat never shrink, and the title on line 1 never does.
-          The labels are the visible text — no aria-label on generic spans
-          (ignored there); the one pictorial part, the provenance glyph pair,
-          is the img. */}
-      {fleetMachines.length > 0 ? (
-        // The glyph alone (owner ruling 2026-09-05): the machine's name is
-        // the tooltip's, not the row's — a name on every row said the same
-        // thing the heading above it did, and it took the branch's room.
-        <Tooltip content={`On ${fleetMachines.map(shortMachineName).join(', ')}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
-          <span role="img" aria-label={`Remote: ${fleetMachines.join(', ')}`} className="flex shrink-0 items-center">
+      {line.machineName ? (
+        // The glyph alone (owner ruling 2026-09-05): the machine's full name
+        // is the tooltip's, not the line's.
+        <Tooltip content={`On ${line.machineName}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+          <span role="img" aria-label={`Remote: ${line.machineName}`} className="flex shrink-0 items-center">
             <RemoteMachineGlyph className="icon-xs shrink-0" />
           </span>
         </Tooltip>
       ) : null}
-      {branch ? (
-        <span className="flex min-w-[3ch] shrink-[3] items-center gap-1 font-mono text-micro">
-          <GitBranchGlyph className="icon-xs shrink-0" />
-          <TruncatedText as="span" text={branch} className="min-w-0" />
-        </span>
+      {line.branch ? (
+        <Tooltip
+          content={
+            line.cwd
+              ? line.worktree
+                ? `Worktree · ${line.cwd}`
+                : line.cwd
+              : line.worktree
+                ? 'A worktree of its own'
+                : `On ${line.branch}`
+          }
+          wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
+        >
+          <span
+            className={`flex min-w-0 items-center gap-1 font-mono text-micro ${
+              // A worktree of the terminal's own reads at full strength: it is
+              // this terminal's checkout, not a checkout it shares.
+              line.worktree ? 'text-[color:var(--text-default)]' : ''
+            }`}
+          >
+            <GitBranchGlyph className="icon-xs shrink-0" />
+            <TruncatedText as="span" text={line.branch} className="min-w-0" />
+            {line.worktree ? <span className="sr-only"> (worktree)</span> : null}
+          </span>
+        </Tooltip>
+      ) : line.removed ? (
+        <Tooltip content={line.cwd ? `Directory removed — ${line.cwd}` : 'Directory removed'} wrapperClassName="flex shrink-0 items-center">
+          <span className="shrink-0 text-micro text-[color:var(--tone-error)]">Removed</span>
+        </Tooltip>
       ) : null}
       {hasDiff ? (
         // Beside the branch, not at the far edge: the two are one fact —
@@ -993,38 +987,72 @@ export function WorkspaceRowMeta({
         // whose changes they are on hover.
         <Tooltip
           content={
-            diffScope === 'worktree'
-              ? 'Changed by this chat — it has its own worktree'
-              : diffScope === 'branch'
-                ? `Changed on ${branch ?? 'this branch'} — this chat shares the checkout, so a person or another chat may have made some of it`
-                : 'Uncommitted changes in this folder — this chat has no branch of its own'
+            line.diffScope === 'worktree'
+              ? 'Changed by this terminal — it has its own worktree'
+              : line.diffScope === 'branch'
+                ? `Changed on ${line.branch ?? 'this branch'} — this terminal shares the checkout, so a person or another terminal may have made some of it`
+                : 'Uncommitted changes in this folder — this terminal has no branch of its own'
           }
           wrapperClassName="inline-flex shrink-0"
         >
           <span
             className={`shrink-0 font-mono text-micro tabular-nums ${
-              // A folder-scoped reading is the repo's state, not this chat's
-              // work, so it is drawn quieter and says which it is on hover. The
-              // row must never present the repo's numbers as the agent's. A
-              // `branch` reading IS attributable work — to the branch rather
-              // than to this chat alone — so it draws at full strength and
-              // carries the qualification in its words instead.
-              diffScope === 'folder' ? 'opacity-60' : ''
+              // A folder-scoped reading is the repo's state, not this
+              // terminal's work, so it is drawn quieter and says which it is
+              // on hover. A `branch` reading IS attributable work — to the
+              // branch rather than to this terminal alone — so it draws at
+              // full strength and carries the qualification in its words.
+              line.diffScope === 'folder' ? 'opacity-60' : ''
             }`}
           >
-            <span className="text-[color:var(--tone-good)]">+{additions}</span>
-            <span className="ml-1 text-[color:var(--tone-error)]">−{deletions}</span>
+            <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
+            <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
             <span className="sr-only">
-              {diffScope === 'worktree'
-                ? `${additions} added, ${deletions} removed by this chat`
-                : diffScope === 'branch'
-                  ? `${additions} added, ${deletions} removed on ${branch ?? 'this branch'}`
-                  : `${additions} added, ${deletions} removed in this folder`}
+              {line.diffScope === 'worktree'
+                ? `${line.additions} added, ${line.deletions} removed by this terminal`
+                : line.diffScope === 'branch'
+                  ? `${line.additions} added, ${line.deletions} removed on ${line.branch ?? 'this branch'}`
+                  : `${line.additions} added, ${line.deletions} removed in this folder`}
             </span>
           </span>
         </Tooltip>
       ) : null}
-      {trailing}
+      {/* The line's own seat: working dots + how long, the failure dot, a
+          waiting mark when the row needs to say which line, else how long it
+          has sat idle. The seat's min-w is what the row's revealed actions
+          reserve (list-row's `data-actions` rule), so revealing never reflows. */}
+      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+        <span
+          className={`inline-flex items-center gap-1 ${
+            seatOverlay ? 'transition-opacity group-hover:opacity-0 group-focus-within:opacity-0' : ''
+          }`}
+        >
+          {line.working ? (
+            <>
+              <AgentWorkingDots label="Agent working" />
+              {line.workingSince !== null ? <WorkingElapsed since={line.workingSince} /> : null}
+            </>
+          ) : line.failed ? (
+            <StatusDot tone="error" label="Agent failed" />
+          ) : line.needsInput ? (
+            disambiguate ? (
+              <StatusDot tone="warn" pulse label="Needs your input" />
+            ) : (
+              // The row's gold surface is the mark; a dot beside it would say
+              // the same thing twice (status-dot's reject-on-sight).
+              <span className="sr-only">Needs your input</span>
+            )
+          ) : idleText ? (
+            <Tooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
+              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                <span aria-hidden="true">{idleText}</span>
+                <span className="sr-only">{line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}</span>
+              </span>
+            </Tooltip>
+          ) : null}
+        </span>
+        {seatOverlay}
+      </span>
     </div>
   )
 }
@@ -1102,10 +1130,17 @@ export default function WorkspaceSidebar({
     () => workspaces.filter((workspace) => rowHasOpenTerminals(workspace, sessionsByWorkspaceId)),
     [workspaces, sessionsByWorkspaceId]
   )
-  const gitSummaryEntries = useMemo(
-    () => liveWorkspaces.map((workspace) => ({ id: workspace.id, checkoutPath: checkoutPathFor(workspace) })),
-    [liveWorkspaces]
-  )
+  // The poll asks about CHECKOUTS (sidebar-lists-every-terminal): the distinct
+  // ones a live row's sessions sit on, keyed by path — two agents on one
+  // checkout ask once, an agent in a worktree of its own asks for it, and a
+  // move between them re-runs the sweep at once through the membership.
+  const gitSummaryEntries = useMemo(() => {
+    const paths = new Set<string>()
+    for (const workspace of liveWorkspaces) {
+      for (const path of checkoutPathsOf(workspace, sessionsByWorkspaceId.get(workspace.id) ?? [])) paths.add(path)
+    }
+    return [...paths].map((path) => ({ id: path, checkoutPath: path }))
+  }, [liveWorkspaces, sessionsByWorkspaceId])
   const gitSummaries = useSidebarGitSummaries(gitSummaryEntries)
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
@@ -1909,37 +1944,30 @@ export default function WorkspaceSidebar({
     const isTabDropTarget =
       tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
-    // Line 2's facts (remote-sessions-ux): open terminals, remote provenance,
-    // branch, ±lines. Heads: one chip per open terminal — the local live
-    // sessions AND the fleet panes the layout mounts from other machines, so a
-    // remote-born row never shows the machine glyph over an empty stack.
-    const rowSessions = rowOpenTerminals(workspace, sessionsByWorkspaceId)
+    // The row's lines (sidebar-lists-every-terminal): one per open terminal —
+    // the local live sessions AND the fleet panes the layout mounts from
+    // other machines.
     // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
     // no open terminal is the one-liner it always was — title only, with idle
     // recency keeping its old seat in the line-1 status cluster. Its branch and
     // ±lines are not facts about a chat that is not running; they are the
     // checkout's current state, which a parked chat has no claim on. So the
-    // second line, and everything on it, is gated on the heads: no terminal,
-    // no line 2. (The poll above already asks about live rows only; the gate
-    // here keeps the render honest even mid-transition.)
-    const rowIsLive = rowSessions.length > 0
-    // A band row names its machine on the title glyph, so line 2 does not
+    // lines, and everything on them, are gated on liveness: no terminal, no
+    // line. (The poll above already asks about live rows only; the gate here
+    // keeps the render honest even mid-transition.)
+    const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId)
+    const rowLines = rowIsLive
+      ? terminalLinesOf({
+          workspace,
+          sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
+          fleetPanes: fleetPanesOf(workspace),
+          summaries: gitSummaries,
+        })
+      : { lines: [], overflow: 0 }
+    // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
-    const fleetMachines = rowIsLive && !options?.remoteMachine ? provenanceMachinesOf(workspace) : []
-    const gitSummary = rowIsLive ? gitSummaries[workspace.id] : undefined
-    // A remote-born row's checkout is on another disk, so its branch is the
-    // one stamped at the create (checkout-and-branch-on-remote-create); the
-    // poll cannot read it and would otherwise leave the segment empty.
-    const rowBranch = gitSummary?.branch ?? (rowIsLive ? workspace.remoteOrigin?.checkout?.branch ?? null : null)
-    const rowAdditions = gitSummary?.additions ?? 0
-    const rowDeletions = gitSummary?.deletions ?? 0
-    // How much the ±lines may claim (the-diff-an-agent-made): 'worktree' this
-    // chat's own checkout, 'branch' a shared checkout's branch — real work, but
-    // a person's commits sit on it too — and 'folder' a checkout with no branch
-    // work to attribute, whose uncommitted numbers the row still shows because
-    // they are the honest thing to say, but never as the agent's work.
-    const rowDiffScope = gitSummary?.scope ?? 'folder'
-    const metaHasSubstance = rowIsLive
+    if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null
+    const metaHasSubstance = rowLines.lines.length > 0
 
     // The row's status seat: run glyph / working dots + elapsed / tone dot /
     // idle recency, with the hover-revealed row actions layered over it.
@@ -1950,46 +1978,8 @@ export default function WorkspaceSidebar({
     // there IS a line 2, so the title claims the full width the way list-row
     // says it should; a row with no meta to show keeps the seat exactly where
     // it was, and stays exactly the height it was.
-    const statusSeat = (
-      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
-        <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-          {runGlyph && runGlyphLabel ? (
-            <Tooltip content={runGlyphLabel}>
-              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-            </Tooltip>
-          ) : null}
-          {/* Active work earns the three-dot working marker; the other
-              attention states keep the tone dot. */}
-          {/* An attention row renders NO dot: the row's own gold surface is the
-              mark, and status-dot's spec calls a dot beside something already
-              saying the same thing a reject-on-sight. Working and failed keep
-              their marks — neither tints the row. */}
-          {!runGlyph && tone && !needsAttention ? (
-            activity === 'working' ? (
-              <>
-                <AgentWorkingDots label={activityLabel(activity)} />
-                {/* How long the turn has been running. The workspace-level
-                    activity above decides WHETHER work is in flight (hooks are
-                    the authority on that); the terminal snapshot only supplies
-                    the timestamp, and a turn without one simply shows the dots
-                    alone. */}
-                {typeof recency?.workingSince === 'number' ? (
-                  <WorkingElapsed since={recency.workingSince} />
-                ) : null}
-              </>
-            ) : (
-              <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
-            )
-          ) : null}
-          {showRecencyText ? (
-            <Tooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
-              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
-                <span aria-hidden="true">{idleRecencyText}</span>
-                <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
-              </span>
-            </Tooltip>
-          ) : null}
-        </span>
+    const rowActionsOverlay = (
+      <>
         {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
             (group-focus-within) so they are reachable and never a focus trap
             on an invisible control. The seat's min-w is the width they reserve
@@ -2034,6 +2024,49 @@ export default function WorkspaceSidebar({
             </button>
           </Tooltip>
         </span>
+      </>
+    )
+    const statusSeat = (
+      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+        <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+          {runGlyph && runGlyphLabel ? (
+            <Tooltip content={runGlyphLabel}>
+              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+            </Tooltip>
+          ) : null}
+          {/* Active work earns the three-dot working marker; the other
+              attention states keep the tone dot. */}
+          {/* An attention row renders NO dot: the row's own gold surface is the
+              mark, and status-dot's spec calls a dot beside something already
+              saying the same thing a reject-on-sight. Working and failed keep
+              their marks — neither tints the row. */}
+          {!runGlyph && tone && !needsAttention ? (
+            activity === 'working' ? (
+              <>
+                <AgentWorkingDots label={activityLabel(activity)} />
+                {/* How long the turn has been running. The workspace-level
+                    activity above decides WHETHER work is in flight (hooks are
+                    the authority on that); the terminal snapshot only supplies
+                    the timestamp, and a turn without one simply shows the dots
+                    alone. */}
+                {typeof recency?.workingSince === 'number' ? (
+                  <WorkingElapsed since={recency.workingSince} />
+                ) : null}
+              </>
+            ) : (
+              <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
+            )
+          ) : null}
+          {showRecencyText ? (
+            <Tooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
+              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                <span aria-hidden="true">{idleRecencyText}</span>
+                <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
+              </span>
+            </Tooltip>
+          ) : null}
+        </span>
+        {rowActionsOverlay}
       </span>
     )
 
@@ -2189,20 +2222,30 @@ export default function WorkspaceSidebar({
           </svg>
         ) : null}
 
-        {/* A metaless row has no second line to carry the seat, so it keeps it
+        {/* A sprint run's lifecycle is the ROW's state, not a terminal's, so
+            when the lines carry the seats it keeps line 1's trailing edge. */}
+        {metaHasSubstance && runGlyph && runGlyphLabel ? (
+          <Tooltip content={runGlyphLabel}>
+            <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+          </Tooltip>
+        ) : null}
+        {/* A lineless row has no line to carry the seat, so it keeps it
             here — the one-liner it always was. */}
         {metaHasSubstance ? null : statusSeat}
         </div>
-        {metaHasSubstance ? (
-          <WorkspaceRowMeta
-            sessions={rowSessions}
-            fleetMachines={fleetMachines}
-            branch={rowBranch}
-            additions={rowAdditions}
-            deletions={rowDeletions}
-            diffScope={rowDiffScope}
-            trailing={statusSeat}
+        {rowLines.lines.map((line, index) => (
+          <TerminalLineView
+            key={line.key}
+            line={line}
+            now={now}
+            seatOverlay={index === 0 ? rowActionsOverlay : undefined}
+            disambiguate={rowLines.lines.length > 1}
           />
+        ))}
+        {rowLines.overflow > 0 ? (
+          <div className="flex h-5 items-center text-micro text-[color:var(--text-subtle)]">
+            +{rowLines.overflow} more {rowLines.overflow === 1 ? 'terminal' : 'terminals'}
+          </div>
         ) : null}
       </div>
     )
@@ -2222,7 +2265,6 @@ export default function WorkspaceSidebar({
     const rowKey = `remote-session-${row.key}`
     const open = () => onOpenRemoteSession?.(openSpecOf(row))
     const needsAttention = row.activity === 'needs-input'
-    const sinceText = row.since !== null ? formatRelativeMs(row.since, now) : ''
     const surface = needsAttention
       ? attentionRowClass(false)
       : row.activity === 'paused'
@@ -2252,29 +2294,7 @@ export default function WorkspaceSidebar({
             {row.activity === 'paused' ? <span className="sr-only"> (paused)</span> : null}
           </span>
         </div>
-        <WorkspaceRowMeta
-          sessions={[{ sessionId: row.sessionId, ...(row.cli ? { cli: row.cli } : {}), remote: true }]}
-          fleetMachines={[]}
-          branch={row.branch}
-          additions={row.additions}
-          deletions={row.deletions}
-          diffScope={row.diffScope}
-          trailing={
-            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end gap-1 pl-2">
-              {row.activity === 'working' ? (
-                <>
-                  <AgentWorkingDots label="Agent working" />
-                  {row.since !== null ? <WorkingElapsed since={row.since} /> : null}
-                </>
-              ) : sinceText ? (
-                <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
-                  <span aria-hidden="true">{sinceText}</span>
-                  <span className="sr-only">{row.activity === 'paused' ? 'Paused' : 'Idle'} {formatRelativeMsAgo(row.since!, now)}</span>
-                </span>
-              ) : null}
-            </span>
-          }
-        />
+        <TerminalLineView line={lineOfRemoteRow(row)} now={now} />
       </div>
     )
   }
