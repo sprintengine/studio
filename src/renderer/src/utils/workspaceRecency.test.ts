@@ -5,7 +5,9 @@ import {
   isWorkspaceStale,
   partitionWorkspacesByRecency,
   sortWorkspacesByActivity,
+  sortWorkspacesByAttention,
   workspaceLastWorkedAt,
+  type WorkspaceAttentionTier,
 } from './workspaceRecency'
 
 function run(name: string, body: () => void): void {
@@ -170,6 +172,67 @@ run('sortWorkspacesByActivity is stable for exact ties and does not mutate input
 
   assert.deepEqual(sorted.map((w) => w.id), ['a', 'b', 'c'])
   // Pure: the caller's array is untouched.
+  assert.notEqual(sorted, input)
+  assert.deepEqual(input.map((w) => w.id), ['a', 'b', 'c'])
+})
+
+run('sortWorkspacesByAttention bands blocked, then done, then running, then at rest', () => {
+  const resting = makeWorkspace('resting', { createdAt: NOW })
+  const running = makeWorkspace('running', { createdAt: NOW })
+  const done = makeWorkspace('done', { createdAt: NOW })
+  const attention = makeWorkspace('attention', { createdAt: NOW })
+  const tiers: Record<string, WorkspaceAttentionTier> = {
+    resting: 'resting',
+    running: 'running',
+    done: 'done',
+    attention: 'attention',
+  }
+
+  const sorted = sortWorkspacesByAttention(
+    [resting, running, done, attention],
+    (workspace) => tiers[workspace.id],
+    NOW
+  )
+
+  assert.deepEqual(sorted.map((w) => w.id), ['attention', 'done', 'running', 'resting'])
+})
+
+run('sortWorkspacesByAttention keeps recency order inside a band', () => {
+  // All four rows are at rest, so the band never separates them and the
+  // existing recency comparator decides the whole list.
+  const recent = makeWorkspace('recent', { createdAt: NOW - 40 * 60_000 })
+  const middle = makeWorkspace('middle', { createdAt: NOW - DAY })
+  const oldest = makeWorkspace('oldest', { createdAt: NOW - 5 * DAY })
+
+  const sorted = sortWorkspacesByAttention([oldest, recent, middle], () => 'resting', NOW)
+
+  assert.deepEqual(sorted.map((w) => w.id), ['recent', 'middle', 'oldest'])
+})
+
+run('sortWorkspacesByAttention lifts a stale blocked row above a fresh resting one', () => {
+  // The point of the banding: a row that wants you outranks a row you touched
+  // more recently, which recency alone could never express.
+  const fresh = makeWorkspace('fresh', { createdAt: NOW })
+  const staleBlocked = makeWorkspace('stale-blocked', { createdAt: NOW - 5 * DAY })
+
+  const sorted = sortWorkspacesByAttention(
+    [fresh, staleBlocked],
+    (workspace) => (workspace.id === 'stale-blocked' ? 'attention' : 'resting'),
+    NOW
+  )
+
+  assert.deepEqual(sorted.map((w) => w.id), ['stale-blocked', 'fresh'])
+})
+
+run('sortWorkspacesByAttention is stable within a band and does not mutate input', () => {
+  const a = makeWorkspace('a', { createdAt: NOW })
+  const b = makeWorkspace('b', { createdAt: NOW })
+  const c = makeWorkspace('c', { createdAt: NOW })
+  const input = [a, b, c]
+
+  const sorted = sortWorkspacesByAttention(input, () => 'running', NOW)
+
+  assert.deepEqual(sorted.map((w) => w.id), ['a', 'b', 'c'])
   assert.notEqual(sorted, input)
   assert.deepEqual(input.map((w) => w.id), ['a', 'b', 'c'])
 })

@@ -416,11 +416,18 @@ export function groupSessionItems(
 }
 
 /**
- * Reproduces the workspace order users see in the left sidebar so the
+ * Reproduces the workspace grouping users see in the left sidebar so the
  * session manager dropdown matches: starred workspaces first, then folder
  * groups in first-occurrence order, with each workspace appearing exactly
  * once. Both the starred section and each folder's rows are ordered by
- * most-recently-worked time (never by live status), matching the sidebar.
+ * most-recently-worked time.
+ *
+ * The sidebar additionally bands its rows by attention (blocked, just
+ * finished, running, at rest) before applying this recency order. The
+ * dropdown does not: the unseen-done mark is sidebar-local session state with
+ * no home in the store, so a shared banding would be right about two tiers and
+ * silently wrong about the third. Recency is the part both surfaces can agree
+ * on, so it is the part they share.
  */
 export function buildSidebarWorkspaceOrder(
   workspaces: Workspace[],
