@@ -32,6 +32,7 @@ import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetS
 import {
   callRemoteTool,
   formatTailnetEndpoint,
+  openRemoteEventsSocket,
   openRemoteTerminalSocket,
   collectPairingFromMachine,
   pairWithMachine,
@@ -62,6 +63,8 @@ const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 15_000
 /** After this many failed dials the pane stops saying "reconnecting" and says the peer is not answering. */
 const OFFLINE_AFTER_ATTEMPTS = 3
+/** A change-feed watch on a machine that is away re-dials this slowly at most; the reachability probe is the other beat. */
+const WATCH_RETRY_MAX_MS = 60_000
 
 // ── Staying paired (pair-from-the-scan-and-stay-paired, phases 3, 4, 6) ─────
 //
@@ -316,6 +319,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       // It just answered a pairing, so it is reachable — recorded rather
       // than left for the next timer to discover.
       recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+      startWatch(connection.id)
       return { ok: true, connection }
     } catch (error) {
       // The device now exists on the other machine. Saying "paired" over a token
@@ -455,6 +459,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       broadcast({ kind: 'machine-paired', connection })
       announceRequest(request, 'approved', { connection })
       recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+      startWatch(connection.id)
     })().finally(() => {
       request.polling = null
     })
@@ -613,9 +618,13 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       options.log?.(`Could not keep the reverse pairing from ${input.askerName}: ${message(error)}`)
       return null
     }
-    if (existing) broadcast({ kind: 'machine-forgotten', connectionId: existing.id, machineName: existing.machineName })
+    if (existing) {
+      stopWatch(existing.id)
+      broadcast({ kind: 'machine-forgotten', connectionId: existing.id, machineName: existing.machineName })
+    }
     broadcast({ kind: 'machine-paired', connection })
     void probeReachability(connection)
+    startWatch(connection.id)
     return connection
   }
 
@@ -703,9 +712,114 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     await Promise.all(store.list().map((connection) => probeReachability(connection)))
   }
 
+  // ── The change feed (2026-09-05) ──────────────────────────────────────────
+  //
+  // One idle WebSocket per paired machine, on which that machine says its
+  // terminal list or workspace list changed. Held for as long as the machine
+  // is paired — a watch is a listener, not a browse, and costs nothing while
+  // nothing changes — re-dialled with backoff when the machine is away. The
+  // Remote band re-reads on the event it produces, which is what let its
+  // 30-second timer go: on a machine holding many sessions every one of
+  // those timed reads was seconds of the other machine's main thread.
+  type Watch = {
+    connectionId: string
+    socket: RemoteTerminalSocket | null
+    retryTimer: ReturnType<typeof setTimeout> | null
+    attempts: number
+    released: boolean
+  }
+  const watches = new Map<string, Watch>()
+
+  function startWatch(connectionId: string): void {
+    if (watches.has(connectionId)) return
+    const watch: Watch = { connectionId, socket: null, retryTimer: null, attempts: 0, released: false }
+    watches.set(connectionId, watch)
+    void dialWatch(watch)
+  }
+
+  function stopWatch(connectionId: string): void {
+    const watch = watches.get(connectionId)
+    if (!watch) return
+    watch.released = true
+    if (watch.retryTimer) clearTimeout(watch.retryTimer)
+    watch.retryTimer = null
+    watch.socket?.close('Stopped watching.')
+    watch.socket = null
+    watches.delete(connectionId)
+  }
+
+  async function dialWatch(watch: Watch): Promise<void> {
+    if (watch.released) return
+    const connection = store.find(watch.connectionId)
+    if (!connection) {
+      stopWatch(watch.connectionId)
+      return
+    }
+    const opened = await openRemoteEventsSocket({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      handlers: {
+        onFrame: (frame) => handleWatchFrame(watch, frame),
+        onClosed: ({ code, reason }) => {
+          watch.socket = null
+          if (watch.released) return
+          // Revoked over there: a decision, not a blip. The watch ends; the
+          // reachability record says why, and a re-pair starts a new one.
+          if (code === 4401) {
+            const revoked = store.find(watch.connectionId)
+            if (revoked) recordReachability(revoked, { reachable: false, unauthorized: true, detail: reason })
+            stopWatch(watch.connectionId)
+            return
+          }
+          scheduleWatchRetry(watch)
+        },
+      },
+    })
+    if (watch.released) {
+      if (opened.ok) opened.value.close('Stopped watching.')
+      return
+    }
+    if (!opened.ok) {
+      if (opened.code === 'unauthorized') {
+        recordReachability(connection, { reachable: false, unauthorized: true, detail: opened.message })
+        stopWatch(watch.connectionId)
+        return
+      }
+      scheduleWatchRetry(watch)
+      return
+    }
+    watch.socket = opened.value
+    watch.attempts = 0
+    // It answered, so it is reachable — the same record a browse would land.
+    if (!reachabilityFor(connection).reachable) {
+      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+    }
+  }
+
+  function scheduleWatchRetry(watch: Watch): void {
+    if (watch.released || watch.retryTimer) return
+    const delayMs = backoffDelayMs(watch.attempts, { baseMs: RECONNECT_BASE_MS, maxMs: WATCH_RETRY_MAX_MS }) ?? WATCH_RETRY_MAX_MS
+    watch.attempts += 1
+    watch.retryTimer = setTimeout(() => {
+      watch.retryTimer = null
+      void dialWatch(watch)
+    }, delayMs)
+    watch.retryTimer.unref?.()
+  }
+
+  function handleWatchFrame(watch: Watch, frame: Record<string, unknown>): void {
+    if (frame.type !== 'changed') return
+    const what = frame.what === 'terminals' ? 'terminals' : frame.what === 'workspaces' ? 'workspaces' : null
+    if (!what) return
+    const connection = store.find(watch.connectionId)
+    if (!connection) return
+    broadcast({ kind: 'remote-changed', connectionId: connection.id, machineName: connection.machineName, what })
+  }
+
   function start(): void {
     if (reachabilityTimer) return
     void checkAllReachability()
+    for (const connection of store.list()) startWatch(connection.id)
     reachabilityTimer = setInterval(() => {
       // Nobody is looking: a row nobody can see does not need to be right.
       if (options.hasWindow && !options.hasWindow()) return
@@ -724,6 +838,12 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       clearTimeout(attachment.retryTimer)
       attachment.retryTimer = null
       void dial(attachment)
+    }
+    for (const watch of watches.values()) {
+      if (watch.released || watch.socket || !watch.retryTimer) continue
+      clearTimeout(watch.retryTimer)
+      watch.retryTimer = null
+      void dialWatch(watch)
     }
   }
 
@@ -1343,6 +1463,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         for (const attachment of [...attachments.values()]) {
           if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
         }
+        stopWatch(connectionId)
         store.forget(connectionId)
         if (forgotten) {
           broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
@@ -1378,6 +1499,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
     shutdown(): void {
       for (const attachment of [...attachments.values()]) detachTerminal(attachment.attachId)
+      for (const connectionId of [...watches.keys()]) stopWatch(connectionId)
       if (reachabilityTimer) clearInterval(reachabilityTimer)
       reachabilityTimer = null
       for (const request of [...outboundRequests.values()]) {

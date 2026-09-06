@@ -400,6 +400,32 @@ test('browsing a machine reads its workspaces and terminals', async () => {
   }
 })
 
+// The change feed (2026-09-05): pairing opens a watch on the machine, and the
+// machine saying "terminals changed" lands here as a fleet event a surface
+// re-reads on — no timer, no browse in between. Forgetting the machine closes
+// the watch, so a forgotten machine cannot keep pushing.
+test('a paired machine\'s change feed lands as a remote-changed event, and forgetting closes it', async () => {
+  const harness = await startHarness()
+  try {
+    const connectionId = await harness.pair(['workspace:read', 'terminal:observe'])
+    for (let i = 0; i < 100 && harness.server.eventStreamCount() === 0; i += 1) await delay(20)
+    assert.equal(harness.server.eventStreamCount(), 1, 'pairing opened one watch on the machine')
+
+    harness.server.notifyTerminalsChanged()
+    for (let i = 0; i < 100 && !harness.events.some((event) => event.kind === 'remote-changed'); i += 1) await delay(20)
+    const changed = harness.events.find((event) => event.kind === 'remote-changed')
+    assert.ok(changed && changed.kind === 'remote-changed', 'the push became a fleet event')
+    assert.equal(changed.connectionId, connectionId)
+    assert.equal(changed.what, 'terminals')
+
+    harness.fleet.forget(connectionId)
+    for (let i = 0; i < 100 && harness.server.eventStreamCount() > 0; i += 1) await delay(20)
+    assert.equal(harness.server.eventStreamCount(), 0, 'forgetting the machine closed its watch')
+  } finally {
+    await harness.close()
+  }
+})
+
 // A pairing granted terminals alone still sees its terminals, and is TOLD why
 // there are no workspaces beside them. An empty list would state something
 // false about the other machine.

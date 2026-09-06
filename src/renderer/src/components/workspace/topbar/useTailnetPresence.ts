@@ -31,7 +31,16 @@ export type TailnetPresence = {
   fleetRequests: readonly FleetPairRequestView[]
   /** connectionId → main's last reachability answer for that machine (phase 4). */
   fleetReachability: ReadonlyMap<string, FleetMachineReachability>
+  /**
+   * connectionId → the last change that machine pushed (the change feed,
+   * 2026-09-05). A surface showing that machine re-reads when this moves;
+   * `revision` is the fleet's own stamp, so a consumer can tell a new push
+   * from a re-render.
+   */
+  fleetRemoteChanges: ReadonlyMap<string, FleetRemoteChange>
 }
+
+export type FleetRemoteChange = { what: 'terminals' | 'workspaces'; revision: number; at: number }
 
 export const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 
@@ -92,6 +101,7 @@ export function useTailnetPresence(): TailnetPresence {
   const [fleetAttachments, setFleetAttachments] = useState<ReadonlyMap<string, FleetLiveAttachment>>(new Map())
   const [fleetRequests, setFleetRequests] = useState<readonly FleetPairRequestView[]>([])
   const [fleetReachability, setFleetReachability] = useState<ReadonlyMap<string, FleetMachineReachability>>(new Map())
+  const [fleetRemoteChanges, setFleetRemoteChanges] = useState<ReadonlyMap<string, FleetRemoteChange>>(new Map())
   // The newest revision applied on each channel. Refs, not state: they gate
   // what becomes state and must be read synchronously inside callbacks.
   const tailnetRevision = useRef(0)
@@ -175,6 +185,12 @@ export function useTailnetPresence(): TailnetPresence {
             next.delete(event.connectionId)
             return next
           })
+          setFleetRemoteChanges((current) => {
+            if (!current.has(event.connectionId)) return current
+            const next = new Map(current)
+            next.delete(event.connectionId)
+            return next
+          })
         }
         return
       }
@@ -191,6 +207,14 @@ export function useTailnetPresence(): TailnetPresence {
           const { kind: _kind, revision: _revision, ...entry } = event
           const next = new Map(current)
           next.set(entry.connectionId, entry)
+          return next
+        })
+        return
+      }
+      if (event.kind === 'remote-changed') {
+        setFleetRemoteChanges((current) => {
+          const next = new Map(current)
+          next.set(event.connectionId, { what: event.what, revision: event.revision, at: Date.now() })
           return next
         })
         return
@@ -216,5 +240,5 @@ export function useTailnetPresence(): TailnetPresence {
   }, [])
 
   const fleetLiveSessions = useMemo(() => fleetLiveSessionsOf(fleetAttachments), [fleetAttachments])
-  return { status, live, fleet, fleetAttachments, fleetLiveSessions, fleetRequests, fleetReachability }
+  return { status, live, fleet, fleetAttachments, fleetLiveSessions, fleetRequests, fleetReachability, fleetRemoteChanges }
 }

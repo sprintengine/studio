@@ -25,6 +25,16 @@ export const TAILNET_STREAM_PATH = `${TAILNET_ROUTE_PREFIX}/stream`
 /** One WebSocket per attached terminal, so a chatty session cannot stall the RPC stream. */
 export const TAILNET_TERMINAL_PATH = `${TAILNET_ROUTE_PREFIX}/terminal`
 /**
+ * The change feed (2026-09-05): one idle WebSocket per paired device on which
+ * this machine says "the terminal list changed" or "the workspace list
+ * changed", so a device re-reads on the change instead of every thirty
+ * seconds. Server-to-client only, throttled to one push per kind per second,
+ * carrying nothing but the kind — the device reads through the tools it is
+ * already scoped for. Not the RPC stream: a watcher is not "connected" the
+ * way a device driving this machine is, and must not count as one.
+ */
+export const TAILNET_EVENTS_PATH = `${TAILNET_ROUTE_PREFIX}/events`
+/**
  * One file from a paired device into a thread's own folder (backlog id 88).
  *
  * A plain streaming POST rather than a JSON-RPC tool: base64 inside an RPC
