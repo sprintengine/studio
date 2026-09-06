@@ -165,8 +165,8 @@ async function main(): Promise<void> {
       act(() => {})
     }
 
-    // The line's mark names its runtime in an aria-label and the branch is a
-    // span, so the row's markup — not its text — is what carries the line.
+    // The line's mark names its terminal and runtime in an aria-label and the
+    // branch is a span, so the row's markup — not its text — carries the line.
     const rowMarkup = (name: string): string => {
       const row = [...container.querySelectorAll('[role="treeitem"]')].find((el) => el.textContent?.includes(name))
       assert.ok(row, `a row for ${name}`)
@@ -174,17 +174,17 @@ async function main(): Promise<void> {
     }
 
     const alpha = rowMarkup('Alpha')
-    assert.match(alpha, /aria-label="Claude Code"/, 'the live row wears its terminal line')
+    assert.match(alpha, /aria-label="[^"]*Claude Code"/, 'the live row wears its terminal line')
     assert.match(alpha, />main</, 'and its branch')
     assert.match(alpha, /\+728/, 'and the ±lines of the branch it is on')
 
     const bravo = rowMarkup('Bravo')
-    assert.doesNotMatch(bravo, /aria-label="Claude Code"/, 'an exited session is not a line')
+    assert.doesNotMatch(bravo, /aria-label="[^"]*Claude Code"/, 'an exited session is not a line')
     assert.doesNotMatch(bravo, />main</, 'a parked chat on the same checkout shows no branch')
     assert.doesNotMatch(bravo, /728/, 'and never wears the checkout’s current numbers')
 
     const charlie = rowMarkup('Charlie')
-    assert.doesNotMatch(charlie, />main<|728|aria-label="Claude Code"/, 'a row that never had a terminal is a one-liner')
+    assert.doesNotMatch(charlie, />main<|728|aria-label="[^"]*Claude Code"/, 'a row that never had a terminal is a one-liner')
 
     assert.deepEqual(
       [...new Set(summaryRequests)],

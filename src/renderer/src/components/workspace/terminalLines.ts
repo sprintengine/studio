@@ -7,11 +7,11 @@ import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
 import { checkoutPathFor } from './useSidebarGitSummaries'
 
 // The sidebar row's terminal lines (sidebar-lists-every-terminal): one line
-// per live terminal under the row's title — its CLI mark, its name, the
-// branch it is on (a worktree of its own drawn at full strength), the ±lines
-// of that checkout, and how long it has worked or sat idle. The face-pile of
-// heads and the single row-level branch are gone: the lines ARE the count,
-// and each one says where IT is.
+// per live terminal under the row's title — its CLI mark (whose tooltip
+// names the terminal), the branch it is on (a worktree of its own drawn at
+// full strength), the ±lines of that checkout, and how long it has worked or
+// sat idle. The face-pile of heads and the single row-level branch are gone:
+// the lines ARE the count, and each one says where IT is.
 //
 // Pure: sessions and summaries in, lines out. The view renders a line; the
 // row decides how many to show.
@@ -23,7 +23,11 @@ export type TerminalLine = {
   key: string
   kind: 'agent' | 'shell' | 'remote'
   cli: string | null
-  /** What the line calls the terminal; null when the row's title already names it (a remote band row). */
+  /**
+   * What the terminal is called — the mark's tooltip and accessible name, not
+   * line text (owner ruling 2026-09-05); also the tie-break when lines sort.
+   * Null when the row's title already names it (a remote band row).
+   */
   name: string | null
   /** The machine a remote pane lives on; the glyph beside the name says so. */
   machineName: string | null

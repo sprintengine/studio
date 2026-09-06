@@ -19,9 +19,10 @@ import type { Workspace } from '../../types/workspace'
 import type { TerminalLine } from './terminalLines'
 
 // A row's terminal lines (sidebar-lists-every-terminal): one per live
-// terminal — mark · name · branch · ±lines · seat — in place of the head pile
-// and the single row-level branch of two-line-session-rows. Pure props in,
-// markup out — the sidebar's own suites cover the tree semantics.
+// terminal — mark · branch · ±lines · seat — in place of the head pile and
+// the single row-level branch of two-line-session-rows. The terminal's name
+// rides on the mark, not the line. Pure props in, markup out — the sidebar's
+// own suites cover the tree semantics.
 
 // The diff stat now hangs off the kit's Tooltip, whose useLayoutEffect is a
 // no-op under the static renderer; React says so once per render, and that
@@ -72,11 +73,11 @@ function view(over: Partial<TerminalLine> = {}, props: { seatOverlay?: ReactNode
   return renderToStaticMarkup(<TerminalLineView line={line(over)} now={NOW} {...props} />)
 }
 
-run('a line is mark · name · branch · seat, the mark named for its runtime', () => {
+run('a line is mark · branch · seat; the mark names the terminal and its runtime', () => {
   const markup = view()
-  assert.match(markup, /role="img" aria-label="Claude Code"/, 'the mark says which runtime')
-  assert.match(markup, /Conor Kirby/, 'the agent is named')
-  assert.match(markup, />main</, 'and its branch')
+  assert.match(markup, /role="img" aria-label="Conor Kirby · Claude Code"/, 'the mark says who, and which runtime')
+  assert.doesNotMatch(markup, /Conor Kirby<\/span>/, 'the name is the mark’s, not line text')
+  assert.match(markup, />main</, 'the line says its branch')
   assert.match(markup, /font-mono/, 'the branch reads in the mono voice')
   assert.doesNotMatch(markup, /open terminal/, 'no head pile, no count: the lines are the count')
 })
@@ -107,10 +108,9 @@ run('a removed directory says so instead of a branch', () => {
   assert.doesNotMatch(markup, /font-mono/)
 })
 
-run('truncation is an ordered give-way: name first, then branch, never mark / diff / seat', () => {
+run('truncation is an ordered give-way: the branch yields, never mark / diff / seat', () => {
   const markup = view({ branch: 'feat/a-very-long-branch-name', additions: 4, deletions: 1 })
-  assert.match(markup, /min-w-\[3ch\] shrink-\[4\]/, 'the name shrinks first (weight 4) to its floor')
-  assert.match(markup, /min-w-\[4ch\] shrink-\[3\]/, 'the branch second (weight 3)')
+  assert.match(markup, /min-w-\[4ch\] shrink-\[3\]/, 'the branch shrinks (weight 3) to its floor')
   assert.match(markup, /size-icon-sm shrink-0/, 'the mark never shrinks')
   assert.match(markup, /inline-flex shrink-0/, 'the diff never shrinks')
   assert.match(markup, /min-w-\[44px\] shrink-0/, 'nor the seat')
