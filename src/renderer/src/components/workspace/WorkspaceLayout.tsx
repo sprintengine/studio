@@ -343,6 +343,24 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
+  const setFocusedAgent = useWorkspaceStore((s) => s.setFocusedAgent)
+  // The agent tab the layout is on, recorded as the workspace's focused agent
+  // (sidebar-lists-every-terminal): the branch chip follows it. Read from the
+  // model's active tabset rather than from `onAction`, because a tab is
+  // selected programmatically as often as by a click — a fresh spawn, a
+  // cross-workspace "Open agent", a reveal — and those go through the model
+  // without an action the layout sees. flexlayout marks the selected tab's
+  // tabset active on every select, so the active tabset's selected node IS
+  // the tab the person is on. A no-op when it has not changed.
+  const followSelectedAgentTab = useCallback(
+    (model: Model) => {
+      const selected = model.getActiveTabset()?.getSelectedNode()
+      if (!(selected instanceof TabNode) || selected.getComponent() !== 'agent') return
+      const config = selected.getConfig() as { agentId?: string } | undefined
+      setFocusedAgent(workspaceId, config?.agentId ?? selected.getId())
+    },
+    [setFocusedAgent, workspaceId],
+  )
   const closeFile = useWorkspaceStore((s) => s.closeFile)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
   const modelRef = useRef<Model | null>(null)
@@ -373,9 +391,16 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // Drain a flash latched by a cross-workspace "Open agent" before this
       // workspace's Model existed, now that it is registered.
       consumePendingAgentFlash(workspaceId)
+      // Seed the focused agent from the restored layout's selected tab, so a
+      // workspace opened from disk follows the agent it was left on rather
+      // than waiting for the first click. A focus already recorded this
+      // window (a workspace switched away from and back) stands.
+      if (!useWorkspaceStore.getState().focusedAgentByWorkspaceId[workspaceId]) {
+        followSelectedAgentTab(modelRef.current)
+      }
     }
     return () => unregisterModel(workspaceId)
-  }, [workspaceId])
+  }, [followSelectedAgentTab, workspaceId])
 
   useEffect(() => {
     if (!renamingTabId) return
@@ -1532,6 +1557,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         onRenderTabSet={renderTabSet}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())
+          followSelectedAgentTab(model)
         }}
       />
       {tabMenu ? (
