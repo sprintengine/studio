@@ -112,6 +112,8 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { pathExists } from './filesystem-workspace'
 import { createSprintCreateService } from './sprint-create-service'
+import { createStudioPluginService } from './studio-plugin-service'
+import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -193,6 +195,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
+  // The app's own plugin, installed into every workspace it opens. Declared
+  // here because it needs the same bridge path the managed MCP sync uses, and
+  // the same reporter the agent-state service installs — one resolver each,
+  // never a second spelling of either.
+  const studioPluginService = createStudioPluginService({
+    resolveTemplateRoot: getBundledStudioPluginRoot,
+    resolveAgentStateReporterPath: getBundledAgentStateReporterPath,
+    resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
+    resolveNodeCommand: () => process.execPath,
+    resolveUserDataDir: () => app.getPath('userData'),
+    resolveAgentStateSocketPath: () => agentStateService.getSocketPath(),
+    listHarnesses: () => resolveInstalledSkillHarnesses(),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
@@ -1032,6 +1051,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // listener, so a burst here is one push there.
   terminalRuntime.subscribeSessionsChanged(() => automationService.notifyTerminalsChanged())
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // The app's own plugin goes into every workspace it opens, at the two moments
+  // a workspace becomes real to main: the roots the registry already holds when
+  // this process starts, and every accepted registry event after that. Not at
+  // agent spawn like the hook and the MCP config — an agent that reaches its
+  // first prompt without the skills has already lost the session they were for
+  // (backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md).
+  workspaceSyncService.subscribeEvents(() => {
+    void studioPluginService.ensureInstalledForRoots(
+      uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+    )
+  })
+  void studioPluginService.ensureInstalledForRoots(
+    uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+  )
   // Staying paired across sleep (phase 4): waking re-checks every paired
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
@@ -1082,6 +1115,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentControlPlane,
     agentLaunchService,
     builtinSkillManager,
+    studioPluginService,
     conversationRuntime,
     githubTokenStore,
     logMainPerfEvent,
@@ -1135,6 +1169,25 @@ function getBundledHookReporterPath(filename: string): string | null {
 // plugin, rewritten to .js on install).
 function getBundledAgentStateReporterPath(): string | null {
   return getBundledHookReporterPath('multicode-agent-state.mjs')
+}
+
+// The app's own plugin marketplace, shipped by the `resources/studio-plugin`
+// extraResources entry. Same packaged/dev shape as the reporter resolver above;
+// null when the entry did not ship, which the service reports rather than
+// installing an empty plugin into every workspace.
+function getBundledStudioPluginRoot(): string | null {
+  const relative = ['studio-plugin']
+  if (app.isPackaged) {
+    const packaged = join(process.resourcesPath, ...relative)
+    return existsSync(packaged) ? packaged : null
+  }
+  const candidates = [
+    join(process.cwd(), 'resources', ...relative),
+    join(app.getAppPath(), 'resources', ...relative),
+    join(__dirname, '..', '..', 'resources', ...relative),
+    join(__dirname, '..', '..', '..', 'resources', ...relative),
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
 // The template name comes from a plugin manifest; constrain it to a bare

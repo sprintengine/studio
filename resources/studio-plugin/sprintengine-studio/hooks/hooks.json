@@ -1,0 +1,29 @@
+{
+  "$comment": "Template for the agent-state reporter, the hook the app writes into each workspace's Claude settings by hand today. The event set mirrors resources/plugins/claude-code/plugin.json's agentStateSpec, which stays the authority: PreToolUse is deliberately absent (PostToolUse alone is load-bearing, and registering both would double the reporter spawns per tool call). The script path and the socket in each command are placeholders the app replaces with absolute values at install; the socket is a per-profile path this build owns, so it cannot be plugin-relative.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "node \"__MULTICODE_AGENT_STATE_REPORTER__\" --socket \"__MULTICODE_AGENT_STATE_SOCKET__\"" }] }
+    ]
+  }
+}

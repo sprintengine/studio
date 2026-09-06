@@ -17,9 +17,14 @@
 // through PluginDetailPane, and a catalogue MCP server is still added to MCP
 // settings in place.
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { InstalledPluginRecord, McpServerConfig } from '../../../../../../../shared/electron-api'
+import type { InstalledPluginRecord, McpServerConfig, StudioPluginStatus } from '../../../../../../../shared/electron-api'
+import {
+  deriveStudioPluginRow,
+  studioPluginRowMatches,
+  type StudioPluginRow,
+} from '../../../../../../../shared/studio-plugin'
 import {
   BUILTIN_SKILL_SOURCE_ID,
   SOURCE_SHAPE_LABEL,
@@ -81,6 +86,7 @@ const MISSING_API_MESSAGE = 'Plugins need an app restart before they are availab
 
 /** Every shape a row in this view can take; one union, so one pager walks them all. */
 type PluginItem =
+  | { kind: 'builtin'; row: StudioPluginRow }
   | { kind: 'connector'; entry: ConnectorEntry }
   | { kind: 'plugin'; item: PluginListItem }
   | { kind: 'server'; server: ScannedMcpServer }
@@ -131,6 +137,25 @@ export function PluginsCatalogue({
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  // The app's own plugin. Read once per workspace: it is installed by main when
+  // the workspace opens, so by the time this surface can be looked at the answer
+  // is already settled and re-polling it would only cost IPC.
+  const [studioPluginStatus, setStudioPluginStatus] = useState<StudioPluginStatus | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.api.studioPluginStatus !== 'function') return
+    void window.api
+      .studioPluginStatus({ workspaceRoot })
+      .then((status) => {
+        if (!cancelled) setStudioPluginStatus(status)
+      })
+      // A status that cannot be read leaves the row out rather than rendering a
+      // row that claims a version it does not know.
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceRoot])
 
   const catalog = connectors.catalogLoad.status === 'ready' ? connectors.catalogLoad.data : []
   const registry = connectors.registryLoad.status === 'ready' ? connectors.registryLoad.data : []
@@ -307,17 +332,28 @@ export function PluginsCatalogue({
   const sections = useMemo<CatalogueSection<PluginItem>[]>(() => {
     if (!activeSource) return []
     if (isApp) {
+      // The built-in row leads: it is the one plugin every install already has,
+      // and burying it under the catalogue's categories would put the app's own
+      // plugin somewhere a person has to search for it.
+      const builtin = deriveStudioPluginRow(studioPluginStatus)
+      const builtinSection: CatalogueSection<PluginItem>[] =
+        builtin && studioPluginRowMatches(builtin, query)
+          ? [{ key: 'built-in', label: 'Built in', items: [{ kind: 'builtin' as const, row: builtin }] }]
+          : []
       // The registry's plugins and the MCP catalogue's servers under ONE set of
       // headings — the catalogue's own categories — rather than a "Plugins"
       // block and then the categories. Two sets would have asked a person to
       // know which half a thing is in before they could look for it, which is
       // the split the ruling folded away, and with 260 plugins ahead of them
       // the categories would have started twenty pages in.
-      return sectionConnectors(searchConnectors(appEntries, query)).map((section) => ({
-        key: section.title,
-        label: section.title,
-        items: section.entries.map((entry) => ({ kind: 'connector' as const, entry })),
-      }))
+      return [
+        ...builtinSection,
+        ...sectionConnectors(searchConnectors(appEntries, query)).map((section) => ({
+          key: section.title,
+          label: section.title,
+          items: section.entries.map((entry) => ({ kind: 'connector' as const, entry })),
+        })),
+      ]
     }
     if (!scan) return []
     const needle = query.trim().toLowerCase()
@@ -345,12 +381,32 @@ export function PluginsCatalogue({
           ]
         : []),
     ]
-  }, [activeSource, appEntries, isApp, query, scan, sources.installedPlugins])
+  }, [activeSource, appEntries, isApp, query, scan, sources.installedPlugins, studioPluginStatus])
 
   // ── Rows ───────────────────────────────────────────────────────────────────
 
   const renderRow = useCallback(
     (item: PluginItem): React.ReactNode => {
+      if (item.kind === 'builtin') {
+        const row = item.row
+        return (
+          <ConnectorRow
+            key="sprintengine-studio-builtin"
+            icon={<SourceMonogram monogram="SS" size="lg" />}
+            name={row.name}
+            summary={row.summary}
+            chips={row.chips}
+            // No onOpen, no Install and no Remove: this plugin is not one a
+            // person chose, so there is nothing here for them to undo. What the
+            // row is for is saying it is there, and which version.
+            actions={
+              <span className="pr-1 text-meta font-medium text-[color:var(--text-muted)]">
+                {row.updateAvailable ? 'Refreshes on reopen' : 'Always installed'}
+              </span>
+            }
+          />
+        )
+      }
       if (item.kind === 'connector') {
         const entry = item.entry
         return (

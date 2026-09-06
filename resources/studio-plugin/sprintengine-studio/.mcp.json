@@ -1,0 +1,13 @@
+{
+  "$comment": "Template. The command, the script path and the user-data directory below are placeholders the app replaces with absolute values when it materialises this plugin into a workspace; see ../../README.md, 'Where the bridge comes from', for why they are not plugin-relative.",
+  "mcpServers": {
+    "sprintengine-studio": {
+      "command": "__MULTICODE_NODE__",
+      "args": ["__MULTICODE_BRIDGE__"],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "MULTICODE_USER_DATA_DIR": "__MULTICODE_USER_DATA_DIR__"
+      }
+    }
+  }
+}

@@ -7,6 +7,7 @@ import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
+import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
@@ -88,6 +89,7 @@ export function registerCoreIpc(
   if (options.includeDevModules ?? true) registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.multicodeAuth, services.entitlements)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
+  registerStudioPluginIpc(ipcMain, services.studioPluginService)
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)

@@ -455,6 +455,21 @@ export type BuiltinSkillTargetState = {
   restartRequired?: boolean
 }
 
+/**
+ * What the catalogue's built-in row for the app's own plugin reads.
+ * `installedVersion` is '' until this app run has installed into that
+ * workspace; a value that differs from `bundledVersion` is the drift Sync
+ * reports, and the next open closes it.
+ */
+export type StudioPluginStatus = {
+  bundledVersion: string
+  installedVersion: string
+  skillDirNames: string[]
+  claudePluginKey: string
+  /** ISO timestamp the hooks acknowledgement was answered, '' when it has not been. */
+  hooksAcknowledgedAt: string
+}
+
 export type BuiltinSkillStatus =
   | { ok: true; status: 'missing'; skill: BuiltinSkill; destinationPath: string; targets: BuiltinSkillTargetState[] }
   | { ok: true; status: 'installed'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
@@ -3545,6 +3560,11 @@ export type ElectronApi = {
   builtinSkillInstall: (
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillInstallResult>
+  /**
+   * The app's own plugin: what this build ships against what the open workspace
+   * holds. Read-only — the built-in plugin has no Install and no Remove.
+   */
+  studioPluginStatus: (input: { workspaceRoot: string | null }) => Promise<StudioPluginStatus>
   pluginsList: () => Promise<PluginRegistryListResult>
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>

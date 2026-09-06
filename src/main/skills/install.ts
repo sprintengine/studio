@@ -268,6 +268,13 @@ export async function installSkillDirectory(options: {
   sourceDir: string
   dirName: string
   harnesses: readonly SkillHarness[]
+  /**
+   * Who owns the copy. Omitted means the plugin-bundle marker, which no sync
+   * claims. A bundle the app itself ships and refreshes names itself instead,
+   * so a later sync can tell an app-shipped copy from someone's own edit
+   * (backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md).
+   */
+  provenance?: SkillInstallProvenance
 }): Promise<SkillInstallResult> {
   const entries = await listLocalTree(options.sourceDir)
   if (entries.length === 0) {
@@ -292,8 +299,9 @@ export async function installSkillDirectory(options: {
     skill,
     harnesses: options.harnesses,
     readFile: (file) => readFile(join(options.sourceDir, ...file.path.split('/'))),
-    // A bundle is not a skill source, so no source sync ever owns this copy.
-    provenance: {
+    // A bundle is not a skill source, so no source sync ever owns this copy —
+    // unless the caller names one that does.
+    provenance: options.provenance ?? {
       sourceId: PLUGIN_BUNDLE_SKILL_SOURCE_ID,
       skillId: options.dirName,
       commitSha: '',

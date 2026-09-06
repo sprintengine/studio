@@ -1,0 +1,10 @@
+{
+  "name": "sprintengine-studio",
+  "description": "Drive SprintEngine Studio from an agent: sprints, backlog, automations, workspaces and terminals, review. Ships the stdio bridge to the running app and one skill per area.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/sprintengine/studio-releases",
+  "keywords": ["sprintengine", "studio", "sprints", "backlog", "automations", "review"]
+}

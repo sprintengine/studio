@@ -1,0 +1,15 @@
+{
+  "name": "sprintengine-studio",
+  "owner": {
+    "name": "SprintEngine Studio"
+  },
+  "description": "The plugin SprintEngine Studio installs into every workspace it opens: the MCP bridge to the running app, and the skills that teach it.",
+  "plugins": [
+    {
+      "name": "sprintengine-studio",
+      "source": "./sprintengine-studio",
+      "description": "Drive SprintEngine Studio from an agent: sprints, backlog, automations, workspaces and terminals, review.",
+      "version": "1.0.0"
+    }
+  ]
+}
