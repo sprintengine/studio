@@ -290,7 +290,10 @@ async function main(): Promise<void> {
     // The door registry, with the user-facing labels the drawer and the rail
     // read: the `extensions` id keeps its name (it is a persisted surface id
     // and a deep-link target) while every string a person sees says Plugins.
-    // Sprints declares no label because its row is its own component.
+    // Sprints names itself here too (Stage 3) even though its drawer ROW is its
+    // own component: the Extensions home builds its five tiles from this
+    // registry, and a shell that hard-coded a name and a glyph for one module's
+    // surface would be naming it on the module's behalf.
     const doorSurfaces = host.getGlobalSurfaces().map(
       (surface) => [surface.id, surface.label ?? null, surface.railPlacement ?? 'sidebar'] as const,
     )
@@ -300,7 +303,7 @@ async function main(): Promise<void> {
         ['automations', 'Automations', 'sidebar'],
         ['design', 'Design', 'inline'],
         ['extensions', 'Plugins', 'inline'],
-        ['sprints', null, 'sidebar'],
+        ['sprints', 'Sprints', 'sidebar'],
       ],
       'every card-region destination is a door, and only the drawer rows keep their rail inline',
     )

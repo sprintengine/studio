@@ -4,12 +4,26 @@
 // (2026-09-05) — most of these name doors now, and the glyph never cared which
 // mount kind was behind it.
 //
-// Deliberately a leaf file with no imports: modules register these EAGERLY (the
-// glyph renders in the rail at boot), so anything imported here lands in the
-// eager module-registry graph — which must stay free of the workspace store,
-// AppIcons (which reaches the module registry), and every door bundle. One
-// concept per glyph, currentColor strokes, the icon family's 16-box
-// round-stroke idiom (design-system glyph grammar).
+// Deliberately a LEAF file: modules register these EAGERLY (the glyph renders in
+// the rail at boot), so anything imported here lands in the eager
+// module-registry graph — which must stay free of the workspace store, AppIcons
+// (which reaches the module registry), and every door bundle. The one import
+// below is the brand mark, which is itself a leaf for the same reason (see its
+// header). One concept per glyph, currentColor strokes, the icon family's
+// 16-box round-stroke idiom (design-system glyph grammar).
+
+import { SprintEngineFrond } from '../brand/SprintEngineFrond'
+
+// Sprints: the SprintEngine frond, the same mark its drawer row wears
+// (SprintsNavEntry, through AppIcons' SprintEngineWorkspaceTypeIcon — the same
+// component, reached the long way round because AppIcons may not be imported
+// here). The sprint-engine module hands this to the shell so the Extensions
+// home's Sprints tile can be drawn from the registry like the other four,
+// rather than the shell hard-coding a glyph for one module's row
+// (Extensions drawer ruling, 2026-09-05, Stage 3).
+export function SprintsGlyph({ className }: { className?: string }) {
+  return <SprintEngineFrond className={className} tone="current" />
+}
 
 // Plugins: a link to an external capability. Moved verbatim from the retired
 // ExtensionsNavEntry (where it was the Extensions door's row icon).

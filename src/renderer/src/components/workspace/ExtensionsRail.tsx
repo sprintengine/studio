@@ -1,10 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 
-import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
-import type { RegisteredGlobalSurface, RegisteredSidebarNavEntry } from '../../modules/renderer-host'
-import { useWorkspaceStore } from '../../store/workspaceStore'
-import { DRAWER_ROWS } from './extensionsDrawer'
-import { useSurfaceView } from './surfaceView'
+import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
+import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
 
 // The Extensions drawer (app shell, 2026-09-05): the sidebar column
@@ -13,10 +10,14 @@ import { SidebarNavButton } from './SidebarNavButton'
 // things ADDED to the product — in one column with one row chrome.
 //
 // The rows and their order are the ruling, held as data next door
-// (`extensionsDrawer.ts`); this file only resolves each one against the live
-// registry and renders it. A row whose module is disabled simply is not there:
-// every lookup below goes through the host's enablement filter, and a miss
-// renders nothing rather than a dead row.
+// (`extensionsDrawer.ts`), and resolving them against the live registry —
+// what each row is called, what it looks like and what clicking it does — is
+// `extensionsDrawerRows.ts`, shared with the Extensions home's tiles so the two
+// cannot route differently (Stage 3). This file is only the column's chrome.
+//
+// A row whose module is disabled simply is not there: every lookup goes through
+// the host's enablement filter, and a miss renders nothing rather than a dead
+// row.
 //
 // The drawer STAYS PUT while the card region swaps — that is what makes it the
 // navigation rather than a menu (Stage 2 of the ruling). Its rows open DOORS
@@ -37,110 +38,50 @@ type ExtensionsRailProps = {
 }
 
 export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
-  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
-  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
-  // Which view the OPEN surface is standing on, so exactly one of a
-  // multi-view surface's rows reads selected — including when the person moved
-  // with the surface's own rail rather than by clicking a row here. Only the
-  // open surface can own a selected row, so one subscription answers for the
-  // whole column.
-  const activeView = useSurfaceView(activeGlobalSurface ?? '')
-  // Third-party renderer modules can finish loading after first render (the
-  // boot timeout race WorkspaceManager's moduleRegistryGeneration handles):
-  // without this bump an SDK module's registerGlobalSurface would mount fine
-  // but its row — the only user-visible way in — would stay absent until an
-  // unrelated module toggle or a reload.
-  const [registryGeneration, setRegistryGeneration] = useState(0)
-  useEffect(
-    () => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)),
-    [],
-  )
-  const globalSurfaces = useMemo(
-    () => getRendererHost().getGlobalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
-    [moduleOverrides, registryGeneration],
-  )
+  const drawerRows = useExtensionsDrawerRows(navEntries)
 
-  const rows = useMemo(() => {
-    const surfaceById = new Map<string, RegisteredGlobalSurface>(
-      globalSurfaces.map((surface) => [surface.id, surface]),
-    )
-    const entryById = new Map<string, RegisteredSidebarNavEntry>(
-      navEntries.map((entry) => [entry.id, entry]),
-    )
-    return DRAWER_ROWS.flatMap((row) => {
-      if (row.kind === 'nav') {
-        const entry = entryById.get(row.entryId)
-        if (!entry) return []
+  const rows = useMemo(
+    () =>
+      drawerRows.flatMap((row) => {
+        // A module's own row component owns its full chrome — a status dot, its
+        // own wider reading of "selected" — so it renders instead of a generic
+        // row, not beside one.
+        if (row.navComponent) {
+          const RowComponent = row.navComponent
+          return [
+            {
+              key: row.key,
+              node: (
+                <React.Suspense fallback={null}>
+                  <RowComponent collapsed={collapsed} />
+                </React.Suspense>
+              ),
+            },
+          ]
+        }
+        // A door with neither a name nor a glyph cannot be drawn as a generic
+        // row, and there is nothing else here to draw it with.
+        if (!row.label || !row.Icon) return []
+        const { Icon } = row
         return [
           {
-            key: `nav:${entry.id}`,
-            node: (
-              <React.Suspense fallback={null}>
-                <entry.Component collapsed={collapsed} />
-              </React.Suspense>
-            ),
-          },
-        ]
-      }
-      const surface = surfaceById.get(row.surfaceId)
-      // A door with no label or glyph names itself through its own nav-entry
-      // component (Sprints) and cannot be drawn as a generic row here.
-      if (!surface?.label || !surface.Icon) return []
-      const { Icon } = surface
-      if (row.kind === 'surface') {
-        return [
-          {
-            key: `surface:${surface.id}`,
+            key: row.key,
             node: (
               <SidebarNavButton
                 collapsed={collapsed}
                 icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
-                label={surface.label}
-                ariaLabel={surface.label}
-                tooltip={surface.label}
-                active={activeGlobalSurface === surface.id}
-                onClick={() => {
-                  // A plain open lands on the surface's default view: the surface
-                  // discards any stale deep-link latch in `onOpen` first.
-                  surface.onOpen?.()
-                  openGlobalSurface(surface.id)
-                }}
+                label={row.label}
+                ariaLabel={row.label}
+                tooltip={row.label}
+                active={row.active}
+                onClick={row.open}
               />
             ),
           },
         ]
-      }
-      const view = surface.views?.find((candidate) => candidate.id === row.viewId)
-      if (!view) return []
-      const ViewIcon = view.Icon
-      return [
-        {
-          key: `view:${surface.id}:${view.id}`,
-          node: (
-            <SidebarNavButton
-              collapsed={collapsed}
-              icon={<ViewIcon className="icon-sm pointer-events-none shrink-0" />}
-              label={view.label}
-              ariaLabel={view.label}
-              tooltip={view.label}
-              // Selected while the surface is open ON THIS VIEW — not merely
-              // while it is open, which would light all three of its rows.
-              active={activeGlobalSurface === surface.id && activeView === view.id}
-              onClick={() => {
-                // The view latches its target first and the shell opens second,
-                // the order every deep-link opener uses: the surface drains the
-                // latch as it mounts, so an already-open surface and a cold one
-                // both land on the row that was clicked.
-                view.open()
-                openGlobalSurface(surface.id)
-              }}
-            />
-          ),
-        },
-      ]
-    })
-  }, [activeGlobalSurface, activeView, collapsed, globalSurfaces, navEntries, openGlobalSurface])
+      }),
+    [collapsed, drawerRows],
+  )
 
   return (
     // `aria-current`, not `aria-pressed`, on the selected row (SidebarNavButton's

@@ -5,6 +5,7 @@ import { registerSprintEngineWorkspaceTypes } from './sprint-engine-workspace-ty
 import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
+import { SprintsGlyph } from '../components/workspace/surfaceGlyphs'
 import { dispatchRevealTarget } from '../utils/revealTarget'
 import { hasAgentLink } from '../utils/agentBacklogLinks'
 import {
@@ -109,7 +110,19 @@ export const sprintEngineRendererModule: RendererModule = {
     // null in WorkspaceManager's generic mount guard, falling back to the
     // workspace rather than painting a blank page.
     host.registerSidebarNavEntry({ id: 'sprints', order: 20, Component: SprintsNavEntry })
-    host.registerGlobalSurface({ id: 'sprints', Component: SprintsGlobalSurface })
+    // The door names itself (label + glyph) even though its drawer row is drawn
+    // by SprintsNavEntry above: the Extensions home's Sprints tile is built from
+    // the registry like the other four, and a shell that hard-coded "Sprints"
+    // and a frond for it would be naming one module's surface on its behalf
+    // (Extensions drawer ruling, 2026-09-05, Stage 3). The nav entry still owns
+    // the ROW — its status dot and its wider reading of "selected" — which is
+    // why the drawer keeps rendering that rather than a generic row.
+    host.registerGlobalSurface({
+      id: 'sprints',
+      label: 'Sprints',
+      Icon: SprintsGlyph,
+      Component: SprintsGlobalSurface,
+    })
     // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
     // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
     // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project

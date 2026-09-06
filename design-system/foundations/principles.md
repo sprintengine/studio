@@ -379,6 +379,16 @@ walks. Its anatomy:
    navigation, exactly like a workspace row); the rail's square reads
    `aria-pressed`. Two honest readings of one state — what would be wrong is
    one row of the drawer disagreeing with the row above it.
+   **The home is those same five rows, said again as tiles** — glyph, name, a
+   one-line summary, a live count, a chevron — resolved from the one function
+   the drawer's rows are resolved by, so a tile cannot open something its row
+   does not, and a module that is off takes both away together. A count on a
+   tile is LIVE or ABSENT: a number nobody has measured yet is no line at all,
+   and a number that really is nothing is words ("No runs", "None installed"),
+   because "0 running" reads as a counter that has not started rather than as
+   an answer. No module list on the page: those switches live in Settings →
+   Modules, and one choice in two shapes on two surfaces is two things to keep
+   in agreement.
 5. **The account and Settings cluster pins to its foot.** They belong to the
    window, not to whichever section the sidebar is showing.
 6. **Its top reserves the title strip's height** on every platform, so its
