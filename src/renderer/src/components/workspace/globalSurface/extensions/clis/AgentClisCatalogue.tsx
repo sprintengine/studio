@@ -61,7 +61,30 @@ export function AgentClisCatalogue({
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
 
   const registry = connectors.registryLoad.status === 'ready' ? connectors.registryLoad.data : []
-  const entries = useMemo(() => registryEntriesForKinds(registry, ['cli']), [registry])
+  // The registry's inline CLI entries are generated from EVERY bundled plugin
+  // manifest (resources/marketplace/cli-entries.ts), and three of those are
+  // conversation providers, not agent CLIs: the Claude Agent SDK harness,
+  // OpenRouter and xAI. They share this list's word and, in one case, its
+  // name — the SDK provider is also called "Claude Code", so the page showed
+  // Claude Code twice (owner, 2026-09-06). The CLI runtime catalogue
+  // (`pluginsList`, kind `cli` only) is the one list of what this page is
+  // about, so an entry the catalogue does not know is not an agent CLI and is
+  // not listed here; providers are configured in Settings. Only a settled
+  // catalogue may exclude: while it is loading or failed, every entry stays
+  // and its row states the probe's condition instead of vanishing.
+  const cliPluginIds = useMemo(
+    () => (cliRuntime.catalogStatus === 'ready' ? new Set(cliRuntime.catalogEntries.map((entry) => entry.id)) : null),
+    [cliRuntime.catalogEntries, cliRuntime.catalogStatus],
+  )
+  const entries = useMemo(
+    () =>
+      registryEntriesForKinds(registry, ['cli']).filter((entry) => {
+        const pluginId = entry.plugin?.cli?.pluginId
+        if (!pluginId || !cliPluginIds) return true
+        return cliPluginIds.has(pluginId)
+      }),
+    [cliPluginIds, registry],
+  )
   const matched = useMemo(() => searchConnectors(entries, query), [entries, query])
 
   const appCount = useMemo<CatalogueCount>(() => {

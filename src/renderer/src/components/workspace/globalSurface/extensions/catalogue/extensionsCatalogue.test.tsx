@@ -145,6 +145,31 @@ const api: Record<string, unknown> = {
           provides: ['cli'],
           cli: { pluginId: 'cursor' },
         },
+        // Two bundled plugins called "Claude Code": the terminal CLI, and the
+        // Claude Agent SDK conversation provider. The seed lists both as
+        // inline CLI entries; only the first is an agent CLI.
+        {
+          id: 'claude-code',
+          name: 'Claude Code',
+          publisher: { name: 'Anthropic', verified: true },
+          summary: "Anthropic's Claude Code coding agent, driven in a terminal.",
+          category: 'Development',
+          icon: 'claude-code.svg',
+          latest: 1,
+          provides: ['cli'],
+          cli: { pluginId: 'claude-code' },
+        },
+        {
+          id: 'claude-agent',
+          name: 'Claude Code',
+          publisher: { name: 'Anthropic', verified: true },
+          summary: 'Claude conversation agents in the app, run through the Claude Agent SDK.',
+          category: 'Agent Runtime',
+          icon: 'claude-agent.svg',
+          latest: 1,
+          provides: ['cli'],
+          cli: { pluginId: 'claude-agent' },
+        },
       ],
     },
   }),
@@ -160,7 +185,15 @@ const api: Record<string, unknown> = {
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),
   listThirdPartyModules: async () => ({ modules: [], rejected: [] }),
-  pluginsList: async () => ({ ok: true, plugins: [] }),
+  // The CLI runtime catalogue: kind `cli` manifests only, so the SDK provider
+  // that shares Claude Code's name is not in it.
+  pluginsList: async () => ({
+    ok: true,
+    plugins: [
+      { id: 'cursor', displayName: 'Cursor', source: 'bundled', version: 1, binary: 'cursor-agent' },
+      { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
+    ],
+  }),
   // A check that could not run: never silence that reads as "up to date".
   readMarketplacePluginUpdateStates: async () => ({ ok: false, message: 'not checked here' }),
   // A subscription, not a read: the proxy's async default would hand React a
@@ -353,6 +386,14 @@ async function main(): Promise<void> {
       null,
       'and the plus is withheld rather than offering a way in that leads nowhere',
     )
+  })
+
+  await run('a conversation provider that shares a CLI\'s name is not an agent CLI row', () => {
+    const leaves = [...container.querySelectorAll('*')].filter(
+      (el) => el.children.length === 0 && (el.textContent ?? '').trim() === 'Claude Code',
+    )
+    assert.equal(leaves.length, 1, 'Claude Code is listed once: the terminal CLI, not the SDK provider beside it')
+    assert.ok(text().includes('Cursor'), 'a CLI the runtime catalogue knows is still listed')
   })
 
   // ── The Installed tab ───────────────────────────────────────────────────────
