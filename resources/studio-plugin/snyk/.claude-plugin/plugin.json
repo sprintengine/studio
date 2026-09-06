@@ -1,0 +1,10 @@
+{
+  "name": "snyk",
+  "description": "Scan this workspace for vulnerable dependencies, insecure code, exposed secrets and misconfigured infrastructure with the Snyk CLI's MCP server. Ships the server and the skill that says which scan answers which question, and what each one sends off the machine.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/snyk/studio-mcp",
+  "keywords": ["security", "vulnerabilities", "sast", "sca", "secrets", "snyk"]
+}

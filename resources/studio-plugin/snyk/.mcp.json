@@ -1,0 +1,9 @@
+{
+  "$comment": "`snyk mcp -t stdio` is the MCP server; `npx snyk` alone starts the interactive CLI and never speaks the protocol. No env: the CLI authenticates through `snyk auth`, whose token lives in the Snyk config, not in a variable this file could name.",
+  "mcpServers": {
+    "io-snyk-mcp": {
+      "command": "npx",
+      "args": ["-y", "snyk@latest", "mcp", "-t", "stdio"]
+    }
+  }
+}

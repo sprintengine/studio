@@ -1,0 +1,10 @@
+{
+  "name": "kubernetes",
+  "description": "Read and operate a Kubernetes or OpenShift cluster through the kubeconfig this machine already has. Ships the server and the skill that says how to diagnose before changing anything, and which tools cannot be undone.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/containers/kubernetes-mcp-server",
+  "keywords": ["kubernetes", "openshift", "cluster", "pods", "operations"]
+}

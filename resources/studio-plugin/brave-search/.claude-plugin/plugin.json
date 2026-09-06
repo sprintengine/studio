@@ -1,0 +1,10 @@
+{
+  "name": "brave-search",
+  "description": "Search the live web through the Brave Search API: web, news, video, image, local and AI summaries. Ships the server and the skill that says which of the six searches to reach for and what a free plan will not answer.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/brave/brave-search-mcp-server",
+  "keywords": ["search", "web", "news", "research", "brave"]
+}

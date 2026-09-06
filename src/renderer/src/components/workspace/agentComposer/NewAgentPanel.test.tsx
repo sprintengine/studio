@@ -816,6 +816,49 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // 5d. The door's connector list is the union of what is installed and what
+  //     the catalogue offers — so a server that arrived by installing a PLUGIN
+  //     is listed here on its own, with no catalogue row behind it
+  //     (backlog/2026-09-06-shipped-mcp-servers-are-plugins.md). Checked
+  //     against the row builder rather than through the render above, because
+  //     the claim is about which rows exist, not about pressing one.
+  await check('a server installed from a plugin is listed even with no catalogue row', async () => {
+    const { buildMcpRows } = await import('./SkillsAndMcpsPicker')
+    const fromPlugin = {
+      id: 'io-snyk-mcp',
+      name: 'io-snyk-mcp',
+      transport: 'stdio' as const,
+      command: 'npx',
+      args: ['-y', 'snyk@latest', 'mcp', '-t', 'stdio'],
+      enabled: true,
+      required: false,
+      clients: ['claude-code'],
+      scope: 'workspace' as const,
+      source: 'source' as const,
+      sourceRef: { sourceId: 'sprintengine-studio', pluginId: 'snyk' },
+    }
+    const rows = buildMcpRows([], { 'io-snyk-mcp': fromPlugin })
+    const row = rows.find((entry) => entry.id === 'io-snyk-mcp')
+    assert.ok(row, 'the plugin-installed server is a row')
+    assert.equal(row!.state, 'installed', 'and it is installed, not an Add row')
+    assert.equal(rows.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'exactly once')
+
+    // And when the connector catalogue names the same server, the two are ONE
+    // row wearing the catalogue's display name — the duplicate-row problem the
+    // marketplace child fixed is why the plugin keeps the catalogue's id.
+    const merged = buildMcpRows(
+      [{ id: 'io-snyk-mcp', name: 'Snyk', category: 'Security', transport: 'stdio', command: 'npx', args: ['snyk'], envVarNames: [] }] as never,
+      { 'io-snyk-mcp': fromPlugin }
+    )
+    assert.equal(merged.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'still one row')
+    assert.equal(merged.find((entry) => entry.id === 'io-snyk-mcp')?.name, 'Snyk', 'named as the catalogue names it')
+
+    // A disabled server is not offered: the picker adds servers to a launch,
+    // and a launch cannot use one the person turned off.
+    const off = buildMcpRows([], { 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
+    assert.equal(off.some((entry) => entry.id === 'io-snyk-mcp'), false, 'a disabled server is not a row')
+  })
+
   // 6. The greeting: a name when there is one, and a sentence either way.
   await check('the greeting uses a first name only when there is one', async () => {
     seedStore()

@@ -4,7 +4,7 @@
     "name": "SprintEngine Studio",
     "url": "https://github.com/sprintengine"
   },
-  "description": "What SprintEngine Studio publishes: the plugin it installs into every workspace it opens, and the workflow skills it ships.",
+  "description": "What SprintEngine Studio publishes: the plugin it installs into every workspace it opens, the workflow skills it ships, and the MCP servers it packages as plugins with the skills that teach them.",
   "plugins": [
     {
       "name": "sprintengine-studio",
@@ -17,6 +17,36 @@
       "source": "./studio-skills",
       "description": "The workflow skills SprintEngine Studio ships: backlog, debug, prototype, review guide, handoff, knowledge, and the rest.",
       "version": "1.0.0"
+    },
+    {
+      "name": "brave-search",
+      "source": "./brave-search",
+      "description": "Search the live web through the Brave Search API: web, news, video, image, local and AI summaries, with the skill that says which of the six searches to reach for.",
+      "version": "1.0.0",
+      "category": "Search",
+      "author": { "name": "SprintEngine Studio" },
+      "homepage": "https://github.com/brave/brave-search-mcp-server",
+      "keywords": ["search", "web", "news", "research", "brave"]
+    },
+    {
+      "name": "kubernetes",
+      "source": "./kubernetes",
+      "description": "Read and operate a Kubernetes or OpenShift cluster through this machine's kubeconfig, with the skill that says how to diagnose before changing anything.",
+      "version": "1.0.0",
+      "category": "Infrastructure",
+      "author": { "name": "SprintEngine Studio" },
+      "homepage": "https://github.com/containers/kubernetes-mcp-server",
+      "keywords": ["kubernetes", "openshift", "cluster", "pods", "operations"]
+    },
+    {
+      "name": "snyk",
+      "source": "./snyk",
+      "description": "Scan a workspace for vulnerable dependencies, insecure code, exposed secrets and misconfigured infrastructure, with the skill that says which scan answers which question.",
+      "version": "1.0.0",
+      "category": "Security",
+      "author": { "name": "SprintEngine Studio" },
+      "homepage": "https://github.com/snyk/studio-mcp",
+      "keywords": ["security", "vulnerabilities", "sast", "sca", "secrets", "snyk"]
     }
   ]
 }

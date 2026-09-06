@@ -51,20 +51,35 @@ const FIXTURES = join(process.cwd(), 'src', 'main', 'skills', '__fixtures__')
 const MANIFEST_PATH = '.claude-plugin/marketplace.json'
 const PROTOTYPE_ID = 'skills/engineering/prototype'
 
+const STUDIO_MARKETPLACE_ROOT = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR)
+
 /**
- * What the bundled marketplace holds: the five skills of the plugin the app
- * installs into every workspace, and the twelve workflow skills it ships as
- * `studio-skills` (studio-marketplace ruling, 2026-09-06). Counted rather than
- * spelled, so adding a skill to either plugin does not fail this seam for a
- * reason that has nothing to do with what it is proving.
+ * The bundled marketplace's own listing, read from the manifest it ships.
+ *
+ * Read rather than spelled, twice over. The plugin at the front is the one the
+ * app installs into every workspace and the workflow skills follow it
+ * (studio-marketplace ruling, 2026-09-06) — but the marketplace also grows an
+ * entry every time an MCP server we ship becomes a plugin
+ * (backlog/2026-09-06-shipped-mcp-servers-are-plugins.md), and a seam that
+ * spelled the list would fail on each of those for a reason that has nothing to
+ * do with what it is proving. What it proves is that the OFFLINE listing is the
+ * manifest, in the manifest's order — so the manifest is what it compares to.
  */
-const SHIPPED_SKILL_COUNT = readdirSync(
-  join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'sprintengine-studio', 'skills'),
-  { withFileTypes: true },
-).filter((entry) => entry.isDirectory()).length
-  + readdirSync(join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'studio-skills', 'skills'), {
-    withFileTypes: true,
-  }).filter((entry) => entry.isDirectory()).length
+const SHIPPED_PLUGIN_IDS: string[] = (
+  JSON.parse(readFileSync(join(STUDIO_MARKETPLACE_ROOT, MANIFEST_PATH), 'utf8')) as {
+    plugins: { name: string }[]
+  }
+).plugins.map((plugin) => plugin.name)
+
+/** Every skill in that marketplace, across every plugin it lists. */
+const SHIPPED_SKILL_COUNT = SHIPPED_PLUGIN_IDS.reduce(
+  (total, pluginId) =>
+    total
+    + readdirSync(join(STUDIO_MARKETPLACE_ROOT, pluginId, 'skills'), { withFileTypes: true }).filter((entry) =>
+      entry.isDirectory()
+    ).length,
+  0,
+)
 const RESEARCH_ID = 'skills/engineering/research'
 
 type RecordedTree = { repo: string; commitSha: string; truncated: boolean; tree: SkillTreeEntry[] }
@@ -544,13 +559,16 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   const studio = await scanOf(STUDIO_SKILL_SOURCE_ID)
   assert.equal(studio.bundled, true, 'and it says which of the two copies this is')
   assert.equal(studio.commitSha, '', 'a seed is not a read, so it claims no commit')
-  // Both plugins, in the order the marketplace lists them: ours leads, and the
-  // workflow skills are the plugin beside it.
+  // Every plugin, in the order the marketplace lists them: ours leads, the
+  // workflow skills are the plugin beside it, and the packaged MCP servers
+  // follow both.
   assert.deepEqual(
     (studio.plugins ?? []).map((plugin) => plugin.id),
-    ['sprintengine-studio', 'studio-skills'],
+    SHIPPED_PLUGIN_IDS,
     'the offline listing is the marketplace, in its own order',
   )
+  assert.equal(SHIPPED_PLUGIN_IDS[0], 'sprintengine-studio', 'and ours is what leads it')
+  assert.equal(SHIPPED_PLUGIN_IDS[1], 'studio-skills', 'with the workflow skills beside it')
   assert.equal(studio.skills.length, SHIPPED_SKILL_COUNT)
   await openSource('SprintEngine Studio')
   assert.ok(

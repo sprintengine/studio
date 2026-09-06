@@ -1,0 +1,12 @@
+{
+  "$comment": "The env value names the variable and never holds it. BRAVE_API_KEY is read from the environment the server is launched in; a literal key here would be a secret in a file this repository publishes.",
+  "mcpServers": {
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@brave/brave-search-mcp-server", "--transport", "stdio"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    }
+  }
+}

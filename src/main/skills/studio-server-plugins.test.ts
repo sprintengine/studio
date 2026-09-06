@@ -1,0 +1,149 @@
+// The MCP servers we ship as plugins, held to the three rules the item states
+// (backlog/2026-09-06-shipped-mcp-servers-are-plugins.md).
+//
+//   1. Nothing we list lacks a skill. "A bad manual is worse than none" is the
+//      reason a server waits for its skill rather than shipping without one,
+//      and a listing that quietly grew an entry with no `skills/` would be the
+//      first way that rule stops being true.
+//   2. A `.mcp.json` names env VARIABLES, never values. This tree is published
+//      to a public repository, so a literal in an `env` or `headers` value is a
+//      leaked secret, and the `${NAME}` form is also the only spelling the
+//      scanner reads an env var name out of.
+//   3. A server's id is the id the connector catalogue already uses for the
+//      same server. The New chat door lists installed servers first and the
+//      catalogue's rest after, keyed by id — so a plugin that renamed its
+//      server would put the same product on screen twice, which is the
+//      duplicate-row problem the marketplace child had just finished fixing.
+//
+// The skills themselves are read with the app's own frontmatter parser, the
+// same way `studio-plugin-skills.test.ts` reads ours: a skill whose name does
+// not match its directory, or whose description says WHAT instead of WHEN, is
+// a skill no harness ever loads.
+
+import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { readFile, readdir } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+
+import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
+import { parseMcpServers } from './scan-plugins'
+import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID } from './studio-plugin'
+
+// Bundled into node_modules/.cache before it runs, so `__dirname` says nothing
+// about where the source lives; `npm run` sets the cwd to the package root.
+const ROOT = resolve(process.cwd(), 'resources', 'studio-plugin')
+const CATALOG = resolve(process.cwd(), 'resources', 'mcps', 'catalog.json')
+
+/** The Agent Skills specification's ceiling on a description. */
+const MAX_DESCRIPTION_LENGTH = 1024
+/** The specification's guidance on how long a body may run before it splits. */
+const MAX_BODY_LINES = 500
+
+type Entry = { name: string; source: string }
+
+/**
+ * The two plugins that are not servers. Everything else the marketplace lists
+ * is one of ours packaging somebody else's MCP server, and gets the server
+ * rules below as well as the skill rule.
+ */
+const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID])
+
+async function skillDirsOf(pluginDir: string): Promise<string[]> {
+  const entries = await readdir(join(pluginDir, 'skills'), { withFileTypes: true }).catch(() => null)
+  if (entries === null) return []
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+    .sort()
+}
+
+async function assertSkillLoadable(pluginName: string, skillsRoot: string, dirName: string): Promise<void> {
+  const path = join(skillsRoot, dirName, SKILL_ENTRY_FILE)
+  const raw = await readFile(path, 'utf8')
+  const parsed = parseSkillFrontmatter(raw)
+  const where = `${pluginName}/skills/${dirName}`
+  assert.equal(parsed.name, dirName, `${where}: "name" must equal its directory, and reads "${parsed.name}"`)
+  assert.notEqual(parsed.description, '', `${where}: a skill with no description is never loaded`)
+  assert.equal(
+    parsed.description.length <= MAX_DESCRIPTION_LENGTH,
+    true,
+    `${where}: description is ${parsed.description.length} characters, over the ${MAX_DESCRIPTION_LENGTH} limit`
+  )
+  assert.match(parsed.description, /\bUse when\b/, `${where}: the description must say WHEN to use the skill`)
+  const lines = raw.split(/\r?\n/).length
+  assert.equal(lines <= MAX_BODY_LINES, true, `${where}: ${lines} lines, over the ${MAX_BODY_LINES} limit`)
+  assert.match(raw, /^---\r?\n[\s\S]*?\r?\n---\r?\n/, `${where}: frontmatter is not a terminated --- block`)
+}
+
+async function main(): Promise<void> {
+  const manifest = JSON.parse(await readFile(join(ROOT, '.claude-plugin', 'marketplace.json'), 'utf8')) as {
+    plugins: Entry[]
+  }
+  const inTree = manifest.plugins.filter((entry) => entry.source.startsWith('./'))
+  assert.equal(inTree.length, manifest.plugins.length, 'every plugin in our own marketplace is in this tree')
+
+  // Ours leads and the workflow skills follow it; the servers come after both.
+  // Held here as well as in studio-plugin.test.ts because this is the file that
+  // adds rows to that list, and the order is what the catalogues draw.
+  assert.equal(manifest.plugins[0]?.name, STUDIO_PLUGIN_ID, 'ours leads the listing')
+  assert.equal(manifest.plugins[1]?.name, STUDIO_SKILLS_PLUGIN_ID, 'the workflow skills come second')
+
+  const catalogIds = new Set(
+    (JSON.parse(await readFile(CATALOG, 'utf8')) as { servers: { id: string }[] }).servers.map((server) => server.id)
+  )
+
+  let serverPlugins = 0
+  for (const entry of manifest.plugins) {
+    const dir = entry.source.slice(2)
+    assert.equal(dir, entry.name, `${entry.name} is listed at ./${dir}; a plugin's directory is its name`)
+    const pluginDir = join(ROOT, dir)
+    const manifestPath = join(pluginDir, '.claude-plugin', 'plugin.json')
+    assert.equal(existsSync(manifestPath), true, `${entry.name} has no plugin manifest`)
+    const plugin = JSON.parse(await readFile(manifestPath, 'utf8')) as { name?: unknown; version?: unknown }
+    assert.equal(plugin.name, entry.name, `${entry.name}'s manifest names "${String(plugin.name)}"`)
+    assert.equal(typeof plugin.version === 'string' && plugin.version !== '', true, `${entry.name} declares no version`)
+
+    // Rule 1, for every entry including our own two.
+    const skillDirs = await skillDirsOf(pluginDir)
+    assert.equal(
+      skillDirs.length > 0,
+      true,
+      `${entry.name} ships no skill; a server without one is not listed, because a bad manual is worse than none`
+    )
+    for (const dirName of skillDirs) await assertSkillLoadable(entry.name, join(pluginDir, 'skills'), dirName)
+
+    if (NOT_SERVERS.has(entry.name)) continue
+    serverPlugins += 1
+
+    // Rules 2 and 3.
+    const mcpPath = join(pluginDir, '.mcp.json')
+    assert.equal(existsSync(mcpPath), true, `${entry.name} is a server plugin with no .mcp.json`)
+    const raw = await readFile(mcpPath, 'utf8')
+    const servers = parseMcpServers(JSON.parse(raw), `${dir}/.mcp.json`, entry.name)
+    assert.equal(servers.length > 0, true, `${entry.name}'s .mcp.json declares no server the scanner can read`)
+    for (const server of servers) {
+      assert.equal(
+        server.transport === 'stdio' ? server.command !== '' : server.url !== '',
+        true,
+        `${entry.name}: ${server.id} names neither a command nor a URL`
+      )
+      assert.equal(
+        catalogIds.has(server.id),
+        true,
+        `${entry.name}: server id "${server.id}" is not a connector catalogue id, so the same server would appear as two rows`
+      )
+      for (const [name, value] of [...Object.entries(server.env), ...Object.entries(server.headers)]) {
+        assert.match(
+          value,
+          /\$\{?[A-Z][A-Z0-9_]*/,
+          `${entry.name}: ${server.id} sets ${name} to a literal; .mcp.json names env variables, never values`
+        )
+      }
+    }
+  }
+
+  assert.equal(serverPlugins > 0, true, 'the marketplace ships at least one MCP server as a plugin')
+  console.log(`studio server plugins: ok (${serverPlugins} of ${manifest.plugins.length} entries are servers)`)
+}
+
+void main()

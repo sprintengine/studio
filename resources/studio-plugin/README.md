@@ -1,7 +1,8 @@
-# The SprintEngine Studio plugin
+# The SprintEngine Studio marketplace
 
-This directory is a Claude-format **marketplace** holding one plugin, and it is
-what the app installs into every workspace it opens.
+This directory is a Claude-format **marketplace**. Its first plugin is what the
+app installs into every workspace it opens; the rest are published for people to
+install from the catalogue.
 
 ```
 resources/studio-plugin/
@@ -11,6 +12,12 @@ resources/studio-plugin/
     .mcp.json                         the stdio bridge to the running app
     hooks/hooks.json                  the agent-state reporter
     skills/studio-*/SKILL.md          one skill per area
+  studio-skills/
+    skills/*/SKILL.md                 the workflow skills the app ships
+  brave-search/ kubernetes/ snyk/
+    .claude-plugin/plugin.json        name, description, version
+    .mcp.json                         somebody else's server, and its env NAMES
+    skills/use-*/SKILL.md             the skill that teaches that server
 ```
 
 Backlog: `backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md`.
@@ -112,3 +119,45 @@ cost nothing until invoked and carry the workflow, not just the tool list.
 They deliberately do **not** restate tool schemas. `tools/list` is the listing
 surface and every parameter description is authoritative; a skill that copied
 them would be a second copy to keep in step.
+
+## The MCP servers we ship as plugins
+
+`backlog/2026-09-06-shipped-mcp-servers-are-plugins.md`, and
+`src/main/skills/studio-server-plugins.test.ts` holds this section to its word.
+
+Every server here is a plugin: `.claude-plugin/plugin.json`, a `.mcp.json`
+carrying the server's command or URL and the NAMES of the variables it reads,
+and at least one skill that says when to reach for it and how. **A server
+without a skill is not listed** — an agent that has to learn a server from its
+tool descriptions is the thing this epic exists to stop, and a manual that is
+wrong is worse than no manual at all.
+
+Three rules, and each one has already caught something:
+
+- **We do not list a server Anthropic's marketplace already carries.** The
+  Anthropic tab is its home, and the same product under two tabs is a duplicate
+  row. Measured against `anthropics/claude-plugins-official` at its head on
+  2026-09-06: it lists 291 plugins, and they cover 39 of the 58 servers in
+  `resources/mcps/catalog.json` plus three of the four signed MCP bundles.
+  **Railway is one of them** — `railwayapp/railway-skills` ships a `railway`
+  plugin whose `.mcp.json` is the same remote server and whose
+  `skills/use-railway/` is a larger version of ours, with references and
+  scripts. The item named Railway as the obvious first conversion; the rule
+  that excludes GitHub and Playwright excludes it too.
+- **A server keeps the id the connector catalogue already gave it.** The New
+  chat door lists installed servers first and the catalogue's rest after, keyed
+  by id, so a plugin that renamed its server would draw the same product twice.
+  That is why the key in `snyk/.mcp.json` is `io-snyk-mcp` and not `snyk`:
+  `src/renderer/src/utils/mcpDisplayName.ts` already turns those registry ids
+  into product names on screen.
+- **A `.mcp.json` names variables, never values.** `${BRAVE_API_KEY}` is both
+  the ecosystem's spelling (`external_plugins/context7/.mcp.json` in the
+  official repository does the same) and the only form the scanner reads an env
+  var name out of. This tree is published to a public repository.
+
+Writing a skill against the tool descriptions is how the first five skills
+acquired three claims that made real calls fail (commit `a3fc7183`). So each
+one here is written against the server's own published tool list, and that pass
+found `resources/mcps/catalog.json` launching Snyk as `npx snyk` — the
+interactive CLI, which never speaks MCP. This plugin runs
+`npx -y snyk@latest mcp -t stdio`.
