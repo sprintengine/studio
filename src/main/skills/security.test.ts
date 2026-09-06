@@ -599,8 +599,6 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
     },
     removeSource: async (id) => sources.delete(id),
     getScan: async (id) => scans.get(id) ?? null,
-    hasAdoptedLegacyPacks: async () => true,
-    markLegacyPacksAdopted: async () => undefined,
   }
 
   const service = createSkillsService(
@@ -682,8 +680,6 @@ async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
     },
     removeSource: async (id) => sources.delete(id),
     getScan: async (id) => scans.get(id) ?? null,
-    hasAdoptedLegacyPacks: async () => true,
-    markLegacyPacksAdopted: async () => undefined,
   }
   const service = createSkillsService(
     await mkdtemp(join(tmpdir(), 'multicode-sec-nodesc-')),

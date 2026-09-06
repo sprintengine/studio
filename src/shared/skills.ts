@@ -12,8 +12,11 @@
 
 // `builtin` is gone: the app's own catalogue used to be a folder on disk, and
 // since the studio-marketplace ruling (2026-09-06) it is the repository we
-// publish, read like any other (STUDIO_SKILL_SOURCE_ID below).
-export type SkillSourceKind = 'connectors' | 'github' | 'local'
+// publish, read like any other (STUDIO_SKILL_SOURCE_ID below). `connectors`
+// went the same way in the frozen-snapshots retirement (2026-09-06): it was a
+// folder scan of a snapshot of `anthropics/claude-plugins-official`, which is
+// now an always-present source read live.
+export type SkillSourceKind = 'github' | 'local'
 
 /**
  * An agent CLI that reads workspace skills. Which directory each one reads is
@@ -696,8 +699,6 @@ export const SKILL_REPO_ROOT_GROUP = '(repo root)'
  */
 export const SKILL_UNLISTED_GROUP = 'Everything else'
 
-export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
-
 // Our own marketplace, an always-present source since the studio-marketplace
 // ruling (2026-09-06). It was two backends behind one tab — a folder scan under
 // Skills, the signed registry under Plugins — and it is now the repository we
@@ -728,11 +729,7 @@ export const OFFICIAL_PLUGINS_SKILL_SOURCE_NAME = 'Anthropic'
  * reports a failure the person could not have avoided.
  */
 export function isBundledSkillSource(id: string): boolean {
-  return (
-    id === STUDIO_SKILL_SOURCE_ID
-    || id === CONNECTORS_SKILL_SOURCE_ID
-    || id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID
-  )
+  return id === STUDIO_SKILL_SOURCE_ID || id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID
 }
 
 /** Every local source's id is this prefix plus its absolute path. */

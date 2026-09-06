@@ -51,7 +51,6 @@ const APP = source({
   repo: 'sprintengine/studio-releases',
   monogram: 'SS',
 })
-const CONNECTORS = source({ id: 'connectors', kind: 'connectors', name: 'Connectors' })
 const ACME = source({ id: 'github:acme/skills', repo: 'acme/skills' })
 const FOLDER = source({ id: 'local:/Users/me/work/skills', kind: 'local', name: 'skills', path: '/Users/me/work/skills' })
 const ANTHROPIC = source({
@@ -66,13 +65,13 @@ run('Installed leads, then the app’s own catalogue, then the rest in the order
     kind: 'plugins',
     // Deliberately handed in with the app's catalogue LAST: the tab order is
     // the ruling's, not the store's.
-    sources: [ACME, CONNECTORS, APP],
+    sources: [ACME, FOLDER, APP],
     installedCount: 3,
     counts: {},
   })
   assert.deepEqual(
     tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, 'github:acme/skills', 'connectors'],
+    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, 'github:acme/skills', 'local:/Users/me/work/skills'],
   )
   assert.equal(tabs[0].label, 'Installed')
   assert.equal(tabs[0].count, 3)
@@ -153,7 +152,6 @@ run('a source is named by what it is: the product, a repository, a folder', () =
   )
   assert.equal(catalogueTabLabel(ACME), 'acme/skills', 'not "skills" — three repos called skills is unnavigable')
   assert.equal(catalogueTabLabel(FOLDER), 'skills', 'a folder has no repository to name it by')
-  assert.equal(catalogueTabLabel(CONNECTORS), 'Connectors')
 })
 
 run('a source with none of this kind still gets a tab', () => {

@@ -21,15 +21,24 @@ the same relative paths.
 
 Two populations ship a committed `plugins/<id>/` bundle.
 
-**Signed MCP seeds.** Each wraps one MCP server already present in
-`resources/mcps/catalog.json`. The plugin manifests are signed with ed25519
-detached signatures over the normalized `plugin.json`, including per-component
-file digests. The private signing key is not stored in this repository.
+**Signed MCP seeds.** Each wraps one MCP server. The plugin manifests are signed
+with ed25519 detached signatures over the normalized `plugin.json`, including
+per-component file digests. The private signing key is not stored in this
+repository.
 
 - `browser-automation-mcp` wraps the `playwright` MCP server.
 - `repository-workflows-mcp` wraps the `github` MCP server.
 - `current-docs-mcp` wraps the `context7` MCP server.
 - `api-reference-mcp` wraps the `openai-docs` MCP server.
+
+Only the last of those four is still a `resources/mcps/catalog.json` row. The
+frozen-snapshots retirement (2026-09-06) cut that catalogue to the 16 servers no
+plugin carries, and Playwright, GitHub and Context7 are all plugins in
+`anthropics/claude-plugins-official`. The three signed bundles that wrap them are
+therefore a second route to a server the Anthropic tab already offers — recorded
+here rather than removed, because this item's brief is the registry's data and
+these are signed entries, and unpicking a signed bundle is its own change. See
+backlog/2026-09-06-the-frozen-snapshots-retire.md, "What this item leaves".
 
 These use `publisher.verified: true` for `Multicode Labs`. First-party
 verification is represented by the publisher fingerprint in
@@ -46,10 +55,11 @@ Their marks are committed at `icons/<id>.svg` for review and inlined into
 `marketplace.json` as `data:` URIs so they render without resolving against the
 remote registry.
 
-Unlike everything else in `marketplace.json` these entries are hand-authored,
-not projected from the catalogue snapshot;
-`scripts/generate-connector-catalogue.mjs` carries them through a regenerate and
-logs that it did.
+Every entry in `marketplace.json` is now hand-authored. The generator that used
+to project most of it from `@hotstack/catalogue-snapshot`
+(`scripts/generate-connector-catalogue.mjs`) went with the 256 snapshotted
+plugin entries it produced; `npm run sync:catalogue` refreshes this seed from
+`sprintengine/studio-releases`, which is where the entries are edited.
 
 ## Source policy and widened schema
 

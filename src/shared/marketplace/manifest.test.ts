@@ -239,9 +239,11 @@ function testBundleEntryWithoutSignatureValidates(): void {
 }
 
 function testGeneratedClaudePluginShapedEntryValidates(): void {
-  // The shape scripts/generate-connector-catalogue.mjs emits for a
-  // claude-plugins-official entry: unsigned, source-bearing, skills-providing,
-  // data-URI icon, categories + tags arrays, latest pinned to 1.
+  // The shape a claude-plugins-official entry took in the frozen registry:
+  // unsigned, source-bearing, skills-providing, data-URI icon, categories +
+  // tags arrays, latest pinned to 1. No entry like this ships any more — the
+  // retirement (2026-09-06) removed all 256 — but the schema still has to
+  // accept one, because the format is what a signed skill bundle would use.
   const generated = {
     id: 'anthropic-github',
     name: 'github',

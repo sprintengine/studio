@@ -57,11 +57,54 @@ function testSampleRegistryPasses(): void {
   const root = copySeedRegistry('valid-registry')
   const result = runVerifier(root)
   assert.equal(result.status, 0, result.stderr)
-  // The seed is generated from the HotStack catalogue snapshot: the 4 signed
-  // Multicode Labs bundles plus the unsigned plugin/inline-MCP population.
   const seed = JSON.parse(readFileSync(join(seedRoot, 'marketplace.json'), 'utf8')) as { plugins: unknown[] }
   assert.ok(seed.plugins.length >= 4, 'seed registry must carry at least the signed bundles')
   assert.match(result.stdout, new RegExp(`marketplace registry verified \\(${seed.plugins.length} plugins\\)`))
+}
+
+/**
+ * The registry keeps only what a Claude marketplace cannot carry.
+ *
+ * Until the frozen-snapshots retirement (2026-09-06) this index also held 256
+ * `claude-plugin` entries — a months-old copy of
+ * `anthropics/claude-plugins-official`, which the app now reads live at the
+ * commits that marketplace pins. What is left is the three kinds a GitHub
+ * marketplace genuinely cannot deliver, because `component-trust.ts` refuses
+ * code-bearing components from any GitHub source unless they are signed: the
+ * agent CLIs, the automation starters, and the signed first-party bundles.
+ *
+ * Pinned as an exact multiset rather than a floor, because the failure this
+ * guards against is the index GROWING a population that belongs in a
+ * marketplace — a snapshot creeping back in one publish at a time, each one
+ * individually defensible.
+ */
+function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
+  const seed = JSON.parse(readFileSync(join(seedRoot, 'marketplace.json'), 'utf8')) as {
+    plugins: Array<{ id: string; provides?: unknown }>
+  }
+  const kinds = new Map<string, number>()
+  for (const plugin of seed.plugins) {
+    const provided = Array.isArray(plugin.provides) ? plugin.provides : []
+    const names = provided
+      .map((entry) => (entry && typeof entry === 'object' ? (entry as { type?: unknown }).type : entry))
+      .map((type) => String(type))
+      .sort()
+      .join('+')
+    assert.ok(
+      ['automation', 'cli', 'mcp'].includes(names),
+      `${plugin.id} provides "${names}"; the signed registry carries agent CLIs, automation starters and signed modules — anything a Claude marketplace can list belongs in one`
+    )
+    kinds.set(names, (kinds.get(names) ?? 0) + 1)
+  }
+  assert.deepEqual(
+    [...kinds.entries()].sort(),
+    [
+      ['automation', 5],
+      ['cli', 13],
+      ['mcp', 4],
+    ],
+    'the registry is 13 agent CLIs, 5 automation starters and 4 signed modules'
+  )
 }
 
 function testUnsignedEntriesNeedNoLocalManifest(): void {
@@ -430,6 +473,7 @@ function testPublishScriptsTargetRegistryRoot(): void {
 
 try {
   testSampleRegistryPasses()
+  testRegistryHoldsOnlyWhatAMarketplaceCannotCarry()
   testUnsignedEntriesNeedNoLocalManifest()
   testInlineCliVerifiedClaimIsBoundToTrustedPublisherNames()
   testInlineCliMustReferenceABundledPluginInTheAppRepoLayout()

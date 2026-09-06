@@ -9,11 +9,14 @@
 //      to a public repository, so a literal in an `env` or `headers` value is a
 //      leaked secret, and the `${NAME}` form is also the only spelling the
 //      scanner reads an env var name out of.
-//   3. A server's id is the id the connector catalogue already uses for the
-//      same server. The New chat door lists installed servers first and the
-//      catalogue's rest after, keyed by id — so a plugin that renamed its
-//      server would put the same product on screen twice, which is the
-//      duplicate-row problem the marketplace child had just finished fixing.
+//   3. A server's id is the id the connector catalogue used for the same
+//      server, and the catalogue no longer carries a row for it. The New chat
+//      door lists installed servers first and the catalogue's rest after, keyed
+//      by id — so a plugin that renamed its server would put the same product on
+//      screen twice. Since the frozen-snapshots retirement (2026-09-06) the
+//      catalogue keeps only servers no plugin carries, so the id is pinned here
+//      instead of read out of a row that is gone: the merge still has to work
+//      for a server installed under that id before the row left.
 //
 // The skills themselves are read with the app's own frontmatter parser, the
 // same way `studio-plugin-skills.test.ts` reads ours: a skill whose name does
@@ -33,6 +36,19 @@ import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID } from './studio-plugin'
 // about where the source lives; `npm run` sets the cwd to the package root.
 const ROOT = resolve(process.cwd(), 'resources', 'studio-plugin')
 const CATALOG = resolve(process.cwd(), 'resources', 'mcps', 'catalog.json')
+
+/**
+ * The connector-catalogue id each shipped server plugin took over, pinned now
+ * that the catalogue's own row for it is retired (frozen-snapshots retirement,
+ * 2026-09-06). Renaming one of these is the duplicate-row bug rule 3 exists to
+ * catch; leaving one in the catalogue as well is the two-routes bug the
+ * retirement exists to catch, and both are asserted below.
+ */
+const CONVERTED_CATALOG_IDS = new Set([
+  'brave-search',
+  'io-github-containers-kubernetes-mcp-server',
+  'io-snyk-mcp',
+])
 
 /** The Agent Skills specification's ceiling on a description. */
 const MAX_DESCRIPTION_LENGTH = 1024
@@ -128,9 +144,14 @@ async function main(): Promise<void> {
         `${entry.name}: ${server.id} names neither a command nor a URL`
       )
       assert.equal(
-        catalogIds.has(server.id),
+        CONVERTED_CATALOG_IDS.has(server.id),
         true,
-        `${entry.name}: server id "${server.id}" is not a connector catalogue id, so the same server would appear as two rows`
+        `${entry.name}: server id "${server.id}" is not the connector catalogue id this server had, so an install made under the old id would appear as a second row`
+      )
+      assert.equal(
+        catalogIds.has(server.id),
+        false,
+        `${entry.name}: "${server.id}" is still a connector catalogue row as well as a plugin, which is two routes to one server`
       )
       for (const [name, value] of [...Object.entries(server.env), ...Object.entries(server.headers)]) {
         assert.match(

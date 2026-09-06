@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     const listed = await reopened.listSources()
     assert.deepEqual(
       listed.map((source) => source.id),
-      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors', FOLDER.id],
+      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, FOLDER.id],
       'the folder is in the list beside the ones the app always has',
     )
     const found = await reopened.getSource(FOLDER.id)
@@ -141,7 +141,6 @@ async function main(): Promise<void> {
           'future:thing': scanOf('nope'),
           'github:gone/away': scanOf('gone'),
         },
-        adoptedLegacyPacks: false,
       }),
     )
     assert.deepEqual(state.sources.map((source) => source.id), [FOLDER.id])
@@ -150,7 +149,7 @@ async function main(): Promise<void> {
 
   await run('a folder with no path is not a folder source', async () => {
     const state = parseSkillSourceState(
-      JSON.stringify({ sources: [{ ...FOLDER, path: '' }], scans: {}, adoptedLegacyPacks: false }),
+      JSON.stringify({ sources: [{ ...FOLDER, path: '' }], scans: {} }),
     )
     assert.deepEqual(state.sources, [], 'a path is the only identity it has')
   })
@@ -187,7 +186,7 @@ async function main(): Promise<void> {
     const listed = await reopened.listSources()
     assert.deepEqual(
       listed.map((source) => source.id),
-      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'connectors'],
+      [STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID],
       'it is listed once, not once as itself and once as the copy its scan wrote',
     )
     const reread = await reopened.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
@@ -223,7 +222,6 @@ async function main(): Promise<void> {
           { id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'local', name: 'x', path: '/tmp/x' },
         ],
         scans: {},
-        adoptedLegacyPacks: false,
       }),
     )
     assert.deepEqual(wrongKind.sources, [], 'a kind that is not the always-present source’s is not that source')
@@ -236,7 +234,6 @@ async function main(): Promise<void> {
         // missing altogether.
         sources: [{ id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'github', name: 'x', repo: 'anthropics/claude-plugins-official' }],
         scans: {},
-        adoptedLegacyPacks: false,
       }),
     )
     const store = createSkillSourceStore(dir)
@@ -247,19 +244,22 @@ async function main(): Promise<void> {
     assert.equal(sourceHasUpdate(read as SkillSource), false)
   })
 
-  await run('a bundled source that ships with the app persists nothing', async () => {
-    // The opposite case: no commit, no network, re-read from disk each launch,
-    // so a stored copy could only be a stale name waiting to overrule this
-    // build's.
+  await run('the retired Connectors source cannot come back from a stored profile', async () => {
+    // The frozen-snapshots retirement (2026-09-06) removed the `connectors`
+    // source and its kind. A profile written by an older build still holds the
+    // record, and reading it back would put a tab on screen backed by a scan
+    // root this build no longer resolves — `isPersistableSource` accepts only
+    // `github` and `local`, which is what makes "a profile that held Connectors
+    // simply stops listing it" true rather than merely intended.
     const state = parseSkillSourceState(
       JSON.stringify({
-        sources: [{ id: 'connectors', kind: 'github', name: 'Old name', repo: '' }],
+        sources: [{ id: 'connectors', kind: 'connectors', name: 'Connectors', repo: '' }],
         scans: { connectors: scanOf('stale') },
-        adoptedLegacyPacks: false,
+        adoptedLegacyPacks: true,
       }),
     )
     assert.deepEqual(state.sources, [])
-    assert.deepEqual(Object.keys(state.scans), [])
+    assert.deepEqual(Object.keys(state.scans), [], 'and its cached scan goes with it')
   })
 
   await run('our own marketplace is a repository, first in the row, and not removable', async () => {
@@ -296,7 +296,6 @@ async function main(): Promise<void> {
       JSON.stringify({
         sources: [{ id: STUDIO_SKILL_SOURCE_ID, kind: 'github', name: 'x', repo: STUDIO_SKILL_SOURCE_REPO }],
         scans: { [STUDIO_SKILL_SOURCE_ID]: { ...scanOf('seeded'), bundled: true } },
-        adoptedLegacyPacks: false,
       }),
     )
     assert.equal('bundled' in state.scans[STUDIO_SKILL_SOURCE_ID], false)

@@ -75,9 +75,15 @@ export type MarketplaceInlineCli = {
   pluginId: string
 }
 
-// Digest of one file inside a bundled skill payload (captured at
-// catalogue-snapshot build time; bytes ship under resources/marketplace/
-// skills/<entryId>/<skill folder>/).
+// Digest of one file inside a bundled skill payload; the bytes ship under
+// resources/marketplace/skills/<entryId>/<skill folder>/.
+//
+// Nothing in the registry carries one today: the frozen-snapshots retirement
+// (2026-09-06) removed the 256 snapshotted `claude-plugin` entries and their
+// 1,786 SKILL.md, because `anthropics/claude-plugins-official` is now an
+// always-present source read live. The shape stays because it is the FORMAT a
+// signed skill bundle would use, and a Claude marketplace cannot carry a signed
+// bundle; the entry type is what the registry may hold, not what it holds.
 export type MarketplacePluginSkillFile = {
   // Posix path relative to the skill folder, e.g. `SKILL.md`.
   path: string
@@ -87,9 +93,9 @@ export type MarketplacePluginSkillFile = {
   size: number
 }
 
-// One Agent Skill a plugin bundles, enumerated from its source repo at
-// catalogue-snapshot build time. `files` + `contentDigest` are present when
-// the snapshot shipped the skill folder's content — the install verifies the
+// One Agent Skill a plugin bundles, enumerated from its source repo when the
+// entry was published. `files` + `contentDigest` are present when the entry
+// shipped the skill folder's content — the install verifies the
 // bundled bytes against them; without them the skill is display metadata only
 // and cannot be installed offline.
 export type MarketplacePluginSkill = {
@@ -100,7 +106,8 @@ export type MarketplacePluginSkill = {
   // Complete per-file digests of the bundled payload (always with contentDigest).
   files?: MarketplacePluginSkillFile[]
   // Folder digest: sha256 over the sorted `<path>\0<sha256>` lines of `files`,
-  // joined with `\n` (the catalogue-snapshot skillContentDigest formula).
+  // joined with `\n` (the `skillContentDigest` formula in
+  // src/main/marketplace/skill-content.ts).
   contentDigest?: string
 }
 

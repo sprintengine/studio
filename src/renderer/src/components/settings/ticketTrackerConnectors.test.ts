@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { McpCatalogServer } from '../../../../shared/electron-api'
@@ -41,3 +43,26 @@ test('installing one moves only that entry between bands', () => {
   assert.deepEqual(after.installed.map((e) => e.id), ['linear'])
 })
 
+// The shipped catalogue, not a fixture: this pane reads it and nothing else, so
+// what it holds decides what a person sees here.
+//
+// It holds no tracker at all since the frozen-snapshots retirement
+// (2026-09-06). Jira/Confluence, Linear, GitHub and GitLab are all plugins in
+// `anthropics/claude-plugins-official`, and the rule that keeps a server out of
+// the catalogue once a plugin carries it took their four rows with it. So this
+// pane renders its empty state every time, and that empty state has to be the
+// signpost to the Plugins catalogue rather than "none in the connector catalog"
+// — which would be a dead end in front of a capability that still exists.
+//
+// The day a tracker with no plugin is added, this fails. That is the intent:
+// whoever adds it should check that the pane's two bands still read correctly,
+// because the signpost stops being what anybody sees.
+test('the shipped catalogue holds no ticket tracker, so this pane is always its empty state', () => {
+  const catalog = JSON.parse(
+    readFileSync(join(process.cwd(), 'resources', 'mcps', 'catalog.json'), 'utf8'),
+  ) as { servers: McpCatalogServer[] }
+  const trackers = catalog.servers.filter(isTicketTracker)
+  assert.deepEqual(trackers.map((entry) => entry.id), [])
+  const bands = partitionTicketTrackers(catalog.servers, new Set())
+  assert.equal(bands.installed.length + bands.available.length, 0)
+})

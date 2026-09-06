@@ -168,13 +168,10 @@ export type SkillGroupTab = { name: string; label: string; count: number }
 
 /**
  * What a source page renders. `layout` names the shape `sourceLayout()` chose,
- * so a view is never confused for a different one; `connectors` and `empty` are
- * the two cases decided before the layout rule runs.
+ * so a view is never confused for a different one; `empty` is the case decided
+ * before the layout rule runs.
  */
 export type SkillSourceView =
-  // The connector skills ship paired with the MCP server they belong to, and
-  // are browsed there. Listing all 194 here would strip that pairing away.
-  | { kind: 'connectors'; count: number }
   | { kind: 'empty' }
   | { kind: 'solo'; skill: SkillListItem }
   | { kind: 'flat'; items: SkillListItem[] }
@@ -201,8 +198,7 @@ export type SkillSourceViewInput = {
 }
 
 export function deriveSourceView(input: SkillSourceViewInput): SkillSourceView {
-  const { source, scan } = input
-  if (source.kind === 'connectors') return { kind: 'connectors', count: scan.skills.length }
+  const { scan } = input
 
   const layout: SkillSourceLayout = sourceLayout(scan)
   const items = scan.skills.map((skill) => toListItem(skill, input.installedDirNames))

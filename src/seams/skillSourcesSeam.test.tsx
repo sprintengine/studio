@@ -318,8 +318,6 @@ async function main(): Promise<void> {
     // the offline case: the source falls back to the marketplace seed this
     // build ships, and everything below reads and installs from that.
     studioMarketplaceSeedRoot: () => join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR),
-    connectorSkillsRoot: () => null,
-    listWorkspaceRoots: () => [],
     github: { fetcher: (url) => fixtureFetch(url) },
   })
 

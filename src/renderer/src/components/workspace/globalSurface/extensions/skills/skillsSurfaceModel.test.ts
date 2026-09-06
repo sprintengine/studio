@@ -307,19 +307,6 @@ run('an ungrouped source past the browsing threshold is search-first too', () =>
   assert.equal(view.kind === 'search' && view.prompt, 'Search these 30 skills.')
 })
 
-run('the connector skills deflect to their MCP servers instead of listing 194 rows', () => {
-  const skills = Array.from({ length: 194 }, (_, index) => skill(`skills/connector-${index}`))
-  const view = deriveSourceView({
-    source: source({ id: 'connectors', kind: 'connectors', repo: '', name: 'Connectors' }),
-    scan: scanOf(skills),
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind, 'connectors')
-  assert.equal(view.kind === 'connectors' && view.count, 194)
-})
-
 run('a source that scanned no skills says so rather than rendering a list', () => {
   const view = deriveSourceView({
     source: source(),
@@ -404,12 +391,9 @@ run('a source header states only facts the scan produced', () => {
   assert.deepEqual(meta, ['2 skills', '2 files', 'b81f77a'])
   // Before the scan lands, no counts are claimed.
   assert.deepEqual(describeSourceMeta(source(), { status: 'loading' }), ['b81f77a'])
-  assert.deepEqual(
-    describeSourceMeta(source({ id: 'connectors', kind: 'connectors', repo: '', commitSha: '' }), {
-      status: 'loading',
-    }),
-    [],
-  )
+  // A source that has never been read states nothing at all, rather than a
+  // zero it did not measure or a commit nobody resolved.
+  assert.deepEqual(describeSourceMeta(source({ commitSha: '' }), { status: 'loading' }), [])
 })
 
 run('a listing that came out of the build says so; one read from the repository does not', () => {

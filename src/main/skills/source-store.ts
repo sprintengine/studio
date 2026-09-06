@@ -10,7 +10,6 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
-  CONNECTORS_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
   OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
   OFFICIAL_PLUGINS_SKILL_SOURCE_REPO,
@@ -63,16 +62,6 @@ export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
     commitSha: '',
     scannedAt: '',
   },
-  {
-    id: CONNECTORS_SKILL_SOURCE_ID,
-    kind: 'connectors',
-    name: 'Connectors',
-    repo: '',
-    monogram: 'CO',
-    blurb: 'Skills published by the tools you connect to.',
-    commitSha: '',
-    scannedAt: '',
-  },
 ]
 
 export function isRemovableSkillSource(id: string): boolean {
@@ -86,10 +75,10 @@ export function isRemovableSkillSource(id: string): boolean {
  * a store that dropped them would refetch 292 plugins on every launch and could
  * never say an update was available.
  *
- * The bundled-with-the-app source (Connectors) is the opposite: no commit, no
- * network, re-read from disk each launch, so nothing about it is worth
- * persisting and a stored copy would only be a stale name waiting to overrule
- * this build's.
+ * Both always-present sources are repositories since the frozen-snapshots
+ * retirement (2026-09-06), so this is now a `kind` check with nothing else to
+ * exclude — the bundled Connectors source, which had no commit and no network
+ * and was re-read from disk each launch, is gone.
  */
 function isCachedAlwaysPresentSource(stored: SkillSource): boolean {
   return ALWAYS_PRESENT_SKILL_SOURCES.some(
@@ -128,8 +117,6 @@ function withPersistedScanState(always: SkillSource, stored: SkillSource | undef
 type PersistedState = {
   sources: SkillSource[]
   scans: Record<string, ScanResult>
-  /** True once the retired skill packs have been offered adoption — see adopt-legacy-packs.ts. */
-  adoptedLegacyPacks: boolean
 }
 
 export type SkillSourceStore = {
@@ -139,8 +126,6 @@ export type SkillSourceStore = {
   putSource(source: SkillSource, scan: ScanResult | null): Promise<void>
   removeSource(id: string): Promise<boolean>
   getScan(id: string): Promise<ScanResult | null>
-  hasAdoptedLegacyPacks(): Promise<boolean>
-  markLegacyPacksAdopted(): Promise<void>
 }
 
 export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
@@ -214,16 +199,6 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
       const state = await read()
       return state.scans[id] ?? null
     },
-    async hasAdoptedLegacyPacks() {
-      return (await read()).adoptedLegacyPacks
-    },
-    async markLegacyPacksAdopted() {
-      await update((state) => {
-        if (state.adoptedLegacyPacks) return false
-        state.adoptedLegacyPacks = true
-        return true
-      })
-    },
   }
 }
 
@@ -240,7 +215,7 @@ export function parseSkillSourceState(raw: string): PersistedState {
     return emptyState()
   }
   if (!parsed || typeof parsed !== 'object') return emptyState()
-  const record = parsed as { sources?: unknown; scans?: unknown; adoptedLegacyPacks?: unknown }
+  const record = parsed as { sources?: unknown; scans?: unknown }
   const sources = Array.isArray(record.sources)
     ? record.sources
         .filter(isPersistableSource)
@@ -264,11 +239,11 @@ export function parseSkillSourceState(raw: string): PersistedState {
       scans[id] = cached
     }
   }
-  return { sources, scans, adoptedLegacyPacks: record.adoptedLegacyPacks === true }
+  return { sources, scans }
 }
 
 function emptyState(): PersistedState {
-  return { sources: [], scans: {}, adoptedLegacyPacks: false }
+  return { sources: [], scans: {} }
 }
 
 /**

@@ -15,7 +15,10 @@ type McpNameSource = {
 }
 
 // Bundled ids whose catalog `name` is a raw package basename rather than a
-// product name. Keyed by the catalog id (stable per catalog-overlay.json).
+// product name. Keyed by the catalog id in resources/mcps/catalog.json. Ids the
+// catalogue no longer carries are kept: a server installed before the
+// frozen-snapshots retirement (2026-09-06) trimmed the catalogue still wears
+// its id in settings, and its row still has to be named.
 const MCP_DISPLAY_NAME_OVERRIDES: Record<string, string> = {
   'ai-exa-exa': 'Exa',
   'ai-perplexity-mcp-server': 'Perplexity',

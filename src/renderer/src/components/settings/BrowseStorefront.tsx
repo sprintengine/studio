@@ -319,7 +319,7 @@ export function PluginDetailPanel({
 const SKILLS_COLLAPSE_LIMIT = 6
 
 // The bundled skills a plugin carries: names + one-line descriptions
-// enumerated from the plugin's source repo at catalogue-snapshot build time
+// enumerated from the plugin's source repo when the entry was published
 // (display metadata, not install state — installing them is the plugin
 // install's job). Rendered only when the entry actually carries skills; a
 // plugin with none simply has no section, never a placeholder.

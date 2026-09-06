@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
-import { GhostButton, InlineNotice, OverflowMenu } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, OverflowMenu } from '../ui'
 import type { OverflowMenuItem } from '../ui'
 import { McpBrandIcon, mcpIconSlug } from './McpCatalog'
 import {
@@ -9,6 +9,7 @@ import {
 } from '../panels/ConnectorsPanel/ConnectorRow'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useConnectorSources } from '../panels/ConnectorsPanel/useConnectorSources'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 import { partitionTicketTrackers, type TicketTrackerEntry } from './ticketTrackerConnectors'
 
 // Settings → Ticket trackers (MC-2362, narrowed by MC-2363).
@@ -30,6 +31,7 @@ import { partitionTicketTrackers, type TicketTrackerEntry } from './ticketTracke
 export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string | null }): JSX.Element {
   const sources = useConnectorSources(workspaceRoot)
   const { catalogLoad, installedServerIds, toggleCatalogServer, loadCatalog } = sources
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const servers = catalogLoad.status === 'ready' ? catalogLoad.data : []
@@ -151,13 +153,32 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
     )
   }
 
+  // Empty since the frozen-snapshots retirement (2026-09-06): all four trackers
+  // this pane listed — Jira/Confluence, Linear, GitHub and GitLab — are plugins
+  // in `anthropics/claude-plugins-official`, so their connector-catalogue rows
+  // went, because nobody should be offered two routes to one server. The
+  // capability did not go with them; the route did, and saying "none in the
+  // catalog" would be a dead end where the answer is one click away. Reading
+  // installed plugin servers back into these bands is the fuller fix and is
+  // recorded in backlog/2026-09-06-the-frozen-snapshots-retire.md.
   if (total === 0) {
     return (
       <section className="space-y-3">
         <ConnectorSectionHeading label="Ticket trackers" />
-        <p className="rounded-md border border-dashed border-[color:var(--border-subtle)] px-4 py-6 text-body text-[color:var(--text-subtle)]">
-          No ticket trackers in the connector catalog.
-        </p>
+        <EmptyState
+          density="list"
+          title="Ticket trackers are plugins now."
+          body="Jira, Linear, GitHub and GitLab each ship as a plugin with the skills that drive it. Install one from the Anthropic tab and its MCP server is written for this workspace’s agents."
+          action={
+            <GhostButton
+              size="md"
+              onClick={() => openExtensionsSurface({ view: 'plugins' })}
+              className="h-control-md"
+            >
+              Browse plugins
+            </GhostButton>
+          }
+        />
       </section>
     )
   }

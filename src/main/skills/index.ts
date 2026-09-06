@@ -10,7 +10,6 @@ import { readFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 
 import {
-  CONNECTORS_SKILL_SOURCE_ID,
   describeUnreadPlugin,
   LOCAL_SKILL_SOURCE_ID_PREFIX,
   localSourceFolderName,
@@ -63,9 +62,7 @@ import {
   parseMarketplaceExtraHosts,
 } from '../../shared/marketplace/source-policy'
 import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
-import { findMarketplaceResourcePath } from '../marketplace/resources'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
-import { adoptLegacySkillPackSources } from './adopt-legacy-packs'
 import { createSkillDiscoveryClient, type SkillDiscoveryOptions } from './discover'
 import {
   fetchSkillRepoFile,
@@ -110,10 +107,7 @@ export type SkillsServiceDeps = {
    * production reads the packaged resource dir.
    */
   studioMarketplaceSeedRoot?: () => string | null
-  connectorSkillsRoot?: () => string | null
   listHarnesses?: () => Promise<SkillHarness[]>
-  /** Open project roots, used once to adopt the retired skill packs as sources. */
-  listWorkspaceRoots?: () => string[]
   github?: SkillGithubOptions
   discovery?: SkillDiscoveryOptions
   /** CLI ids the MCP servers a plugin ships are written for; defaults to the normaliser's own. */
@@ -149,9 +143,7 @@ export function createSkillsService(
   store: SkillSourceStore = createSkillSourceStore(userDataDir)
 ): SkillsService {
   const studioSeedRoot = deps.studioMarketplaceSeedRoot ?? defaultStudioMarketplaceSeedRoot
-  const connectorRoot = deps.connectorSkillsRoot ?? (() => findMarketplaceResourcePath('skills'))
   const listHarnesses = deps.listHarnesses ?? (() => resolveInstalledSkillHarnesses())
-  const localScans = new Map<string, ScanResult>()
   /** The bundled marketplace seed, read at most once: undefined until asked. */
   let studioSeed: ScanResult | null | undefined
   const discovery = createSkillDiscoveryClient(deps.discovery)
@@ -164,11 +156,7 @@ export function createSkillsService(
   })
 
   const localRootFor = (id: string): string | null =>
-    id === CONNECTORS_SKILL_SOURCE_ID
-      ? connectorRoot()
-      : id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX)
-        ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length)
-        : null
+    id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX) ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length) : null
 
   /**
    * The scan a source is currently listed from.
@@ -181,16 +169,6 @@ export function createSkillsService(
    * would stop going to the repository the moment one was produced.
    */
   async function scanFor(sourceId: string, options: { seed?: boolean } = {}): Promise<ScanResult | null> {
-    if (sourceId === CONNECTORS_SKILL_SOURCE_ID) {
-      const cached = localScans.get(sourceId)
-      if (cached) return cached
-      const root = localRootFor(sourceId)
-      if (!root || !existsSync(root)) return null
-      // Bundled, so uncapped: see scanLocalSkillSource.
-      const scanned = await scanLocalSkillSource(root, { maxEntries: Number.POSITIVE_INFINITY })
-      localScans.set(sourceId, scanned)
-      return scanned
-    }
     const cached = await store.getScan(sourceId)
     if (cached) return cached
     if (sourceId === STUDIO_SKILL_SOURCE_ID && options.seed !== false) return studioMarketplaceSeed()
@@ -230,16 +208,7 @@ export function createSkillsService(
   }
 
   return {
-    /**
-     * The source list, and the one place the retired skill packs are adopted:
-     * this is the first call the surface makes, and adoption has to have run
-     * before the list it returns is rendered.
-     */
     async listSources() {
-      await adoptLegacySkillPackSources({
-        store,
-        workspaceRoots: deps.listWorkspaceRoots?.() ?? [],
-      }).catch(() => [])
       return { ok: true, sources: await store.listSources() }
     },
 
@@ -330,11 +299,9 @@ export function createSkillsService(
      * A source's skills, from its cached scan.
      *
      * A repository source with no cached scan is read now rather than reported
-     * as unreadable: that is the state an adopted legacy pack starts in
-     * (adopt-legacy-packs.ts records the repository without claiming to know
-     * what it holds), and "open it and it lists" is what the user expects of a
-     * source in their list. A read that fails says why, and Try again retries
-     * the read itself.
+     * as unreadable: that is the state a source added while offline is left in,
+     * and "open it and it lists" is what the user expects of a source in their
+     * list. A read that fails says why, and Try again retries the read itself.
      */
     async getScan(input) {
       const source = await store.getSource(input.sourceId ?? '')

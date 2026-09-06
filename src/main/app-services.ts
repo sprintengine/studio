@@ -697,11 +697,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         if (!win.isDestroyed()) win.webContents.send(SKILL_SOURCES_UPDATED_CHANNEL, check)
       }
     },
-    listWorkspaceRoots: () =>
-      workspaceSyncService
-        .getSnapshot()
-        .state.workspaces.map((workspace) => workspace.folderPath)
-        .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
   })
   // The `tailnet.*` tools configure the service that (transitively) owns them,
   // so the tool set cannot capture it at construction. Assigned immediately
