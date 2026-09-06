@@ -54,6 +54,9 @@ import {
   type TabDragPayload,
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useRemoteSessions } from './remoteBand/useRemoteSessions'
+import { buildRemoteBand, openSpecOf, type RemoteSessionOpenSpec, type RemoteSessionRow } from './remoteBand/remoteSessionsModel'
+import { MACHINE_PHASE_DOT, machinePhaseText, shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
 import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
@@ -107,6 +110,11 @@ type WorkspaceSidebarProps = {
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   onSelectWorkspace: (id: WorkspaceId) => void
+  // Open a session that lives on a paired machine (the Remote band): focus
+  // the workspace here that already is it, or attach a new one. Absent in a
+  // host with no fleet (partial harnesses); the band then draws its rows
+  // and opens nothing.
+  onOpenRemoteSession?: (spec: RemoteSessionOpenSpec) => void
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
   onMoveWorkspaceToMainWindow: (id: WorkspaceId) => void
   onCloseWorkspace: (id: WorkspaceId) => void
@@ -223,11 +231,6 @@ export function resolveGroups(
     headers.set(key, { key, folderPath: workspace.folderPath, missing: workspace.folderMissing === true })
   }
   return { keys, headers }
-}
-
-/** True when a remote-born row is filed under a LOCAL folder's header, and so must mark its machine itself. */
-function filedUnderLocalHeader(workspace: Workspace, groupKey: string): boolean {
-  return Boolean(workspace.remoteOrigin) && groupKey !== groupKeyOf(workspace)
 }
 
 // Folded (older/history) rows reveal in pages of this size — pressing the
@@ -982,6 +985,7 @@ export default function WorkspaceSidebar({
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
   onSelectWorkspace,
+  onOpenRemoteSession,
   onMoveWorkspaceToNewWindow,
   onMoveWorkspaceToMainWindow,
   onCloseWorkspace,
@@ -1104,6 +1108,7 @@ export default function WorkspaceSidebar({
   // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
   const [revealedStaleFolders, setRevealedStaleFolders] = useState<Record<string, number>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
+  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
@@ -1143,13 +1148,16 @@ export default function WorkspaceSidebar({
   }, [contextRailActive])
 
   const handleTreeRowKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId) => {
+    (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId | null, activate?: () => void) => {
       // Only the row itself steers the tree; keys from a focused child control
       // (rename input, row-action buttons) keep their own behavior.
       if (event.target !== event.currentTarget) return
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
-        onSelectWorkspace(workspaceId)
+        // A Remote band row with no workspace here yet activates by attaching
+        // (`activate`); every other row selects its workspace.
+        if (activate) activate()
+        else if (workspaceId) onSelectWorkspace(workspaceId)
         return
       }
       if (
@@ -1319,22 +1327,50 @@ export default function WorkspaceSidebar({
     [workspaces]
   )
 
+  // Rows born on a paired machine (`workspace.remoteOrigin`) are the Remote
+  // band's and only the band's (remote-sessions-in-the-sidebar, decision 1):
+  // they never file under a folder header, so the folder groups are built
+  // from the local rows alone. Starred stays additive — a starred remote row
+  // appears there too, as a starred local row appears beside its folder.
+  const localRailWorkspaces = useMemo(
+    () => railWorkspaces.filter((workspace) => !workspace.remoteOrigin),
+    [railWorkspaces]
+  )
+
   // Repository identity per open local folder (one-project-across-machines),
-  // read once per folder; the group keys apply it, so a paired machine's clone
-  // of an open repository files under that repository's local header.
+  // read once per folder. It no longer moves rows between headers — the band
+  // holds every remote row — but the reads stay: New chat's "Run on" is what
+  // still keys on which repository a local folder is.
   const folderIdentities = useFolderRepositoryIdentities(
-    useMemo(() => railWorkspaces.map((workspace) => (workspace.remoteOrigin ? null : workspace.folderPath)), [railWorkspaces])
+    useMemo(() => localRailWorkspaces.map((workspace) => workspace.folderPath), [localRailWorkspaces])
   )
   // Resolved over the rail's rows, not every workspace: a local folder whose
   // rows are all hidden or archived is not a header a remote row can join.
-  const resolvedGroups = useMemo(() => resolveGroups(railWorkspaces, folderIdentities), [railWorkspaces, folderIdentities])
+  const resolvedGroups = useMemo(() => resolveGroups(localRailWorkspaces, folderIdentities), [localRailWorkspaces, folderIdentities])
   const keyOf = useCallback(
     (workspace: Workspace) => resolvedGroups.keys.get(workspace.id) ?? groupKeyOf(workspace),
     [resolvedGroups]
   )
   const groups = useMemo(
-    () => buildFolderGroups(railWorkspaces, keyOf, resolvedGroups.headers),
-    [railWorkspaces, keyOf, resolvedGroups]
+    () => buildFolderGroups(localRailWorkspaces, keyOf, resolvedGroups.headers),
+    [localRailWorkspaces, keyOf, resolvedGroups]
+  )
+
+  // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
+  // paired machine's sessions, read only while the band is open and this rail
+  // is the one showing; a machine that is asleep is drawn from its last read.
+  const remoteSessions = useRemoteSessions({ enabled: !remoteCollapsed && !contextRailActive })
+  const { presence: remotePresence, browses: remoteBrowses } = remoteSessions
+  const remoteGroups = useMemo(
+    () =>
+      buildRemoteBand({
+        connections: remotePresence.fleet,
+        browses: remoteBrowses,
+        attachments: remotePresence.fleetAttachments,
+        reachability: remotePresence.fleetReachability,
+        workspaces: railWorkspaces,
+      }),
+    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
   )
 
   // A workspace is "live" while it shows a status dot — working, failed, or
@@ -2028,19 +2064,6 @@ export default function WorkspaceSidebar({
           <span
             className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
           >
-            {/* A remote clone filed under its LOCAL repository's header
-                (one-project-across-machines) says where it lives itself:
-                the header names the project, not the machine. Only here —
-                under a machine · project header the header already says it,
-                and a local row is the unmarked default (decision 7). */}
-            {filedUnderLocalHeader(workspace, fKey) && workspace.remoteOrigin ? (
-              <Tooltip content={`On ${workspace.remoteOrigin.machineName}`}>
-                <span className="inline-flex shrink-0" data-remote-under-local="true">
-                  <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-                  <span className="sr-only">On {workspace.remoteOrigin.machineName}</span>
-                </span>
-              </Tooltip>
-            ) : null}
             {starred ? (
               <StarGlyph
                 filled
@@ -2102,6 +2125,51 @@ export default function WorkspaceSidebar({
             trailing={statusSeat}
           />
         ) : null}
+      </div>
+    )
+  }
+
+  // A session on a paired machine that no workspace here is attached to
+  // (remote-sessions-in-the-sidebar): the same two-line shape as a workspace
+  // row — title, then heads · machine · branch · diff with the status in the
+  // seat — and opening it attaches here. No drag, rename, or close: those are
+  // a workspace's, and this row has none until it is opened.
+  const renderRemoteSessionRow = (row: RemoteSessionRow) => {
+    const rowKey = `remote-session-${row.key}`
+    const open = () => onOpenRemoteSession?.(openSpecOf(row))
+    return (
+      <div
+        key={rowKey}
+        data-row-key={rowKey}
+        data-remote-session={row.sessionId}
+        tabIndex={rovingKey === rowKey ? 0 : -1}
+        onFocus={() => setRovingKey(rowKey)}
+        onKeyDown={(event) => handleTreeRowKeyDown(event, null, open)}
+        onClick={open}
+        // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        role="treeitem"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            {/* Weight marks a running pty, the way residency bolds a local row. */}
+            <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.live ? 'font-semibold' : ''}`} />
+            <span className="sr-only"> (on {row.machineName}, not open here)</span>
+          </span>
+        </div>
+        <WorkspaceRowMeta
+          sessions={[{ sessionId: row.sessionId, ...(row.cli ? { cli: row.cli } : {}), remote: true }]}
+          fleetMachines={[row.machineName]}
+          branch={row.branch}
+          additions={row.additions}
+          deletions={row.deletions}
+          diffScope={row.diffScope}
+          trailing={
+            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+              <StatusDot tone={row.status.tone} pulse={row.status.tone === 'good' && row.live} label={row.status.label} />
+            </span>
+          }
+        />
       </div>
     )
   }
@@ -2407,6 +2475,89 @@ export default function WorkspaceSidebar({
                 ? starredWorkspaces.map((workspace) =>
                     renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' })
                   )
+                : null}
+            </div>
+          </section>
+        ) : null}
+        {/* The Remote band (remote-sessions-in-the-sidebar): the sessions that
+            live on paired machines, one machine line each, placed like Starred
+            — above the folders, one icon slot, collapsible. Machine management
+            is not here (epic decision 3): Settings → Remote and the top bar's
+            Remote glyph add, forget, and revoke. */}
+        {remoteGroups.length > 0 ? (
+          <section className="relative pt-1" aria-label="Remote sessions">
+            <button
+              type="button"
+              onClick={() => setRemoteCollapsed((prev) => !prev)}
+              aria-expanded={!remoteCollapsed}
+              aria-controls="ws-remote-body"
+              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+            >
+              {/* Starred's one-slot idiom: the machine glyph at rest, the
+                  collapse chevron swapped in on hover. */}
+              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+                <RemoteMachineGlyph className="icon-sm shrink-0 text-[color:var(--text-muted)] transition-opacity group-hover/folder:opacity-0" />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                    remoteCollapsed ? '-rotate-90' : ''
+                  }`}
+                >
+                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+                Remote
+              </span>
+            </button>
+            <div id="ws-remote-body" hidden={remoteCollapsed}>
+              {!remoteCollapsed
+                ? remoteGroups.map((group) => {
+                    const dot = group.phase ? MACHINE_PHASE_DOT[group.phase.phase] : null
+                    const phaseText = group.phase
+                      ? machinePhaseText(group.machineName, group.phase, now)
+                      : `${group.machineName} is no longer paired here`
+                    const empty = group.rows.length === 0 && group.parked.length === 0
+                    return (
+                      <div key={group.key} data-remote-machine={group.machineName}>
+                        {/* design-tokens-allow: alignment — the machine line shares the rows' 26px inset so its name sits on the content column */}
+                        <div
+                          className="flex h-control-xs min-w-0 items-center gap-1.5 pl-[26px] pr-2 text-meta text-[color:var(--text-muted)]"
+                          title={phaseText}
+                        >
+                          {dot ? <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} /> : null}
+                          <span className="min-w-0 truncate font-medium text-[color:var(--text-default)]">
+                            {shortMachineName(group.machineName)}
+                          </span>
+                          {group.loading && empty ? <span className="shrink-0">reading…</span> : null}
+                        </div>
+                        {/* Rows from an earlier read on a machine that is not
+                            answering now: kept, drawn quieter, still openable
+                            — the attach itself says whether it answers. */}
+                        <div className={group.stale ? 'opacity-60' : ''}>
+                          {group.rows.map((row) => {
+                            const attached = row.attachedWorkspaceId ? workspaceById.get(row.attachedWorkspaceId) : undefined
+                            return attached
+                              ? renderWorkspaceRow(attached, `remote:${group.key}`, { keyPrefix: 'remote-' })
+                              : renderRemoteSessionRow(row)
+                          })}
+                          {group.parked.map((workspace) =>
+                            renderWorkspaceRow(workspace, `remote:${group.key}`, { keyPrefix: 'remote-' })
+                          )}
+                        </div>
+                        {empty && !group.loading ? (
+                          <>
+                            {/* design-tokens-allow: alignment — the notice takes the rows' 26px inset */}
+                            <p className="pl-[26px] pr-2 py-1 text-meta text-[color:var(--text-subtle)]">
+                              {group.notice ?? 'No sessions open.'}
+                            </p>
+                          </>
+                        ) : null}
+                      </div>
+                    )
+                  })
                 : null}
             </div>
           </section>

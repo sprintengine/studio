@@ -92,7 +92,6 @@ function countOpenTabs(model: Model | null): number {
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const FleetPanel = React.lazy(() => import('../panels/FleetPanel'))
 const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
 // Local lazy const for the defensive fixed-view fallbacks below; the canonical
 // 'sprintengine' board is served through the renderer host (gated). Both resolve
@@ -576,12 +575,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
             : DISABLED_SURFACE
-        // The Fleet and its terminals are core chrome, not a module: tailnet
-        // remote control is a built-in opt-in feature, and a pane that vanished
-        // with a module toggle would strand a person mid-session on another
-        // machine.
-        case 'fleet':
-          return timedPanel('FleetPanel', <FleetPanel workspaceId={workspaceId} />)
+        // A remote terminal is core chrome, not a module: tailnet remote control
+        // is a built-in opt-in feature, and a pane that vanished with a module
+        // toggle would strand a person mid-session on another machine. (The
+        // Fleet panel that used to sit beside it was retired on 2026-09-05 —
+        // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
+        // default branch's unavailable surface.)
         case 'fleet-terminal':
           // A stale tab whose config lost its machine is refused rather than
           // rendered as an empty terminal: there is no session to attach to, and
@@ -592,8 +591,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                 // Scoped by WORKSPACE, not just by the tab's session-derived id:
                 // the tab id is deliberately deterministic per session (dedupe
                 // within a workspace), so the same session opened in a second
-                // workspace — a New-chat-door solo pane plus a FleetPanel open
-                // elsewhere — used to collide on one attachId, where main's
+                // workspace — a New-chat-door solo pane plus a sidebar row
+                // opened elsewhere — used to collide on one attachId, where main's
                 // same-pane replace rule silently stole the first pane's
                 // stream. The remote terminal port is multi-viewer; two panes
                 // are two healthy attachments (remote-sessions-ux review).
@@ -1148,6 +1147,22 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
             )
             return
           }
+        } else if (componentId === 'fleet-terminal') {
+          // A pane on another machine's terminal wears the shared remote glyph
+          // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
+          // the same keystroke means different things on two machines, and the
+          // tab's name alone is one truncation away from not saying so.
+          const config = node.getConfig() as { machineName?: string } | undefined
+          const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
+          renderValues.leading = (
+            <span
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
+              title={machineLabel}
+              aria-label={machineLabel}
+            >
+              <RemoteMachineGlyph className="h-3.5 w-3.5" />
+            </span>
+          )
         } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
           const isWatchtower = componentId === 'watchtower-panel'
           // Degrade the panel-tab accent + icon to generic when the switchboard

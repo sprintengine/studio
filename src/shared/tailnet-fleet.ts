@@ -127,6 +127,26 @@ export type FleetTerminal = {
   suspended: boolean
   /** Hook-reported agent phase where the CLI reports one. */
   phase: string | null
+  /**
+   * The remote workspace's display name, as `terminal.list` serves it beside
+   * the id (remote-band-in-the-sidebar) — so a pairing granted terminals alone,
+   * which may not call `workspace.list`, still has a name for the row. Null on
+   * an older remote.
+   */
+  workspaceName: string | null
+  /**
+   * The checkout the session works in, summarised the way the sidebar row is:
+   * branch, ±lines, and whose changes they are (`worktree` this chat's own,
+   * `branch` the branch's, `folder` only what is uncommitted). Null when the
+   * remote could not read it, or predates the field — never a confident zero.
+   */
+  git: {
+    branch: string | null
+    additions: number
+    deletions: number
+    changedFiles: number
+    scope: 'worktree' | 'branch' | 'folder'
+  } | null
 }
 
 /**

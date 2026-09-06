@@ -970,6 +970,14 @@ export type WorkspaceRemoteOrigin = {
   workspaceName: string
   workspaceRoot: string | null
   /**
+   * The remote session this workspace's pane attaches to
+   * (remote-band-in-the-sidebar): how the sidebar's Remote band knows that a
+   * session the machine lists is THIS row, and focuses it rather than opening
+   * a second attachment. Absent on rows born before the band existed, which
+   * the band matches by the fleet pane still in their layout instead.
+   */
+  sessionId?: string
+  /**
    * Where the chat runs there (checkout-and-branch-on-remote-create): the
    * remote workspace's own checkout, or a worktree the create minted, and
    * the branch either is on as of the create. The row's branch reads from

@@ -223,7 +223,7 @@ export function machineAvailabilityOf(
   if (!browse.reachable) {
     return { state: 'unreachable', reason: browse.unreachableReason ?? `${machine.machineName} is not answering.` }
   }
-  if (browse.unauthorized) return { state: 'unreachable', reason: `${machine.machineName} refused this pairing — re-pair from the Fleet.` }
+  if (browse.unauthorized) return { state: 'unreachable', reason: `${machine.machineName} refused this pairing — re-pair from Settings → Remote.` }
   const copy = machineCopyOf(browse, identity)
   if (copy) return { state: 'has', workspace: copy }
   const gap = browse.gaps.find((entry) => entry.part === 'workspaces')
@@ -531,7 +531,7 @@ export default function NewAgentPanel({
             }
           }
           if (browse.unauthorized) {
-            return { ...current, workspaces: [], error: 'That machine refused this pairing — re-pair from the Fleet.' }
+            return { ...current, workspaces: [], error: 'That machine refused this pairing — re-pair from Settings → Remote.' }
           }
           // A gap is a DIFFERENT statement from an empty list: a pairing
           // without workspace:read genuinely cannot list workspaces, and

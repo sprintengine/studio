@@ -62,7 +62,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, toggleComponentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -93,6 +93,7 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
+import type { RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
 import { showToast, useToastStore } from '../../store/toastStore'
@@ -2999,6 +3000,52 @@ export default function WorkspaceManager() {
   // attachment onto that session, provenance-badged by the two-line row. A
   // failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
+  // A session on a paired machine, opened from the sidebar's Remote band
+  // (remote-sessions-in-the-sidebar): the row that already is that session
+  // is focused; any other becomes a solo workspace whose lone pane is the
+  // fleet attachment — the same shape a chat started over there takes,
+  // minus the create. Provenance is stamped with the session id so the band
+  // recognises the row next time it reads the machine.
+  const openRemoteSession = useCallback((spec: RemoteSessionOpenSpec): void => {
+    setNewChatPanelState(null)
+    if (spec.attachedWorkspaceId) {
+      setActiveWorkspaceForWindow(workspaceWindowId, spec.attachedWorkspaceId)
+      return
+    }
+    if (!SOLO_CHAT_TEMPLATE) {
+      showToast({
+        tone: 'error',
+        title: `Could not open ${spec.title} from ${spec.machineName}`,
+        description: 'The Solo layout template is missing.',
+      })
+      return
+    }
+    addWorkspace(SOLO_CHAT_TEMPLATE, {
+      name: spec.workspaceName ? `${spec.title} · ${spec.workspaceName}` : spec.title,
+      folderPath: null,
+      remoteOrigin: {
+        connectionId: spec.connectionId,
+        machineName: spec.machineName,
+        workspaceId: spec.workspaceId ?? spec.sessionId,
+        workspaceName: spec.workspaceName ?? '',
+        workspaceRoot: spec.workspaceRoot,
+        sessionId: spec.sessionId,
+        repository: spec.repository,
+        // The checkout as the machine listed it; this Mac never moves it.
+        checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
+      },
+      windowId: workspaceWindowId,
+      seedAgent: {
+        tabName: fleetTerminalTabName(spec.machineName, spec.title),
+        fleet: {
+          connectionId: spec.connectionId,
+          machineName: spec.machineName,
+          remoteSessionId: spec.sessionId,
+        },
+      },
+    })
+  }, [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, showToast, workspaceWindowId])
+
   const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch): Promise<void> => {
     const created = await window.api
       .fleetCreateTerminal({
@@ -3031,7 +3078,7 @@ export default function WorkspaceManager() {
       showToast({
         tone: 'error',
         title: `Started on ${launch.machineName}, but no pane could open`,
-        description: `The Solo layout template is missing. Attach to "${created.title}" from the Fleet panel.`,
+        description: `The Solo layout template is missing. "${created.title}" is listed under Remote in the sidebar.`,
       })
       closeNewChatPanel()
       return
@@ -3049,8 +3096,11 @@ export default function WorkspaceManager() {
         workspaceId: launch.remoteWorkspaceId,
         workspaceName: launch.remoteWorkspaceName,
         workspaceRoot: launch.remoteWorkspaceRoot,
-        // Which repository that is, as the machine served it, so the sidebar
-        // can file the row with a local clone of the same repository.
+        // The session the pane attaches to: how the sidebar's Remote band
+        // knows the row the machine lists is this one.
+        sessionId: created.sessionId,
+        // Which repository that is, as the machine served it (kept for New
+        // chat's "Run on", which filters machines by project).
         repository: launch.remoteRepository,
         // What the chat landed on: the worktree's branch as the remote minted
         // it, or the checkout's branch as the panel read it before asking.
@@ -3260,11 +3310,6 @@ export default function WorkspaceManager() {
       // silently no-opping (T8 code-review finding A10).
       openPaneTab(windowActiveWorkspaceId, { kind: 'git' })
       return true
-    }
-    if (commandId === 'panel.fleet.toggle' && windowActiveWorkspaceId) {
-      // Toggle, matching the other panel commands: a second invocation closes
-      // the pane it opened rather than re-focusing it forever.
-      return toggleComponentTab(windowActiveWorkspaceId, 'fleet', 'Fleet')
     }
     if (commandId === 'terminal.new') {
       addNewTerminal()
@@ -3809,6 +3854,7 @@ export default function WorkspaceManager() {
         activityByWorkspaceId={activityByWorkspaceId}
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+        onOpenRemoteSession={openRemoteSession}
         onSelectWorkspace={(id) => {
           // Park explicitly: selecting the very workspace New chat sits over
           // changes no workspace id, and the id-keyed park would not fire.

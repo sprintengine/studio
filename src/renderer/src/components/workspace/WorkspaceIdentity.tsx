@@ -38,7 +38,7 @@ import type { Workspace } from '../../types/workspace'
 // surfaces read as one family. The drawing is the ONE shared branch fork
 // (AppIcons, mirrored in design-system/glyphs/git-branch.svg) — this chip and
 // the sidebar row's branch glyph sit on adjacent chrome and must agree.
-import { GitBranchGlyph } from '../AppIcons'
+import { GitBranchGlyph, RemoteMachineGlyph } from '../AppIcons'
 
 // Folder glyph for the project chip. Same stroke idiom as GitBranchGlyph
 // (1.3px round strokes on a 16px box) so the two identity chips read as a set.
@@ -603,6 +603,31 @@ export function WorkspaceIdentity({
        * nothing needs a new home yet. At fold 3 they leave the strip entirely
        * for the overflow menu below.
        */}
+      {/* A chat that lives on a paired machine has no local folder to chip, so
+          the machine takes that seat (remote-sessions-in-the-sidebar, epic
+          decision 4): the same glyph the sidebar row and the tab wear, with
+          the remote project's name where a local one would show its folder. */}
+      {chipsInline && activeWorkspace?.remoteOrigin ? (
+        <Tooltip
+          content={`On ${activeWorkspace.remoteOrigin.machineName}${activeWorkspace.remoteOrigin.workspaceRoot ? ` — ${activeWorkspace.remoteOrigin.workspaceRoot}` : ''}`}
+          placement="bottom"
+          wrapperClassName="flex min-w-0 shrink-[100]"
+        >
+          <span
+            className="flex min-w-0 items-center gap-1 text-meta text-[color:var(--text-muted)]"
+            data-remote-machine={activeWorkspace.remoteOrigin.machineName}
+          >
+            <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+            {showChipWords ? (
+              <span className="min-w-0 truncate">
+                {activeWorkspace.remoteOrigin.machineName}
+                {activeWorkspace.remoteOrigin.workspaceName ? ` · ${activeWorkspace.remoteOrigin.workspaceName}` : ''}
+              </span>
+            ) : null}
+            <span className="sr-only">On {activeWorkspace.remoteOrigin.machineName}</span>
+          </span>
+        </Tooltip>
+      ) : null}
       {chipsInline && folderPath ? (
         filesPanelEnabled ? (
           <Tooltip content={folderPath} placement="bottom" wrapperClassName="flex min-w-0 shrink-[100]">

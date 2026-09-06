@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
 
-import type { FleetBrowse, FleetConnection, FleetTerminal } from '../../../../../shared/tailnet-fleet'
+import type { FleetTerminal } from '../../../../../shared/tailnet-fleet'
 import {
-  fleetBrowseView,
-  fleetConnectionSummary,
   fleetInputState,
   fleetLinkBadge,
   fleetTerminalStatus,
@@ -24,6 +22,8 @@ const connection: FleetConnection = {
 }
 
 const terminal: FleetTerminal = {
+  workspaceName: 'atlas',
+  git: null,
   sessionId: 'agent-1',
   kind: 'agent',
   workspaceId: 'ws-1',
@@ -80,40 +80,6 @@ assert.equal(fleetLinkBadge('reconnecting', 'Wi-Fi went away.').detail, 'Wi-Fi w
 // not a tooltip: the same keystroke means different things on two machines.
 assert.equal(fleetTerminalTabName('mini', 'Ada'), 'Ada · mini')
 
-// A scope gap is shown BESIDE what did load, never instead of it: a pairing
-// granted terminals alone still sees its terminals.
-const partial = fleetBrowseView(
-  browse({
-    terminals: [terminal],
-    gaps: [{ part: 'workspaces', code: 'scope_required', message: 'This pairing may not read that machine\'s workspaces.' }],
-  }),
-  false
-)
-assert.equal(partial.emptyMessage, null)
-assert.equal(partial.terminals.length, 1)
-assert.deepEqual(partial.gapMessages, ["This pairing may not read that machine's workspaces."])
-
-// With nothing readable at all, the gap becomes the message — never a bare
-// "nothing here", which would state something false about the other machine.
-const blocked = fleetBrowseView(
-  browse({ gaps: [{ part: 'terminals', code: 'scope_required', message: 'This pairing may not see that machine\'s terminals.' }] }),
-  false
-)
-assert.match(blocked.emptyMessage ?? '', /may not see/u)
-
-// Genuinely empty says so in its own words.
-assert.match(fleetBrowseView(browse(), false).emptyMessage ?? '', /no workspaces open/u)
-
-// Unreachable reports the reason it was given, and revocation is flagged as the
-// one failure that re-pairing fixes.
-const revoked = fleetBrowseView(
-  browse({ reachable: false, unauthorized: true, unreachableReason: 'That machine no longer accepts this pairing.' }),
-  false
-)
-assert.equal(revoked.needsRepair, true)
-assert.equal(revoked.emptyMessage, 'That machine no longer accepts this pairing.')
-assert.equal(fleetBrowseView(null, true).emptyMessage, 'Reading that machine.')
-
 // Paused and exited are separate answers: a paused agent's screen is real and
 // its process is not.
 assert.deepEqual(fleetTerminalStatus({ ...terminal, suspended: true }), { label: 'Paused', tone: 'neutral' })
@@ -124,21 +90,3 @@ assert.deepEqual(fleetTerminalStatus(terminal), { label: 'Running', tone: 'good'
 assert.equal(fleetTerminalTitle(terminal), 'Ada')
 assert.equal(fleetTerminalTitle({ ...terminal, agentName: null }), 'Agent')
 assert.equal(fleetTerminalTitle({ ...terminal, agentName: null, kind: 'terminal' }), 'Terminal')
-
-// The machine row states the grant a person is about to rely on, and does not
-// claim contact it has not had.
-assert.match(fleetConnectionSummary(connection, (value) => value), /terminals: control/u)
-assert.match(fleetConnectionSummary(connection, (value) => value), /Not reached yet/u)
-assert.match(
-  fleetConnectionSummary({ ...connection, scopes: ['terminal:observe'] }, (value) => value),
-  /watch only/u
-)
-assert.match(
-  fleetConnectionSummary({ ...connection, scopes: ['workspace:read'] }, (value) => value),
-  /no terminal access/u
-)
-
-// The machine picker and the waiting card moved to components/remote/ and
-// are pinned in peerPickerModel.test.ts.
-
-console.log('fleet model contracts ok')

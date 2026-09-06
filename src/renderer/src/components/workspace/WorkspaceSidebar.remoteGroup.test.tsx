@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// 2026-09-04 review of the two-line rows (remote-sessions-ux): a chat born on
-// a paired machine carries `workspace.remoteOrigin`, and the sidebar groups it
-// under a header naming the machine and the remote workspace — epic decision 6
-// puts project identity on the folder header, and a remote row's project is on
-// another machine — rather than filing it under "No folder". Local grouping
-// stays exactly what it was. This mounts the real sidebar because the header
-// is what the ruling is about, and nothing below the component renders one.
+// The Remote band (remote-sessions-in-the-sidebar, decision 1): a chat born
+// on a paired machine carries `workspace.remoteOrigin`, and the sidebar files
+// it under the Remote band's machine line — never under a local folder's
+// header, even when that folder is a clone of the same repository (this
+// supersedes MC-2406's filing), and never under "No folder". Local grouping
+// stays exactly what it was. This mounts the real sidebar because the band is
+// what the ruling is about, and nothing below the component renders one.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -193,48 +193,44 @@ async function main(): Promise<void> {
   const headerText = headers.map((header) => header.textContent?.trim() ?? '')
   assert.deepEqual(
     headerText,
-    ['projA', 'MacBook Air · relay', 'No folder'],
-    'local folder first as before, then the machine · project header, then the folderless local row'
+    ['Remote', 'projA', 'No folder'],
+    'the Remote band leads, then the local folder, then the folderless local row — no machine · project folder header'
   )
 
-  const remoteHeader = headers[1]!
+  const remoteHeader = headers[0]!
+  assert.ok(remoteHeader.querySelector('svg'), 'the band header carries the shared machine glyph')
   const remoteSection = remoteHeader.closest('section')!
+  const machineLines = [...remoteSection.querySelectorAll('[data-remote-machine]')].map((node) =>
+    node.getAttribute('data-remote-machine')
+  )
+  assert.deepEqual(machineLines, ['MacBook Air'], "one machine line, named for the rows' provenance")
   const remoteRows = [...remoteSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')
-  assert.ok(remoteRows.some((text) => text.includes('Charlie')) && remoteRows.some((text) => text.includes('Delta')),
-    'both remote-born rows file under the machine header')
+  for (const name of ['Zulu', 'Charlie', 'Delta', 'Foxtrot']) {
+    assert.ok(remoteRows.some((text) => text.includes(name)), `${name}, born on the Air, is a row of the band`)
+  }
   // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): line 2 —
   // provenance included — exists only while the row has an open terminal. The
   // row whose pane is open wears the machine; the row whose pane closed is a
-  // one-liner, and its provenance is the header's, which it still files under.
+  // one-liner, and its provenance is the machine line's above.
   assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('MacBook Air'),
     'the row with an open pane wears the provenance mark')
   assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('MacBook Air'),
-    'the row whose pane closed has no second line — the header names its machine')
-  // The branch stamped at the create is the row's branch (no local checkout
-  // to poll); a parked row shows none, as with every other line-2 fact.
+    'the row whose pane closed has no second line — the machine line names it')
   assert.ok(remoteRows.find((text) => text.includes('Charlie'))!.includes('agent/fix'),
     'the live remote row names the branch its create landed on')
   assert.ok(!remoteRows.find((text) => text.includes('Delta'))!.includes('agent/fix'),
     'a parked remote row carries no branch')
-  assert.ok(remoteHeader.querySelector('svg'), 'the header carries the shared machine glyph')
   assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
-
-  // one-project-across-machines: the Air's clone of acme/multicode files under
-  // projA — the local clone — and marks its machine on the row, since the
-  // header no longer says it. Only local folders are asked for an identity.
-  assert.ok(identityReads.includes('/projA'), 'the local folder is asked which repository it is')
+  assert.ok(identityReads.includes('/projA'), 'the local folder is still asked which repository it is')
   assert.ok(!identityReads.includes('/Users/air/multicode'), 'a remote root is never asked on this disk')
-  const localSection = headers[0]!.closest('section')!
-  const localRows = [...localSection.querySelectorAll('[role="treeitem"]')]
-  assert.equal(headerText[0], 'projA', 'a remote row listed before the local rows does not found a "No folder" header')
-  assert.ok(localRows.some((row) => row.textContent?.includes('Zulu')), 'the remote row listed first files under the local header too')
-  const foxtrot = localRows.find((row) => row.textContent?.includes('Foxtrot'))
-  assert.ok(foxtrot, 'the remote clone of an open repository files under that repository\'s local header')
-  assert.ok(foxtrot!.querySelector('[data-remote-under-local="true"]'), 'and wears the machine mark on its own line')
-  assert.ok(foxtrot!.textContent?.includes('On MacBook Air'), 'named for a reader who cannot see the glyph')
-  assert.ok(!localRows.find((row) => row.textContent?.includes('Alpha'))!.querySelector('[data-remote-under-local="true"]'),
-    'a local row under the same header stays unmarked')
-  assert.ok(!remoteRows.some((text) => text.includes('Foxtrot')), 'and is not also under the machine header')
+
+  const localSection = headers[1]!.closest('section')!
+  const localRows = [...localSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')
+  assert.equal(localRows.length, 2, 'only the two local rows are under projA')
+  assert.ok(localRows.some((text) => text.includes('Alpha')) && localRows.some((text) => text.includes('Bravo')))
+  assert.ok(!localRows.some((text) => text.includes('Foxtrot')),
+    "a remote clone of the open repository is a band row, not a folder row (decision 1 supersedes MC-2406's filing)")
+  assert.ok(!localSection.querySelector('[data-remote-under-local="true"]'), 'so no row under a local header wears the machine mark')
 
   const noFolderSection = headers[2]!.closest('section')!
   const noFolderRows = [...noFolderSection.querySelectorAll('[role="treeitem"]')].map((row) => row.textContent ?? '')

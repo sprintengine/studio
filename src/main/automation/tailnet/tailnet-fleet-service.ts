@@ -864,6 +864,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           processAlive: record.processAlive === true,
           suspended: record.suspended === true,
           phase: typeof state?.phase === 'string' ? state.phase : null,
+          workspaceName: typeof record.workspaceName === 'string' ? record.workspaceName : null,
+          git: terminalGitOf(record.git),
         },
       ]
     })
@@ -1427,4 +1429,22 @@ function isPositiveInteger(value: unknown): value is number {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The checkout summary `terminal.list` rides beside a session
+ * (remote-band-in-the-sidebar). Absent or malformed is null — the row then
+ * shows no branch — never a zero that claims a measurement.
+ */
+function terminalGitOf(value: unknown): FleetTerminal['git'] {
+  if (!value || typeof value !== 'object') return null
+  const git = value as Record<string, unknown>
+  const count = (field: unknown): number => (typeof field === 'number' && Number.isFinite(field) ? field : 0)
+  return {
+    branch: typeof git.branch === 'string' ? git.branch : null,
+    additions: count(git.additions),
+    deletions: count(git.deletions),
+    changedFiles: count(git.changedFiles),
+    scope: git.scope === 'worktree' || git.scope === 'branch' ? git.scope : 'folder',
+  }
 }
