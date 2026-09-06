@@ -9,6 +9,7 @@ import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
+import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
 import { createAgentLaunchService } from './agent-launch-service'
 import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
@@ -163,6 +164,7 @@ async function main(): Promise<void> {
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
+    await assertRemoteFramesNeverExceedTheWireCap(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
@@ -386,6 +388,9 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
   const snapshot = () => runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === sessionId)
   const settle = async () => {
     for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r))
+    // The broadcast is coalesced behind a frame's timer; the resolver's
+    // promise chain has settled by now, so this waits for the send itself.
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
   }
   const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
     type: 'agent_state',
@@ -2644,6 +2649,73 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     assert.equal(missing.ok === false && missing.code, 'unknown_terminal')
   } finally {
     await runtime.shutdown()
+  }
+}
+
+// A remote viewer joining a session with more retained output than one
+// WebSocket frame may carry gets its replay in slices: a first `replay` frame
+// (the clear-and-paint), then `output` frames, each under the chunk, adding up
+// to exactly the retained bytes — never several `replay` frames, which would
+// clear the screen between them. Sent whole, a 2.5 MB replay was refused by
+// the client's 1 MB decoder and the attach looped.
+async function assertRemoteFramesNeverExceedTheWireCap(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-remote-chunks-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const sessionId = 'session_remote_chunks'
+    const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: true,
+    })
+    assert.equal(spawned.ok, true, JSON.stringify(spawned))
+    const pty = mockPty.spawnCalls[0]?.process
+    assert.ok(pty, 'the session spawned a pty')
+
+    // Two and a half chunks of output, ending in an astral character so the
+    // boundary rule has a surrogate pair to keep whole.
+    const line = 'x'.repeat(1023) + '\n'
+    const printed = line.repeat(Math.ceil((TERMINAL_REMOTE_FRAME_CHUNK_CHARS * 2.5) / line.length)) + '😀'
+    pty.emitData(printed)
+    await delay(60)
+
+    const viewer = createRecordingViewer('chunked')
+    const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: viewer.transport })
+    assert.equal(attached.ok, true, JSON.stringify(attached))
+    if (!attached.ok) return
+
+    assert.ok(viewer.frames.length >= 3, `the replay arrived in slices, got ${viewer.frames.length}`)
+    assert.equal(viewer.frames[0]?.type, 'replay', 'the first slice is the replay')
+    assert.equal(viewer.frames[0]?.reason, 'attach')
+    for (const frame of viewer.frames.slice(1)) {
+      assert.equal(frame.type, 'output', 'every later slice is plain output')
+    }
+    for (const frame of viewer.frames) {
+      assert.ok(
+        String(frame.data).length <= TERMINAL_REMOTE_FRAME_CHUNK_CHARS,
+        'no slice exceeds the chunk'
+      )
+    }
+    assert.equal(
+      viewer.frames.map((frame) => String(frame.data)).join(''),
+      printed,
+      'the slices add up to exactly the retained output'
+    )
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
   }
 }
 

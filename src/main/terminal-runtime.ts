@@ -70,8 +70,10 @@ import {
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 import {
+  splitTerminalAttachFrame,
   TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
   TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES,
+  type TerminalAttachFrame,
   type TerminalAttachResult,
   type TerminalAttachScope,
   type TerminalAttachTransport,
@@ -250,6 +252,13 @@ type TerminalRuntime = {
   // listener's terminal WebSocket is its only caller today; it is a port, not a
   // capability grant — the transport still has to prove a scoped device.
   remoteHost: TerminalRemoteHost
+  // Fires once per coalesced sessions broadcast — the same beat the windows
+  // hear — so a main-process consumer (the tailnet listener's change push)
+  // never polls the session list. Carries nothing: the listener reads.
+  subscribeSessionsChanged(listener: () => void): () => void
+  // Send the pending sessions broadcast now. The quit path and the tests
+  // that read the wire synchronously are its callers.
+  flushSessionsBroadcast(): void
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -476,6 +485,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     ingestAgentStateFrame,
     readTerminalOutput,
     remoteHost: terminalRemoteHost,
+    subscribeSessionsChanged(listener) {
+      terminalSessionsChangedListeners.add(listener)
+      return () => terminalSessionsChangedListeners.delete(listener)
+    },
+    flushSessionsBroadcast: flushTerminalSessionsBroadcast,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -684,10 +698,15 @@ function forwardToRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer, 
     // The replay is materialized now, so it already CONTAINS `data` — sending
     // both would duplicate the tail.
     const replay = session ? materializeTerminalReplay(session) : ''
-    viewer.transport.send({ type: 'replay', data: replay, reason: 'resync' })
+    sendToRemoteViewer(viewer, { type: 'replay', data: replay, reason: 'resync' })
     return
   }
-  viewer.transport.send({ type: 'output', data })
+  sendToRemoteViewer(viewer, { type: 'output', data })
+}
+
+/** Every frame to a remote viewer goes through the chunker, so none can exceed the wire's cap. */
+function sendToRemoteViewer(viewer: RemoteTerminalViewer, frame: TerminalAttachFrame): void {
+  for (const part of splitTerminalAttachFrame(frame)) viewer.transport.send(part)
 }
 
 /** Tell every remote viewer of this session that nothing more is coming, and drop them. */
@@ -732,7 +751,7 @@ function attachRemoteTerminalViewer(input: {
   // exactly once. A suspended session prefers its faithful screen snapshot, as
   // the local reveal path does.
   const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
-  input.transport.send({ type: 'replay', data: replay, reason: 'attach' })
+  sendToRemoteViewer(viewer, { type: 'replay', data: replay, reason: 'attach' })
 
   const detach = (): void => {
     const current = remoteTerminalViewers.get(input.sessionId)
@@ -811,7 +830,37 @@ export function resolveSpawnEventSink(): WebContents {
     ?? createHeadlessTerminalSender()
 }
 
+/**
+ * How long session changes are gathered before one broadcast carries them.
+ *
+ * Seventeen call sites fire this — every hook-frame activity change, every
+ * cwd resolution, every turn end, every exit — and each used to snapshot
+ * every session and structured-clone the array into every window on its own.
+ * Sampled on 2026-09-05 that was a steady fifteen percent of the main thread
+ * in IPC serialization between the stalls. A frame's worth of coalescing
+ * turns a burst of frames into one send; nothing a person can see arrives
+ * later than a paint would have.
+ */
+export const TERMINAL_SESSIONS_BROADCAST_COALESCE_MS = 16
+
+let pendingSessionsBroadcast: ReturnType<typeof setTimeout> | null = null
+const terminalSessionsChangedListeners = new Set<() => void>()
+
 function broadcastTerminalSessionsChanged(): void {
+  if (pendingSessionsBroadcast) return
+  pendingSessionsBroadcast = setTimeout(() => {
+    pendingSessionsBroadcast = null
+    flushTerminalSessionsBroadcast()
+  }, TERMINAL_SESSIONS_BROADCAST_COALESCE_MS)
+  pendingSessionsBroadcast.unref?.()
+}
+
+/** Send now whatever is pending — the quit path, and tests that read the wire synchronously. */
+function flushTerminalSessionsBroadcast(): void {
+  if (pendingSessionsBroadcast) {
+    clearTimeout(pendingSessionsBroadcast)
+    pendingSessionsBroadcast = null
+  }
   const snapshots = [...terminals.values()]
     .filter((session) => !session.isDisposed)
     .map(getTerminalSnapshot)
@@ -819,6 +868,16 @@ function broadcastTerminalSessionsChanged(): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
       win.webContents.send('terminal:sessions-changed', snapshots)
+    }
+  }
+  // Main-process listeners hear the same beat the windows do: the tailnet
+  // listener turns it into one small "terminals changed" push to paired
+  // devices, which is what lets them stop polling terminal.list.
+  for (const listener of terminalSessionsChangedListeners) {
+    try {
+      listener()
+    } catch (error) {
+      console.warn('[terminal-runtime] sessions-changed listener failed', error)
     }
   }
 }

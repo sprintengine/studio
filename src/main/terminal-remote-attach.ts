@@ -79,3 +79,50 @@ export const TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES = 512 * 1024
 
 /** Bytes buffered for one remote viewer before the oldest are dropped and it resyncs. */
 export const TERMINAL_REMOTE_PENDING_LIMIT_BYTES = 256 * 1024
+
+/**
+ * The most text one remote frame carries, in UTF-16 units.
+ *
+ * Every WebSocket decoder on this transport — the Studio client, the phone —
+ * refuses a frame over 1 MB, and a session touched in the last day retains up
+ * to 2.5 MB of replay. Sent whole, an attach or a resync of such a session
+ * was refused by the client, which closed the socket, re-dialled, was sent
+ * the same replay, and refused it again: a reconnect loop that re-encoded
+ * megabytes on the host every backoff step. 128K characters is the largest
+ * slice whose JSON encoding stays under the cap even when every character is
+ * an escaped control byte (six bytes each).
+ */
+export const TERMINAL_REMOTE_FRAME_CHUNK_CHARS = 128 * 1024
+
+/**
+ * One frame as the frames the wire may carry.
+ *
+ * A replay or output larger than the chunk becomes a first frame of the same
+ * type followed by `output` frames — never several `replay` frames, because a
+ * client paints a replay by clearing first, and a second one would erase the
+ * first. Any client that understands replay-then-output already understands
+ * this, so an older phone needs no change. A surrogate pair is never split
+ * across a boundary.
+ */
+export function splitTerminalAttachFrame(frame: TerminalAttachFrame): TerminalAttachFrame[] {
+  if (frame.type !== 'replay' && frame.type !== 'output') return [frame]
+  const { data } = frame
+  if (data.length <= TERMINAL_REMOTE_FRAME_CHUNK_CHARS) return [frame]
+  const parts: TerminalAttachFrame[] = []
+  let offset = 0
+  while (offset < data.length) {
+    let end = Math.min(offset + TERMINAL_REMOTE_FRAME_CHUNK_CHARS, data.length)
+    if (end < data.length) {
+      const last = data.charCodeAt(end - 1)
+      if (last >= 0xd800 && last <= 0xdbff) end -= 1
+    }
+    const piece = data.slice(offset, end)
+    parts.push(
+      parts.length === 0 && frame.type === 'replay'
+        ? { type: 'replay', data: piece, reason: frame.reason }
+        : { type: 'output', data: piece }
+    )
+    offset = end
+  }
+  return parts
+}
