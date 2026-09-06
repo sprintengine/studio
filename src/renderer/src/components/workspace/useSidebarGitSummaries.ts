@@ -4,8 +4,11 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import type { WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import type { Workspace } from '../../types/workspace'
 
-// Per-workspace git facts for the sidebar's two-line rows (remote-sessions-ux /
-// two-line-session-rows): branch + working-tree ±lines, keyed by workspace id.
+// Git facts for the sidebar's rows (remote-sessions-ux / two-line-session-rows):
+// branch + working-tree ±lines, keyed by whatever the caller keys its entries
+// on — a workspace id for a row, a checkout path for the per-terminal lines
+// (sidebar-lists-every-terminal), where every line on one checkout reads one
+// entry.
 //
 // Deliberately a slow, visible-only poll rather than a watcher fleet, shaped
 // by its adversarial review:
@@ -40,10 +43,10 @@ const REFRESH_MS = 60_000
 const CONCURRENCY = 4
 
 /**
- * What the poll needs off a workspace: its id, and enough of it to resolve the
- * checkout its agents work in. Callers pass whole `Workspace` records.
+ * What resolving a workspace's checkout needs off it. Callers pass whole
+ * `Workspace` records.
  */
-type SummaryInput = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'sprintEngineState'>
+type SummaryInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
 
 /**
  * The checkout a workspace's row reports on: its worktree when it has one, its
@@ -79,20 +82,34 @@ function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<str
 }
 
 /**
- * The rows one sweep asks main about, in the order it asks. Parsed back out
- * of the NUL-joined membership string (first space only: ids never contain
- * one, paths may) and ordered checkout-contiguously, so the rows sharing a
- * checkout ask within one hold window and get one read between them
- * (`createCheckoutSpanShare`, main). Ids keep their order within a checkout so
- * a sweep is deterministic.
+ * One entry the poll reports on: the caller's key for it, and the checkout
+ * whose facts it wants. A null checkout (a folderless workspace) is skipped.
+ */
+export type SummaryEntry = { id: string; checkoutPath: string | null }
+
+/**
+ * One row of the membership string. JSON, because an id may itself be a
+ * checkout path (the per-terminal lines key on the checkout) and paths carry
+ * spaces; the rows are NUL-joined, the one byte a path cannot contain.
+ */
+export function membershipRow(id: string, checkoutPath: string): string {
+  return JSON.stringify([id, checkoutPath])
+}
+
+/**
+ * The entries one sweep asks main about, in the order it asks. Parsed back
+ * out of the NUL-joined membership string and ordered checkout-contiguously,
+ * so the entries sharing a checkout ask within one hold window and get one
+ * read between them (`createCheckoutSpanShare`, main). Ids keep their order
+ * within a checkout so a sweep is deterministic.
  */
 export function sweepEntriesFrom(membership: string): Array<{ id: string; checkoutPath: string }> {
   return membership
     .split('\u0000')
     .filter(Boolean)
     .map((row) => {
-      const separator = row.indexOf(' ')
-      return { id: row.slice(0, separator), checkoutPath: row.slice(separator + 1) }
+      const [id, checkoutPath] = JSON.parse(row) as [string, string]
+      return { id, checkoutPath }
     })
     .sort((a, b) =>
       a.checkoutPath < b.checkoutPath
@@ -108,17 +125,15 @@ export function sweepEntriesFrom(membership: string): Array<{ id: string; checko
 }
 
 export function useSidebarGitSummaries(
-  workspaces: ReadonlyArray<SummaryInput>
+  entries: ReadonlyArray<SummaryEntry>
 ): Record<string, WorkspaceChangeSummary> {
   const [summaries, setSummaries] = useState<Record<string, WorkspaceChangeSummary>>({})
-  // The identity the poll keys on: which (id, folder) pairs exist. NUL-joined
-  // — ids are nanoid and paths can contain anything BUT NUL — so the string
-  // round-trips exactly and the effect re-runs only on membership change,
-  // never per render.
-  const membership = workspaces
-    .map((workspace) => ({ id: workspace.id, checkoutPath: checkoutPathFor(workspace) }))
+  // The identity the poll keys on: which (id, checkout) pairs exist, as one
+  // string, so the string round-trips exactly and the effect re-runs only on
+  // membership change, never per render.
+  const membership = entries
     .filter((entry): entry is { id: string; checkoutPath: string } => entry.checkoutPath !== null)
-    .map((entry) => `${entry.id} ${entry.checkoutPath}`)
+    .map((entry) => membershipRow(entry.id, entry.checkoutPath))
     .sort()
     .join('\u0000')
   const membershipRef = useRef(membership)

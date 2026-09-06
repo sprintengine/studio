@@ -57,6 +57,7 @@ import {
   createWorkspacePaneSlice,
   type WorkspacePaneSliceActions,
 } from './slices/workspacePaneSlice'
+import { createFocusedAgentSlice, type FocusedAgentSlice } from './slices/focusedAgentSlice'
 import {
   createWorkspacesSlice,
   type SoloChatSeed,
@@ -153,7 +154,7 @@ import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomation
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions {
+export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions, FocusedAgentSlice {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -1218,6 +1219,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createHostedModelFeedSlice(set),
       ...createCliVersionAdvisorySlice(set),
       ...createWorkspacePaneSlice(set),
+      ...createFocusedAgentSlice(set),
       ...createWorkspacesSlice(set, workspacesSliceDeps),
     })),
     {

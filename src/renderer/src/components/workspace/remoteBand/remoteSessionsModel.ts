@@ -32,6 +32,25 @@ export type RemoteBrowseEntry = {
   at: number | null
 }
 
+/**
+ * What a remote conversation is doing, in the local rows' vocabulary (owner
+ * ruling 2026-09-05: the band reuses the marks local rows already have — the
+ * working dots and elapsed, the gold surface for needs-input, a quiet time
+ * for idle — and invents no dot of its own). `paused` is the one state a
+ * local row has no word for: suspended to reclaim memory, resumes on open.
+ */
+export type RemoteRowActivity = 'working' | 'needs-input' | 'idle' | 'paused'
+
+/** The hook phases that mean a turn is in flight. Anything else alive is idle. */
+const WORKING_PHASES = new Set(['starting', 'thinking', 'tool_use', 'working'])
+
+export function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
+  if (terminal.suspended) return 'paused'
+  if (terminal.phase === 'awaiting_input') return 'needs-input'
+  if (terminal.phase && WORKING_PHASES.has(terminal.phase)) return 'working'
+  return 'idle'
+}
+
 /** A session on a paired machine, as the band draws it. */
 export type RemoteSessionRow = {
   key: string
@@ -53,6 +72,9 @@ export type RemoteSessionRow = {
   /** The pty is running and not paused — the row a keystroke reaches. */
   live: boolean
   status: { label: string; tone: Tone }
+  activity: RemoteRowActivity
+  /** Epoch ms the activity began — how long it has worked, or sat idle. Null when the remote did not say. */
+  since: number | null
   /** The workspace here whose pane is attached to this session, when one is. */
   attachedWorkspaceId: string | null
 }
@@ -71,12 +93,28 @@ export type RemoteMachineGroup = {
    * has never been read. They keep their row so nothing a person made vanishes.
    */
   parked: Workspace[]
-  /** Why there are no rows, when that is a fact worth stating (a scope gap, a refused read). */
-  notice: string | null
   /** The rows are from an earlier read and the machine is not answering now. */
   stale: boolean
   loading: boolean
 }
+
+/**
+ * One row of the band as the sidebar draws it: a conversation on a paired
+ * machine, or a workspace here that was born on one. The machine rides the
+ * item, not a heading — the band is one flat list, and the glyph on each row
+ * says where it lives (owner ruling 2026-09-05).
+ */
+export type RemoteBandItem =
+  | { kind: 'session'; key: string; row: RemoteSessionRow; machineName: string; stale: boolean }
+  | {
+      kind: 'workspace'
+      key: string
+      workspace: Workspace
+      machineName: string
+      stale: boolean
+      /** The remote session this workspace is attached to, when the machine listed it. */
+      row: RemoteSessionRow | null
+    }
 
 /** What opening a row asks the app to do: focus the attached workspace, or attach a new one. */
 export type RemoteSessionOpenSpec = {
@@ -150,9 +188,14 @@ export function shouldBrowse(reach: FleetMachineReachability | undefined): boole
   return reach.reachable
 }
 
-/** A session is a row while it exists: running or paused. An exited pty is not a session anyone can open. */
+/**
+ * A conversation is a row while it exists: an agent session, running or
+ * paused. An exited pty is not a session anyone can open, and a plain shell
+ * is not a conversation (owner ruling 2026-09-05): the band lists the agents
+ * a person can read and talk to, not every pty the other machine holds.
+ */
 export function isRemoteSessionRow(terminal: FleetTerminal): boolean {
-  return terminal.processAlive || terminal.suspended
+  return terminal.kind === 'agent' && (terminal.processAlive || terminal.suspended)
 }
 
 export function remoteSessionRowOf(
@@ -183,14 +226,18 @@ export function remoteSessionRowOf(
     diffScope: terminal.git?.scope ?? 'folder',
     live: terminal.processAlive && !terminal.suspended,
     status: fleetTerminalStatus(terminal),
+    activity: remoteRowActivity(terminal),
+    since: terminal.phaseSince,
     attachedWorkspaceId: attached?.id ?? null,
   }
 }
 
-/** Agents before plain shells; within each, running before paused; then by name. */
+const ACTIVITY_RANK: Record<RemoteRowActivity, number> = { working: 0, 'needs-input': 1, idle: 2, paused: 3 }
+
+/** Activity order, like the local rows: working, then waiting for a person, then idle, then paused; then by name. */
 function compareRows(a: RemoteSessionRow, b: RemoteSessionRow): number {
-  if (a.kind !== b.kind) return a.kind === 'agent' ? -1 : 1
-  if (a.live !== b.live) return a.live ? -1 : 1
+  const rank = ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity]
+  if (rank !== 0) return rank
   return a.title.localeCompare(b.title)
 }
 
@@ -241,10 +288,10 @@ export function buildRemoteBand(input: {
       const parked = workspaces.filter(
         (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id)
       )
-      const gap = browse?.gaps.find((part) => part.part === 'terminals')?.message ?? null
-      const notice = browse?.unauthorized
-        ? 'This Mac was revoked over there. Pair again from Settings → Remote.'
-        : gap ?? entry?.error ?? null
+      // No notices (owner ruling 2026-09-05). A transport error, a scope
+      // the pairing lacks, a revocation: none of it is a sidebar sentence.
+      // The band lists conversations and nothing else; the Remote glyph
+      // and Settings → Remote are where a machine's state is read.
       return {
         key: connection.id,
         connectionId: connection.id,
@@ -252,7 +299,6 @@ export function buildRemoteBand(input: {
         phase,
         rows,
         parked,
-        notice,
         stale: rows.length > 0 && QUIET_PHASES.has(phase.phase),
         loading: entry?.loading ?? false,
       }
@@ -276,10 +322,46 @@ export function buildRemoteBand(input: {
       phase: null,
       rows: [],
       parked,
-      notice: null,
       stale: false,
       loading: false,
     })
   }
   return groups
+}
+
+/**
+ * The band as one flat list (owner ruling 2026-09-05): no machine headings,
+ * every row leading with the machine glyph. In activity order across
+ * machines, the way the local rows sort; workspaces here whose session the
+ * machine did not list come last, since nothing is happening in them.
+ *
+ * `listening` is whether this device is on the tailnet at all. Off it, nothing
+ * over there can be reached, so nothing read from over there is drawn — only
+ * the rows that are windows open HERE stay, since closing those is the
+ * person's call. Nothing is forgotten: the browse rows return with the link.
+ */
+export function remoteBandItems(
+  groups: readonly RemoteMachineGroup[],
+  listening: boolean,
+  workspaces: readonly Workspace[]
+): RemoteBandItem[] {
+  const live: Array<RemoteBandItem & { row: RemoteSessionRow }> = []
+  const parked: RemoteBandItem[] = []
+  for (const group of groups) {
+    for (const row of group.rows) {
+      const workspace = row.attachedWorkspaceId
+        ? workspaces.find((candidate) => candidate.id === row.attachedWorkspaceId) ?? null
+        : null
+      if (workspace) {
+        live.push({ kind: 'workspace', key: `ws:${workspace.id}`, workspace, machineName: group.machineName, stale: group.stale, row })
+      } else if (listening) {
+        live.push({ kind: 'session', key: row.key, row, machineName: group.machineName, stale: group.stale })
+      }
+    }
+    for (const workspace of group.parked) {
+      parked.push({ kind: 'workspace', key: `ws:${workspace.id}`, workspace, machineName: group.machineName, stale: group.stale, row: null })
+    }
+  }
+  live.sort((a, b) => compareRows(a.row, b.row))
+  return [...live, ...parked]
 }

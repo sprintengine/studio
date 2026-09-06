@@ -146,7 +146,14 @@ jobs:
       - name: Build renderer and main process
         run: npm run build
 
-      - name: Package app
+      # Packaging is split by runner ONLY so the macOS signing variables never
+      # reach the Windows one. `getCscLink` in app-builder-lib resolves the
+      # Windows certificate as `WIN_CSC_LINK ?? CSC_LINK`, so a CSC_LINK set on
+      # every matrix job hands the Developer ID .p12 to the Windows job, which
+      # then fails trying to Authenticode-sign with it. Same command, same
+      # publish mode, different env. See build/SIGNING.md.
+      - name: Package app (macOS, signed and notarized)
+        if: runner.os == 'macOS'
         run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
         env:
           # Releases are published to the PUBLIC sprintengine/studio-releases
@@ -155,13 +162,26 @@ jobs:
           # write to another repo, so this is a fine-grained PAT with Contents
           # read/write on studio-releases only. Source never goes there.
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          # NO signing variables here on purpose. `${{ secrets.X }}` for a secret
-          # that does not exist still DEFINES the variable as an empty string,
-          # and electron-builder reads "CSC_LINK is present" as "sign this",
-          # then fails the macOS jobs with `empty password will be used for code
-          # signing`. Absent and empty are not the same thing to it.
-          # build/SIGNING.md carries the exact block to paste here, and it must
-          # be added in the same commit as the secrets themselves.
+          # Developer ID Application: Conal Smith (EXAMPLETEAM), expires
+          # 2027-02-01. build.mac.notarize is true, so the CSC_* pair and the
+          # APPLE_* trio are all load-bearing: a certificate without
+          # notarisation credentials signs the app and then fails the notarise
+          # step, turning a green release red. Never add WIN_CSC_* here.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Package app (Windows and Linux)
+        if: runner.os != 'macOS'
+        run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # Unsigned by design, for now. Windows signing needs an OV/EV
+          # certificate on a hardware token or a cloud signing service; when it
+          # arrives, WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD (or the AZURE_* set)
+          # go HERE, never in the macOS step and never at job level.
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4

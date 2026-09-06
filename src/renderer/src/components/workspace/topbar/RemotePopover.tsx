@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { CloseIconButton, GhostButton, IconButton, OutlineButton, PanelHeader, RefreshIcon, StatusDot, Tooltip } from '../../ui'
+import { CloseIconButton, GhostButton, IconButton, OutlineButton, PanelHeader, RefreshIcon, Tooltip } from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useTerminalSessions } from '../../../hooks/useTerminalSessions'
@@ -16,7 +16,8 @@ import { OutboundPairRequestCard } from '../../remote/OutboundPairRequestCard'
 import {
   drivenTerminalView,
   fleetMachinePhase,
-  MACHINE_PHASE_DOT,
+  machineGlyphToneClass,
+  machineIsAnswering,
   machinePhaseText,
   machineRowAction,
   shortMachineName,
@@ -62,17 +63,15 @@ export function RemotePopover({
   // draws the picker. The Fleet panel is being retired (owner, 2026-09-05),
   // so this surface no longer routes anyone into it.
   const quiet = rowCount === 0 && pairRequests.length === 0 && fleetRequests.length === 0
+  // Whether this device is on the tailnet at all. The header does not say it
+  // (owner ruling 2026-09-05: no dot, no "Serving" — the glyph that opened
+  // this popover is green when the listener is up, and its tooltip has the
+  // words). Off the tailnet, the rows below are drawn in disabled ink: they
+  // are remembered, not reachable, and nothing here can check on them.
+  const listening = status?.running === true
   return (
-    <div className="w-[360px]">
-      {/* The listener's state rides the header's scope slot, beside the name
-          and the count (owner ruling 2026-09-05): whether this Studio can be
-          reached is a property OF "Remote", and a footer band spent a whole
-          row of height saying it. */}
-      <PanelHeader
-        title="Remote"
-        count={rowCount > 0 ? rowCount : undefined}
-        scope={<ListenerState status={status} />}
-      />
+    <div className="w-[360px]" data-tailnet-listening={listening ? 'true' : 'false'}>
+      <PanelHeader title="Remote" count={rowCount > 0 ? rowCount : undefined} />
       <div className="max-h-[420px] overflow-y-auto pb-1">
         {/* Requests waiting on a person here, first: the only rows that ask
             for anything. Then the machines, in one list. */}
@@ -93,6 +92,7 @@ export function RemotePopover({
             connection={connection}
             phase={fleetMachinePhase(connection.id, fleetAttachments, fleetReachability)}
             now={now}
+            listening={listening}
             onPairAgain={onOpenRemoteSettings}
           />
         ))}
@@ -104,8 +104,11 @@ export function RemotePopover({
         {/* The two ways out of the list, on one row: pairing another machine
             and the tab that holds everything this popover leaves out. */}
         <div className="flex items-center gap-2 px-2.5 pb-1 pt-0.5">
-          <Tooltip content="Scan the tailnet and pair another machine" placement="top">
-            <GhostButton size="sm" onClick={onOpenRemoteSettings}>
+          <Tooltip
+            content={listening ? 'Scan the tailnet and pair another machine' : 'Not connected to Tailscale — nothing to scan'}
+            placement="top"
+          >
+            <GhostButton size="sm" onClick={onOpenRemoteSettings} disabled={!listening}>
               Add a machine…
             </GhostButton>
           </Tooltip>
@@ -116,33 +119,6 @@ export function RemotePopover({
         </div>
       </div>
     </div>
-  )
-}
-
-/**
- * Whether this Studio can be reached, in words — the endpoint itself lives in
- * Settings → Remote. It sits in the header's scope slot, so it shrinks before
- * the panel's own name does, and an error message truncates rather than
- * pushing the count off the row.
- */
-function ListenerState({ status }: { status: TailnetPresence['status'] }) {
-  if (status?.running) {
-    return (
-      <span className="flex items-center gap-1.5 text-meta text-[color:var(--text-subtle)]">
-        <StatusDot tone="good" label="Serving" />
-        Serving
-      </span>
-    )
-  }
-  const failed = status?.enabled === true && status.lastError !== null
-  return (
-    <span
-      className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-subtle)]"
-      title={failed ? (status.lastError ?? undefined) : undefined}
-    >
-      <StatusDot tone={failed ? 'error' : 'neutral'} label="Not serving" />
-      <span className="truncate">{failed ? status.lastError : 'Not serving'}</span>
-    </span>
   )
 }
 
@@ -179,15 +155,16 @@ function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: n
   return (
     <div className="px-2.5 py-1.5 text-meta">
       <div className="flex items-center gap-2">
-        <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]" />
+        {/* Connected is green, on the glyph (owner ruling 2026-09-05: the
+            glyph is the row's one status channel; no dot beside it). */}
+        <span role="img" aria-label={driving ? 'Driving a terminal' : 'Connected'} className="flex shrink-0 items-center">
+          <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--tone-good)]" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium text-[color:var(--text-default)]">
             {shortMachineName(device.deviceName)}
           </span>
-          <span className="flex items-center gap-1.5 text-micro tabular-nums text-[color:var(--text-subtle)]">
-            <StatusDot tone="good" label={driving ? 'Driving a terminal' : 'Connected'} />
-            <span className="truncate">{deviceLivenessText(device, now)}</span>
-          </span>
+          <span className="block truncate text-micro tabular-nums text-[color:var(--text-subtle)]">{deviceLivenessText(device, now)}</span>
         </span>
         {/* A glyph, not a word (owner ruling 2026-09-05): the row is narrow,
             the actions are the same two everywhere, and a red X is read faster
@@ -275,7 +252,7 @@ export function deviceLivenessText(device: Pick<TailnetLiveDevice, 'connectedSin
  * that revoked us), and Disconnect, which is always available (owner ruling
  * 2026-09-05: a machine you can add here is a machine you can drop here).
  *
- * Disconnect only ends the half of the pairing this Mac owns — the grant over
+ * Disconnect only ends the half of the pairing this device owns — the grant over
  * there is that machine's to revoke — and the toast says so, because
  * "removed" and "revoked" are different promises.
  */
@@ -283,18 +260,22 @@ function MachineRow({
   connection,
   phase,
   now,
+  listening,
   onPairAgain,
 }: {
   connection: FleetConnection
   phase: FleetMachinePhase
   now: number
+  /** This device is on the tailnet. Off it the row is remembered, not reachable: disabled ink, no Retry. */
+  listening: boolean
   onPairAgain: () => void
 }) {
   const [retrying, setRetrying] = React.useState(false)
   const [forgetting, setForgetting] = React.useState(false)
-  const dot = MACHINE_PHASE_DOT[phase.phase]
-  const action = machineRowAction(phase)
+  const action = listening ? machineRowAction(phase) : null
   const name = shortMachineName(connection.machineName)
+  const phaseText = listening ? machinePhaseText(name, phase, now) : ''
+  const ink = listening ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-disabled)]'
   const retry = async (): Promise<void> => {
     if (retrying) return
     setRetrying(true)
@@ -321,7 +302,7 @@ function MachineRow({
       showToast({
         tone: 'neutral',
         title: `${name} disconnected`,
-        description: `Revoke “${connection.deviceName}” in that machine's Remote settings to end the grant it gave this Mac.`,
+        description: `Revoke “${connection.deviceName}” in that machine's Remote settings to end the grant it gave this device.`,
       })
     } catch (error) {
       showToast({
@@ -334,19 +315,43 @@ function MachineRow({
     }
   }
   return (
-    <div className="flex items-center gap-2 px-2.5 py-1.5 text-meta" data-machine-phase={phase.phase}>
-      {/* One glyph vocabulary for anything remote (epic decision 7). */}
-      <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]" />
+    <div
+      className="flex items-center gap-2 px-2.5 py-1.5 text-meta"
+      data-machine-phase={phase.phase}
+      data-machine-answering={listening && machineIsAnswering(phase) ? 'true' : 'false'}
+    >
+      {/* One glyph vocabulary for anything remote (epic decision 7), and the
+          glyph's ink is the row's whole status (owner ruling 2026-09-05):
+          green while the machine answers, the default ink while it does not,
+          disabled ink while this device cannot ask. */}
+      <span
+        role="img"
+        aria-label={
+          !listening
+            ? 'Not connected to Tailscale'
+            : machineIsAnswering(phase)
+              ? 'Answering'
+              : phase.phase === 'revoked'
+                ? 'Revoked there'
+                : 'Not answering'
+        }
+        className="flex shrink-0 items-center"
+      >
+        <RemoteMachineGlyph
+          className={`size-icon-sm shrink-0 ${listening ? machineGlyphToneClass(phase) : 'text-[color:var(--text-disabled)]'}`}
+        />
+      </span>
       {/* The name column is what gives way when the row is tight: the tooltip's
           own wrapper is the flex child, so it carries the shrink (its actions
           were being clipped off the right edge without it). */}
       <Tooltip content={connection.machineName} placement="bottom" wrapperClassName="min-w-0 flex-1">
         <span className="block min-w-0">
-          <span className="block truncate font-medium text-[color:var(--text-default)]">{name}</span>
-          <span className="flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
-            <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} />
-            <span className="truncate">{machinePhaseText(name, phase, now)}</span>
-          </span>
+          <span className={`block truncate font-medium ${ink}`}>{name}</span>
+          {/* A machine that answers gets no line under its name — green is
+              the whole message. Only a machine with something to say does. */}
+          {phaseText ? (
+            <span className="block truncate text-micro tabular-nums text-[color:var(--text-subtle)]">{phaseText}</span>
+          ) : null}
         </span>
       </Tooltip>
       {/* Glyphs, not words: the check is the canonical refresh mark and the
@@ -375,10 +380,10 @@ function MachineRow({
           </OutlineButton>
         </Tooltip>
       ) : null}
-      <Tooltip content={`Remove ${name} from this Mac`} placement="left" wrapperClassName="shrink-0">
+      <Tooltip content={`Remove ${name} from this device`} placement="left" wrapperClassName="shrink-0">
         <CloseIconButton
           tone="danger"
-          aria-label={`Remove ${name} from this Mac`}
+          aria-label={`Remove ${name} from this device`}
           disabled={forgetting}
           onClick={() => void disconnect()}
         />
@@ -403,9 +408,13 @@ export function remoteGlyphState(presence: TailnetPresence): {
   /** The inbound listener is up: this Studio can be reached, so the glyph is green. */
   serving: boolean
   connected: boolean
-  /** An outbound link is reconnecting or has given up: the warn dot. */
+  /** An outbound link is reconnecting or has given up. Read by the tooltip; the glyph's ink no longer changes for it. */
   degraded: boolean
   requestCount: number
+  /** Paired machines answering right now — the count the glyph wears, the way the terminal glyph counts sessions. */
+  answering: number
+  /** Why the listener is down when it was asked to be up; null while it is up or off. */
+  listenerError: string | null
 } {
   const enabled = presence.status?.enabled === true
   const driving = presence.live.devices.some((device) => device.attachedTerminalSessions.length > 0)
@@ -419,17 +428,41 @@ export function remoteGlyphState(presence: TailnetPresence): {
     // A machine that revoked us is degraded too: it will not fix itself, and
     // the glyph is where a person would look before opening anything.
     || [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
+  const serving = presence.status?.running === true
+  const answering = serving
+    ? presence.fleet.filter((connection) =>
+        machineIsAnswering(fleetMachinePhase(connection.id, presence.fleetAttachments, presence.fleetReachability))
+      ).length
+    : 0
   return {
     // Hidden entirely while the feature is off — absent, not present-but-empty
     // (epic cross-cutting acceptance). A fleet-only user still gets it: paired
     // machines are remote presence even with the inbound listener off.
     visible: enabled || presence.fleet.length > 0,
     driving,
-    serving: presence.status?.running === true,
+    serving,
     connected,
     degraded,
     requestCount: presence.status?.pairRequests.length ?? 0,
+    answering,
+    listenerError: enabled && !serving ? presence.status?.lastError ?? null : null,
   }
+}
+
+/**
+ * What hovering the glyph says (owner ruling 2026-09-05): the glyph's ink is
+ * the state, and the tooltip is where the words are — live, not connected,
+ * or the error — since the popover's header no longer carries them.
+ */
+export function remoteGlyphTooltip(state: ReturnType<typeof remoteGlyphState>): string {
+  if (state.requestCount > 0) return 'Remote — a pair request is waiting'
+  if (!state.serving) {
+    return state.listenerError ? `Remote — not connected to Tailscale. ${state.listenerError}` : 'Remote — not connected to Tailscale'
+  }
+  const machines = state.answering === 1 ? '1 machine answering' : `${state.answering} machines answering`
+  if (state.driving) return `Remote — live · ${machines} · a device is driving a terminal here`
+  if (state.degraded) return `Remote — live · ${machines} · a link is reconnecting`
+  return `Remote — live · ${machines}`
 }
 
 // Not a component so the store hook stays out of the popover proper: the
@@ -443,11 +476,16 @@ export function useOpenRemoteSettings(): () => void {
  * The glyph's own ink, from the state above. Amber pulses because it is the
  * only tone that asks for something; green never does — a steady mark is a
  * fact, an animated one is a request (owner ruling 2026-09-05).
+ *
+ * Green means one thing: this device is on the tailnet and can be reached. Off
+ * it, the default ink — grey, never red, because being offline is not an
+ * error (owner ruling 2026-09-05). A machine that stopped answering no longer
+ * turns the glyph amber either: its own glyph in the popover says so.
  */
 export function remoteGlyphToneClass(state: ReturnType<typeof remoteGlyphState>): string {
-  if (state.requestCount > 0 || state.degraded) {
+  if (state.requestCount > 0) {
     return 'animate-pulse text-[color:var(--tone-warn)] motion-reduce:animate-none'
   }
-  if (state.connected || state.serving) return 'text-[color:var(--tone-good)]'
+  if (state.serving) return 'text-[color:var(--tone-good)]'
   return ''
 }

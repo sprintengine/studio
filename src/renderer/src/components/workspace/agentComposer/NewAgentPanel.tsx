@@ -126,7 +126,7 @@ export type NewAgentPanelProps = {
   /**
    * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start the
    * chat on a paired machine instead of this one. Present = the panel offers
-   * the machine dropdown (This Mac first, paired machines after — one
+   * the machine dropdown (This device first, paired machines after — one
    * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
    * routes a remote launch here instead of `onLaunch`.
    */
@@ -296,7 +296,7 @@ const GREETINGS: ReadonlyArray<(name: string | null) => string> = [
 
 // The machine picked last, for THIS session only (never persisted): reopening
 // New chat keeps the target a person just used, while a fresh app start opens
-// on This Mac — a remote is never preselected on first open.
+// on This device — a remote is never preselected on first open.
 let lastPickedMachineId: string | null = null
 
 /** Test seam: forget the session's remembered machine. */
@@ -304,8 +304,8 @@ export function resetRememberedMachineForTests(): void {
   lastPickedMachineId = null
 }
 
-// This Mac first, then paired machines alphabetically — a list that reorders as pairings
-// come and go is one nobody can learn.
+// This device first, then paired machines alphabetically — a list that
+// reorders as pairings come and go is one nobody can learn.
 export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
   return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
 }
@@ -390,7 +390,7 @@ export default function NewAgentPanel({
   const canChooseProject =
     Boolean(onBrowseProject) || Boolean(onSelectProject && projectOptions && projectOptions.length > 0)
   // The machine dimension (remote-sessions-ux / new-chat-on-a-remote-machine).
-  // One dropdown: This Mac is the default entry, paired machines follow. A
+  // One dropdown: This device is the default entry, paired machines follow. A
   // remote target swaps the project choice for the machine's own workspaces
   // (fetched over the audited fleet client) and routes the launch remotely.
   // Terminal and conversation launches are this machine's only — picking
@@ -496,7 +496,7 @@ export default function NewAgentPanel({
   const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {
-      // Back to This Mac with a project in hand: keep it when a local clone
+      // Back to This device with a project in hand: keep it when a local clone
       // of the same repository is open here (changing the machine keeps the
       // project when it exists there); otherwise the line returns
       // to the folder it was scoped to before, as it always did. The folder
@@ -864,7 +864,7 @@ export default function NewAgentPanel({
         showToast({
           tone: 'warn',
           title: 'That launch cannot travel yet',
-          description: `Remove ${stranded.join(', ')} to start on ${remoteTarget.connection.machineName}, or launch on This Mac.`,
+          description: `Remove ${stranded.join(', ')} to start on ${remoteTarget.connection.machineName}, or launch on This device.`,
         })
         return
       }
@@ -1023,9 +1023,9 @@ export default function NewAgentPanel({
               in) still gets the plain line, because there its project is a fact
               rather than a choice. */}
           <div className="mt-1 flex items-center justify-center gap-1.5">
-            {/* One machine dropdown, This Mac first (owner ruling 2026-09-03
+            {/* One machine dropdown, This device first (owner ruling 2026-09-03
                 — no separate Local/Remote switch). Shown whenever a remote
-                launch is possible and a machine is paired; on This Mac the
+                launch is possible and a machine is paired; on This device the
                 line reads exactly as it always did. */}
             {remoteSelectable && remoteMachines.length > 0 ? (
               <MachineScopePicker
@@ -1521,7 +1521,7 @@ function DebugGlyph() {
 
 /**
  * The machine dropdown (remote-sessions-ux / new-chat-on-a-remote-machine):
- * This Mac is the first entry and the default; paired machines follow with
+ * This device is the first entry and the default; paired machines follow with
  * the shared stacked-server mark. One dropdown — the owner rejected a
  * separate Local/Remote switch as redundant.
  */
@@ -1583,13 +1583,13 @@ function MachineScopePicker({
           {...triggerProps}
         >
           {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
-          {selected ? selected.machineName : 'This Mac'}
+          {selected ? selected.machineName : 'This device'}
           <ChevronGlyph />
         </button>
       )}
     >
       {/* The surface is the menu; these are its rows. The leading slot is
-          all-or-nothing per the menu spec, so This Mac renders an empty slot
+          all-or-nothing per the menu spec, so This device renders an empty slot
           the width of the machine glyph rather than sliding its label left. */}
       <button
         type="button"
@@ -1605,7 +1605,7 @@ function MachineScopePicker({
         className={`${MENU_ITEM_CLASS} ${selected === null ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
       >
         <span aria-hidden="true" className="icon-xs shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-left">This Mac</span>
+        <span className="min-w-0 flex-1 truncate text-left">This device</span>
       </button>
       {machines.map((machine) => {
         const state = availabilityOf(machine)
@@ -2098,7 +2098,12 @@ function ProjectScopePicker({
           // A stable hook for the Playwright passes (scripts/testing/
           // newChatWorkspace.mjs), which reach the folder through this control.
           data-project-trigger="true"
-          className={`interactive mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+          // Exactly the machine trigger's box: the scope line is one row of
+          // sibling chips, so a `mt-1` left over from when this was the only
+          // control on its own line pushed it half a step below the machine
+          // dropdown, and a bare `rounded` was an untokenized radius next to
+          // its siblings' control radius.
+          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >
           {label}

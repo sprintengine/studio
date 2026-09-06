@@ -864,6 +864,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           processAlive: record.processAlive === true,
           suspended: record.suspended === true,
           phase: typeof state?.phase === 'string' ? state.phase : null,
+          phaseSince: typeof state?.since === 'number' && Number.isFinite(state.since) ? state.since : null,
           workspaceName: typeof record.workspaceName === 'string' ? record.workspaceName : null,
           git: terminalGitOf(record.git),
         },

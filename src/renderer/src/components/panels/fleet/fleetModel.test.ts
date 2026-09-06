@@ -33,6 +33,7 @@ const terminal: FleetTerminal = {
   processAlive: true,
   suspended: false,
   phase: null,
+  phaseSince: null,
 }
 
 const browse = (over: Partial<FleetBrowse> = {}): FleetBrowse => ({

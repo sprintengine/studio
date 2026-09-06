@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 
-import { checkoutPathFor, sweepEntriesFrom } from './useSidebarGitSummaries'
+import { checkoutPathFor, membershipRow, sweepEntriesFrom } from './useSidebarGitSummaries'
+
+const rows = (...pairs: Array<[string, string]>): string => pairs.map(([id, path]) => membershipRow(id, path)).join('\u0000')
 
 // The sidebar's git poll (the-diff-an-agent-made / branch-scoped-row-diff): the
 // membership string round-trips ids and CHECKOUT paths exactly, and a sweep
@@ -20,7 +22,7 @@ function run(name: string, fn: () => void): void {
 }
 
 run('a sweep is checkout-contiguous and id-ordered within a checkout', () => {
-  const membership = ['w3 /repo/b', 'w1 /repo/a', 'w2 /repo/b', 'w4 /repo/a'].join('\u0000')
+  const membership = rows(['w3', '/repo/b'], ['w1', '/repo/a'], ['w2', '/repo/b'], ['w4', '/repo/a'])
   assert.deepEqual(sweepEntriesFrom(membership), [
     { id: 'w1', checkoutPath: '/repo/a' },
     { id: 'w4', checkoutPath: '/repo/a' },
@@ -30,17 +32,20 @@ run('a sweep is checkout-contiguous and id-ordered within a checkout', () => {
 })
 
 run('a worktree row sweeps under its worktree, not its folder', () => {
-  const membership = ['w1 /repo/main', 'w2 /repo/.worktrees/feat'].join('\u0000')
+  const membership = rows(['w1', '/repo/main'], ['w2', '/repo/.worktrees/feat'])
   assert.deepEqual(sweepEntriesFrom(membership), [
     { id: 'w2', checkoutPath: '/repo/.worktrees/feat' },
     { id: 'w1', checkoutPath: '/repo/main' },
   ])
 })
 
-run('paths with spaces round-trip on the first space only', () => {
-  const membership = ['w1 /Users/me/My Projects/app'].join('\u0000')
+run('paths with spaces round-trip, in the id as much as in the checkout', () => {
+  // The per-terminal lines key their entries on the checkout path itself.
+  const path = '/Users/me/My Projects/app'
+  const membership = rows(['w1', path], [path, path])
   assert.deepEqual(sweepEntriesFrom(membership), [
-    { id: 'w1', checkoutPath: '/Users/me/My Projects/app' },
+    { id: path, checkoutPath: path },
+    { id: 'w1', checkoutPath: path },
   ])
 })
 

@@ -128,6 +128,13 @@ export type FleetTerminal = {
   /** Hook-reported agent phase where the CLI reports one. */
   phase: string | null
   /**
+   * Epoch ms the agent entered `phase` (remote-band-in-the-sidebar): how long
+   * a working row has been working, or an idle one has been idle, the way
+   * the local rows say it. Null when the remote reports no phase, or
+   * predates the field.
+   */
+  phaseSince: number | null
+  /**
    * The remote workspace's display name, as `terminal.list` serves it beside
    * the id (remote-band-in-the-sidebar) — so a pairing granted terminals alone,
    * which may not call `workspace.list`, still has a name for the row. Null on

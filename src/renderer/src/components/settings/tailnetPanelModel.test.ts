@@ -164,7 +164,7 @@ check('a device that has never connected says so rather than showing a blank', (
 check('a device says where it came from, so a test grant an agent left behind is recognisable as one', () => {
   assert.equal(deviceOriginText({ origin: { kind: 'agent', by: 'agent-claude-code-qaOXA0' } }), 'Created by an agent (agent-claude-code-qaOXA0)')
   assert.equal(deviceOriginText({ origin: { kind: 'agent', by: null } }), 'Created by an agent')
-  assert.equal(deviceOriginText({ origin: { kind: 'reverse', by: 'Mac mini' } }), 'Granted when this Mac asked to drive Mac mini')
+  assert.equal(deviceOriginText({ origin: { kind: 'reverse', by: 'Mac mini' } }), 'Granted when this device asked to drive Mac mini')
   assert.equal(deviceOriginText({ origin: { kind: 'unknown', by: null } }), 'Paired before origins were kept')
 })
 

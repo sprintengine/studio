@@ -70,7 +70,7 @@ export function PeerPicker({
         <Checkbox
           checked={reverse}
           onChange={setReverse}
-          label="Also let that machine drive this Mac (workspaces, sprints, backlog — not terminals)"
+          label="Also let that machine drive this device (workspaces, sprints, backlog — not terminals)"
         />
       ) : null}
       {view.emptyMessage ? (

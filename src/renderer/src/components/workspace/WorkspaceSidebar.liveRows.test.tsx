@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 
 // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): the sidebar
-// row's second line — heads · provenance · branch · ±lines — exists only while
+// row's terminal lines — mark · name · branch · ±lines — exist only while
 // the row has an open terminal. Before this, every parked chat on one checkout
 // read the checkout's CURRENT numbers after a restart (ten rows on `multicode`
 // all `+728 −3590`, most of them with no agent alive), because the git poll
@@ -165,8 +165,8 @@ async function main(): Promise<void> {
       act(() => {})
     }
 
-    // The heads' count lives in an aria-label and the branch in a span, so the
-    // row's markup — not its text — is what carries line 2.
+    // The line's mark names its runtime in an aria-label and the branch is a
+    // span, so the row's markup — not its text — is what carries the line.
     const rowMarkup = (name: string): string => {
       const row = [...container.querySelectorAll('[role="treeitem"]')].find((el) => el.textContent?.includes(name))
       assert.ok(row, `a row for ${name}`)
@@ -174,17 +174,17 @@ async function main(): Promise<void> {
     }
 
     const alpha = rowMarkup('Alpha')
-    assert.match(alpha, /aria-label="1 open terminal"/, 'the live row wears its head')
+    assert.match(alpha, /aria-label="Claude Code"/, 'the live row wears its terminal line')
     assert.match(alpha, />main</, 'and its branch')
     assert.match(alpha, /\+728/, 'and the ±lines of the branch it is on')
 
     const bravo = rowMarkup('Bravo')
-    assert.doesNotMatch(bravo, /open terminal/, 'an exited session is not a head')
+    assert.doesNotMatch(bravo, /aria-label="Claude Code"/, 'an exited session is not a line')
     assert.doesNotMatch(bravo, />main</, 'a parked chat on the same checkout shows no branch')
     assert.doesNotMatch(bravo, /728/, 'and never wears the checkout’s current numbers')
 
     const charlie = rowMarkup('Charlie')
-    assert.doesNotMatch(charlie, />main<|728|open terminal/, 'a row that never had a terminal is a one-liner')
+    assert.doesNotMatch(charlie, />main<|728|aria-label="Claude Code"/, 'a row that never had a terminal is a one-liner')
 
     assert.deepEqual(
       [...new Set(summaryRequests)],

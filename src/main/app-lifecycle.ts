@@ -149,7 +149,7 @@ export function registerAppLifecycle({
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(
-        process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.multicode'
+        process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio'
       )
     }
     registerMulticodeProtocol()

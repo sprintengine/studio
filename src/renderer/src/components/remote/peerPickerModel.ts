@@ -112,8 +112,8 @@ export function peerPickerView(input: {
         endpoint,
         connection: null,
         label: peer.online
-          ? `Paired with this Mac as ${device.name}`
-          : `Paired with this Mac as ${device.name} — asleep or off`,
+          ? `Paired with this device as ${device.name}`
+          : `Paired with this device as ${device.name} — asleep or off`,
         tone: peer.online ? 'good' : 'neutral',
       }
     }
@@ -191,8 +191,8 @@ function pairedLabel(reach: FleetMachineReachability | null, now: number): { lab
  */
 export function connectDirectionNote(peerName: string, reverse: boolean): string {
   return reverse
-    ? `Lets this Mac drive ${peerName}, and ${peerName} drive this Mac.`
-    : `Lets this Mac drive ${peerName}.`
+    ? `Lets this device drive ${peerName}, and ${peerName} drive this device.`
+    : `Lets this device drive ${peerName}.`
 }
 
 /** Coarse "2 h ago" for a row's secondary line; the chrome's finer clock is not needed here. */

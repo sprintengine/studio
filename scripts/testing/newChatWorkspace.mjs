@@ -113,13 +113,13 @@ export async function createWorkspaceThroughNewChat(page, { folder, timeout = 30
   // nothing open, or the current project's name. Either way it opens the
   // selector whose sources lead with Browse….
   // A machine remembered from earlier in the session would put the door on
-  // that machine's project list; a pass wants This Mac.
+  // that machine's project list; a pass wants This device.
   const machineTrigger = page.locator('[data-machine-trigger="true"]')
-  if ((await machineTrigger.count()) > 0 && !/^This Mac/.test(((await machineTrigger.first().textContent()) ?? '').trim())) {
+  if ((await machineTrigger.count()) > 0 && !/^This device/.test(((await machineTrigger.first().textContent()) ?? '').trim())) {
     await domClick(machineTrigger)
-    const thisMac = page.getByRole('menuitemradio', { name: /^This Mac/ })
-    await waitForCount(page, thisMac, (n) => n > 0, timeout, 'the machine list')
-    await domClick(thisMac)
+    const thisDevice = page.getByRole('menuitemradio', { name: /^This device/ })
+    await waitForCount(page, thisDevice, (n) => n > 0, timeout, 'the machine list')
+    await domClick(thisDevice)
   }
   const folderName = basename(folder)
   const trigger = page.locator('[data-project-trigger="true"]')

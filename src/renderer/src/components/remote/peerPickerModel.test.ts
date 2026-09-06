@@ -107,8 +107,8 @@ assert.match(String(view(scanOf([peer({ isSelf: true })])).emptyMessage), /only 
 }
 
 // The direction is said before the click, both ways when the reverse half is offered.
-assert.equal(connectDirectionNote('dev-macbook-air', false), 'Lets this Mac drive dev-macbook-air.')
-assert.match(connectDirectionNote('dev-macbook-air', true), /and dev-macbook-air drive this Mac/u)
+assert.equal(connectDirectionNote('dev-macbook-air', false), 'Lets this device drive dev-macbook-air.')
+assert.match(connectDirectionNote('dev-macbook-air', true), /and dev-macbook-air drive this device/u)
 
 assert.equal(ago(NOW - 10_000, NOW), 'just now')
 assert.equal(ago(NOW - 5 * 60_000, NOW), '5 min ago')
@@ -129,7 +129,9 @@ assert.equal(fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ 
 const live = new Map([['pane', { attachId: 'pane', connectionId: 'tnc_1', machineName: 'x', sessionId: 's1', state: 'live' as const, detail: '' }]])
 assert.equal(fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase, 'connected')
 
-assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), 'reachable · checked just now')
+// Owner ruling 2026-09-05: a machine that answers gets no words — the green
+// glyph is the whole message, and when the check ran is not a fact anyone acts on.
+assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), '')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · 2 h')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW), 'not answering · never reached')
 assert.equal(machinePhaseText('air', { phase: 'revoked', detail: 'x' }, NOW), 'revoked there — pair again to reconnect')
@@ -169,7 +171,7 @@ const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
 {
   const [row] = withDevices([phone], [device()]).rows
   assert.equal(row.state, 'device', 'a paired phone is its own state, not no-studio')
-  assert.match(row.label, /Paired with this Mac as Sprint Engine Android/u)
+  assert.match(row.label, /Paired with this device as Sprint Engine Android/u)
   assert.doesNotMatch(row.label, /turn on Remote/u, 'never tell someone to fix a phone')
   assert.equal(row.tone, 'good')
 }

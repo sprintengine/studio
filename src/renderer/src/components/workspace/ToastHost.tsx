@@ -80,7 +80,7 @@ export const LISTENER_TOAST_ID = 'tailnet-listener'
  *
  * Quitting Tailscale stands the listener down (tailnet-service's interface
  * heartbeat), and until now the only way to learn that was to open the Remote
- * glyph — a phone would just stop being able to reach this Mac. Warn, so it
+ * glyph — a phone would just stop being able to reach this device. Warn, so it
  * persists, and RETRACTED the moment the listener binds again, with the
  * recovery announced only if a loss was: the fleet bridge's rule, for the same
  * reason.
@@ -187,7 +187,7 @@ function useFleetToastBridge(): void {
           showToast({
             id: toastId,
             tone: 'warn',
-            title: `${event.machineName} revoked this Mac`,
+            title: `${event.machineName} revoked this device`,
             description: 'Its pairing was taken back over there. Pair again from the Fleet when you want it back.',
           })
         } else if (event.reachable && revokedConnections.current.delete(event.connectionId)) {
