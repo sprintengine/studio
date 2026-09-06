@@ -1809,6 +1809,9 @@ async function disposeAllTerminals(): Promise<void> {
     }
   }
 
+  // The sidecars are queued writes now, not synchronous ones; the quit path
+  // is the one place they must have landed before the process goes.
+  await snapshotSidecars?.flush()
   const settled = await Promise.all(sessions.map((session) => waitForTerminalExit(session, 1_500)))
   sessions.forEach((session, index) => {
     if (!settled[index] && !session.hasExited && !session.isDisposed) {
