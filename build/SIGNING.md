@@ -36,23 +36,35 @@ the `Package app` step. It is tempting to add them ahead of time so that signing
 This was tried during the 0.2.0 release and reverted. Add the env block below in
 the **same commit** as the secrets, never before.
 
+**`CSC_LINK` is NOT mac-only.** `getCscLink` in
+`app-builder-lib/out/platformPackager.js` resolves the Windows certificate as
+`WIN_CSC_LINK ?? CSC_LINK`, so a `CSC_LINK` set on every matrix job hands the
+macOS Developer ID `.p12` to the Windows job, which then fails trying to
+Authenticode-sign with it. Scope the signing variables to the runner that needs
+them by splitting the step, rather than setting them globally:
+
 ```yaml
-      - name: Package app
+      - name: Package app (macOS — signed and notarized)
+        if: runner.os == 'macOS'
         run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Package app (Windows and Linux)
+        if: runner.os != 'macOS'
+        run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 ```
 
-If only macOS certificates are ready, add only the `CSC_*` and `APPLE_*` lines;
-leaving `WIN_CSC_LINK` in with no Windows secret will break the Windows job the
-same way.
+When Windows signing arrives, add `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` (or
+the `AZURE_*` set) to the second step only — never to the first, and never
+globally.
 
 ## Turning signing on
 
