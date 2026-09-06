@@ -179,7 +179,9 @@ function pairedLabel(reach: FleetMachineReachability | null, now: number): { lab
   if (!reach || reach.checkedAt === null) return { label: 'Paired', tone: 'neutral' }
   if (reach.unauthorized) return { label: 'Paired here, but revoked there — pair again', tone: 'error' }
   if (reach.reachable) return { label: 'Paired · reachable', tone: 'good' }
-  return { label: `Paired · not answering${reach.lastReachedAt ? ` · last reached ${ago(reach.lastReachedAt, now)}` : ''}`, tone: 'neutral' }
+  // How long it has been silent, in the same words the Remote popover's rows
+  // use (owner ruling 2026-09-05): one vocabulary for one fact.
+  return { label: `Paired · not answering${reach.lastReachedAt ? ` · ${since(reach.lastReachedAt, now)}` : ''}`, tone: 'neutral' }
 }
 
 /**
@@ -194,6 +196,23 @@ export function connectDirectionNote(peerName: string, reverse: boolean): string
 }
 
 /** Coarse "2 h ago" for a row's secondary line; the chrome's finer clock is not needed here. */
+/**
+ * How long something has been true, without the "ago" — "8 min", "2 h". A row
+ * that already says what the state IS ("not answering") wants the duration of
+ * that state, not a second sentence about when it last was not (owner ruling
+ * 2026-09-05).
+ */
+export function since(thenMs: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((nowMs - thenMs) / 1000))
+  if (seconds < 60) return 'under a min'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h`
+  const days = Math.round(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'}`
+}
+
 export function ago(thenMs: number, nowMs: number): string {
   const seconds = Math.max(0, Math.round((nowMs - thenMs) / 1000))
   if (seconds < 45) return 'just now'

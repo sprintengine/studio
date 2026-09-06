@@ -232,6 +232,12 @@ function click(element: Element | null): void {
 function buttonNamed(mounted: HTMLElement, text: RegExp): HTMLButtonElement | null {
   return [...mounted.querySelectorAll('button')].find((button) => text.test(button.textContent ?? '')) ?? null
 }
+/** The row actions are glyphs now: they are addressed by their accessible name. */
+function buttonLabelled(mounted: HTMLElement, label: RegExp): HTMLButtonElement | null {
+  return (
+    [...mounted.querySelectorAll('button')].find((button) => label.test(button.getAttribute('aria-label') ?? '')) ?? null
+  )
+}
 async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
@@ -435,7 +441,7 @@ run('the popover lists the driving device and the machines — no addresses anyw
     /--tone-good/,
     'and it is green'
   )
-  assert.match(markup, /Revoke/)
+  assert.ok(buttonLabelled(mounted, /^Revoke Sprint Engine Android$/), 'a red X revokes the device — the word is in its name and tooltip')
   // The card: the proven node and the declared name, each labelled.
   assert.match(markup, /dev-macbook-air/)
   assert.match(markup, /asks to pair/)
@@ -555,24 +561,24 @@ run('Revoke is busy while pending, and a failure lands as an error toast', async
   })
   bridge.revokeCalls.length = 0
   const mounted = mount(popover(presence({ live: { revision: 1, devices: [device()] } })))
-  const revoke = buttonNamed(mounted, /^Revoke/)
+  const revoke = buttonLabelled(mounted, /^Revoke/)
   assert.ok(revoke && !revoke.disabled)
   click(revoke)
   assert.deepEqual(bridge.revokeCalls, ['d1'])
-  assert.ok(buttonNamed(mounted, /Revoking…/)?.disabled, 'busy and disabled while main answers')
+  assert.ok(buttonLabelled(mounted, /^Revoke/)?.disabled, 'busy and disabled while main answers')
   // A second click while pending must not fire a second revoke.
-  click(buttonNamed(mounted, /Revoking…/))
+  click(buttonLabelled(mounted, /^Revoke/))
   assert.deepEqual(bridge.revokeCalls, ['d1'])
   await act(async () => {
     bridge.revokeResolve?.()
     await Promise.resolve()
   })
   await flush()
-  assert.ok(buttonNamed(mounted, /^Revoke$/) && !buttonNamed(mounted, /^Revoke$/)?.disabled, 'idle again')
+  assert.ok(buttonLabelled(mounted, /^Revoke/) && !buttonLabelled(mounted, /^Revoke/)?.disabled, 'idle again')
   assert.equal(useToastStore.getState().toasts.length, 0, 'success is quiet — the push channel removes the row')
 
   bridge.revokeFail = new Error('IPC went away')
-  click(buttonNamed(mounted, /^Revoke$/))
+  click(buttonLabelled(mounted, /^Revoke/))
   await flush()
   const toast = useToastStore.getState().toasts[0]
   assert.equal(toast?.tone, 'error')
@@ -649,7 +655,7 @@ run('a paired machine can be dropped from here, and the half only they can do is
   })
   bridge.forgetCalls.length = 0
   const mounted = mount(popover(presence({ fleet: [connection()] })))
-  click(buttonNamed(mounted, /^Disconnect/))
+  click(buttonLabelled(mounted, /^Remove Conal’s MacBook Air/))
   await flush()
   assert.deepEqual(bridge.forgetCalls, ['conn-1'])
   const toast = useToastStore.getState().toasts[0]
@@ -752,10 +758,11 @@ run('machine rows read main’s reachability when no pane is open: reachable, no
   const markup = mounted.innerHTML
   assert.match(markup, /reachable · checked just now/)
   assert.match(markup, /aria-label="Reachable"/)
-  assert.match(markup, /not answering · last reached 2 h ago/)
+  assert.match(markup, /not answering · 2 h/, 'how long it has been silent — not a second clause about when it last was not')
+  assert.doesNotMatch(markup, /last reached/)
   assert.match(markup, /revoked there — pair again to reconnect/)
   assert.match(markup, /aria-label="Revoked there"/)
-  click(buttonNamed(mounted, /^Retry/))
+  click(buttonLabelled(mounted, /^Check whether Studio is answering$/))
   await flush()
   assert.deepEqual(bridge.reachabilityCalls, ['conn-2'], 'Retry re-checks that one machine')
   click(buttonNamed(mounted, /Pair again/))

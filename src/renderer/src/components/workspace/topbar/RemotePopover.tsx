@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { GhostButton, OutlineButton, PanelHeader, StatusDot, Tooltip } from '../../ui'
+import { CloseIconButton, GhostButton, IconButton, OutlineButton, PanelHeader, RefreshIcon, StatusDot, Tooltip } from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useTerminalSessions } from '../../../hooks/useTerminalSessions'
@@ -189,10 +189,21 @@ function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: n
             <span className="truncate">{deviceLivenessText(device, now)}</span>
           </span>
         </span>
-        <Tooltip content={`Disconnect ${shortMachineName(device.deviceName)} and take back its pairing`} placement="left">
-          <GhostButton size="xs" tone="danger" disabled={revoking} onClick={() => void revoke()}>
-            {revoking ? 'Revoking…' : 'Revoke'}
-          </GhostButton>
+        {/* A glyph, not a word (owner ruling 2026-09-05): the row is narrow,
+            the actions are the same two everywhere, and a red X is read faster
+            than "Revoke" — the tooltip and the accessible name carry what it
+            does and to whom. */}
+        <Tooltip
+          content={`Revoke ${shortMachineName(device.deviceName)} — it must pair again to come back`}
+          placement="left"
+          wrapperClassName="shrink-0"
+        >
+          <CloseIconButton
+            tone="danger"
+            aria-label={`Revoke ${device.deviceName}`}
+            disabled={revoking}
+            onClick={() => void revoke()}
+          />
         </Tooltip>
       </div>
       {device.attachedTerminalSessions.map((sessionId) => (
@@ -326,8 +337,11 @@ function MachineRow({
     <div className="flex items-center gap-2 px-2.5 py-1.5 text-meta" data-machine-phase={phase.phase}>
       {/* One glyph vocabulary for anything remote (epic decision 7). */}
       <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--text-subtle)]" />
-      <Tooltip content={connection.machineName} placement="bottom">
-        <span className="min-w-0 flex-1">
+      {/* The name column is what gives way when the row is tight: the tooltip's
+          own wrapper is the flex child, so it carries the shrink (its actions
+          were being clipped off the right edge without it). */}
+      <Tooltip content={connection.machineName} placement="bottom" wrapperClassName="min-w-0 flex-1">
+        <span className="block min-w-0">
           <span className="block truncate font-medium text-[color:var(--text-default)]">{name}</span>
           <span className="flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
             <StatusDot tone={dot.tone} pulse={dot.pulse} label={dot.label} />
@@ -335,23 +349,39 @@ function MachineRow({
           </span>
         </span>
       </Tooltip>
+      {/* Glyphs, not words: the check is the canonical refresh mark and the
+          removal a red X, so three machines in a 360px popover keep their
+          names instead of losing them to two buttons. "Pair again" stays a
+          word — it is a different, rarer act than re-checking, and no glyph
+          says it. */}
       {action === 'retry' ? (
-        <Tooltip content={`Check whether ${name} is answering`} placement="bottom">
-          <GhostButton size="xs" onClick={() => void retry()} disabled={retrying}>
-            {retrying ? 'Checking…' : 'Retry'}
-          </GhostButton>
+        <Tooltip
+          content={retrying ? `Checking ${name}…` : `Check whether ${name} is answering`}
+          placement="bottom"
+          wrapperClassName="shrink-0"
+        >
+          <IconButton
+            aria-label={`Check whether ${name} is answering`}
+            onClick={() => void retry()}
+            disabled={retrying}
+          >
+            <RefreshIcon />
+          </IconButton>
         </Tooltip>
       ) : action === 'pair-again' ? (
-        <Tooltip content={`${name} took back its pairing — ask it again`} placement="bottom">
+        <Tooltip content={`${name} took back its pairing — ask it again`} placement="bottom" wrapperClassName="shrink-0">
           <OutlineButton size="xs" onClick={onPairAgain}>
             Pair again
           </OutlineButton>
         </Tooltip>
       ) : null}
-      <Tooltip content={`Remove ${name} from this Mac`} placement="left">
-        <GhostButton size="xs" tone="danger" disabled={forgetting} onClick={() => void disconnect()}>
-          {forgetting ? 'Disconnecting…' : 'Disconnect'}
-        </GhostButton>
+      <Tooltip content={`Remove ${name} from this Mac`} placement="left" wrapperClassName="shrink-0">
+        <CloseIconButton
+          tone="danger"
+          aria-label={`Remove ${name} from this Mac`}
+          disabled={forgetting}
+          onClick={() => void disconnect()}
+        />
       </Tooltip>
     </div>
   )

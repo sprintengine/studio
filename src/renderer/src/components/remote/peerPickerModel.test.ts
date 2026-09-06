@@ -76,7 +76,7 @@ assert.match(String(view(scanOf([peer({ isSelf: true })])).emptyMessage), /only 
   assert.equal(paired.connection?.id, 'tnc_1')
   assert.match(paired.label, /Paired · reachable/u)
   const asleep = view(scanOf([peer()]), [connection], new Map([['tnc_1', reach({ reachable: false, lastReachedAt: NOW - 2 * 3_600_000 })]])).rows[0]
-  assert.match(asleep.label, /not answering · last reached 2 h ago/u)
+  assert.match(asleep.label, /not answering · 2 h/u)
   const revoked = view(scanOf([peer()]), [connection], new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).rows[0]
   assert.match(revoked.label, /revoked there — pair again/u)
   assert.equal(revoked.tone, 'error')
@@ -130,7 +130,7 @@ const live = new Map([['pane', { attachId: 'pane', connectionId: 'tnc_1', machin
 assert.equal(fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase, 'connected')
 
 assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), 'reachable · checked just now')
-assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · last reached 2 h ago')
+assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · 2 h')
 assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW), 'not answering · never reached')
 assert.equal(machinePhaseText('air', { phase: 'revoked', detail: 'x' }, NOW), 'revoked there — pair again to reconnect')
 

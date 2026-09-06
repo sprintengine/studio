@@ -1,6 +1,6 @@
 import type { FleetLiveAttachment, FleetLinkState, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
 import type { StatusTone } from '../ui/tokens'
-import { ago } from './peerPickerModel'
+import { ago, since } from './peerPickerModel'
 
 // A paired machine's row, wherever one is drawn (the Remote popover, the
 // Fleet, Settings): its phase from the links this app holds to it, and —
@@ -72,7 +72,10 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
     case 'reachable':
       return `reachable · checked ${ago(phase.checkedAt, now)}`
     case 'unreachable':
-      return phase.lastReachedAt ? `not answering · last reached ${ago(phase.lastReachedAt, now)}` : 'not answering · never reached'
+      // How long it has been silent, not a second clause about when it last
+      // was not: the state is already named, and the row has a Retry and a
+      // Disconnect to fit beside it.
+      return phase.lastReachedAt ? `not answering · ${since(phase.lastReachedAt, now)}` : 'not answering · never reached'
     case 'revoked':
       return 'revoked there — pair again to reconnect'
   }
