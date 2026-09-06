@@ -11,6 +11,7 @@ import React from 'react'
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import {
   SOURCE_SHAPE_LABEL,
+  unreadPluginReason,
   type ScannedPlugin,
   type SkillHarness,
   type SkillSource,
@@ -158,7 +159,11 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
             </dl>
           ) : (
             <p className="text-meta text-[color:var(--text-muted)]">
-              {props.reading ? 'Reading…' : 'Not read yet. Its components are unknown until its repository is read.'}
+              {props.reading
+                ? 'Reading…'
+                : unreadPluginReason(plugin) === 'unopened'
+                  ? 'Not read yet. Its components are unknown until its repository is read.'
+                  : 'This source lists more plugins than one scan reads, and this one was past the limit. Its components are unknown, and opening it reads nothing — Sync the source when it has fewer.'}
             </p>
           )}
         </Section>

@@ -33,6 +33,11 @@ export type SkillSourcesState = {
   refreshSources: () => void
   /** Re-read one source's scan (after Sync, or to retry a failed read). */
   refreshScan: (sourceId: string) => void
+  /**
+   * Read this source's scan if nothing has asked for it yet — what a catalogue
+   * calls for the tab it is showing. A source already in hand costs nothing.
+   */
+  ensureScan: (sourceId: string) => void
   /** Re-read the workspace's installed skills (after an install). */
   refreshInstalled: () => void
   /** Take a synced source's refreshed scan, which sync already returned. */
@@ -53,6 +58,12 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
   // Scans already requested, so a source-list refresh does not re-fetch every
   // scan it already holds. Keyed by source id; cleared per source on refresh.
   const requestedScans = useRef<Set<string>>(new Set())
+  // The first scan of a repository is a network read — a tree listing and a
+  // file read per plugin — so at most one runs at a time, and the one waiting
+  // is whichever tab is being looked at NOW. Moving on before it starts drops
+  // it: nobody is owed a scan of a tab they walked away from.
+  const remoteScanInFlight = useRef<string | null>(null)
+  const remoteScanWanted = useRef<string | null>(null)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -61,11 +72,11 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
     }
   }, [])
 
-  const loadScan = useCallback((sourceId: string) => {
-    if (typeof window.api.skillsGetScan !== 'function') return
+  const loadScan = useCallback((sourceId: string): Promise<void> => {
+    if (typeof window.api.skillsGetScan !== 'function') return Promise.resolve()
     requestedScans.current.add(sourceId)
     setScans((current) => ({ ...current, [sourceId]: { status: 'loading' } }))
-    void window.api
+    return window.api
       .skillsGetScan({ sourceId })
       .then((result) => {
         if (!mounted.current) return
@@ -81,6 +92,34 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
         setScans((current) => ({ ...current, [sourceId]: { status: 'error', message: describe(error) } }))
       })
   }, [])
+
+  /**
+   * Start the one queued repository scan, if a tab is still waiting on one.
+   * Serial rather than parallel: each is a tree call plus a file read per
+   * plugin, and four tabs clicked through in four seconds must not be four of
+   * those at once.
+   */
+  const drainRemoteScan = useCallback(() => {
+    if (remoteScanInFlight.current !== null) return
+    const next = remoteScanWanted.current
+    remoteScanWanted.current = null
+    if (next === null || requestedScans.current.has(next)) return
+    remoteScanInFlight.current = next
+    void loadScan(next).finally(() => {
+      remoteScanInFlight.current = null
+      if (mounted.current) drainRemoteScan()
+    })
+  }, [loadScan])
+
+  const ensureScan = useCallback(
+    (sourceId: string) => {
+      if (sourceId === '' || requestedScans.current.has(sourceId)) return
+      if (remoteScanInFlight.current === sourceId) return
+      remoteScanWanted.current = sourceId
+      drainRemoteScan()
+    },
+    [drainRemoteScan],
+  )
 
   useEffect(() => {
     if (typeof window.api.skillsListSources !== 'function') {
@@ -99,7 +138,15 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
         setSources(result.sources)
         setSourcesLoad({ status: 'ready' })
         for (const source of result.sources) {
-          if (!requestedScans.current.has(source.id)) loadScan(source.id)
+          if (requestedScans.current.has(source.id)) continue
+          // Everything the app can answer from disk is read now: the bundled
+          // sources, a folder, and a repository whose scan is already cached.
+          // A repository nobody has scanned yet is NOT — reading it means a
+          // tree call and hundreds of file reads against an anonymous GitHub
+          // budget, and until the official marketplace became a source every
+          // install has, that could only happen for a repository someone had
+          // just chosen. It waits for the tab that shows it (`ensureScan`).
+          if (source.kind !== 'github' || source.scannedAt !== '') void loadScan(source.id)
         }
       })
       .catch((error: unknown) => {
@@ -205,7 +252,9 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
 
   const refreshScan = useCallback(
     (sourceId: string) => {
-      loadScan(sourceId)
+      // An explicit re-read — Sync, or Try again on a failed one — so it does
+      // not wait behind the queue the tab-driven reads share.
+      void loadScan(sourceId)
     },
     [loadScan],
   )
@@ -236,6 +285,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       installedPluginsRead,
       refreshSources,
       refreshScan,
+      ensureScan,
       refreshInstalled,
       applySync,
     }),
@@ -249,6 +299,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       installedPluginsRead,
       refreshSources,
       refreshScan,
+      ensureScan,
       refreshInstalled,
       applySync,
     ],

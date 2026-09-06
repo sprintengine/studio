@@ -15,7 +15,7 @@
 // Reading a skill is unchanged: the row opens `SkillPage` in the detail pane
 // beside the list, which is where Install lives for the skill in hand.
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner, StatusDot, TruncatedText } from '../../../../ui'
@@ -106,6 +106,14 @@ export function SkillsCatalogue({
   const activeSource = tabs.find((tab) => tab.id === tabId)?.source ?? null
   const activeScan = activeSource ? sources.scans[activeSource.id] : undefined
   const scan = activeScan && activeScan.status === 'ready' ? activeScan.scan : null
+
+  // The tab being looked at is the one whose source is read. A repository that
+  // has never been scanned is a network read, so it waits for this rather than
+  // firing on mount for every source in the list (useSkillSources).
+  const ensureScan = sources.ensureScan
+  useEffect(() => {
+    if (activeSource) ensureScan(activeSource.id)
+  }, [activeSource, ensureScan])
 
   const installSkill = useCallback(
     async (source: SkillSource, skillId: string): Promise<void> => {

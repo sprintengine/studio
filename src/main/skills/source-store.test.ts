@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+  sourceHasUpdate,
   OFFICIAL_PLUGINS_SKILL_SOURCE_NAME,
   type ScanResult,
   type SkillSource,
@@ -203,6 +204,44 @@ async function main(): Promise<void> {
       1,
       'and a refused removal leaves its scan alone',
     )
+  })
+
+  await run('a stored record that does not match the always-present source is not trusted', async () => {
+    // `isPersistableSource` validates an id, a name and a kind, and nothing
+    // else, so everything `withPersistedScanState` copies arrives as `unknown`
+    // wearing a type. A record filed under the always-present id with another
+    // kind — a hand edit, or a store written by a build that put a different
+    // source there — used to pass its fields straight through, and a
+    // `commitSha` of undefined reaches a plugin's "Open on GitHub" as
+    // `/tree/undefined/…`.
+    const wrongKind = parseSkillSourceState(
+      JSON.stringify({
+        sources: [
+          { id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'local', name: 'x', path: '/tmp/x' },
+        ],
+        scans: {},
+        adoptedLegacyPacks: false,
+      }),
+    )
+    assert.deepEqual(wrongKind.sources, [], 'a kind that is not the always-present source’s is not that source')
+
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+    writeFileSync(
+      join(dir, 'skill-sources.json'),
+      JSON.stringify({
+        // A github record under the right id, but with the two scan fields
+        // missing altogether.
+        sources: [{ id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'github', name: 'x', repo: 'anthropics/claude-plugins-official' }],
+        scans: {},
+        adoptedLegacyPacks: false,
+      }),
+    )
+    const store = createSkillSourceStore(dir)
+    const read = await store.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
+    assert.equal(read?.commitSha, '', 'a missing commit reads as none, never as undefined')
+    assert.equal(read?.scannedAt, '')
+    assert.equal('headSha' in (read ?? {}), false, 'and a head nobody resolved is absent rather than undefined')
+    assert.equal(sourceHasUpdate(read as SkillSource), false)
   })
 
   await run('a bundled source that ships with the app persists nothing', async () => {

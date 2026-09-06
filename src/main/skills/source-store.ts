@@ -80,8 +80,15 @@ export function isRemovableSkillSource(id: string): boolean {
  * re-read from disk each launch, so nothing about them is worth persisting and
  * a stored copy would only be a stale name waiting to overrule this build's.
  */
-function isCachedAlwaysPresentSource(id: string): boolean {
-  return ALWAYS_PRESENT_SKILL_SOURCES.some((source) => source.id === id && source.kind === 'github')
+function isCachedAlwaysPresentSource(stored: SkillSource): boolean {
+  return ALWAYS_PRESENT_SKILL_SOURCES.some(
+    // The STORED record's kind has to match too, not just this build's. A
+    // record filed under the always-present id with some other kind — a hand
+    // edit, or a store written by a build that placed a different source
+    // there — used to survive this filter and then hand its fields to
+    // `withPersistedScanState`, which trusted them.
+    (always) => always.id === stored.id && always.kind === 'github' && stored.kind === always.kind
+  )
 }
 
 /**
@@ -91,13 +98,18 @@ function isCachedAlwaysPresentSource(id: string): boolean {
  * ("claude-plugins-official"), and this source is called Anthropic.
  */
 function withPersistedScanState(always: SkillSource, stored: SkillSource | undefined): SkillSource {
-  if (!stored) return always
+  // Each field is checked rather than copied: `isPersistableSource` validates
+  // an id, a name and a kind, and nothing else, so every one of these four
+  // arrives as `unknown` wearing a type. A `commitSha` of undefined reaches a
+  // plugin's "Open on GitHub" as `/tree/undefined/…`.
+  if (!stored || stored.kind !== always.kind) return always
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '')
   return {
     ...always,
-    commitSha: stored.commitSha,
-    scannedAt: stored.scannedAt,
-    headSha: stored.headSha,
-    headCheckedAt: stored.headCheckedAt,
+    commitSha: text(stored.commitSha),
+    scannedAt: text(stored.scannedAt),
+    ...(typeof stored.headSha === 'string' ? { headSha: stored.headSha } : {}),
+    ...(typeof stored.headCheckedAt === 'string' ? { headCheckedAt: stored.headCheckedAt } : {}),
   }
 }
 
@@ -220,7 +232,7 @@ export function parseSkillSourceState(raw: string): PersistedState {
   const sources = Array.isArray(record.sources)
     ? record.sources
         .filter(isPersistableSource)
-        .filter((source) => isRemovableSkillSource(source.id) || isCachedAlwaysPresentSource(source.id))
+        .filter((source) => isRemovableSkillSource(source.id) || isCachedAlwaysPresentSource(source))
     : []
   // A scan is only ever a cache of a source in the list beside it, so a key
   // naming a source this read dropped is dead weight that the next write would

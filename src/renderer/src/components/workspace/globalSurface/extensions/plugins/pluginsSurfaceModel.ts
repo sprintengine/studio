@@ -104,12 +104,23 @@ export function findInstalledRecord(
    */
   aliases: readonly string[] = [],
 ): InstalledPluginRecord | null {
-  const names = aliases.includes(plugin.id) ? aliases : [plugin.id, ...aliases]
-  const own = records.find((record) => record.sourceId === sourceId && names.includes(record.pluginId))
+  // An exact id beats an alias, across ALL the records — not whichever comes
+  // first in the list. Scanning the records once and asking "is this any of my
+  // names" let a receipt for an old name outrank the receipt written under the
+  // name the plugin goes by now, which is the wrong plugin's receipt whenever
+  // both are installed.
+  const older = aliases.filter((name) => name !== plugin.id)
+  const own =
+    records.find((record) => record.sourceId === sourceId && record.pluginId === plugin.id)
+    ?? records.find((record) => record.sourceId === sourceId && older.includes(record.pluginId))
   if (own) return own
   if (marketplaceName === '') return null
-  const keys = names.map((name) => `${name}@${marketplaceName}`)
-  return records.find((record) => keys.includes(record.claudePluginKey)) ?? null
+  const key = `${plugin.id}@${marketplaceName}`
+  return (
+    records.find((record) => record.claudePluginKey === key)
+    ?? records.find((record) => older.some((name) => record.claudePluginKey === `${name}@${marketplaceName}`))
+    ?? null
+  )
 }
 
 export function derivePluginInstallState(

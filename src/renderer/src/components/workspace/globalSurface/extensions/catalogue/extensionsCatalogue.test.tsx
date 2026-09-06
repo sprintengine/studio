@@ -70,9 +70,14 @@ const ACME_SOURCE: SkillSource = {
   repo: 'acme/skills',
   monogram: 'AS',
   blurb: 'Skills from acme.',
-  commitSha: 'abc1234',
-  scannedAt: '2026-09-01T10:00:00.000Z',
+  commitSha: '',
+  // Never scanned: reading it is a tree call plus a file read per plugin, so
+  // it must wait for the tab that shows it (the lazy-scan rule below).
+  scannedAt: '',
 }
+
+/** Every source `skillsGetScan` was asked for, in order. */
+const scanCalls: string[] = []
 
 /** 30 skills in three folders, so the source needs three pages of twelve. */
 const ACME_SCAN: ScanResult = {
@@ -174,14 +179,16 @@ const api: Record<string, unknown> = {
     },
   }),
   skillsListSources: async () => ({ ok: true, sources: [APP_SOURCE, ACME_SOURCE] }),
-  skillsGetScan: async ({ sourceId }: { sourceId: string }) =>
+  skillsGetScan: async ({ sourceId }: { sourceId: string }) => (
+    scanCalls.push(sourceId),
     sourceId === 'builtin'
       ? {
           ok: true,
           source: APP_SOURCE,
           scan: { skills: [], groups: [], groupingSignal: 'none', fileCount: 0, commitSha: '' },
         }
-      : { ok: true, source: ACME_SOURCE, scan: ACME_SCAN },
+      : { ok: true, source: ACME_SOURCE, scan: ACME_SCAN }
+  ),
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),
   listThirdPartyModules: async () => ({ modules: [], rejected: [] }),
@@ -298,12 +305,30 @@ async function main(): Promise<void> {
     assert.equal(/Show \d+ more/.test(text()), false, 'and so is "Show N more"')
   })
 
+  await run('a repository nobody has scanned is not read until its tab is opened', () => {
+    // Opening the Extensions door used to fire a full scan of every source in
+    // the list — for the official marketplace that is a tree call and hundreds
+    // of file reads against an anonymous GitHub budget, spent for someone who
+    // came to look at Skills. The sources the app can answer from disk are
+    // still read on mount.
+    assert.ok(scanCalls.includes('builtin'), 'a bundled source costs nothing and is read now')
+    assert.equal(
+      scanCalls.includes(ACME_SOURCE.id),
+      false,
+      'an unscanned repository waits for the tab that shows it',
+    )
+  })
+
   // ── A source's head line on Plugins names both populations ──────────────────
 
   await act(async () => {
     tabNamed('acme/skills')?.click()
   })
   await settle()
+
+  await run('and it is read as soon as that tab is the one being looked at', () => {
+    assert.equal(scanCalls.filter((id) => id === ACME_SOURCE.id).length, 1, 'once, not once per render')
+  })
 
   await run('the Plugins head line names plugins and skills separately', () => {
     // "30 listings" was one number over two populations, and a listing is not a

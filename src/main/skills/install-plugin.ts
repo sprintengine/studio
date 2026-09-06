@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path'
 
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
 import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
-import type { ScannedPlugin, ScannedSkill, SkillFileRef } from '../../shared/skills'
+import { unreadPluginReason, type ScannedPlugin, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
 
 // The mapping is shared with the renderer's own "Add this server" row, so both
@@ -83,7 +83,17 @@ export type PluginInstallResult =
 export async function installPlugin(options: PluginInstallOptions): Promise<PluginInstallResult> {
   const { plugin } = options
   if (!plugin.componentsKnown) {
-    return { ok: false, message: `${plugin.name} has not been read yet. Open it so its contents can be read, then install.` }
+    // Two different dead ends, and only one of them is the person's to clear:
+    // a linked plugin is read by opening it, while one past the scan's plugin
+    // limit is not read by anything the surface offers. Telling the second to
+    // "open it" sent people to a button that changed nothing.
+    return {
+      ok: false,
+      message:
+        unreadPluginReason(plugin) === 'unopened'
+          ? `${plugin.name} has not been read yet. Open it so its contents can be read, then install.`
+          : `${plugin.name} was not read: this source lists more plugins than one scan reads, and this one was past the limit. Its contents are unknown, so it cannot be installed.`,
+    }
   }
   const outcomes: PluginInstallHarnessOutcome[] = []
   const warnings: string[] = []

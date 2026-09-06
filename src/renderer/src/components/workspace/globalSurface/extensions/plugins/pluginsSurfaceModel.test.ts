@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import {
+  describePluginComponents,
   emptyPluginComponents,
+  unreadPluginReason,
   type ScanResult,
   type ScannedPlugin,
   type ScannedSkill,
@@ -14,6 +16,7 @@ import {
   derivePluginRows,
   derivePluginsKindStateLine,
   describeInstallPlan,
+  findInstalledRecord,
   findPlugin,
   pluginCountLine,
   pluginExternalUrl,
@@ -184,6 +187,55 @@ run('a plugin the marketplace renamed is still the one you installed', () => {
   // unrelated.
   const unmapped = scanOf([plugin('agentforce-adlc')])
   assert.equal(derivePluginRows({ source: SOURCE, scan: unmapped, installed: [before], query: '' })[0].install.kind, 'not-installed')
+})
+
+run('an exact id beats an alias, whichever receipt comes first', () => {
+  // Both names installed, and the alias receipt written first. Matching on
+  // "is this record any of my names" hands the same receipt to both rows, and
+  // uninstalling one then deletes the other's.
+  const aliasFirst = [
+    record({ pluginId: 'adlc', pluginName: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' }),
+    record({ pluginId: 'agentforce-adlc', pluginName: 'agentforce-adlc', claudePluginKey: 'agentforce-adlc@claude-plugins-official' }),
+  ]
+  const found = findInstalledRecord(aliasFirst, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', [
+    'agentforce-adlc',
+    'adlc',
+  ])
+  assert.equal(found?.pluginId, 'agentforce-adlc', 'its own receipt, not the one that happens to be first')
+
+  // The alias is still the fallback when the plugin has no receipt of its own.
+  const aliasOnly = [record({ pluginId: 'adlc', pluginName: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' })]
+  assert.equal(
+    findInstalledRecord(aliasOnly, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', ['agentforce-adlc', 'adlc'])?.pluginId,
+    'adlc',
+  )
+
+  // The same order rule for a hand-enabled Claude key.
+  const keys = [
+    record({ sourceId: '', commitSha: '', pluginId: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' }),
+    record({ sourceId: '', commitSha: '', pluginId: 'agentforce-adlc', claudePluginKey: 'agentforce-adlc@claude-plugins-official' }),
+  ]
+  assert.equal(
+    findInstalledRecord(keys, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', ['agentforce-adlc', 'adlc'])?.claudePluginKey,
+    'agentforce-adlc@claude-plugins-official',
+  )
+})
+
+run('a plugin past the scan’s limit says so, rather than promising a read', () => {
+  // An in-tree plugin the scan skipped has no repository to fetch: opening it
+  // reads nothing. Saying "Read when opened" sent a person to a button that
+  // could not work, and left Install refusing with no reason given.
+  const overCap = plugin('p999', { componentsKnown: false })
+  assert.equal(unreadPluginReason(overCap), 'over-scan-limit')
+  assert.equal(describePluginComponents(overCap), 'Not read by this scan')
+
+  const linked = plugin('42crunch', {
+    componentsKnown: false,
+    origin: { kind: 'linked', repo: 'o/r', ref: '', sha: 'abc', path: '', url: 'https://github.com/o/r' },
+  })
+  assert.equal(unreadPluginReason(linked), 'unopened')
+  assert.equal(describePluginComponents(linked), 'Read when opened', 'a linked plugin still promises the read it can do')
+  assert.equal(unreadPluginReason(plugin('read')), 'read')
 })
 
 run('the install plan says per harness what will land, before it does', () => {

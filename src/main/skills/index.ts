@@ -15,6 +15,8 @@ import {
   LOCAL_SKILL_SOURCE_ID_PREFIX,
   localSourceFolderName,
   parseSkillFrontmatter,
+  pluginAliases,
+  scanPluginRenames,
   scanPlugins,
   SKILL_ENTRY_FILE,
   skillSourceMonogram,
@@ -648,6 +650,13 @@ export function createSkillsService(
       commitSha,
       installedAt: new Date().toISOString(),
     })
+    // The receipt just written names the plugin as the marketplace lists it
+    // NOW. A receipt under a name it was renamed from is the same install, and
+    // leaving it beside the new one lists the plugin twice under Installed and
+    // leaves an uninstall that removes only half of it.
+    for (const alias of pluginAliases(scanPluginRenames(scan), plugin.id)) {
+      if (alias !== plugin.id) await installs.remove(workspaceRoot, source.id, alias)
+    }
     return {
       ok: true,
       plugin,

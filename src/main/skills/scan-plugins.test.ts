@@ -213,6 +213,33 @@ async function officialMarketplace(): Promise<void> {
   assert.ok(servers.every((s) => s.declaredBy !== ''))
 }
 
+async function renamesOfNamesStillListed(): Promise<void> {
+  // `renames` is a running log, not a diff of this revision, so it can name a
+  // plugin the listing still holds. Both names being live makes the entry a
+  // lie for lookup: the old name is a plugin in its own right, and treating it
+  // as an alias of the new one lets two rows resolve to one install receipt.
+  const scan = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      renames: { alpha: 'beta', departed: 'beta' },
+      plugins: [
+        { name: 'alpha', source: { source: 'github', repo: 'o/alpha' } },
+        { name: 'beta', source: { source: 'github', repo: 'o/beta' } },
+      ],
+    }),
+    readFile: async () => null,
+  })
+  assert.deepEqual(
+    scan.pluginRenames,
+    { departed: 'beta' },
+    'a name the listing still holds keeps itself; only a departed one is an alias',
+  )
+  assert.deepEqual(pluginAliases(scan.pluginRenames, 'beta'), ['beta', 'departed'])
+  assert.equal(findScannedPlugin({ plugins: scan.plugins, pluginRenames: scan.pluginRenames }, 'alpha')?.id, 'alpha')
+}
+
 async function linkedPluginRead(): Promise<void> {
   // Opening a linked plugin lists its repository and reads one directory of
   // it with the same rule — here, exercised on an in-tree directory.
@@ -299,6 +326,59 @@ async function rootServers(): Promise<void> {
 
   // A package with no runtime hint is not a server the app can start.
   assert.equal(parseMcpRegistryManifest({ name: 'x', packages: [{ registryType: 'oci', identifier: 'ghcr.io/x' }] }, 'server.json').length, 0)
+}
+
+/**
+ * A scan cached by an older build. These are kept verbatim beside their source
+ * and never migrated, so every field this build added is missing from them —
+ * and a reader that trusted the shape on disk crashed the whole Plugins tab,
+ * which is also the only place Sync could have replaced the cache from.
+ */
+function cachedScansPredatingTheseFields(): void {
+  const cached = {
+    skills: [],
+    groups: [],
+    groupingSignal: 'none',
+    fileCount: 0,
+    commitSha: 'abc1234',
+    plugins: [
+      {
+        id: 'security-guidance',
+        name: 'security-guidance',
+        description: '',
+        version: '2.0.7',
+        category: '',
+        author: 'Anthropic',
+        homepage: '',
+        origin: { kind: 'in-tree', path: 'plugins/security-guidance' },
+        componentsKnown: true,
+        // As a scan written before LSP servers were a component kind: no
+        // `lspServers`, and no `strict`, `tags` or `keywords` either.
+        components: { skills: [], commands: ['review'], agents: [], hooks: [], mcpServers: [], missingSkills: [] },
+      },
+    ],
+  } as unknown as ScanResult
+
+  const plugins = scanPlugins(cached)
+  assert.equal(plugins.length, 1)
+  assert.deepEqual(plugins[0].components.lspServers, [], 'the missing list reads as empty, not as undefined')
+  assert.deepEqual(plugins[0].tags, [])
+  assert.deepEqual(plugins[0].keywords, [])
+  assert.equal(plugins[0].strict, true, 'absent means strict, the marketplace schema’s own default')
+  assert.deepEqual(plugins[0].components.commands, ['review'], 'and what the cache DID hold is untouched')
+  assert.equal(
+    describePluginComponents(plugins[0]),
+    '1 command',
+    'the row draws rather than throwing — this is what took the Plugins tab down with it',
+  )
+  assert.equal(findScannedPlugin(cached, 'security-guidance')?.components.lspServers.length, 0)
+
+  // A scan from before plugins existed at all, and one whose plugin list is
+  // already complete: the first has nothing to fill, the second is handed back
+  // as it is rather than rebuilt on every read.
+  assert.deepEqual(scanPlugins({} as ScanResult), [])
+  const current: ScanResult = { ...(cached as ScanResult), plugins: scanPlugins(cached) }
+  assert.equal(scanPlugins(current), current.plugins, 'a complete list is the same array, not a copy')
 }
 
 async function readBudget(): Promise<void> {
@@ -436,6 +516,8 @@ function parsers(): void {
 
 async function main(): Promise<void> {
   await officialMarketplace()
+  cachedScansPredatingTheseFields()
+  await renamesOfNamesStillListed()
   await readBudget()
   await linkedPluginRead()
   await skillsOnlyRepositories()

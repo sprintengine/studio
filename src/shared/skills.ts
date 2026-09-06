@@ -258,10 +258,148 @@ export type ScannedPlugin = {
    */
   componentsKnown: boolean
   components: ScannedPluginComponents
+  /**
+   * For a linked plugin: whether its own repository was read, and why not when
+   * it was not (linked-plugins ruling, 2026-09-06). Absent on an in-tree
+   * plugin, and on a scan cached before the scan followed anything — which is
+   * why `componentsKnown` stays the authority on whether the components are
+   * known and this only ever explains it.
+   */
+  linkedRead?: LinkedPluginReadState
 }
 
+/**
+ * Why a linked plugin's components are or are not in hand.
+ *
+ * A scan follows linked plugins within a budget (`MAX_LINKED_REPOSITORY_READS`
+ * in src/main/skills/scan-plugins.ts), so "not read" splits into two very
+ * different facts: one a later scan will fix by itself, and one no amount of
+ * scanning will. Saying which is the whole point — 238 rows reading "Read when
+ * opened" told a person nothing about whether opening one would work.
+ */
+export type LinkedPluginReadState =
+  /** Its repository was listed at the pinned commit and its components are real. */
+  | { status: 'read' }
+  /**
+   * Nothing was fetched for it: this pass's budget ran out, or GitHub's rate
+   * limit did. The next scan resumes where this one stopped, because every
+   * plugin already read is cached against its pinned sha and costs nothing.
+   */
+  | { status: 'pending'; reason: 'budget' | 'rate-limited' }
+  /** Reading it was refused or failed in a way a retry will not change. */
+  | { status: 'unreadable'; message: string }
+
+/** How much of a source's linked population is read, for the head line. */
+export type LinkedPluginSummary = {
+  total: number
+  read: number
+  pending: number
+  unreadable: number
+}
+
+export function summariseLinkedPlugins(scan: Pick<ScanResult, 'plugins'>): LinkedPluginSummary {
+  const summary: LinkedPluginSummary = { total: 0, read: 0, pending: 0, unreadable: 0 }
+  for (const plugin of scanPlugins(scan)) {
+    if (plugin.origin.kind !== 'linked') continue
+    summary.total += 1
+    if (plugin.componentsKnown) summary.read += 1
+    else if (plugin.linkedRead?.status === 'unreadable') summary.unreadable += 1
+    else summary.pending += 1
+  }
+  return summary
+}
+
+/**
+ * The head line's admission that a scan is partial, or null when there is
+ * nothing to admit. A source with no linked plugins, and one whose linked
+ * plugins are all read, say nothing extra — the counts already stand.
+ *
+ * The token is named only when there is not one: at 60 unauthenticated
+ * requests an hour the budget is 20 repositories a scan, and "add a GitHub
+ * token" is the action that turns twelve scans into one (linked-plugins
+ * ruling, 2026-09-06). With a token in place the honest next step is Sync,
+ * which resumes from what is already cached.
+ */
+export function linkedPluginShortfallLine(
+  summary: LinkedPluginSummary,
+  tokenConfigured: boolean
+): string | null {
+  const parts: string[] = []
+  if (summary.pending > 0) {
+    parts.push(
+      `${summary.pending} of ${summary.total} linked plugins not yet read — ${
+        tokenConfigured ? 'Sync to read the rest' : 'add a GitHub token'
+      }`
+    )
+  }
+  if (summary.unreadable > 0) {
+    parts.push(
+      `${summary.unreadable} of ${summary.total} linked ${summary.unreadable === 1 ? 'plugin' : 'plugins'} could not be read`
+    )
+  }
+  return parts.length > 0 ? parts.join('; ') : null
+}
+
+/**
+ * A scan's plugins, with every field this build requires actually present.
+ *
+ * Scans are cached verbatim beside their source and are never migrated, so a
+ * cache written before a field existed holds plugins without it. That is not a
+ * cosmetic gap: `plugin.components.lspServers.length` on one of those throws
+ * where the row is drawn, which takes the whole Plugins tab down — and Sync,
+ * the only thing that would replace the cache, sits behind that render. Every
+ * reader goes through here, so the gap is filled on the way out instead.
+ *
+ * A plugin that already has everything is returned as it is: a source scanned
+ * by this build pays one shape check per plugin and allocates nothing.
+ */
 export function scanPlugins(scan: Pick<ScanResult, 'plugins'>): ScannedPlugin[] {
-  return scan.plugins ?? []
+  const plugins = scan.plugins ?? []
+  return plugins.every(isCompleteScannedPlugin) ? plugins : plugins.map(completeScannedPlugin)
+}
+
+function isCompleteScannedPlugin(plugin: ScannedPlugin): boolean {
+  const components = plugin.components as Partial<ScannedPluginComponents> | undefined
+  if (!components) return false
+  return (
+    typeof plugin.strict === 'boolean'
+    && Array.isArray(plugin.tags)
+    && Array.isArray(plugin.keywords)
+    && Array.isArray(components.skills)
+    && Array.isArray(components.commands)
+    && Array.isArray(components.agents)
+    && Array.isArray(components.hooks)
+    && Array.isArray(components.mcpServers)
+    && Array.isArray(components.lspServers)
+    && Array.isArray(components.missingSkills)
+  )
+}
+
+/**
+ * The defaults a missing field takes: empty for every list, and `strict: true`
+ * for the flag, which is the marketplace schema's own default. Nothing is
+ * invented — an absent list becomes an empty one, which is what an older scan
+ * knowing nothing about a component kind actually means.
+ */
+function completeScannedPlugin(plugin: ScannedPlugin): ScannedPlugin {
+  const stored = (plugin.components ?? {}) as Partial<ScannedPluginComponents>
+  const empty = emptyPluginComponents()
+  const list = <T,>(value: T[] | undefined, fallback: T[]): T[] => (Array.isArray(value) ? value : fallback)
+  return {
+    ...plugin,
+    strict: typeof plugin.strict === 'boolean' ? plugin.strict : true,
+    tags: list(plugin.tags, []),
+    keywords: list(plugin.keywords, []),
+    components: {
+      skills: list(stored.skills, empty.skills),
+      commands: list(stored.commands, empty.commands),
+      agents: list(stored.agents, empty.agents),
+      hooks: list(stored.hooks, empty.hooks),
+      mcpServers: list(stored.mcpServers, empty.mcpServers),
+      lspServers: list(stored.lspServers, empty.lspServers),
+      missingSkills: list(stored.missingSkills, empty.missingSkills),
+    },
+  }
 }
 
 export function scanMcpServers(scan: Pick<ScanResult, 'mcpServers'>): ScannedMcpServer[] {
@@ -317,9 +455,43 @@ export function findScannedPlugin(
   return plugins.find((plugin) => plugin.id === renamed) ?? null
 }
 
-/** The words a row uses for what a plugin ships: "4 skills · 2 commands · 1 MCP". */
+/**
+ * Why a plugin's components are unknown — the two reasons are not the same
+ * promise.
+ *
+ * `unopened`: a linked plugin, whose bytes are in another repository and are
+ * fetched the moment it is opened. `over-scan-limit`: an in-tree plugin the
+ * scan did not read because the source lists more plugins than one scan reads.
+ * Opening that one reads nothing, so telling a person to open it — which is
+ * what this said until 2026-09-06 — sends them to press a button that cannot
+ * work and leaves Install refusing with no reason given.
+ */
+export function unreadPluginReason(
+  plugin: Pick<ScannedPlugin, 'componentsKnown' | 'origin'>,
+): 'read' | 'unopened' | 'over-scan-limit' {
+  if (plugin.componentsKnown) return 'read'
+  return plugin.origin.kind === 'linked' ? 'unopened' : 'over-scan-limit'
+}
+
+/**
+ * The words a row uses for what a plugin ships: "4 skills · 2 commands · 1 MCP".
+ *
+ * An unread linked plugin says WHY it is unread rather than the flat "Read when
+ * opened" it said before the scan followed any of them (linked-plugins ruling,
+ * 2026-09-06): a repository off the allowlist and a repository this pass simply
+ * had no budget left for are different promises, and 238 rows making the same
+ * one said nothing about which.
+ */
 export function describePluginComponents(plugin: ScannedPlugin): string {
-  if (!plugin.componentsKnown) return 'Read when opened'
+  if (!plugin.componentsKnown) {
+    if (unreadPluginReason(plugin) !== 'unopened') return 'Not read by this scan'
+    const state = plugin.linkedRead
+    if (!state || state.status === 'read') return 'Read when opened'
+    if (state.status === 'unreadable') return state.message
+    return state.reason === 'rate-limited'
+      ? 'Not read — GitHub rate limit reached'
+      : 'Not read yet — read when opened'
+  }
   const c = plugin.components
   const parts: string[] = []
   const count = (n: number, one: string, many: string): void => {

@@ -31,6 +31,7 @@ import {
   scanMcpServers,
   scanPlugins,
   scanShape,
+  unreadPluginReason,
   type ScanResult,
   type ScannedMcpServer,
   type ScannedPlugin,
@@ -202,6 +203,14 @@ export function PluginsCatalogue({
   const activeSource = tabs.find((tab) => tab.id === tabId)?.source ?? null
   const activeScan = activeSource ? sources.scans[activeSource.id] : undefined
   const scan = activeScan && activeScan.status === 'ready' ? activeScan.scan : null
+
+  // The tab being looked at is the one whose source is read. A repository that
+  // has never been scanned is a network read, so it waits for this rather than
+  // firing on mount for every source in the list (useSkillSources).
+  const ensureScan = sources.ensureScan
+  useEffect(() => {
+    if (activeSource) ensureScan(activeSource.id)
+  }, [activeSource, ensureScan])
   const isApp = activeSource?.id === BUILTIN_SKILL_SOURCE_ID
 
   // ── Install / read / sync ──────────────────────────────────────────────────
@@ -237,7 +246,11 @@ export function PluginsCatalogue({
       setReadError(null)
       if (!activeSource || !scan) return
       const plugin = findPlugin(scan, pluginId)
-      if (plugin && !plugin.componentsKnown) void readLinked(activeSource, plugin)
+      // Only a LINKED plugin has a repository to go and read. An in-tree one
+      // that the scan skipped for being past its plugin limit has nothing to
+      // fetch, and asking main to read it returned the same unread plugin —
+      // a spinner that resolved to no change, forever.
+      if (plugin && unreadPluginReason(plugin) === 'unopened') void readLinked(activeSource, plugin)
     },
     [activeSource, scan, readLinked],
   )

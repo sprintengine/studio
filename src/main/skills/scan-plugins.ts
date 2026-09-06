@@ -143,8 +143,30 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
     marketplaceName: marketplace?.name ?? '',
     plugins,
     mcpServers,
-    pluginRenames: marketplace?.renames ?? {},
+    pluginRenames: renamesOfDepartedNames(marketplace?.renames ?? {}, plugins),
   }
+}
+
+/**
+ * The renames that actually name a plugin that is GONE.
+ *
+ * A manifest may keep a rename whose old name it still lists — the official
+ * marketplace's `renames` is a running log, not a diff of this revision. Both
+ * names being live makes the entry a lie for lookup purposes: the old name is
+ * a plugin in its own right, and treating it as an alias of the new one lets
+ * two rows resolve to one install receipt, where uninstalling either would
+ * delete the other's. A name the listing still holds keeps itself.
+ */
+function renamesOfDepartedNames(
+  renames: Readonly<Record<string, string>>,
+  plugins: readonly ScannedPlugin[]
+): Record<string, string> {
+  const listed = new Set(plugins.map((plugin) => plugin.id))
+  const kept: Record<string, string> = {}
+  for (const [was, now] of Object.entries(renames)) {
+    if (!listed.has(was)) kept[was] = now
+  }
+  return kept
 }
 
 /**
