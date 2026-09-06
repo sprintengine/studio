@@ -306,6 +306,34 @@ too, and it has exactly one band of chrome:
    it. A notice about the content (a stale change, a failed run) is not chrome
    and keeps its own band.
 
+**Surfaces, not modals** (ruled 2026-09-05, reversing the doors→modals ruling
+of 2026-09-01). A destination the shell's own chrome offers — anything an app
+rail square or a sidebar drawer row opens — is a DOOR: it takes the card region
+and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs
+and the Extensions home are doors. They spent four days as modals, and the
+modal was wrong for them twice over: a scrim put a dialog between the person
+and the very column they had just navigated with, and a float over the card
+region means back, forward and the window's history all step to a destination
+that mounts invisibly behind it.
+
+What stays a modal is the shape a modal is actually for — a **pick-and-close
+task floated over work that stays put**, reached from inside that work rather
+than from the chrome:
+
+- **Settings.** Opened from the rail's foot, changed and dismissed; the
+  workspace behind it is the thing being configured and must stay visible.
+- **The Diff popout.** The pane's own Diff tab grown to workbench width, opened
+  from the pane strip. Routing the region would hide the layout it is a bigger
+  view OF.
+- **Reviews.** A walkthrough is Monaco beside a transcript; the pane column is
+  too narrow to read it in, so picking it there floats the surface instead of
+  opening a pane tab.
+
+Three tests, all of which a modal must pass: it is opened from inside the
+content rather than from the chrome; the thing underneath is still the subject;
+and no navigation control (a rail glyph, a drawer row, history back) leads to
+it. A destination that fails any of them is a door.
+
 **A heading must separate something from something else.** Do not label an
 ungrouped list ("Rosters" over a field that already reads "Search rosters…"),
 and do not render a group heading when there is only one group — "Recent"
@@ -340,9 +368,17 @@ walks. Its anatomy:
    drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills,
    Agent CLIs — with the same `SidebarNavButton` chrome for all five. The order
    is the ruling's, not the registry's `order`; a module contributes a row's
-   name, glyph and behaviour, never its place. The drawer stays put while the
-   card region swaps, so it is the navigation; only Sprints, which has its own
-   list of runs, replaces it with a rail for the length of its visit.
+   name, glyph and behaviour, never its place. The drawer STAYS PUT while the
+   card region swaps, which is what makes it the navigation rather than a menu:
+   a door that is one of its rows renders its own rail beside its canvas
+   instead of taking the column. Only Sprints, which has its own list of runs,
+   replaces it for the length of its visit — and Automations, which is not a
+   drawer row at all, because the automations it lists ARE the navigation while
+   it is open.
+   A drawer row reads `aria-current` while its page is showing (it is
+   navigation, exactly like a workspace row); the rail's square reads
+   `aria-pressed`. Two honest readings of one state — what would be wrong is
+   one row of the drawer disagreeing with the row above it.
 5. **The account and Settings cluster pins to its foot.** They belong to the
    window, not to whichever section the sidebar is showing.
 6. **Its top reserves the title strip's height** on every platform, so its

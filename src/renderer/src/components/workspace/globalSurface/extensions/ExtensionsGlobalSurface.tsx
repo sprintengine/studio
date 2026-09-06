@@ -44,7 +44,7 @@ import {
   type ExtensionsDrawerView,
   type ExtensionsSurfaceView,
 } from './extensionsSurfaceTarget'
-import { publishModalSurfaceView } from '../../modalSurfaceView'
+import { publishSurfaceView } from '../../surfaceView'
 
 // The canvas sections. The connector marketplace is ONE section with ONE
 // browse state: its two rail rows (Featured, MCP servers) are projections of
@@ -68,7 +68,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
+  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   // The CLI an agent-backed automation falls back to when its own config names
   // none. Only app settings hold it and the shelf's canvas is store-free, so the
   // door reads it and hands it down — an install that needs it and cannot get it
@@ -161,11 +161,15 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
         ? EXTENSIONS_DRAWER_VIEWS.agentClis
         : EXTENSIONS_DRAWER_VIEWS.plugins
   useEffect(() => {
-    publishModalSurfaceView('extensions', drawerView)
-    // Closing takes the selection with it: a drawer row must not stay lit over
-    // a card region the surface no longer owns.
-    return () => publishModalSurfaceView('extensions', null)
+    publishSurfaceView('extensions', drawerView)
   }, [drawerView])
+  // Closing takes the selection with it: a drawer row must not stay lit over a
+  // card region the surface no longer owns. Deliberately its OWN effect with an
+  // empty dep list — as the cleanup of the publish above it, it ran on every
+  // in-surface move, publishing `null` and then the new view in one commit, and
+  // the drawer's selected row blinked off and back on every time the person
+  // changed rail row.
+  useEffect(() => () => publishSurfaceView('extensions', null), [])
 
   // Host actions, read at call time from the seam WorkspaceManager fills. A
   // missing host (tests, detached mounts) no-ops rather than throwing.
@@ -180,16 +184,16 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [])
 
   // An automation already in this project is opened where it is configured, not
-  // here: swap this modal for the Automations modal on that automation. The
+  // here: swap this surface for the Automations door on that automation. The
   // deep-link seam is the one automations already use (a run notification's
   // Open), with no run to focus — the surface selects the automation and the
   // empty run id focuses nothing.
   const openAutomation = useCallback(
     (definition: AutomationDefinition) => {
       dispatchAutomationSurfaceTarget(automationsDoorTarget(definition.id, '', activeWorkspaceRoot))
-      openModalSurface('automations')
+      openGlobalSurface('automations')
     },
-    [activeWorkspaceRoot, openModalSurface],
+    [activeWorkspaceRoot, openGlobalSurface],
   )
 
   // A Get lands the same way, one step further in: the automation the shelf just
@@ -200,9 +204,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const tailorAddedAutomation = useCallback(
     (automationId: string) => {
       dispatchAutomationSurfaceTarget(automationsDoorTarget(automationId, '', activeWorkspaceRoot), 'editor')
-      openModalSurface('automations')
+      openGlobalSurface('automations')
     },
-    [activeWorkspaceRoot, openModalSurface],
+    [activeWorkspaceRoot, openGlobalSurface],
   )
 
   // ── Counts for the bar + rail state lines (honest per source state) ────────

@@ -1,5 +1,5 @@
 import type { WorkspacePaneTabKind } from '../../../types/workspace'
-import { ReviewsGlyph } from '../modalSurfaceGlyphs'
+import { ReviewsGlyph } from '../surfaceGlyphs'
 
 // The kinds the workspace pane can open, in the order the "+" menu and the
 // empty-state launcher list them. A kind whose module is disabled is absent

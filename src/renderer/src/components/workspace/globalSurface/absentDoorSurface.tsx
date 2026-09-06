@@ -14,8 +14,19 @@ import { DoorModuleNotInstalledSurface } from '../ModuleAbsenceSurfaces'
 // persisted id survives, so reinstalling the module lands the user back on
 // the door they were in.
 
-/** The open door's human name. Surface ids are door names by convention. */
-export function doorLabelForSurfaceId(surfaceId: string): string {
+/**
+ * The open door's human name: the label the surface registered, or — for a door
+ * that names itself through its own nav-entry row instead (Sprints), and for an
+ * id whose surface never registered at all — the capitalised id. A registered
+ * label is preferred because the two genuinely differ: the `extensions` surface
+ * is called Plugins everywhere a person can read it.
+ */
+export function doorLabelForSurfaceId(
+  surfaceId: string,
+  registeredLabel?: string,
+): string {
+  const label = registeredLabel?.trim()
+  if (label) return label
   return surfaceId.charAt(0).toUpperCase() + surfaceId.slice(1)
 }
 
@@ -65,10 +76,17 @@ export function resolveActiveDoorSurface(
   return {
     id: surfaceId,
     moduleId: entry?.moduleId ?? surfaceId,
+    // The name survives the module's absence: the door mount titles its region
+    // and its error boundary from this, and "Extensions" where the person reads
+    // "Plugins" would be a second name for the same room.
+    label: doorLabelForSurfaceId(surfaceId, entry?.label),
+    // An absent door brings no rail, so it must not take the sidebar column:
+    // the drawer row that led here stays put, which is also the way back.
+    railPlacement: 'inline',
     Component: function AbsentDoorSurface() {
       return (
         <DoorModuleNotInstalledSurface
-          label={doorLabelForSurfaceId(surfaceId)}
+          label={doorLabelForSurfaceId(surfaceId, entry?.label)}
           installed={installed}
           onOpenExtensions={() => openExtensions(installed ? 'installed' : 'browse')}
         />

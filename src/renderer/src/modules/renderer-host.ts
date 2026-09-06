@@ -402,6 +402,40 @@ export type RegisteredTopBarItem = TopBarItemDefinition & {
   moduleId: string
 }
 
+// The glyph a surface contributes for whatever chrome names it — an app-rail
+// square, a drawer row, a view row. Sized by the shell through `className`.
+export type SurfaceIconComponent = ComponentType<{ className?: string }>
+
+// One drawer row of a surface that is several things to the person (Extensions
+// drawer ruling, 2026-09-05). The agent-runtime module registers ONE
+// `extensions` surface, but Plugins, Skills and Agent CLIs are three separate
+// destinations to the operator and the ruling gives each its own row in the
+// Extensions drawer. A view is that row: the module owns its name, its glyph
+// and how the surface lands on it, so the shell never learns a module's
+// internal sections — it only places the rows.
+//
+// A surface with no views contributes one row (its own label and glyph), which
+// is every surface but Plugins today.
+export type SurfaceViewDefinition = {
+  /**
+   * Unique within the surface. This is the id the surface publishes while it is
+   * showing this view (`publishSurfaceView`), which is how the drawer knows
+   * which of a surface's rows is the selected one.
+   */
+  id: string
+  /** The row's label and accessible name. Non-empty; sentence case. */
+  label: string
+  /** The row's glyph; the shell sizes it via className. */
+  Icon: SurfaceIconComponent
+  /**
+   * Land the surface on this view. Runs BEFORE the shell opens the surface, so
+   * a deep-link latch dispatched here is drained by the surface as it mounts —
+   * the order every other deep-link opener uses. This replaces `onOpen` for a
+   * view row: a view IS a target, so there is no stale latch to discard.
+   */
+  open: () => void
+}
+
 // A door-routed full-page surface a module contributes (global-surfaces epic
 // 1704). The companion to a sidebar nav door: the door calls
 // `openGlobalSurface(id)` on the local window's store, and WorkspaceManager
@@ -414,9 +448,53 @@ export type GlobalSurfaceComponent =
   | ComponentType
   | LazyExoticComponent<ComponentType>
 
+// Where a door's own rail goes while the door is open (Extensions drawer
+// ruling, 2026-09-05).
+//
+//   sidebar — the context-rail swap (item 1993): the door's rail REPLACES the
+//             app sidebar's column for the length of the visit. Sprints and
+//             Automations, whose rail is a list the person walks (runs;
+//             automations), and which is the navigation while they are open.
+//   inline  — the rail renders inside the card region beside the canvas, and
+//             the sidebar column keeps whatever it was showing. This is what
+//             the ruling means by "the drawer stays put": a door that IS a row
+//             of the Extensions drawer must not take the drawer away, or the
+//             one column of navigation would vanish the moment it was used.
+export type SurfaceRailPlacement = 'sidebar' | 'inline'
+
 export type GlobalSurfaceDefinition = {
   /** Matches the id the door opens via `openGlobalSurface`. Non-empty; unique. */
   id: string
+  /**
+   * User-facing name for the surface — the drawer/rail row's label, the door
+   * bar's fallback title, and the absent-door explainer's heading. Decoupled
+   * from the id ("Plugins" over id `extensions`). Optional: a door whose row is
+   * its own `registerSidebarNavEntry` component (Sprints) names itself there,
+   * and the shell falls back to the capitalised id. Non-empty when given.
+   */
+  label?: string
+  /**
+   * The glyph for chrome that names this surface — a drawer row, an app-rail
+   * square. Optional for the same reason `label` is.
+   */
+  Icon?: SurfaceIconComponent
+  /**
+   * Called just before the shell opens this surface from a PLAIN opener (a rail
+   * glyph, a drawer row) — one landing on the surface's default view. Discard
+   * stale deep-link latches here: the Plugins surface drains a pending view
+   * target on mount, so a latch left by a dispatch that never mounted would
+   * otherwise reroute a plain open. Deep-link openers dispatch their own state
+   * and bypass this.
+   */
+  onOpen?: () => void
+  /**
+   * The drawer rows this one surface offers, when it is more than one
+   * destination to the person. Absent (the common case) means one row, named by
+   * `label` and drawn with `Icon`.
+   */
+  views?: readonly SurfaceViewDefinition[]
+  /** Where the door's rail goes. Defaults to `sidebar` — the swap every door did before the drawer ruling. */
+  railPlacement?: SurfaceRailPlacement
   /** The full-page surface. Eager or React.lazy(), mirroring WorkspacePanelComponent. */
   Component: GlobalSurfaceComponent
 }
@@ -427,72 +505,43 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
 
 // A modal surface a module contributes (doors→modals, 2026-09-01). The modal
 // counterpart to a door's nav-entry + global-surface pair: the surface mounts
-// inside the shell's modal shell over whatever the window is showing, and its
-// trigger is a glyph button the shell renders in the sidebar footer's settings
-// cluster. One registration owns both halves — the shell owns trigger placement,
-// tooltip wiring, and the modal chrome (width step, flat scrim, focus trap,
-// close semantics); the module owns only the body. The body is zero-prop and
-// exits through SurfaceExitContext, exactly as it would through a door's back
+// inside the shell's modal shell over whatever the window is showing, floating
+// over the card region rather than routing it. The body is zero-prop and exits
+// through SurfaceExitContext, exactly as it would through a door's back
 // chevron.
-export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
-
-// One drawer row of a surface that is several things to the person (Extensions
-// drawer ruling, 2026-09-05). The agent-runtime module registers ONE
-// `extensions` surface, but Plugins, Skills and Agent CLIs are three separate
-// destinations to the operator and the ruling gives each its own row in the
-// Extensions drawer. A view is that row: the module owns its name, its glyph
-// and how the surface lands on it, so the shell never learns a module's
-// internal sections — it only places the rows.
 //
-// A surface with no views contributes one row (its own label and glyph), which
-// is every surface but Plugins today.
-export type ModalSurfaceViewDefinition = {
-  /**
-   * Unique within the surface. This is the id the surface publishes while it is
-   * showing this view (`publishModalSurfaceView`), which is how the drawer knows
-   * which of a surface's rows is the selected one.
-   */
-  id: string
-  /** The row's label and accessible name. Non-empty; sentence case. */
-  label: string
-  /** The row's glyph; the shell sizes it via className. */
-  Icon: ModalSurfaceIconComponent
-  /**
-   * Land the surface on this view. Runs BEFORE the shell opens the surface, so
-   * a deep-link latch dispatched here is drained by the surface as it mounts —
-   * the order every other deep-link opener uses. This replaces `onOpen` for a
-   * view row: a view IS a target, so there is no stale latch to discard.
-   */
-  open: () => void
-}
-
+// The registry STAYS, and it is deliberately no longer the main road (Extensions
+// drawer ruling, 2026-09-05). Automations, Design and Plugins/Skills/Agent CLIs
+// went back to being doors, so nothing the shell's own chrome offers is a modal
+// any more; what is left here is Reviews, opened from the workspace pane strip
+// because a walkthrough is Monaco beside a transcript and the pane column is too
+// narrow to read it in. That is the shape a modal surface is FOR — a
+// pick-and-close task floated over work that stays put — and a third-party
+// module has the same need, so the extension point outlives the four surfaces
+// that were pushed through it. Settings and the Diff popout are core and never
+// register here; their ids are reserved below so a module cannot claim them.
+//
+// `views` is deliberately NOT offered here. A view is a row of the Extensions
+// drawer, and the drawer is made of doors: a modal floats over the card region
+// without routing it, so a drawer row that opened one would leave the drawer
+// pointing at a surface the region does not hold.
 export type ModalSurfaceDefinition = {
   /** Matches the id opened via `openModalSurface`. Non-empty; unique. */
   id: string
-  /** Sort key among trigger glyphs in the settings cluster; lower renders first, ties break on id. */
+  /** Sort key among modal surfaces; lower first, ties break on id. */
   order: number
   /**
-   * The trigger's tooltip and accessible name, and the dialog's accessible
-   * name — user-facing copy, decoupled from the id ("Plugins" over id
-   * `extensions`). Non-empty; sentence case.
+   * The surface's user-facing name — the dialog's accessible name and its bar
+   * title, decoupled from the id. Non-empty; sentence case.
    */
   label: string
-  /** The trigger glyph; the shell sizes it via className. */
-  Icon: ModalSurfaceIconComponent
+  /** The surface's glyph, for whatever chrome offers it; the shell sizes it via className. */
+  Icon: SurfaceIconComponent
   /**
-   * Called just before the shell opens this modal from its trigger glyph — a
-   * PLAIN open, landing on the surface's default view. Discard stale deep-link
-   * latches here (the Plugins surface drains a pending view target on mount,
-   * so a latch left by a dispatch that never mounted would otherwise reroute a
-   * plain open). Deep-link openers dispatch their own state and bypass this.
+   * Called just before the shell opens this modal from a plain opener. Discard
+   * stale deep-link latches here, exactly as a door's `onOpen` does.
    */
   onOpen?: () => void
-  /**
-   * The drawer rows this one surface offers, when it is more than one
-   * destination to the person. Absent (the common case) means one row, named by
-   * `label` and drawn with `Icon`.
-   */
-  views?: readonly ModalSurfaceViewDefinition[]
   /** The modal body. Eager or React.lazy(), mirroring GlobalSurfaceComponent. */
   Component: GlobalSurfaceComponent
 }
@@ -609,17 +658,21 @@ export type RendererHost = {
   /**
    * Contribute a door-routed full-page surface (global-surfaces epic 1704),
    * mounted by WorkspaceManager over the workspace card region when a door
-   * opens it via `openGlobalSurface(id)`. Registered unconditionally at boot;
-   * the mount gates on this module's live enablement. Duplicate ids throw.
+   * opens it via `openGlobalSurface(id)`. A `label` + `Icon` make it offerable
+   * by the shell's own chrome (an Extensions drawer row, an app-rail square);
+   * `views` splits it into several such rows; `railPlacement` says whether its
+   * rail takes the sidebar column or renders beside its canvas. Registered
+   * unconditionally at boot; the mount gates on this module's live enablement.
+   * Duplicate ids throw, as does the reserved `extensions-home`.
    */
   registerGlobalSurface(definition: GlobalSurfaceDefinition): void
   /**
-   * Contribute a modal surface: a body the shell mounts in its modal shell
-   * when `openModalSurface(id)` opens it, plus a trigger glyph the shell
-   * renders in the sidebar footer's settings cluster. Registered
-   * unconditionally at boot; the trigger and mount gate on this module's
-   * enablement, so a module toggle shows/hides both without a reload.
-   * Duplicate ids throw.
+   * Contribute a modal surface: a body the shell mounts in its modal shell when
+   * `openModalSurface(id)` opens it, floating over whatever owns the card
+   * region. For a pick-and-close task over work that stays put — the shape
+   * Reviews has; the product's own destinations are doors (Extensions drawer
+   * ruling, 2026-09-05). Registered unconditionally at boot; the mount gates on
+   * this module's enablement. Duplicate and reserved ids throw.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
@@ -929,6 +982,37 @@ export type RendererKernel = {
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
 
+// Validate a surface's drawer rows, and return them with their ids NORMALISED.
+// A view id is what the surface publishes to say which of its rows is showing,
+// so the registry and the drawer must agree on it character for character: a
+// duplicate or blank id would light two rows at once (or none), and an id that
+// validated trimmed but was STORED untrimmed (`" plugins "`) passed here and
+// then never matched the drawer's lookup — a row that could not be selected,
+// with nothing to explain why. Failing loudly at registration is the whole
+// point of this pass, so the stored id is the one that was checked.
+function normalizeSurfaceViews(
+  kind: string,
+  surfaceId: string,
+  views: readonly SurfaceViewDefinition[] | undefined,
+): readonly SurfaceViewDefinition[] | undefined {
+  if (!views) return undefined
+  const seen = new Set<string>()
+  return views.map((view) => {
+    const id = view.id.trim()
+    if (id.length === 0) {
+      throw new Error(`${kind} "${surfaceId}" has a view with an empty id.`)
+    }
+    if (view.label.trim().length === 0) {
+      throw new Error(`${kind} view "${surfaceId}/${id}" must have a non-empty label.`)
+    }
+    if (seen.has(id)) {
+      throw new Error(`${kind} "${surfaceId}" registers view "${id}" twice.`)
+    }
+    seen.add(id)
+    return { ...view, id }
+  })
+}
+
 export function createRendererHost(): RendererKernel {
   const panels = new Map<string, WorkspacePanelComponent>()
   const panelModules = new Map<string, string>()
@@ -1168,13 +1252,25 @@ export function createRendererHost(): RendererKernel {
           if (definition.id.trim().length === 0) {
             throw new Error('Global surface id must be a non-empty string.')
           }
+          // The Extensions home is core (the app rail's Extensions glyph,
+          // Extensions drawer ruling 2026-09-05): it is where the product's own
+          // parts are offered, so no module may gate it — the same reservation
+          // `settings` and `diff` carry on the modal side, and the one the
+          // retired `marketplace` modal carried before this.
+          if (definition.id === 'extensions-home') {
+            throw new Error('Global surface id "extensions-home" is reserved for the app\'s own Extensions home.')
+          }
+          if (definition.label !== undefined && definition.label.trim().length === 0) {
+            throw new Error(`Global surface "${definition.id}" has an empty label; omit it instead.`)
+          }
+          const views = normalizeSurfaceViews('Global surface', definition.id, definition.views)
           const existing = globalSurfaces.get(definition.id)
           if (existing) {
             throw new Error(
               `Global surface "${definition.id}" is already registered by module "${existing.moduleId}".`
             )
           }
-          globalSurfaces.set(definition.id, { ...definition, moduleId })
+          globalSurfaces.set(definition.id, { ...definition, ...(views ? { views } : {}), moduleId })
         },
         registerModalSurface(definition) {
           if (definition.id.trim().length === 0) {
@@ -1192,30 +1288,8 @@ export function createRendererHost(): RendererKernel {
           if (definition.id === 'diff') {
             throw new Error('Modal surface id "diff" is reserved for the app\'s own Diff popout.')
           }
-          // And for the Extensions marketplace (the app rail's Extensions
-          // glyph, 2026-09-05): core, never a module's to claim.
-          if (definition.id === 'marketplace') {
-            throw new Error('Modal surface id "marketplace" is reserved for the app\'s own Extensions marketplace.')
-          }
           if (definition.label.trim().length === 0) {
             throw new Error(`Modal surface "${definition.id}" must have a non-empty label.`)
-          }
-          // A view id is what the surface publishes to say which of its rows is
-          // showing, so a duplicate or blank one would light two rows at once
-          // (or none) rather than fail loudly here.
-          const viewIds = new Set<string>()
-          for (const view of definition.views ?? []) {
-            const viewId = view.id.trim()
-            if (viewId.length === 0) {
-              throw new Error(`Modal surface "${definition.id}" has a view with an empty id.`)
-            }
-            if (view.label.trim().length === 0) {
-              throw new Error(`Modal surface view "${definition.id}/${viewId}" must have a non-empty label.`)
-            }
-            if (viewIds.has(viewId)) {
-              throw new Error(`Modal surface "${definition.id}" registers view "${viewId}" twice.`)
-            }
-            viewIds.add(viewId)
           }
           const existing = modalSurfaces.get(definition.id)
           if (existing) {

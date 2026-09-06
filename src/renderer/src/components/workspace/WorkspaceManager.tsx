@@ -21,7 +21,6 @@ import type { CliVersionAdvisory } from '../../../../shared/electron-api'
 import { cliUpdateNotice, newModelsNotice, retiredModelNotices, updateReadyNotice } from '../../utils/feedNotifications'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
-import type { RegisteredModalSurface } from '../../modules/renderer-host'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
   deriveWorkspaceIdleSince,
@@ -81,7 +80,8 @@ import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
-import { AppRail, railSurfacesOf } from './AppRail'
+import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
+import { EXTENSIONS_HOME_SURFACE_ID, surfaceTakesSidebarColumn } from './extensionsDrawer'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
@@ -105,7 +105,7 @@ import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
-import { resolveActiveDoorSurface, resolveActiveModalSurface } from './globalSurface/absentDoorSurface'
+import { doorLabelForSurfaceId, resolveActiveDoorSurface, resolveActiveModalSurface } from './globalSurface/absentDoorSurface'
 import {
   ContextRailColumn,
   ContextRailSlotContext,
@@ -228,17 +228,23 @@ const CORE_DIFF_MODAL_SURFACE = {
   label: 'Diff',
   Component: DiffPopoutSurface,
 } as const
-// The Extensions marketplace (the app rail's Extensions glyph, 2026-09-05):
-// what is installed and what can be, floated over the card region while the
-// sidebar lists the installed extension doors beside it. Core like Settings —
-// it is where modules are managed, so no module may gate it — and reserved in
-// the registry the same way.
-const ExtensionsMarketplaceSurface = React.lazy(() => import('../extensions/ExtensionsMarketplaceSurface'))
-const CORE_MARKETPLACE_MODAL_SURFACE = {
-  id: 'marketplace',
+// The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
+// the glyph opens in the card region, with the Extensions drawer standing
+// beside it. A DOOR, shaped like a registered global surface so the mount path
+// is identical to every module's (Extensions drawer ruling, Stage 2 — it was
+// the `marketplace` modal for a few hours the same day). Core like Settings:
+// it is where the product's own parts are offered, so no module may gate it,
+// and its id is reserved in the registry the same way.
+//
+// `railPlacement: 'inline'` because it brings no rail at all and the drawer
+// beside it is the navigation: taking that column would empty it.
+const ExtensionsHomeSurface = React.lazy(() => import('../extensions/ExtensionsHomeSurface'))
+const CORE_EXTENSIONS_HOME_SURFACE = {
+  id: EXTENSIONS_HOME_SURFACE_ID,
   moduleId: 'core',
   label: 'Extensions',
-  Component: ExtensionsMarketplaceSurface,
+  railPlacement: 'inline',
+  Component: ExtensionsHomeSurface,
 } as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
@@ -526,7 +532,6 @@ export default function WorkspaceManager() {
   // keeps whatever owns it underneath.
   const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
   const closeModalSurface = useWorkspaceStore((s) => s.closeModalSurface)
-  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
@@ -966,13 +971,17 @@ export default function WorkspaceManager() {
   //
   const activeGlobalSurfaceEntry = useMemo(() => {
     if (!activeGlobalSurface) return null
+    // The Extensions home resolves from the app, never the registry: it is
+    // where modules are offered, so a module toggle must not be able to take it
+    // away — the same reasoning that keeps Settings out of the modal registry.
+    if (activeGlobalSurface === EXTENSIONS_HOME_SURFACE_ID) return CORE_EXTENSIONS_HOME_SURFACE
     return resolveActiveDoorSurface(
       activeGlobalSurface,
       (id) => getRendererHost().getGlobalSurface(id),
       (moduleId) => selectModuleEnabled(moduleEnablement, moduleId),
       (view) => openExtensionsSurface({ view }),
     )
-  }, [activeGlobalSurface, moduleEnablement, openExtensionsSurface])
+  }, [activeGlobalSurface, moduleEnablement, moduleRegistryGeneration, openExtensionsSurface])
 
   // Resolve the active MODAL surface (doors→modals, 2026-09-01) to its
   // registered entry, gated on the owning module's live enablement. An id
@@ -989,7 +998,6 @@ export default function WorkspaceManager() {
     if (!activeModalSurface) return null
     if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
     if (activeModalSurface === 'diff') return CORE_DIFF_MODAL_SURFACE
-    if (activeModalSurface === 'marketplace') return CORE_MARKETPLACE_MODAL_SURFACE
     return resolveActiveModalSurface(
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
@@ -1011,10 +1019,13 @@ export default function WorkspaceManager() {
     && !activeGlobalSurfaceEntry
     && !newChatPanelOpen
 
-  // The open door's human name, for the rail's accessible name and the error
-  // boundary's title. Derived once so the two can never disagree.
+  // The open door's human name, for the bar's fallback title, the rail's
+  // accessible name and the error boundary's title. The registered label wins
+  // over the capitalised id, because the two genuinely differ: the `extensions`
+  // surface is called Plugins everywhere a person can read it. Derived once so
+  // no two of them can disagree.
   const surfaceLabel = activeGlobalSurfaceEntry
-    ? activeGlobalSurfaceEntry.id.charAt(0).toUpperCase() + activeGlobalSurfaceEntry.id.slice(1)
+    ? doorLabelForSurfaceId(activeGlobalSurfaceEntry.id, activeGlobalSurfaceEntry.label)
     : ''
 
   // Destination element for the active door surface's lifted bar. The surface
@@ -1039,6 +1050,15 @@ export default function WorkspaceManager() {
   // future canvas-only tenant, which nests no second navigation column and so
   // has nothing to replace.
   const [surfaceHasRail, setSurfaceHasRail] = useState(false)
+  // Whether the OPEN door takes the sidebar column at all (Extensions drawer
+  // ruling, 2026-09-05). A door that is itself a row of the Extensions drawer
+  // declares `railPlacement: 'inline'`: the drawer is the navigation that
+  // reached it and has to stay put while the card region swaps, so its rail
+  // renders beside its own canvas instead. Withholding the slot is the whole
+  // mechanism — with no provider in scope `GlobalSurfaceShell` falls back to
+  // its documented inline aside, and the surface never learns which host it
+  // got.
+  const surfaceLiftsRail = surfaceTakesSidebarColumn(activeGlobalSurfaceEntry)
   const surfaceRailSlot = useMemo(
     () => ({ el: surfaceRailEl, onRailPresence: setSurfaceHasRail }),
     [surfaceRailEl],
@@ -1048,7 +1068,7 @@ export default function WorkspaceManager() {
   // it through the live entry is what puts the workspaces rail back in the same
   // commit that clears the door — which is in turn what makes focus land on the
   // door's own row rather than on a row that is still `display:none`.
-  const contextRailActive = activeGlobalSurfaceEntry !== null && surfaceHasRail
+  const contextRailActive = activeGlobalSurfaceEntry !== null && surfaceHasRail && surfaceLiftsRail
   // The door's canvas region, for deciding whether an Escape belongs to the door.
   const [surfaceRegionEl, setSurfaceRegionEl] = useState<HTMLDivElement | null>(null)
   const surfaceTrigger = useSurfaceTriggerFocus(activeGlobalSurface)
@@ -1067,37 +1087,43 @@ export default function WorkspaceManager() {
   // showing is a no-op rather than a toggle, so the rail always has a
   // selected section.
   //
-  // Extensions is the one section with a surface of its own: choosing it also
-  // opens the marketplace over the card region (owner, 2026-09-05 — "opening
-  // Extensions brings you to the marketplace"), while the column beside it
-  // lists the installed extension doors. Choosing it again with the
-  // marketplace closed reopens it — the glyph's promise is the surface.
+  // Extensions is the one section with a page of its own: choosing it also
+  // opens the Extensions home in the card region (owner, 2026-09-05), while the
+  // column beside it becomes the drawer — Sprints, Design, Plugins, Skills,
+  // Agent CLIs. Choosing it again from somewhere else reopens the home — the
+  // glyph's promise is the page.
+  //
+  // Leaving the open door FIRST and opening the home second, rather than
+  // letting `openGlobalSurface` replace it: `leaveGlobalSurface` is what hands
+  // the keyboard back to the row that opened the door, and it only fires while
+  // the door is genuinely closing.
   const selectSidebarSection = useCallback(
     (section: SidebarSection) => {
       if (activeGlobalSurface) leaveGlobalSurface()
       setSidebarSection(section)
       if (sidebarCollapsed) setSidebarCollapsed(false)
-      if (section === 'extensions') openModalSurface('marketplace')
+      if (section === 'extensions') openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID)
     },
-    [activeGlobalSurface, leaveGlobalSurface, openModalSurface, setSidebarCollapsed, setSidebarSection, sidebarCollapsed],
+    [activeGlobalSurface, leaveGlobalSurface, openGlobalSurface, setSidebarCollapsed, setSidebarSection, sidebarCollapsed],
   )
 
-  // The module surfaces that stand on the app rail (Automations, Plugins):
-  // the host's enablement-filtered list, in rail order. Same registry, same
-  // gating and same late-loader bump as the Extensions list's rows.
+  // The module surfaces that stand on the app rail (Automations, and only
+  // Automations since the drawer ruling): the host's enablement-filtered door
+  // list, in rail order. Same registry, same gating and same late-loader bump
+  // as the Extensions drawer's rows.
   const railSurfaces = useMemo(
-    () => railSurfacesOf(getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleEnablement, id))),
+    () => railSurfacesOf(getRendererHost().getGlobalSurfaces((id) => selectModuleEnabled(moduleEnablement, id))),
     [moduleEnablement, moduleRegistryGeneration],
   )
   const openRailSurface = useCallback(
-    (surface: RegisteredModalSurface) => {
+    (surface: RailSurface) => {
       // A plain open lands on the surface's default view: the surface discards
-      // any stale deep-link latch in `onOpen` first (the Extensions list's rows
-      // do the same).
+      // any stale deep-link latch in `onOpen` first (the drawer's rows do the
+      // same).
       surface.onOpen?.()
-      openModalSurface(surface.id)
+      openGlobalSurface(surface.id)
     },
-    [openModalSurface],
+    [openGlobalSurface],
   )
 
   // The same trigger-focus restore, offered to the door itself. The bar chevron
@@ -1126,9 +1152,13 @@ export default function WorkspaceManager() {
   // `ContextRailColumn` takes focus when it replaces the sidebar, so a door WITH
   // a rail is fine. A door without one left focus on the sidebar row that opened
   // it, which belongs to neither the door's canvas nor its rail, so Escape below
-  // never claimed the keystroke and the door had no keyboard exit. Every door now
-  // declares a rail in every state (T19), so this covers the one-commit settle
-  // before the surface has answered, plus any future canvas-only tenant.
+  // never claimed the keystroke and the door had no keyboard exit. This covers
+  // the one-commit settle before a swapping surface has answered — and, since
+  // the Extensions drawer ruling (2026-09-05), every drawer door: Design and
+  // Plugins keep their rail inline so the drawer survives them, which means
+  // focus stays on the drawer row they were opened from unless the region takes
+  // it. The trigger-focus capture above runs first, so the row is still recorded
+  // and Escape hands the keyboard straight back to it.
   // The page region takes the keyboard instead. It is also what makes a click on
   // the door's own empty canvas land INSIDE the door (a click on a non-focusable
   // node focuses its nearest focusable ancestor) rather than dropping focus to
@@ -2914,12 +2944,13 @@ export default function WorkspaceManager() {
       )
     },
     onUseInAutomation: () => {
-      // The route to author a connector automation is the Automations modal
-      // (doors→modals, 2026-09-01); the connector pre-selection lands in T8.
-      // Plugins is itself a modal, so the hop is modal→modal and whatever door
-      // is underneath stays. The button renders whether or not the module is
-      // on, and the modal host resolves a disabled module to nothing — say so
-      // rather than let the click land silently.
+      // The route to author a connector automation is the Automations door
+      // (Extensions drawer ruling, 2026-09-05; a modal before that); the
+      // connector pre-selection lands in T8. Plugins is itself a door, so the
+      // hop is door→door and the card region simply changes hands. The button
+      // renders whether or not the module is on, and the door host resolves a
+      // disabled module to the not-installed explainer — say so rather than let
+      // the click land silently.
       if (!selectModuleEnabled(moduleEnablement, 'automations')) {
         showToast({
           tone: 'warn',
@@ -2928,7 +2959,7 @@ export default function WorkspaceManager() {
         })
         return
       }
-      openModalSurface('automations')
+      openGlobalSurface('automations')
     },
   }
   useEffect(() => {
@@ -3895,7 +3926,7 @@ export default function WorkspaceManager() {
         section={sidebarSection}
         onSelectSection={selectSidebarSection}
         surfaces={railSurfaces}
-        activeModalSurface={activeModalSurface}
+        activeGlobalSurface={activeGlobalSurface}
         onOpenSurface={openRailSurface}
         accountSlot={
           <SidebarAccountBar
@@ -4168,9 +4199,9 @@ export default function WorkspaceManager() {
             a dialog dismissal), by opening another door, or by selecting a
             project; all of them clear activeGlobalSurface. Gated on the surface's
             owning module: a stale flag after a module toggle resolves to null and
-            the workspace shows through. Settings, Plugins, Automations and Design
-            are NOT doors — they float in the modal mount below (doors→modals,
-            2026-09-01). */}
+            the workspace shows through. Automations, Design and Plugins are
+            doors again (Extensions drawer ruling, 2026-09-05); Settings, the
+            Diff popout and Reviews stay modals in the mount below. */}
         {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
@@ -4187,7 +4218,7 @@ export default function WorkspaceManager() {
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
               {/* The rail lifts into the app sidebar's column; the surface just
                   declares a rail and does not know which column it landed in. */}
-              <ContextRailSlotContext.Provider value={surfaceRailSlot}>
+              <ContextRailSlotContext.Provider value={surfaceLiftsRail ? surfaceRailSlot : null}>
               {/* The door's bar chevron leaves through here, so it restores the
                   keyboard to the row that opened the door exactly as Escape does. */}
               <SurfaceExitContext.Provider value={surfaceExit}>
@@ -4224,19 +4255,19 @@ export default function WorkspaceManager() {
             — in the shipped Modal shell: workbench width, panel layout, the
             flat darkening scrim (NEVER backdrop-filter — terminals render at
             60fps behind it), FocusTrap, Escape/scrim close, focus restored to
-            the trigger glyph on close. Settings, Plugins, Automations and
-            Design and Reviews live here; the true doors (Sprints) keep the
-            page mount above. With no bar/rail slot providers
+            the element that opened it. Settings, the Diff popout and Reviews
+            live here — pick-and-close tasks over work that stays put; every
+            destination the shell's own chrome offers is a door in the mount
+            above (Extensions drawer ruling, 2026-09-05). With no bar/rail slot providers
             in scope, GlobalSurfaceShell renders its documented inline fallback
             — bar on top, aside rail beside the canvas — which is exactly the
             modal-interior anatomy. */}
         {activeModalSurfaceEntry ? (
           <Modal
-            // Keyed by surface id: swapping one modal surface for another
-            // (Settings → "Browse marketplace" → Plugins) must remount the
-            // Modal so its FocusTrap and initial-focus effect re-run — an
-            // in-place body swap dropped focus to <body>, outside the trap,
-            // with the background reachable on Tab.
+            // Keyed by surface id: swapping one modal surface for another must
+            // remount the Modal so its FocusTrap and initial-focus effect
+            // re-run — an in-place body swap dropped focus to <body>, outside
+            // the trap, with the background reachable on Tab.
             key={activeModalSurfaceEntry.id}
             open
             onClose={closeModalSurface}

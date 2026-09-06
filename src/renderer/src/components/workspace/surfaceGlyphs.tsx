@@ -1,11 +1,15 @@
-// Trigger glyphs for the modal surfaces in the sidebar footer's settings
-// cluster (doors→modals, 2026-09-01). Deliberately a leaf file with no imports:
-// modules register these EAGERLY (the glyph renders in the footer at boot), so
-// anything imported here lands in the eager module-registry graph — which must
-// stay free of the workspace store, AppIcons (which reaches the module
-// registry), and every door bundle. One concept per glyph, currentColor
-// strokes, the icon family's 16-box round-stroke idiom (design-system glyph
-// grammar).
+// The glyphs modules hand to the shell's chrome to name a surface: an app-rail
+// square (Automations), an Extensions drawer row (Design, Plugins), a pane
+// launcher (Reviews). "Modal" left the name with the Extensions drawer ruling
+// (2026-09-05) — most of these name doors now, and the glyph never cared which
+// mount kind was behind it.
+//
+// Deliberately a leaf file with no imports: modules register these EAGERLY (the
+// glyph renders in the rail at boot), so anything imported here lands in the
+// eager module-registry graph — which must stay free of the workspace store,
+// AppIcons (which reaches the module registry), and every door bundle. One
+// concept per glyph, currentColor strokes, the icon family's 16-box
+// round-stroke idiom (design-system glyph grammar).
 
 // Plugins: a link to an external capability. Moved verbatim from the retired
 // ExtensionsNavEntry (where it was the Extensions door's row icon).

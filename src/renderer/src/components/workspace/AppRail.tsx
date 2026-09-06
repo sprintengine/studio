@@ -1,6 +1,6 @@
 import React from 'react'
 
-import type { RegisteredModalSurface } from '../../modules/renderer-host'
+import type { RegisteredGlobalSurface, SurfaceIconComponent } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
@@ -21,10 +21,11 @@ import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 // THREE glyphs, top to bottom (Extensions drawer ruling, 2026-09-05, revising
 // the four-glyph cut of the same day):
 //   Home        — the sidebar shows New chat and the workspaces tree.
-//   Automations — the Automations surface opens over the card region.
+//   Automations — the Automations surface takes the card region, with its own
+//                 list of automations in the sidebar column beside it.
 //   Extensions  — the sidebar becomes the Extensions drawer (Sprints, Design,
-//                 Plugins, Skills, Agent CLIs) and the Extensions home opens
-//                 over the card region.
+//                 Plugins, Skills, Agent CLIs) and the Extensions home takes
+//                 the card region.
 // Plugins left the rail: it is one of the five things UNDER Extensions, and a
 // glyph of its own said it stood beside them. Automations stays because it is
 // what the product does rather than something added to it — and it is still
@@ -52,18 +53,24 @@ export const APP_RAIL_WIDTH = 46
 // Where the three lights end, as AppTitleBar's own reserve measures it.
 export const TRAFFIC_LIGHT_RESERVE = 78
 
-// The registered modal surfaces that stand on the rail, in rail order. Ids, not
+// The registered surfaces that stand on the rail, in rail order. Ids, not
 // modules. One of them today: the ruling promotes only Automations. The
 // mechanism stays a LIST because what the rail holds is a ruling rather than a
 // constant of the code — a second standing tool would join it here rather than
 // be hand-placed in the JSX.
 export const RAIL_SURFACE_IDS = ['automations'] as const
 
+// A rail square needs a name and a glyph, and a door declares both optionally
+// (Sprints names itself through its own nav-entry row instead). Narrowing here
+// rather than at the call site keeps the rail from ever having to render a
+// nameless square.
+export type RailSurface = RegisteredGlobalSurface & { label: string; Icon: SurfaceIconComponent }
+
 /** The rail's surfaces, picked from the host's enablement-filtered list and put in rail order. */
-export function railSurfacesOf(surfaces: readonly RegisteredModalSurface[]): RegisteredModalSurface[] {
+export function railSurfacesOf(surfaces: readonly RegisteredGlobalSurface[]): RailSurface[] {
   return RAIL_SURFACE_IDS.flatMap((id) => {
     const surface = surfaces.find((candidate) => candidate.id === id)
-    return surface ? [surface] : []
+    return surface?.label && surface.Icon ? [surface as RailSurface] : []
   })
 }
 
@@ -99,9 +106,9 @@ type AppRailProps = {
   onSelectSection: (section: SidebarSection) => void
   // The module surfaces promoted onto the rail (railSurfacesOf), already
   // enablement-filtered by the host.
-  surfaces: readonly RegisteredModalSurface[]
-  activeModalSurface: string | null
-  onOpenSurface: (surface: RegisteredModalSurface) => void
+  surfaces: readonly RailSurface[]
+  activeGlobalSurface: string | null
+  onOpenSurface: (surface: RailSurface) => void
   // The account + Settings cluster stays at the rail's foot across sections.
   // Owned by the host; the rail only places it.
   accountSlot?: React.ReactNode
@@ -111,8 +118,9 @@ type AppRailProps = {
 // name. Selection is the neutral `bg-selected` fill — never the accent, never a
 // bar on the window's edge (principles, "Selection is neutral"). A section
 // glyph is `aria-current` while its section shows; a surface glyph is
-// `aria-pressed` while its surface floats — the two can light together, and
-// they say different things: which column, and what is over it.
+// `aria-pressed` while its surface holds the card region — the two can light
+// together, and they say different things: which column, and what is in the
+// region beside it.
 function RailGlyph({
   label,
   active,
@@ -146,7 +154,7 @@ function RailGlyph({
   )
 }
 
-export function AppRail({ section, onSelectSection, surfaces, activeModalSurface, onOpenSurface, accountSlot }: AppRailProps) {
+export function AppRail({ section, onSelectSection, surfaces, activeGlobalSurface, onOpenSurface, accountSlot }: AppRailProps) {
   return (
     <nav
       aria-label="App rail"
@@ -179,7 +187,7 @@ export function AppRail({ section, onSelectSection, surfaces, activeModalSurface
             key={surface.id}
             label={surface.label}
             current="surface"
-            active={activeModalSurface === surface.id}
+            active={activeGlobalSurface === surface.id}
             onClick={() => onOpenSurface(surface)}
           >
             <surface.Icon className="icon-md" />

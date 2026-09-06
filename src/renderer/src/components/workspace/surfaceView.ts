@@ -1,11 +1,15 @@
 import { useSyncExternalStore } from 'react'
 
-// Which VIEW an open modal surface is showing (Extensions drawer ruling,
+// Which VIEW an open surface is showing (Extensions drawer ruling,
 // 2026-09-05). A surface that contributes several drawer rows — the one
 // `extensions` surface is Plugins, Skills and Agent CLIs to the person
-// (renderer-host, ModalSurfaceViewDefinition) — has to say which of them it is
-// on, or all three rows would read selected the moment the surface opened, and
-// the drawer would stop being navigation.
+// (renderer-host, SurfaceViewDefinition) — has to say which of them it is on,
+// or all three rows would read selected the moment the surface opened, and the
+// drawer would stop being navigation.
+//
+// "Modal" is out of the name (Stage 2, same ruling): these surfaces are doors
+// now, and the channel never cared which mount kind was publishing — only that
+// exactly one row of a multi-row surface reads selected.
 //
 // The surface publishes; the drawer subscribes. Deliberately NOT the workspace
 // store: the store would have to name a module's internal sections, and this is
@@ -21,7 +25,7 @@ const activeViews = new Map<string, string>()
 const listeners = new Set<() => void>()
 
 /** The surface says which view it is showing; `null` when it is closing. */
-export function publishModalSurfaceView(surfaceId: string, viewId: string | null): void {
+export function publishSurfaceView(surfaceId: string, viewId: string | null): void {
   const current = activeViews.get(surfaceId) ?? null
   if (current === viewId) return
   if (viewId === null) activeViews.delete(surfaceId)
@@ -29,11 +33,11 @@ export function publishModalSurfaceView(surfaceId: string, viewId: string | null
   for (const listener of [...listeners]) listener()
 }
 
-export function getModalSurfaceView(surfaceId: string): string | null {
+export function getSurfaceView(surfaceId: string): string | null {
   return activeViews.get(surfaceId) ?? null
 }
 
-export function subscribeModalSurfaceViews(listener: () => void): () => void {
+export function subscribeSurfaceViews(listener: () => void): () => void {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
@@ -41,10 +45,10 @@ export function subscribeModalSurfaceViews(listener: () => void): () => void {
 }
 
 /** The showing view of one surface, as a subscription. `null` while it shows none. */
-export function useModalSurfaceView(surfaceId: string): string | null {
+export function useSurfaceView(surfaceId: string): string | null {
   return useSyncExternalStore(
-    subscribeModalSurfaceViews,
-    () => getModalSurfaceView(surfaceId),
+    subscribeSurfaceViews,
+    () => getSurfaceView(surfaceId),
     () => null,
   )
 }

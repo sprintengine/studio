@@ -1,8 +1,8 @@
-// The deep-link latch for the Extensions door (MC-1847 B1). The modal-era
+// The deep-link latch for the Extensions door (MC-1847 B1). The
 // `openExtensionsSurface({ view })` callers — the command palette, Settings →
-// Modules, and the agent "Manage skills" footers — become "open the door and
-// land on this rail row", but the door may open a tick before the surface
-// mounts and subscribes. So, exactly like the automations surface-target latch,
+// Modules, and the agent "Manage skills" footers — mean "open the door and land
+// on this row", but the door may open a tick before the surface mounts and
+// subscribes. So, exactly like the automations surface-target latch,
 // the producer both stashes the pending view and emits a live event; the
 // surface drains the latch on mount and also handles the live event, so the
 // deep-link lands whether the door was already open or just mounted.
@@ -20,7 +20,7 @@ export type ExtensionsSurfaceView = 'browse' | 'installed' | 'skills' | 'agent-c
 
 // The drawer rows this surface contributes (Extensions drawer ruling,
 // 2026-09-05): the ids the module registers as its `views` and the surface
-// publishes while it is showing one (modalSurfaceView). Kept here, in the leaf
+// publishes while it is showing one (surfaceView.ts). Kept here, in the leaf
 // both the eager module registration and the lazy surface already import, so
 // the row a person clicks and the row that lights are named by one constant.
 export const EXTENSIONS_DRAWER_VIEWS = {

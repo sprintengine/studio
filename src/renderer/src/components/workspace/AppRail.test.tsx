@@ -31,14 +31,13 @@ domWindow.api = {}
 import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { RegisteredModalSurface } from '../../modules/renderer-host'
-import { APP_RAIL_WIDTH, AppRail, RAIL_SURFACE_IDS, TRAFFIC_LIGHT_RESERVE, railSurfacesOf } from './AppRail'
-import { TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
+import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
+import { APP_RAIL_WIDTH, AppRail, RAIL_SURFACE_IDS, TRAFFIC_LIGHT_RESERVE, railSurfacesOf, type RailSurface } from './AppRail'
+import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
-const surface = (id: string, label: string, order: number): RegisteredModalSurface => ({
+const surface = (id: string, label: string): RegisteredGlobalSurface => ({
   id,
   moduleId: 'design',
-  order,
   label,
   Icon: ({ className }: { className?: string }) => React.createElement('svg', { className }),
   Component: () => null,
@@ -49,11 +48,19 @@ const surface = (id: string, label: string, order: number): RegisteredModalSurfa
 // UNDER Extensions, not a thing standing beside it.
 assert.deepEqual([...RAIL_SURFACE_IDS], ['automations'], 'Automations is the rail’s one promoted surface')
 {
-  const picked = railSurfacesOf([surface('reviews', 'Reviews', 1), surface('extensions', 'Plugins', 10), surface('automations', 'Automations', 20)])
+  const picked = railSurfacesOf([surface('sprints', 'Sprints'), surface('extensions', 'Plugins'), surface('automations', 'Automations')])
   assert.deepEqual(picked.map((s) => s.id), ['automations'], 'only the promoted surface is taken, whatever else is registered')
   // A disabled automations module leaves the host's list without it, and the
   // rail simply has no glyph for it — never a dead square.
-  assert.deepEqual(railSurfacesOf([surface('extensions', 'Plugins', 10)]), [])
+  assert.deepEqual(railSurfacesOf([surface('extensions', 'Plugins')]), [])
+  // A door may register without a name or a glyph — Sprints names itself
+  // through its own nav-entry row — and a nameless square is not a square the
+  // rail can draw, so such a door is skipped rather than rendered blank.
+  assert.deepEqual(
+    railSurfacesOf([{ id: 'automations', moduleId: 'automations', Component: () => null }]),
+    [],
+    'a door with no label or glyph contributes no rail square',
+  )
 }
 assert.ok(APP_RAIL_WIDTH < TRAFFIC_LIGHT_RESERVE, 'the rail is narrower than the traffic lights, so the sidebar chrome insets for the rest')
 
@@ -62,8 +69,8 @@ const selected: string[] = []
 const opened: string[] = []
 function render(
   section: 'home' | 'extensions',
-  activeModalSurface: string | null,
-  surfaces: RegisteredModalSurface[] = [surface('automations', 'Automations', 20)],
+  activeGlobalSurface: string | null,
+  surfaces: RailSurface[] = [surface('automations', 'Automations') as RailSurface],
 ) {
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
@@ -74,7 +81,7 @@ function render(
         section,
         onSelectSection: (next) => selected.push(next),
         surfaces,
-        activeModalSurface,
+        activeGlobalSurface,
         onOpenSurface: (s) => opened.push(s.id),
       }),
     )
@@ -100,7 +107,7 @@ assert.equal(buttons()[2]?.getAttribute('aria-current'), null)
 assert.equal(buttons()[1]?.getAttribute('aria-pressed'), 'false', 'a surface glyph reads unpressed while its surface is closed')
 
 act(() => { buttons()[2]?.click() })
-assert.deepEqual(selected, ['extensions'], 'the Extensions glyph selects its section (the host opens the Extensions surface with it)')
+assert.deepEqual(selected, ['extensions'], 'the Extensions glyph selects its section (the host opens the Extensions home with it)')
 act(() => { buttons()[1]?.click() })
 assert.deepEqual(opened, ['automations'], 'the Automations glyph opens its surface')
 
@@ -113,14 +120,20 @@ assert.ok(!(nav().getAttribute('class') ?? '').includes('border-r'), 'the rail d
   const strips = [...nav().querySelectorAll(':scope > div[aria-hidden="true"]')] as HTMLElement[]
   const divider = strips.find((strip) => (strip.getAttribute('class') ?? '').includes('w-px'))
   assert.ok(divider, 'the rail draws its divider as a positioned hairline')
-  assert.equal(divider?.style.top, `${TITLE_BAR_HEIGHT_PX}px`, 'the divider starts below the title strip’s reserve')
+  // Read the reserve out of the CLASS the title strip actually renders, not out
+  // of the constant this file also passes to the rail: comparing the constant
+  // with itself proved only that one number equals itself, and would have gone
+  // on passing if the class and the number ever drifted apart.
+  const reserveFromClass = Number(/^h-\[(\d+)px\]$/.exec(TITLE_BAR_HEIGHT)?.[1])
+  assert.equal(reserveFromClass, TITLE_BAR_HEIGHT_PX, 'the title strip’s class and its px constant are one height')
+  assert.equal(divider?.style.top, `${reserveFromClass}px`, 'the divider starts below the title strip’s reserve')
   assert.ok((divider?.getAttribute('class') ?? '').includes('bottom-0'), 'and runs to the foot of the column')
 }
 
 dom.window.document.body.innerHTML = ''
 render('extensions', 'automations')
 assert.equal(buttons()[2]?.getAttribute('aria-current'), 'page')
-assert.equal(buttons()[1]?.getAttribute('aria-pressed'), 'true', 'Automations reads pressed while its surface is open')
+assert.equal(buttons()[1]?.getAttribute('aria-pressed'), 'true', 'Automations reads pressed while its door holds the card region')
 
 // ── A disabled module takes its glyph with it ─────────────────────────────────
 dom.window.document.body.innerHTML = ''

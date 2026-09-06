@@ -6,7 +6,7 @@ import {
   consumePendingAutomationSurfaceTarget,
   dispatchAutomationSurfaceTarget,
 } from '../components/workspace/globalSurface/automations/automationSurfaceTarget'
-import { AutomationsGlyph } from '../components/workspace/modalSurfaceGlyphs'
+import { AutomationsGlyph } from '../components/workspace/surfaceGlyphs'
 import { registerAutomationsWorkspaceTypes } from './automations-workspace-types'
 
 // Lazy so the control-center bundle (and the store/FlexLayout graph it pulls in)
@@ -16,8 +16,9 @@ const AutomationsControlCenterPanel = React.lazy(
   () => import('../components/panels/AutomationsPanel')
 )
 
-// The Automations surface, mounted in the shell's modal shell (doors→modals,
-// 2026-09-01). Lazy — and deliberately NOT a top-level import — because it
+// The Automations surface, mounted over the workspace card region as a door
+// (Extensions drawer ruling, 2026-09-05; a modal from 2026-09-01 until then).
+// Lazy — and deliberately NOT a top-level import — because it
 // reaches the workspace store (and, through it, the FlexLayout graph); keeping
 // it behind a dynamic import leaves the eager module-registry graph
 // store-free, the discipline the other surfaces follow. The trigger glyph IS
@@ -54,19 +55,26 @@ export const automationsRendererModule: RendererModule = {
   registerRenderer(host) {
     host.registerPanel('automations-control-center', AutomationsControlCenterPanel)
     registerAutomationsWorkspaceTypes(host)
-    // The Automations modal (doors→modals, 2026-09-01; the top-nav door
-    // before that): trigger glyph in the settings cluster, surface in the
-    // shell's modal shell.
-    host.registerModalSurface({
+    // The Automations door: the app rail's middle square, and a card-region
+    // surface (Extensions drawer ruling, 2026-09-05 — "surfaces, not modals").
+    // Automations stands on the RAIL rather than in the Extensions drawer
+    // because it is what the product does rather than something added to it,
+    // and the label and glyph come from here so a disabled module takes its
+    // square with it.
+    //
+    // No `railPlacement`, so the default swap applies: the automations this
+    // window can see ARE the navigation while the surface is open (the ruling's
+    // frame 4), so the surface's rail takes the sidebar column, exactly as
+    // Sprints' list of runs does.
+    host.registerGlobalSurface({
       id: 'automations',
-      order: 20,
       label: 'Automations',
       Icon: AutomationsGlyph,
-      // A plain open lands on the surface's default view: discard any stale
-      // deep-link latch a dispatch that never mounted left behind (a run
-      // notification's Open closed during Suspense, a shelf Get superseded by
-      // a workspace activation) — the surface drains the latch on mount, so a
-      // stale one would reroute the open. Same guard as Plugins.
+      // A plain open (the rail square) lands on the surface's default view:
+      // discard any stale deep-link latch a dispatch that never mounted left
+      // behind (a run notification's Open closed during Suspense, a shelf Get
+      // superseded by a workspace activation) — the surface drains the latch on
+      // mount, so a stale one would reroute the open. Same guard as Plugins.
       onOpen: () => {
         consumePendingAutomationSurfaceTarget()
       },
@@ -95,13 +103,13 @@ export const automationsRendererModule: RendererModule = {
             label: 'Open',
             run: () => {
               // Latch the automation to select first (the surface drains it on
-              // mount), then open the modal. Dynamic store import keeps the
+              // mount), then open the door. Dynamic store import keeps the
               // eager module registry — and the bundled-ids drift test — free
               // of the workspace store / FlexLayout graph, matching the roadmap
               // and sprint-engine module pattern.
               dispatchAutomationSurfaceTarget(target)
               void import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
-                useWorkspaceStore.getState().openModalSurface('automations')
+                useWorkspaceStore.getState().openGlobalSurface('automations')
               })
             },
           },

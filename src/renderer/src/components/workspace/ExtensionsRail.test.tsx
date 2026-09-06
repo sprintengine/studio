@@ -5,8 +5,16 @@ import assert from 'node:assert/strict'
 // last three are three views of the ONE `extensions` surface. This renders the
 // real drawer against the real module registry because the contract is the
 // WIRING: the ruling's order survives whatever `order` the modules declared, a
-// view row opens its surface latched to that view, exactly the row the surface
-// is standing on reads selected, and a disabled module's row is simply absent.
+// row opens a DOOR (Stage 2 — the rows stopped opening modals) latched to its
+// view, exactly the row the open surface is standing on reads selected, and a
+// disabled module's row is simply absent.
+//
+// The drawer STAYING PUT is the other half of the ruling, and it is a property
+// of the surfaces the rows open rather than of this column: a drawer door
+// declares `railPlacement: 'inline'`, so the host withholds the sidebar column
+// and the door renders its rail beside its own canvas. Asserted here against
+// the live registry, because a door that forgot the declaration would delete
+// the very drawer that opened it.
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -38,8 +46,12 @@ import { getRendererHost } from '../../modules'
 import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SidebarNavButton } from './SidebarNavButton'
-import { publishModalSurfaceView } from './modalSurfaceView'
-import { consumePendingExtensionsSurfaceTarget } from './globalSurface/extensions/extensionsSurfaceTarget'
+import { getSurfaceView, subscribeSurfaceViews } from './surfaceView'
+import ExtensionsGlobalSurface from './globalSurface/extensions/ExtensionsGlobalSurface'
+import {
+  consumePendingExtensionsSurfaceTarget,
+  dispatchExtensionsSurfaceTarget,
+} from './globalSurface/extensions/extensionsSurfaceTarget'
 
 function render(navEntries: readonly RegisteredSidebarNavEntry[]): HTMLElement {
   const host = dom.window.document.createElement('div')
@@ -75,8 +87,9 @@ const doorEntry = (id: string, order: number, label: string): RegisteredSidebarN
 // ── The registry says what a view row IS ─────────────────────────────────────
 // The shell holds the ORDER; the agent-runtime module holds what its three rows
 // are called, what they look like and how the surface lands on each.
-const extensions = getRendererHost().getModalSurface('extensions')
-assert.ok(extensions, 'the always-on core registers the extensions surface')
+const extensions = getRendererHost().getGlobalSurface('extensions')
+assert.ok(extensions, 'the always-on core registers the extensions surface as a DOOR')
+assert.equal(extensions?.label, 'Plugins', 'named by the module, not by its id')
 assert.deepEqual(
   extensions?.views?.map((view) => [view.id, view.label]),
   [
@@ -85,6 +98,25 @@ assert.deepEqual(
     ['agent-clis', 'Agent CLIs'],
   ],
   'one surface, three drawer rows, each named by the module',
+)
+
+// ── The drawer stays put ─────────────────────────────────────────────────────
+// A drawer door must not take the sidebar column: the drawer is the navigation
+// that reached it, and the host reads this declaration to decide whether to
+// offer the context-rail slot at all.
+for (const id of ['design', 'extensions']) {
+  assert.equal(
+    getRendererHost().getGlobalSurface(id)?.railPlacement,
+    'inline',
+    `the ${id} door renders its rail beside its canvas, so the drawer survives it`,
+  )
+}
+// Automations is not a drawer row, and its own list of automations IS the
+// navigation while it is open — so it keeps the swap every door used to make.
+assert.equal(
+  getRendererHost().getGlobalSurface('automations')?.railPlacement,
+  undefined,
+  'Automations takes the sidebar column (the default), because it is not a drawer row',
 )
 
 // ── The five rows, in the ruled order ────────────────────────────────────────
@@ -102,7 +134,8 @@ consumePendingExtensionsSurfaceTarget()
 act(() => {
   row('Skills')?.click()
 })
-assert.equal(useWorkspaceStore.getState().activeModalSurface, 'extensions', 'a view row opens the surface that owns it')
+assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'extensions', 'a view row opens the DOOR that owns it')
+assert.equal(useWorkspaceStore.getState().activeModalSurface, null, 'and nothing floats over it')
 assert.equal(
   consumePendingExtensionsSurfaceTarget(),
   'skills',
@@ -115,35 +148,56 @@ act(() => {
 assert.equal(consumePendingExtensionsSurfaceTarget(), 'browse', 'Plugins is the MCP-server catalogue')
 
 // ── Exactly the row the surface stands on reads selected ─────────────────────
-// The surface publishes its view (modalSurfaceView), so the drawer follows it
-// even when the person moved with the surface's own rail rather than a row.
+// The REAL surface, mounted: the selected row is a contract between the surface
+// and this column, and hand-publishing the channel would only prove the column
+// reads what it is told. Every publish is recorded, because the sequence
+// matters as much as the endpoints — a cleanup that fired on each in-surface
+// move published `null` before the new view and the lit row blinked.
+const publishes: Array<string | null> = []
+const stopWatching = subscribeSurfaceViews(() => publishes.push(getSurfaceView('extensions')))
+const surfaceHost = dom.window.document.createElement('div')
+dom.window.document.body.appendChild(surfaceHost)
+const surfaceRoot = createRoot(surfaceHost as unknown as Element)
 act(() => {
-  publishModalSurfaceView('extensions', 'skills')
+  row('Skills')?.click()
+})
+act(() => {
+  surfaceRoot.render(React.createElement(ExtensionsGlobalSurface))
 })
 assert.equal(row('Skills')?.getAttribute('aria-current'), 'true', 'the row the surface is standing on reads selected')
 assert.equal(row('Plugins')?.getAttribute('aria-current'), null, 'and its siblings do not — one open surface lights one row')
 assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), null)
 
+// Moving WITH THE SURFACE (a live deep-link, the same seam its own rail uses)
+// moves the selection, and never through nothing on the way.
 act(() => {
-  publishModalSurfaceView('extensions', 'agent-clis')
+  dispatchExtensionsSurfaceTarget('agent-clis')
 })
 assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), 'true', 'moving the surface moves the selection')
 assert.equal(row('Skills')?.getAttribute('aria-current'), null)
+assert.ok(
+  publishes.length > 0 && !publishes.slice(0, -1).includes(null),
+  `an in-surface move never publishes null on the way (saw ${JSON.stringify(publishes)})`,
+)
 
+// Closing takes the selection with it: no row may stay lit over a card region
+// the surface no longer owns.
 act(() => {
-  useWorkspaceStore.getState().closeModalSurface()
-  publishModalSurfaceView('extensions', null)
+  surfaceRoot.unmount()
+  useWorkspaceStore.getState().closeGlobalSurface()
 })
+assert.equal(publishes.at(-1), null, 'the surface publishes null as it leaves')
 assert.ok(rows().every((r) => r.getAttribute('aria-current') === null), 'a closed surface lights nothing')
+stopWatching()
 
 // ── A whole-surface row still opens plainly ──────────────────────────────────
 act(() => {
   row('Design')?.click()
 })
-assert.equal(useWorkspaceStore.getState().activeModalSurface, 'design', 'the Design row opens the design module’s surface')
+assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'design', 'the Design row opens the design module’s door')
 assert.equal(row('Design')?.getAttribute('aria-current'), 'true', 'and reads selected while it is open')
 act(() => {
-  useWorkspaceStore.getState().closeModalSurface()
+  useWorkspaceStore.getState().closeGlobalSurface()
 })
 
 // ── A disabled module takes its row with it ──────────────────────────────────

@@ -8,6 +8,7 @@ import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import { isExtensionsDrawerSurface } from '../../components/workspace/extensionsDrawer'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -1151,8 +1152,11 @@ export interface SettingsSliceState {
   // workspace are mutually exclusive — the sidebar selection invariant.
   activeGlobalSurface: string | null
   // The active modal surface for this window (doors→modals, 2026-09-01): a
-  // registered modal-surface id ('settings', 'extensions', 'automations',
-  // 'design', or a third-party id) or null. Per-window and transient like
+  // registered modal-surface id ('settings', 'diff', 'reviews', or a
+  // third-party id) or null. Automations, Design and Plugins left this field
+  // for `activeGlobalSurface` (Extensions drawer ruling, 2026-09-05): the
+  // product's own destinations route the card region rather than floating over
+  // it. Per-window and transient like
   // activeGlobalSurface, but a FLOAT, not a mount kind: the modal shell sits
   // over whatever owns the card region — a workspace or a door — and closing
   // it lands exactly where the user was. One modal at a time: opening one
@@ -1164,12 +1168,13 @@ export interface SettingsSliceState {
   // the Extensions drawer — Sprints, Design, Plugins, Skills, Agent CLIs
   // (2026-09-05 ruling); Automations is what the product does rather than
   // something added to it, so it stands on the rail and is not in the drawer.
-  // Beside it the rail's Extensions glyph opens its surface. Per window and
-  // transient like
-  // activeGlobalSurface — a restart lands on Home.
-  // Opening a door flips it to `extensions` (the door's rail then replaces
-  // the column, and the rail glyph says where the operator is); selecting a
-  // workspace or starting a chat flips it to `home`.
+  // Beside it the rail's Extensions glyph opens the Extensions home. Per window
+  // and transient like activeGlobalSurface — a restart lands on Home.
+  // Opening a door that BELONGS to the drawer flips it to `extensions`, so
+  // leaving that door lands back on the drawer it was opened from; a door that
+  // does not (Automations, which stands on the rail) leaves the section alone,
+  // and the glyph that reads current stays whichever one was showing. Selecting
+  // a workspace or starting a chat flips it to `home`.
   sidebarSection: SidebarSection
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
@@ -1232,12 +1237,12 @@ export interface SettingsSliceActions {
   openGlobalSurface: (surfaceId: string) => void
   closeGlobalSurface: () => void
   // Open/close the modal surface registered under `surfaceId` (doors→modals,
-  // 2026-09-01). `openModalSurface` is the generic entry the settings-cluster
-  // trigger glyphs call; `openSettingsOverlay` / `openExtensionsSurface` set
-  // the same field with their own extra state. One modal at a time — opening
-  // one replaces another — and opening a DOOR closes the modal (see
-  // openGlobalSurface), so a routed destination is never hidden behind the
-  // scrim.
+  // 2026-09-01). The generic entry for the surfaces that stayed modals —
+  // Settings, the Diff popout, Reviews from the pane strip, a third party's.
+  // `openSettingsOverlay` sets the same field with its own extra state. One
+  // modal at a time — opening one replaces another — and opening a DOOR closes
+  // the modal (see openGlobalSurface), so a routed destination is never hidden
+  // behind the scrim.
   openModalSurface: (surfaceId: string) => void
   closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
@@ -1432,9 +1437,12 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
         dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
         set((state) => {
-          // Both are modals, and one modal at a time: opening Plugins from
-          // inside Settings leaves nothing of Settings behind.
-          state.activeModalSurface = 'extensions'
+          // Plugins is a door again (Extensions drawer ruling, 2026-09-05), so
+          // opening it from inside Settings routes the card region and leaves
+          // nothing of the Settings modal behind.
+          state.activeGlobalSurface = 'extensions'
+          state.activeModalSurface = null
+          state.sidebarSection = 'extensions'
           clearSettingsRequest(state)
         })
         return
@@ -1469,15 +1477,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     openExtensionsSurface: (opts) => {
       // Latch the deep-link first (the surface drains it on mount or live),
-      // then open the modal — the same order the automations deep-link uses.
+      // then open the door — the same order the automations deep-link uses.
       // The dispatch stays outside the producer so its synchronous listeners
       // never observe a mid-update store.
       dispatchExtensionsSurfaceTarget(opts?.view ?? 'browse')
       set((state) => {
-        state.activeModalSurface = 'extensions'
-        // Callers can sit inside the Settings modal (Settings → Modules
-        // "Browse marketplace"): one modal replaces the other, and the
-        // settings request it was carrying goes with it.
+        // A door since the Extensions drawer ruling (2026-09-05), so this
+        // routes the card region and closes the modal that may be over it —
+        // callers sit inside the Settings modal (Settings → Modules "Browse
+        // marketplace"), and the settings request it was carrying goes with it.
+        state.activeGlobalSurface = 'extensions'
+        state.activeModalSurface = null
+        state.sidebarSection = 'extensions'
         clearSettingsRequest(state)
       })
     },
@@ -1500,10 +1511,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         // routes the card region, and leaving it under the modal's scrim made
         // history back/forward look dead — the destination mounted invisibly.
         state.activeModalSurface = null
-        // Every door lives under the rail's Extensions section, so the rail
-        // glyph follows the door — and closing the door lands back on the
-        // list it was opened from rather than on the workspaces tree.
-        state.sidebarSection = 'extensions'
+        // Only a door that BELONGS to the Extensions drawer moves the section
+        // (Extensions drawer ruling, 2026-09-05). This used to flip
+        // unconditionally, on the reasoning that every door lived under the
+        // Extensions glyph — but Automations stands on the RAIL now, and
+        // opening it swapped the sidebar into a drawer the person had not asked
+        // for and left the Extensions glyph reading current for a surface that
+        // is not one of its five rows. A drawer door still flips, so leaving it
+        // lands back on the drawer it was opened from rather than on the
+        // workspaces tree.
+        if (isExtensionsDrawerSurface(surfaceId)) state.sidebarSection = 'extensions'
       }),
 
     closeGlobalSurface: () =>

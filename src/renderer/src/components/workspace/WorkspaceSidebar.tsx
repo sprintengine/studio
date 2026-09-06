@@ -2447,10 +2447,13 @@ export default function WorkspaceSidebar({
        * emptying the column for it would trade a problem it does not have for a
        * blank rail. */}
       {contextRail}
-      {/* The Extensions section (app shell, 2026-09-05): the list of
-          doors and modal surfaces the top-nav band above the tree used to hold.
-          The app rail's Extensions glyph shows it in place of the tree; a door
-          opened from it swaps its own rail into this column exactly as before.
+      {/* The Extensions drawer (app shell, 2026-09-05): the five ruled
+          rows — Sprints, Design, Plugins, Skills, Agent CLIs — that the top-nav
+          band above the tree used to hold. The app rail's Extensions glyph
+          shows it in place of the tree, and it STAYS while the card region
+          swaps: a door that is one of its rows renders its own rail beside its
+          canvas rather than taking this column (`railPlacement: 'inline'`).
+          Only Sprints, whose rail is its own list of runs, still swaps in.
           Unmounted rather than hidden — unlike the tree it keeps no fold or
           scroll state worth preserving across a section switch. */}
       {extensionsSection && !contextRailActive ? (

@@ -16,7 +16,7 @@ import {
   EXTENSIONS_DRAWER_VIEWS,
 } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { CliGlyph, McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
-import { PluginsGlyph } from '../components/workspace/modalSurfaceGlyphs'
+import { PluginsGlyph } from '../components/workspace/surfaceGlyphs'
 
 // The Plugins surface (MC-1847's Extensions door until doors→modals,
 // 2026-09-01): the connectors browse/install/launch experience, now mounted in
@@ -121,19 +121,25 @@ export const agentRuntimeRendererModule: RendererModule = {
         },
       })
     }
-    // The Plugins modal (doors→modals, 2026-09-01; the Extensions door,
-    // MC-1847, before that): registered through the always-on core so the
-    // marketplace surface is always reachable. The trigger glyph leads the
-    // settings cluster; the id stays `extensions` — it is a persisted-ish
-    // surface id and a deep-link target — while every user-facing string says
-    // Plugins. A plain open from the glyph discards any stale deep-link latch
-    // a dispatch that never mounted left behind (the surface drains the latch
-    // on mount, so a stale one would reroute the open).
-    host.registerModalSurface({
+    // The Plugins door (Extensions drawer ruling, 2026-09-05 — "surfaces, not
+    // modals"; the Extensions door of MC-1847, then a modal from 2026-09-01).
+    // Registered through the always-on core so the catalogue is always
+    // reachable. The id stays `extensions` — it is a persisted surface id and a
+    // deep-link target — while every user-facing string says Plugins. A plain
+    // open discards any stale deep-link latch a dispatch that never mounted
+    // left behind (the surface drains the latch on mount, so a stale one would
+    // reroute the open).
+    //
+    // `railPlacement: 'inline'` because the three rows below ARE drawer rows:
+    // the drawer is what the person navigated with to get here and must stay in
+    // the sidebar column, so this surface's own rail renders beside its canvas
+    // instead. Stage 4 replaces that rail with the source tabs the ruling
+    // describes, at which point the surface brings no rail at all.
+    host.registerGlobalSurface({
       id: 'extensions',
-      order: 10,
       label: 'Plugins',
       Icon: PluginsGlyph,
+      railPlacement: 'inline',
       onOpen: () => {
         consumePendingExtensionsSurfaceTarget()
       },
@@ -143,8 +149,8 @@ export const agentRuntimeRendererModule: RendererModule = {
       // though one surface still renders all three, so each contributes its own
       // row here rather than the shell learning this module's sections. Each
       // opens by the deep-link latch the surface already drains, so the row and
-      // a notification's Open arrive by exactly one route. Stage 2 splits the
-      // surface into three; these rows do not change when it does.
+      // a notification's Open arrive by exactly one route. Stage 4 splits the
+      // surface into three catalogues; these rows do not change when it does.
       views: [
         {
           id: EXTENSIONS_DRAWER_VIEWS.plugins,

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
-import type { RegisteredModalSurface, RegisteredSidebarNavEntry } from '../../modules/renderer-host'
+import type { RegisteredGlobalSurface, RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useModalSurfaceView } from './modalSurfaceView'
+import { DRAWER_ROWS } from './extensionsDrawer'
+import { useSurfaceView } from './surfaceView'
 import { SidebarNavButton } from './SidebarNavButton'
 
 // The Extensions drawer (app shell, 2026-09-05): the sidebar column
@@ -11,52 +12,23 @@ import { SidebarNavButton } from './SidebarNavButton'
 // that is not a chat and is not one of the product's own standing tools — the
 // things ADDED to the product — in one column with one row chrome.
 //
-// FIVE rows, in a fixed order the owner ruled (2026-09-05):
+// The rows and their order are the ruling, held as data next door
+// (`extensionsDrawer.ts`); this file only resolves each one against the live
+// registry and renders it. A row whose module is disabled simply is not there:
+// every lookup below goes through the host's enablement filter, and a miss
+// renders nothing rather than a dead row.
 //
-//   Sprints · Design · Plugins · Skills · Agent CLIs
-//
-// Registry `order` no longer decides. The earlier cut sorted doors and modal
-// surfaces together by their declared `order`, which meant the column a person
-// reads top to bottom was arranged by whichever numbers modules happened to
-// claim, and any module registered later could push Sprints down it. The order
-// of the product's parts is a ruling; the list below is that ruling, and each
-// entry names only WHERE its row comes from — the owning module still supplies
-// the label, the glyph and what opening the row does.
-//
-// A row whose module is disabled simply is not there: every lookup below goes
-// through the host's enablement filter, and a miss renders nothing rather than
-// a dead row. The drawer STAYS PUT while the card region swaps; only Sprints,
-// which has its own list of runs, replaces this column with its rail for the
-// length of its visit (context-rail pattern), and the host's back chevron or a
-// rail glyph brings the drawer back.
+// The drawer STAYS PUT while the card region swaps — that is what makes it the
+// navigation rather than a menu (Stage 2 of the ruling). Its rows open DOORS
+// now, not modals, and a door that is a drawer row declares `railPlacement:
+// 'inline'` so it renders its own rail beside its canvas instead of taking this
+// column. Only Sprints, whose rail is its own list of runs, still replaces this
+// column for the length of its visit, and the host's back chevron or a rail
+// glyph brings the drawer back.
 //
 // No heading and no groups: a heading must separate something from something
 // else (principles, Composition), and to the person these are all just
 // extensions.
-
-// Where a row comes from. Three kinds, because the registry has three shapes of
-// contribution and the drawer must not flatten them into one hand-written list
-// of components:
-//   door    — a module's `registerSidebarNavEntry` row (Sprints), which owns its
-//             own status dot and open behaviour.
-//   surface — a module's `registerModalSurface` (Design), one row for the whole
-//             surface.
-//   view    — one of a surface's registered `views` (renderer-host): the single
-//             `extensions` surface is Plugins, Skills and Agent CLIs to the
-//             person, so it contributes three rows, each with its own label,
-//             glyph and way of landing the surface on it.
-type DrawerRow =
-  | { kind: 'door'; entryId: string }
-  | { kind: 'surface'; surfaceId: string }
-  | { kind: 'view'; surfaceId: string; viewId: string }
-
-const DRAWER_ROWS: readonly DrawerRow[] = [
-  { kind: 'door', entryId: 'sprints' },
-  { kind: 'surface', surfaceId: 'design' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'plugins' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'skills' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'agent-clis' },
-]
 
 type ExtensionsRailProps = {
   collapsed: boolean
@@ -66,17 +38,17 @@ type ExtensionsRailProps = {
 
 export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
-  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   // Which view the OPEN surface is standing on, so exactly one of a
   // multi-view surface's rows reads selected — including when the person moved
   // with the surface's own rail rather than by clicking a row here. Only the
   // open surface can own a selected row, so one subscription answers for the
   // whole column.
-  const activeView = useModalSurfaceView(activeModalSurface ?? '')
+  const activeView = useSurfaceView(activeGlobalSurface ?? '')
   // Third-party renderer modules can finish loading after first render (the
   // boot timeout race WorkspaceManager's moduleRegistryGeneration handles):
-  // without this bump an SDK module's registerModalSurface would mount fine
+  // without this bump an SDK module's registerGlobalSurface would mount fine
   // but its row — the only user-visible way in — would stay absent until an
   // unrelated module toggle or a reload.
   const [registryGeneration, setRegistryGeneration] = useState(0)
@@ -84,25 +56,25 @@ export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
     () => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)),
     [],
   )
-  const modalSurfaces = useMemo(
-    () => getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
+  const globalSurfaces = useMemo(
+    () => getRendererHost().getGlobalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
     [moduleOverrides, registryGeneration],
   )
 
   const rows = useMemo(() => {
-    const surfaceById = new Map<string, RegisteredModalSurface>(
-      modalSurfaces.map((surface) => [surface.id, surface]),
+    const surfaceById = new Map<string, RegisteredGlobalSurface>(
+      globalSurfaces.map((surface) => [surface.id, surface]),
     )
     const entryById = new Map<string, RegisteredSidebarNavEntry>(
       navEntries.map((entry) => [entry.id, entry]),
     )
     return DRAWER_ROWS.flatMap((row) => {
-      if (row.kind === 'door') {
+      if (row.kind === 'nav') {
         const entry = entryById.get(row.entryId)
         if (!entry) return []
         return [
           {
-            key: `door:${entry.id}`,
+            key: `nav:${entry.id}`,
             node: (
               <React.Suspense fallback={null}>
                 <entry.Component collapsed={collapsed} />
@@ -112,24 +84,27 @@ export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
         ]
       }
       const surface = surfaceById.get(row.surfaceId)
-      if (!surface) return []
+      // A door with no label or glyph names itself through its own nav-entry
+      // component (Sprints) and cannot be drawn as a generic row here.
+      if (!surface?.label || !surface.Icon) return []
+      const { Icon } = surface
       if (row.kind === 'surface') {
         return [
           {
-            key: `modal:${surface.id}`,
+            key: `surface:${surface.id}`,
             node: (
               <SidebarNavButton
                 collapsed={collapsed}
-                icon={<surface.Icon className="icon-sm pointer-events-none shrink-0" />}
+                icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
                 label={surface.label}
                 ariaLabel={surface.label}
                 tooltip={surface.label}
-                active={activeModalSurface === surface.id}
+                active={activeGlobalSurface === surface.id}
                 onClick={() => {
                   // A plain open lands on the surface's default view: the surface
                   // discards any stale deep-link latch in `onOpen` first.
                   surface.onOpen?.()
-                  openModalSurface(surface.id)
+                  openGlobalSurface(surface.id)
                 }}
               />
             ),
@@ -138,35 +113,44 @@ export function ExtensionsRail({ collapsed, navEntries }: ExtensionsRailProps) {
       }
       const view = surface.views?.find((candidate) => candidate.id === row.viewId)
       if (!view) return []
+      const ViewIcon = view.Icon
       return [
         {
           key: `view:${surface.id}:${view.id}`,
           node: (
             <SidebarNavButton
               collapsed={collapsed}
-              icon={<view.Icon className="icon-sm pointer-events-none shrink-0" />}
+              icon={<ViewIcon className="icon-sm pointer-events-none shrink-0" />}
               label={view.label}
               ariaLabel={view.label}
               tooltip={view.label}
               // Selected while the surface is open ON THIS VIEW — not merely
               // while it is open, which would light all three of its rows.
-              active={activeModalSurface === surface.id && activeView === view.id}
+              active={activeGlobalSurface === surface.id && activeView === view.id}
               onClick={() => {
                 // The view latches its target first and the shell opens second,
                 // the order every deep-link opener uses: the surface drains the
                 // latch as it mounts, so an already-open surface and a cold one
                 // both land on the row that was clicked.
                 view.open()
-                openModalSurface(surface.id)
+                openGlobalSurface(surface.id)
               }}
             />
           ),
         },
       ]
     })
-  }, [activeModalSurface, activeView, collapsed, modalSurfaces, navEntries, openModalSurface])
+  }, [activeGlobalSurface, activeView, collapsed, globalSurfaces, navEntries, openGlobalSurface])
 
   return (
+    // `aria-current`, not `aria-pressed`, on the selected row (SidebarNavButton's
+    // `active`). These rows are NAVIGATION — each routes the card region to a
+    // different page, and the lit one says where you are, exactly as the
+    // workspaces tree's rows do. The app rail's Automations square is the other
+    // reading on purpose: the rail is a fixed strip of chrome rather than a list
+    // a person walks, and its square stays PRESSED while the tool it holds is up
+    // (principles, "The app rail"). Same state, two honest readings; what would
+    // be wrong is one row of this column disagreeing with the row above it.
     <div role="list" aria-label="Extensions" className="mx-2 mt-1 flex flex-col gap-1.5">
       {rows.map((row) => (
         <div key={row.key} role="listitem" className="flex flex-col">

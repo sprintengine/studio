@@ -24,20 +24,26 @@ function run(name: string, body: () => void): void {
 // circular init from importing a single module file directly).
 const host = getRendererHost()
 
-run('registers the Automations modal surface (doors→modals, 2026-09-01)', () => {
-  // Automations left the top-nav door band: no nav entry, no global surface —
-  // one modal-surface registration carries the trigger glyph and the body.
+run('registers the Automations DOOR (Extensions drawer ruling, 2026-09-05)', () => {
+  // Automations was a top-nav door, then a modal (2026-09-01), and is a door
+  // again: it routes the card region rather than floating over it. Its row is
+  // the app rail's middle square, not a sidebar nav entry and not an Extensions
+  // drawer row — it is what the product DOES, not something added to it.
   assert.equal(
     host.getSidebarNavEntries().find((entry) => entry.id === 'automations'),
     undefined,
     'no sidebar nav door with id "automations" remains',
   )
-  assert.equal(host.getGlobalSurface('automations'), undefined, 'no door surface remains either')
-  const modal = host.getModalSurface('automations')
-  assert.ok(modal, 'a modal surface with id "automations" is registered')
-  assert.equal(modal?.order, 20, 'the trigger sits between Plugins (10) and Design (30)')
-  assert.equal(modal?.label, 'Automations', 'the trigger tooltip and dialog name')
-  assert.equal(modal?.moduleId, 'automations', 'the surface is owned by the automations module')
+  assert.equal(host.getModalSurface('automations'), undefined, 'and nothing is registered as a modal')
+  const door = host.getGlobalSurface('automations')
+  assert.ok(door, 'a global surface with id "automations" is registered')
+  assert.equal(door?.label, 'Automations', 'the rail square’s tooltip and the door’s name')
+  assert.ok(door?.Icon, 'and its glyph, so a disabled module takes the square with it')
+  assert.equal(door?.moduleId, 'automations', 'the surface is owned by the automations module')
+  // No railPlacement: the default swap. The automations this window can see ARE
+  // the navigation while the surface is open (the ruling’s frame 4), so its
+  // rail takes the sidebar column exactly as Sprints’ list of runs does.
+  assert.equal(door?.railPlacement, undefined, 'Automations keeps the context-rail swap')
 })
 
 run('keeps the automations-host type registered but hidden from the creation picker', () => {

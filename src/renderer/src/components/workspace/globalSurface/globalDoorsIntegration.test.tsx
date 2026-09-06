@@ -259,16 +259,15 @@ async function main(): Promise<void> {
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. One door + four modal surfaces coexist on the real kernel ══════
+  // ═══ 1. The doors, and the one modal surface left, on the real kernel ══════
   // Registration is module-owned and eager, so this reads the SAME host the app
-  // boots with — not a hand-built one. Doors→modals (2026-09-01): Automations,
-  // Extensions (user-facing "Plugins") and Design left the top-nav door band
-  // for the modal-surface registry, Reviews followed on 2026-09-05 and Horizon
-  // retired the same day — so the one door that remains is the work page:
-  // Sprints (item 1763). Both registries render as rows of the sidebar's
-  // Extensions section (app shell, 2026-09-05).
-  // Design is owned by its OWN bundled `design` module, not by `design-wizard`
-  // (MC-1860).
+  // boots with — not a hand-built one. Automations, Extensions (user-facing
+  // "Plugins") and Design spent 2026-09-01 to 2026-09-05 in the modal registry
+  // and are doors again (Extensions drawer ruling: a destination the shell's
+  // own chrome offers routes the card region, it does not float over it). What
+  // is left in the modal registry is Reviews, opened from the workspace pane
+  // strip. Design is owned by its OWN bundled `design` module, not by
+  // `design-wizard` (MC-1860).
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -278,7 +277,7 @@ async function main(): Promise<void> {
       [
         ['sprints', 20],
       ],
-      'the door registry holds only the true doors, in the mockup’s sidebar order',
+      'the nav-entry registry holds only the door that draws its own row',
     )
     assert.equal(
       new Set(doorOrder.map(([id]) => id)).size,
@@ -288,25 +287,42 @@ async function main(): Promise<void> {
     for (const [id] of doorOrder) {
       assert.ok(host.getGlobalSurface(id), `the ${id} door has a surface behind it`)
     }
-    // The modal-surface registry (doors→modals): order Plugins, Automations,
-    // Reviews (a modal opened from the workspace pane since 2026-09-05),
-    // Design, with the user-facing labels the rows carry — the `extensions`
-    // id keeps its name (deep-link target), the label says Plugins.
+    // The door registry, with the user-facing labels the drawer and the rail
+    // read: the `extensions` id keeps its name (it is a persisted surface id
+    // and a deep-link target) while every string a person sees says Plugins.
+    // Sprints declares no label because its row is its own component.
+    const doorSurfaces = host.getGlobalSurfaces().map(
+      (surface) => [surface.id, surface.label ?? null, surface.railPlacement ?? 'sidebar'] as const,
+    )
+    assert.deepEqual(
+      doorSurfaces,
+      [
+        ['automations', 'Automations', 'sidebar'],
+        ['design', 'Design', 'inline'],
+        ['extensions', 'Plugins', 'inline'],
+        ['sprints', null, 'sidebar'],
+      ],
+      'every card-region destination is a door, and only the drawer rows keep their rail inline',
+    )
+    // A drawer row that took the sidebar column would delete the drawer that
+    // opened it, so the two halves of the ruling are asserted together.
+    for (const id of ['design', 'extensions']) {
+      assert.equal(
+        host.getGlobalSurface(id)?.railPlacement,
+        'inline',
+        `the ${id} door leaves the Extensions drawer standing`,
+      )
+      assert.ok(host.getGlobalSurface(id)?.Icon, `and offers a glyph for its drawer row`)
+    }
+    // One modal surface remains, and it is the shape a modal is for: a
+    // pick-and-close task floated over work that stays put.
     const modalOrder = host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const)
     assert.deepEqual(
       modalOrder,
-      [
-        ['extensions', 'Plugins'],
-        ['automations', 'Automations'],
-        ['reviews', 'Reviews'],
-        ['design', 'Design'],
-      ],
-      'the modal surfaces, in registry order, with user-facing labels',
+      [['reviews', 'Reviews']],
+      'the modal registry holds only Reviews (Settings and the Diff popout are core, never registered)',
     )
-    for (const [id] of modalOrder) {
-      assert.ok(host.getModalSurface(id), `the ${id} modal surface resolves by id`)
-      assert.ok(host.getModalSurface(id)?.Icon, `the ${id} trigger has a glyph`)
-    }
+    assert.ok(host.getModalSurface('reviews')?.Icon, 'the reviews surface carries a glyph')
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
     const withoutSprintEngine = (moduleId: string): boolean => moduleId !== 'sprint-engine'
@@ -318,16 +334,16 @@ async function main(): Promise<void> {
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
       'and so does the Sprints surface',
     )
-    // The same gating for a modal surface, from its own module id: the Design
-    // trigger and body leave with the design module (registering a surface
-    // from a module that does not own it throws, so this also pins WHICH
-    // module owns Design).
+    // The same gating for a drawer door, from its own module id: the Design row
+    // and its page leave with the design module (registering a surface from a
+    // module that does not own it throws, so this also pins WHICH module owns
+    // Design).
     const withoutDesign = (moduleId: string): boolean => moduleId !== 'design'
     assert.ok(
-      !host.getModalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
-      'the Design trigger leaves with the design module',
+      !host.getGlobalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
+      'the Design row leaves with the design module',
     )
-    console.log('ok - one door + four modal surfaces, each backed and gated by its module')
+    console.log('ok - the doors and the one modal surface, each backed and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════

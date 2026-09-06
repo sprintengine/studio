@@ -468,6 +468,91 @@ assert.deepEqual(
   're-enabling restores the surface without re-registration',
 )
 
+// A door carries the chrome that OFFERS it (Extensions drawer ruling,
+// 2026-09-05): a name and a glyph for the drawer row or rail square that opens
+// it, `views` when one surface is several destinations to the person, and where
+// its own rail goes. All optional — Sprints names itself through its own
+// nav-entry row — and validated here, where a module can see the failure,
+// rather than silently producing a row nothing can select.
+{
+  const chromeIcon = () => {
+    throw new Error('surface icon should not be evaluated during registration')
+  }
+  const doorHost = createRendererHost()
+  doorHost.hostFor('acme.compass').registerGlobalSurface({
+    id: 'compass',
+    label: 'Compass',
+    Icon: chromeIcon,
+    railPlacement: 'inline',
+    views: [{ id: 'near', label: 'Near', Icon: chromeIcon, open() {} }],
+    Component: surfaceComponent,
+  })
+  const compass = doorHost.getGlobalSurface('compass')
+  assert.equal(compass?.label, 'Compass', 'a door’s name reaches the chrome that offers it')
+  assert.equal(compass?.railPlacement, 'inline', 'and so does where its rail goes')
+  assert.deepEqual(
+    compass?.views?.map((view) => view.id),
+    ['near'],
+    'a registered door carries its views through to the drawer that places them',
+  )
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'blank-label', label: '  ', Component: surfaceComponent,
+    }),
+    /empty label/,
+    'a door with a blank label is rejected — omitting it is how a door says it names itself elsewhere',
+  )
+  // A view id is what the surface publishes to say which row is showing, so a
+  // blank or duplicated one would light two rows at once — or none — instead of
+  // failing here.
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'blank-view-id', Component: surfaceComponent,
+      views: [{ id: '  ', label: 'A', Icon: chromeIcon, open() {} }],
+    }),
+    /view with an empty id/,
+    'a view without an id is rejected: nothing could ever publish it',
+  )
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'blank-view-label', Component: surfaceComponent,
+      views: [{ id: 'a', label: '  ', Icon: chromeIcon, open() {} }],
+    }),
+    /non-empty label/,
+    'a view without a label is rejected — the label is the drawer row’s name',
+  )
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'dupe-views', Component: surfaceComponent,
+      views: [
+        { id: 'a', label: 'A', Icon: chromeIcon, open() {} },
+        { id: 'a', label: 'Also A', Icon: chromeIcon, open() {} },
+      ],
+    }),
+    /registers view "a" twice/,
+    'two views cannot share an id, or the published view would select both rows',
+  )
+  // The id is STORED as it was validated. A padded id passed the trim check and
+  // was then kept untrimmed, so the drawer's lookup missed it and the row could
+  // never be selected — with nothing on screen to explain why.
+  doorHost.hostFor('acme.compass').registerGlobalSurface({
+    id: 'padded-views', Component: surfaceComponent,
+    views: [{ id: '  near  ', label: 'Near', Icon: chromeIcon, open() {} }],
+  })
+  assert.deepEqual(
+    doorHost.getGlobalSurface('padded-views')?.views?.map((view) => view.id),
+    ['near'],
+    'a view id is stored normalised, so the registry and the drawer agree character for character',
+  )
+  assert.throws(
+    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
+      id: 'extensions-home', Component: surfaceComponent,
+    }),
+    /reserved for the app/,
+    'the "extensions-home" id is reserved — the Extensions home is the app\'s own, never a module\'s to claim',
+  )
+}
+
 console.log('renderer host global surface tests passed')
 
 // --- Modal surfaces (doors→modals, 2026-09-01) --------------------------------
@@ -516,51 +601,10 @@ assert.throws(
   /non-empty label/,
   'a modal surface without a label is rejected — the label is the trigger tooltip and the dialog name',
 )
-// Views (Extensions drawer ruling, 2026-09-05): one surface, several drawer
-// rows. A view id is what the surface publishes to say which row is showing, so
-// a blank or duplicated one would light two rows at once — or none — instead of
-// failing here where the module can see it.
-assert.throws(
-  () => modalHost.hostFor('design').registerModalSurface({
-    id: 'blank-view-id', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
-    views: [{ id: '  ', label: 'A', Icon: modalIcon, open() {} }],
-  }),
-  /view with an empty id/,
-  'a view without an id is rejected: nothing could ever publish it',
-)
-assert.throws(
-  () => modalHost.hostFor('design').registerModalSurface({
-    id: 'blank-view-label', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
-    views: [{ id: 'a', label: '  ', Icon: modalIcon, open() {} }],
-  }),
-  /non-empty label/,
-  'a view without a label is rejected — the label is the drawer row’s name',
-)
-assert.throws(
-  () => modalHost.hostFor('design').registerModalSurface({
-    id: 'dupe-views', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
-    views: [
-      { id: 'a', label: 'A', Icon: modalIcon, open() {} },
-      { id: 'a', label: 'Also A', Icon: modalIcon, open() {} },
-    ],
-  }),
-  /registers view "a" twice/,
-  'two views cannot share an id, or the published view would select both rows',
-)
-{
-  // A host of its own, so the surface-ordering assertions below still see the
-  // two surfaces they were written for.
-  const viewHost = createRendererHost()
-  viewHost.hostFor('acme.compass').registerModalSurface({
-    id: 'compass', order: 16, label: 'Compass', Icon: modalIcon, Component: modalComponent,
-    views: [{ id: 'near', label: 'Near', Icon: modalIcon, open() {} }],
-  })
-  assert.deepEqual(
-    viewHost.getModalSurface('compass')?.views?.map((view) => view.id),
-    ['near'],
-    'a registered surface carries its views through to the drawer that places them',
-  )
-}
+// `views` is deliberately NOT part of the modal contract (Extensions drawer
+// ruling, 2026-09-05): a view is a row of the Extensions drawer, and the drawer
+// is made of doors. It lives on `registerGlobalSurface` instead, asserted above.
+
 assert.throws(
   () => modalHost.hostFor('acme.compass').registerModalSurface({
     id: 'settings', order: 1, label: 'Settings', Icon: modalIcon, Component: modalComponent,
@@ -570,10 +614,10 @@ assert.throws(
 )
 assert.throws(
   () => modalHost.hostFor('acme.compass').registerModalSurface({
-    id: 'marketplace', order: 1, label: 'Marketplace', Icon: modalIcon, Component: modalComponent,
+    id: 'diff', order: 1, label: 'Diff', Icon: modalIcon, Component: modalComponent,
   }),
   /reserved for the app/,
-  'the "marketplace" id is reserved — the Extensions marketplace is the app\'s own, never a module\'s to claim',
+  'the "diff" id is reserved — the Diff popout is the shell\'s own pane growing a bigger view of itself',
 )
 assert.deepEqual(
   modalHost.getModalSurfaces().map((surface) => surface.id),

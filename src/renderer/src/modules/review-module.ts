@@ -5,7 +5,7 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 import { REVIEW_GUIDE_AGENT_ID_PREFIX } from '../review/door/reviewGuideTerminal'
-import { ReviewsGlyph } from '../components/workspace/modalSurfaceGlyphs'
+import { ReviewsGlyph } from '../components/workspace/surfaceGlyphs'
 
 // The Reviews surface (global-surfaces epic 1704; a modal since 2026-09-05),
 // mounted by WorkspaceManager in the shell's modal shell. Lazy so its bundle
