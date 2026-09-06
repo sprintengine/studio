@@ -1260,6 +1260,15 @@ export interface SettingsSliceActions {
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
+  /**
+   * Write back the servers a source's Sync refreshed. Distinct from
+   * `upsertMcpServer` in exactly one way: it leaves `syncEnabled` as it is.
+   * Adding a server is a person saying "wire this up"; refreshing one they
+   * already have is not, and turning their MCP config sync back on because
+   * they pressed Sync on a source would undo a setting they chose
+   * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+   */
+  refreshMcpServersFromSource: (servers: McpServerConfig[]) => void
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
@@ -1599,6 +1608,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             [normalized.id]: normalized,
           },
         }
+      }),
+
+    refreshMcpServersFromSource: (servers) =>
+      set((state) => {
+        const current = normalizeMcpSettings(state.appSettings.mcp)
+        const next = { ...current.servers }
+        for (const server of servers) {
+          const normalized = normalizeMcpServer(server)
+          if (normalized) next[normalized.id] = normalized
+        }
+        state.appSettings.mcp = { ...current, servers: next }
       }),
 
     removeMcpServer: (serverId) =>

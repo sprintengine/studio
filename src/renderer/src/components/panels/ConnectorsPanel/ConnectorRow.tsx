@@ -93,7 +93,11 @@ export function ConnectorRow({
           />
         ) : null}
         {status ? (
-          <span className="mt-0.5 flex items-center gap-1.5 text-meta leading-4 text-[color:var(--text-subtle)]">
+          // Clipped, not wrapped — the same contract the name row keeps above.
+          // A state line long enough to wrap ("Active · No longer in source")
+          // would grow this row taller than its neighbours and step the whole
+          // list out of rhythm; the detail surfaces carry the full sentence.
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-meta leading-4 text-[color:var(--text-subtle)]">
             {status}
           </span>
         ) : null}

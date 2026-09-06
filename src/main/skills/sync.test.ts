@@ -234,7 +234,7 @@ function installedFromSource(over: Partial<McpServerConfig> = {}): McpServerConf
 
 function syncsTheServersItInstalledAndOnlyThose(): void {
   // The same server, at a new command the source now declares.
-  const moved = server({ args: ['-y', '@upstash/context7-mcp@2'], description: 'Docs, faster' })
+  const moved = server({ args: ['-y', '@upstash/context7-mcp@2'], description: 'Docs, faster', envVarNames: ['CONTEXT7_TOKEN'] })
   const handTyped: McpServerConfig = {
     id: 'context7-mine',
     name: 'My own context7',
@@ -252,7 +252,12 @@ function syncsTheServersItInstalledAndOnlyThose(): void {
   const fromElsewhere: McpServerConfig = installedFromSource({
     sourceRef: { sourceId: 'github:other/plugins', itemId: 'context7', commitSha: 'oldsha0' },
   })
-  const installed = installedFromSource({ enabled: false, clients: ['codex'], env: { CONTEXT7_TOKEN: 'typed-by-hand' } })
+  const installed = installedFromSource({
+    enabled: false,
+    clients: ['codex'],
+    env: { CONTEXT7_TOKEN: 'typed-by-hand' },
+    envVarNames: ['CONTEXT7_TOKEN'],
+  })
 
   const result = refreshSourceMcpServers({
     sourceId: SOURCE,
@@ -272,7 +277,7 @@ function syncsTheServersItInstalledAndOnlyThose(): void {
   // decisions, and never the token they typed.
   assert.equal(next.enabled, false)
   assert.deepEqual(next.clients, ['codex'])
-  assert.deepEqual(next.env, { CONTEXT7_TOKEN: 'typed-by-hand' })
+  assert.deepEqual(next.env, { CONTEXT7_TOKEN: 'typed-by-hand' }, 'the value they filled in for a name the source declares')
   console.log('ok - a sync rewrites the servers this source installed and leaves every other one alone')
 }
 
@@ -347,6 +352,63 @@ function aRenamedEntryKeepsItsIdentityInTheSettingsMap(): void {
   console.log('ok - a refresh updates the entry in place rather than adding a second one')
 }
 
+function envDefaultsFollowTheSourceAndFilledInValuesStay(): void {
+  // The source ships one default and NAMES one variable it does not value —
+  // the second is where a person's token goes.
+  const before = {
+    ...installedFromSource(),
+    env: { API_BASE: 'https://old.example.com', CONTEXT7_TOKEN: 'sk-live-typed-by-hand', OLD_SECRET: 'sk-live-abc' },
+    envVarNames: ['CONTEXT7_TOKEN', 'OLD_SECRET'],
+  }
+  const now = server({ env: { API_BASE: 'https://new.example.com' }, envVarNames: ['CONTEXT7_TOKEN', 'NEW_TOKEN'] })
+
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [before],
+    scan: scanWithServers([now]),
+    commitSha: 'newsha1',
+  })
+
+  assert.deepEqual(result.changed, ['context7'])
+  assert.deepEqual(result.updated[0].env, {
+    // The source corrected its own default, so the correction lands. Merging
+    // the stored map over the fresh one made every default un-updatable.
+    API_BASE: 'https://new.example.com',
+    // Named, unvalued, filled in by the person: theirs survives.
+    CONTEXT7_TOKEN: 'sk-live-typed-by-hand',
+  })
+  // The variable the source withdrew goes with it, rather than living on in
+  // every CLI config this entry writes.
+  assert.equal('OLD_SECRET' in (result.updated[0].env ?? {}), false)
+  assert.equal(result.updated[0].env?.NEW_TOKEN, undefined, 'a name with no value is not invented')
+  assert.deepEqual(result.updated[0].envVarNames, ['CONTEXT7_TOKEN', 'NEW_TOKEN'])
+  console.log('ok - a refresh takes the source\u2019s env defaults and keeps only the values a person filled in')
+}
+
+function aScanThatNeverLookedForServersSaysNothingAboutThem(): void {
+  // A folder scan, or a listing cached before MCP servers were scanned at all,
+  // carries no `mcpServers` field. Reading that as "the source declares none"
+  // would mark every server it installed as gone on the next sync.
+  const scan = scanOf([])
+  assert.equal(scan.mcpServers, undefined)
+  const result = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installedFromSource()],
+    scan,
+    commitSha: 'newsha1',
+  })
+  assert.deepEqual(result, { updated: [], changed: [], missing: [] })
+  // …where a scan that DID look and found none is a real removal.
+  const looked = refreshSourceMcpServers({
+    sourceId: SOURCE,
+    servers: [installedFromSource()],
+    scan: scanWithServers([]),
+    commitSha: 'newsha1',
+  })
+  assert.deepEqual(looked.missing, ['context7'])
+  console.log('ok - a scan that never read MCP servers is not a source that dropped them')
+}
+
 async function main(): Promise<void> {
   await reportsWhatCameInAndWhatWent()
   await reCopiesOnlyTheHarnessesThatHoldTheSkill()
@@ -359,6 +421,8 @@ async function main(): Promise<void> {
   aServerThatLeftItsSourceKeepsWorkingAndSaysSo()
   aServerThatComesBackLosesTheMark()
   aRenamedEntryKeepsItsIdentityInTheSettingsMap()
+  envDefaultsFollowTheSourceAndFilledInValuesStay()
+  aScanThatNeverLookedForServersSaysNothingAboutThem()
   console.log('skills sync tests passed')
 }
 

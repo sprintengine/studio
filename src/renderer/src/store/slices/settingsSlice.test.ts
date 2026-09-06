@@ -1744,4 +1744,39 @@ assert.equal(normalizeSelectedCli('muse', 'codex'), 'codex', 'the caller fallbac
 assert.equal(normalizeSelectedCli('muse', 'generic-shell'), 'claude-code', 'an ineligible fallback falls to the stock default')
 assert.equal(normalizeSelectedCli(null), 'claude-code')
 
+// Sync's own writer. Adding a server is a person wiring something up, and
+// `upsertMcpServer` turns MCP config sync on for them; refreshing a server they
+// already have is not, so pressing Sync on a source must not re-enable a
+// setting they deliberately turned off
+// (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
+{
+  const server = {
+    id: 'context7',
+    name: 'Context7',
+    transport: 'stdio' as const,
+    command: 'npx',
+    args: ['-y', '@upstash/context7-mcp'],
+    enabled: true,
+    clients: ['codex'],
+    scope: 'workspace' as const,
+    source: 'source' as const,
+    sourceRef: { sourceId: 'github:acme/plugins', itemId: 'context7', commitSha: 'b81f77a' },
+    riskLevel: 'local-command' as const,
+  }
+  const mcpStore = useWorkspaceStore.getState()
+  mcpStore.setMcpSyncEnabled(false)
+  mcpStore.refreshMcpServersFromSource([server])
+  const after = useWorkspaceStore.getState().appSettings.mcp
+  assert.equal(after?.syncEnabled, false, 'a refresh leaves MCP config sync exactly as they set it')
+  assert.equal(after?.servers.context7?.command, 'npx')
+  assert.deepEqual(after?.servers.context7?.sourceRef, server.sourceRef, 'and the provenance survives the write')
+
+  useWorkspaceStore.getState().upsertMcpServer({ ...server, id: 'added-by-hand' })
+  assert.equal(
+    useWorkspaceStore.getState().appSettings.mcp?.syncEnabled,
+    true,
+    'while adding one still means "wire this up"',
+  )
+}
+
 console.log('settingsSlice.test.ts: ok')

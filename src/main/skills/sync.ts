@@ -165,9 +165,9 @@ export type McpSourceRefresh = {
  *    its source. Deleting a server someone's agents are using because a
  *    repository moved on is not an update, it is data loss.
  *  - What the person chose is kept over what the source declares: `enabled`,
- *    the CLIs it targets, its scope, and any env value already filled in. A
- *    source ships env *defaults*; the value in the config can be the token the
- *    person typed, and a refresh must not wipe it.
+ *    the CLIs it targets, its scope, and the values they filled in for the
+ *    variables the source only NAMES. Everything the source itself gives a
+ *    value to is the source's to correct — see `refreshedEnv`.
  */
 export function refreshSourceMcpServers(input: {
   sourceId: string
@@ -176,6 +176,12 @@ export function refreshSourceMcpServers(input: {
   /** The commit the refreshed scan was taken at; stamped on every entry it rewrites. */
   commitSha: string
 }): McpSourceRefresh {
+  // A scan that carries no `mcpServers` field never looked for servers — a
+  // folder scan today, or a listing cached before this field existed. That is
+  // not the same as a source that declares none, and reading it as one would
+  // stamp "no longer in source" on every server the source installed. Nothing
+  // was read, so nothing is said.
+  if (input.scan.mcpServers === undefined) return { updated: [], changed: [], missing: [] }
   const declared = new Map(scanMcpServers(input.scan).map((server) => [server.id, server]))
   const updated: McpServerConfig[] = []
   const changed: string[] = []
@@ -204,12 +210,35 @@ export function refreshSourceMcpServers(input: {
       enabled: server.enabled,
       required: server.required,
       scope: server.scope,
-      env: { ...fresh.env, ...server.env },
+      env: refreshedEnv(fresh, server),
     }
     if (declarationChanged(server, next)) changed.push(server.id)
     updated.push(next)
   }
   return { updated, changed, missing }
+}
+
+/**
+ * The environment a refreshed entry runs with.
+ *
+ * The source's map is the base, so a corrected default lands and a variable the
+ * source has stopped shipping goes with it — merging the stored map over the
+ * fresh one made every default permanently un-updatable and kept dead keys
+ * (a withdrawn secret would have stayed in `.mcp.json` for good).
+ *
+ * The exception is a variable the source NAMES without valuing
+ * (`envVarNames`): the only place a value for one of those can have come from
+ * is the person, so theirs is kept. A name the source has dropped keeps
+ * nothing, because the server no longer reads it.
+ */
+function refreshedEnv(fresh: McpServerConfig, installed: McpServerConfig): Record<string, string> {
+  const next: Record<string, string> = { ...(fresh.env ?? {}) }
+  for (const name of fresh.envVarNames ?? []) {
+    if (name in next) continue
+    const filledIn = installed.env?.[name]
+    if (filledIn !== undefined) next[name] = filledIn
+  }
+  return next
 }
 
 /** Everything a source declares, ignoring the parts the person owns. */

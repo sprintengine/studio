@@ -3,10 +3,12 @@
 // everything else alone (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { McpServerConfig } from '../electron-api'
 import type { ScannedMcpServer } from '../skills'
-import { isOwnedBySource, mcpServerConfigFromScanned } from './server-from-scanned'
+import { isOwnedBySource, mcpServerConfigFromScanned, serversUnchangedDuringSync } from './server-from-scanned'
 import { normalizeMcpServerConfig, normalizeMcpSourceRef } from './normalize-server'
 
 function scanned(over: Partial<ScannedMcpServer> = {}): ScannedMcpServer {
@@ -109,6 +111,61 @@ run('the missing mark survives normalization, because the row is drawn from it',
     sourceRef: { ...REF, missing: true },
   })
   assert.equal(config?.sourceRef?.missing, true)
+})
+
+// ── The write-back race ──────────────────────────────────────────────────────
+// A sync sends the settings as they stand, then spends seconds fetching. What
+// comes back may no longer be safe to write.
+
+function stored(over: Partial<McpServerConfig> = {}): McpServerConfig {
+  return { ...mcpServerConfigFromScanned(scanned(), ['codex'], REF), ...over }
+}
+
+run('an entry somebody edited mid-sync keeps their edit', () => {
+  const sent = stored()
+  const edited = stored({ enabled: false, env: { CONTEXT7_TOKEN: 'typed-while-syncing' } })
+  const refreshed = stored({ args: ['-y', '@upstash/context7-mcp@2'] })
+  const result = serversUnchangedDuringSync({ sent: [sent], current: [edited], updated: [refreshed] })
+  assert.deepEqual(result.write, [], 'the sync does not write over what they just did')
+  assert.deepEqual(result.skipped, ['context7'], 'and the surface counts one fewer update rather than claiming it')
+})
+
+run('an untouched entry is written', () => {
+  const sent = stored()
+  const refreshed = stored({ args: ['-y', '@upstash/context7-mcp@2'] })
+  const result = serversUnchangedDuringSync({ sent: [sent], current: [stored()], updated: [refreshed] })
+  assert.deepEqual(result.write, [refreshed])
+  assert.deepEqual(result.skipped, [])
+})
+
+run('an entry removed mid-sync is not resurrected', () => {
+  const sent = stored()
+  const result = serversUnchangedDuringSync({ sent: [sent], current: [], updated: [stored()] })
+  assert.deepEqual(result.write, [])
+  assert.deepEqual(result.skipped, ['context7'])
+})
+
+// ── The twin declarations ────────────────────────────────────────────────────
+// `McpServerConfig` is declared twice — in the IPC contract and in the renderer's
+// agent-state module, which re-exports it. They are structurally identical on
+// purpose, and a provenance field added to one and not the other is a config
+// that loses its source somewhere between the two. This guard is cheap; the
+// drift it catches is not.
+
+run('the MCP provenance types are identical in both declarations', () => {
+  const read = (path: string): string => readFileSync(join(process.cwd(), path), 'utf8')
+  const contract = read('src/shared/electron-api.ts')
+  const twin = read('src/shared/sprintengine/agent-state.ts')
+  for (const source of [contract, twin]) {
+    assert.match(source, /export type McpServerSource = 'bundled' \| 'custom' \| 'source'/)
+    assert.match(source, /sourceRef\?: McpServerSourceRef/)
+  }
+  const fields = (source: string): string[] => {
+    const block = source.match(/export type McpServerSourceRef = \{([\s\S]*?)\n\}/)
+    assert.ok(block, 'both files declare McpServerSourceRef')
+    return [...block[1].matchAll(/^\s{2}(\w+)\??:/gm)].map((match) => match[1])
+  }
+  assert.deepEqual(fields(twin), fields(contract), 'the two McpServerSourceRef declarations have drifted')
 })
 
 console.log('mcp server-from-scanned tests passed')

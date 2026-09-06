@@ -10,12 +10,14 @@
 
 import React, { useState } from 'react'
 
+import type { McpServerConfig } from '../../../../../../../shared/electron-api'
 import {
   isBundledSkillSource,
   sourceHasUpdate,
   type ScanResult,
   type SkillSource,
 } from '../../../../../../../shared/skills'
+import { serversUnchangedDuringSync } from '../../../../../../../shared/mcp/server-from-scanned'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { OutlineButton, OverflowMenu } from '../../../../ui'
 import { skillSourceCommitsUrl } from '../skills/skillsSurfaceModel'
@@ -29,6 +31,11 @@ export type SourceSyncResult = {
   /** Source-installed MCP servers whose declaration moved, and ones the source dropped. */
   mcpChanged: number
   mcpMissing: number
+}
+
+/** The MCP settings as they stand right now — never a value captured at render. */
+function mcpServersNow(): McpServerConfig[] {
+  return Object.values(useWorkspaceStore.getState().appSettings.mcp?.servers ?? {})
 }
 
 export function SourceTabActions({
@@ -45,13 +52,6 @@ export function SourceTabActions({
   onRemoved: (sourceId: string) => void
 }): JSX.Element | null {
   const [syncing, setSyncing] = useState(false)
-  // The MCP servers this machine has configured, read here rather than passed
-  // in: a source is synced from whichever catalogue the person happens to be
-  // looking at, and the servers it installed must be refreshed by all three of
-  // them (backlog/2026-09-06-mcp-installs-carry-source-provenance.md). MCP
-  // settings are app-level, so there is one right answer to read.
-  const mcpServers = useWorkspaceStore((state) => state.appSettings.mcp?.servers)
-  const upsertMcpServer = useWorkspaceStore((state) => state.upsertMcpServer)
   // The two bundled sources ship with the app and refresh with it; a folder or
   // a repository is the person's, and can be re-read and removed.
   const canSync = source.kind === 'github' || source.kind === 'local'
@@ -69,11 +69,13 @@ export function SourceTabActions({
     setSyncing(true)
     try {
       // The servers ride the call because MCP settings live in this store, not
-      // on disk in main; what comes back is written straight back into it.
+      // on disk in main. Read at click time, not at render: a settings object
+      // captured when this control last rendered can be minutes old.
+      const sent = mcpServersNow()
       const result = await window.api.skillsSyncSource({
         sourceId: source.id,
         workspaceRoot,
-        mcpServers: Object.values(mcpServers ?? {}),
+        mcpServers: sent,
       })
       if (!result.ok) {
         onSyncFailed(source, result.message)
@@ -81,17 +83,25 @@ export function SourceTabActions({
       }
       // The servers this source installed, as the sync left them: fresh
       // configs, and the ones it could no longer find marked rather than
-      // dropped. Written back through the store so they survive a restart.
+      // dropped. Read the store again before writing, because the round trip
+      // took seconds and an entry somebody edited in them is theirs, not the
+      // sync's; skipped entries are counted out of what the line claims.
       const mcp = result.mcpServers
-      for (const server of mcp.updated) upsertMcpServer(server)
+      const { write, skipped } = serversUnchangedDuringSync({
+        sent,
+        current: mcpServersNow(),
+        updated: mcp.updated,
+      })
+      if (write.length > 0) useWorkspaceStore.getState().refreshMcpServersFromSource(write)
+      const stale = new Set(skipped)
       onSynced(result.source, {
         added: result.added,
         removed: result.removed,
         refreshed: result.refreshed,
         failures: result.failures,
         scan: result.scan,
-        mcpChanged: mcp.changed.length,
-        mcpMissing: mcp.missing.length,
+        mcpChanged: mcp.changed.filter((id) => !stale.has(id)).length,
+        mcpMissing: mcp.missing.filter((id) => !stale.has(id)).length,
       })
     } catch (error) {
       onSyncFailed(source, error instanceof Error ? error.message : String(error))

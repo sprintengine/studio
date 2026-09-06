@@ -47,3 +47,32 @@ export function mcpServerConfigFromScanned(
 export function isOwnedBySource(server: McpServerConfig, sourceId: string): boolean {
   return server.source === 'source' && server.sourceRef?.sourceId === sourceId
 }
+
+/**
+ * Which of a sync's refreshed configs may still be written.
+ *
+ * A sync sends the settings as they stood when the button was pressed, then
+ * spends seconds on a GitHub round trip. If somebody fills in a token or turns
+ * a server off in those seconds, writing the sync's answer back over them
+ * reverts an edit they just made and never told them. So each entry is written
+ * only if the stored config is still byte-for-byte the one that was sent; an
+ * entry that moved underneath the sync — or that was removed entirely — keeps
+ * what the person did, and the surface reports one fewer update rather than
+ * claiming one it did not make.
+ */
+export function serversUnchangedDuringSync(input: {
+  sent: readonly McpServerConfig[]
+  current: readonly McpServerConfig[]
+  updated: readonly McpServerConfig[]
+}): { write: McpServerConfig[]; skipped: string[] } {
+  const sent = new Map(input.sent.map((server) => [server.id, JSON.stringify(server)]))
+  const current = new Map(input.current.map((server) => [server.id, JSON.stringify(server)]))
+  const write: McpServerConfig[] = []
+  const skipped: string[] = []
+  for (const server of input.updated) {
+    const now = current.get(server.id)
+    if (now !== undefined && now === sent.get(server.id)) write.push(server)
+    else skipped.push(server.id)
+  }
+  return { write, skipped }
+}

@@ -250,6 +250,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
+  /** Sync's writer: the same upsert, without turning MCP config sync back on. */
+  refreshMcpServersFromSource: (servers: McpServerConfig[]) => void
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
