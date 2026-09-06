@@ -31,7 +31,10 @@ import {
   type StudioPluginTokens,
 } from './studio-plugin'
 
-const TEMPLATE_ROOT = resolve(__dirname, '..', '..', '..', 'resources', 'studio-plugin')
+// These suites are bundled into node_modules/.cache before they run, so
+// `__dirname` says nothing about where the source lives. `npm run` sets the cwd
+// to the package root, which is the one anchor that survives bundling.
+const TEMPLATE_ROOT = resolve(process.cwd(), 'resources', 'studio-plugin')
 
 function tokens(workspace: string): StudioPluginTokens {
   return {

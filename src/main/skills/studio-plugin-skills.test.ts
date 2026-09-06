@@ -14,7 +14,9 @@ import { join, resolve } from 'node:path'
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from './studio-plugin'
 
-const SKILLS_ROOT = resolve(__dirname, '..', '..', '..', 'resources', 'studio-plugin', STUDIO_PLUGIN_ID, 'skills')
+// Bundled into node_modules/.cache before it runs, so `__dirname` says nothing
+// about where the source lives; `npm run` sets the cwd to the package root.
+const SKILLS_ROOT = resolve(process.cwd(), 'resources', 'studio-plugin', STUDIO_PLUGIN_ID, 'skills')
 
 /** The Agent Skills specification's ceiling on a description. */
 const MAX_DESCRIPTION_LENGTH = 1024
