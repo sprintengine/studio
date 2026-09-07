@@ -1180,6 +1180,26 @@ export default function WorkspaceSidebar({
     }
     return map
   }, [terminalSessions])
+  // The same grouping WITHOUT the alive-process filter, for the conversation
+  // peek alone. The map above is deliberately live-only — line 2 and the git
+  // poll are about a checkout's current state, which a parked chat has no claim
+  // on — but the peek asks the opposite question. "What was this one about?" is
+  // asked most about the chat that is NOT running, and gating it on a living
+  // process meant most of the sidebar after a restart offered no card at all.
+  //
+  // A suspended or exited session is still in main's list and still answers, so
+  // it belongs here; a chat main has never heard of falls through to its own
+  // agent records inside `rowConversationPeekIdentity`.
+  const peekSessionsByWorkspaceId = useMemo(() => {
+    const map = new Map<string, typeof terminalSessions>()
+    for (const session of terminalSessions) {
+      if (!session.workspaceId) continue
+      const list = map.get(session.workspaceId)
+      if (list) list.push(session)
+      else map.set(session.workspaceId, [session])
+    }
+    return map
+  }, [terminalSessions])
   // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): line 2 exists
   // only while the row has an open terminal. The git poll is therefore asked
   // about live rows alone — a suspended chat never reads a branch, so it can
@@ -2278,11 +2298,15 @@ export default function WorkspaceSidebar({
     // The row's conversation peek (2026-09-07). The row says what the chat is
     // CALLED; the card says what was actually asked — the message that started
     // it, everything sent since, and the model and session behind it. Null when
-    // the row holds no agent session: there is nothing to read, and a card that
-    // only restated the row's own title is exactly the noise this replaced.
+    // there is no session id worth asking about: nothing to read, and a card
+    // that only restated the row's own title is the noise this replaced.
+    //
+    // Note the map: every session main knows about, running or not, and then
+    // the row's own agent records. Whether the PROCESS is alive is not the
+    // question — whether there is an id to ask about is.
     const peekIdentity = rowConversationPeekIdentity({
       workspace,
-      sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
+      sessions: peekSessionsByWorkspaceId.get(workspace.id) ?? [],
       status: peekStatusOf(activity, idleRecencyText),
     })
     // The whole row is the peek's hover target (owner ruling 2026-09-07), which
