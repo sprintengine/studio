@@ -29,6 +29,7 @@
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-registry-verify.cjs && node node_modules/.cache/multicode/marketplace-registry-verify.cjs",
     "verify:third-party-modules-e2e": "node scripts/testing/third-party-module-e2e.mjs",
     "verify:native-menu-conformance": "node scripts/testing/native-menu-conformance-pass.mjs",
+    "verify:file-tree-cues": "node scripts/testing/file-tree-cues-pass.mjs",
     "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-palette-contract.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs",
     "lint:design-tokens": "node scripts/lint-design-tokens.mjs",
     "lint:design-tokens:report": "node scripts/lint-design-tokens.mjs --report",

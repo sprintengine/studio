@@ -4,6 +4,7 @@ import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentity } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { BranchStepSelection } from '../../shared/electron-api'
+import { checkIgnoredPaths } from '../git-ignore'
 import {
   abortGitOperation,
   applyGitStash,
@@ -121,6 +122,15 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
       }
       return snapshot
     })
+  })
+
+  ipcMain.handle('git:check-ignored', async (_, repoRoot: string, relativePaths: string[]) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'check-ignored',
+      { repoRoot, pathCount: relativePaths.length },
+      async () => Array.from(await checkIgnoredPaths(repoRoot, relativePaths))
+    )
   })
 
   ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {

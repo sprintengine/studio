@@ -41,6 +41,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-repo-root', folderPath),
   getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> =>
     ipcRenderer.invoke('git:get-status', repoRoot),
+  checkIgnored: (repoRoot: string, relativePaths: string[]): Promise<string[]> =>
+    ipcRenderer.invoke('git:check-ignored', repoRoot, relativePaths),
   getGitRowSummary: (repoRoot: string): Promise<GitRowSummary> =>
     ipcRenderer.invoke('git:get-row-summary', repoRoot),
   getWorkspaceChangeSummary: (checkoutPath: string): Promise<WorkspaceChangeSummary> =>
@@ -152,6 +154,7 @@ export const gitApi = {
   ElectronApi,
   | 'getGitRepoRoot'
   | 'getGitStatus'
+  | 'checkIgnored'
   | 'getGitRowSummary'
   | 'getWorkspaceChangeSummary'
   | 'getBranchSteps'

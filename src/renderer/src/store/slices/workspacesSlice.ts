@@ -63,6 +63,7 @@ import type {
   WorkspaceWorktree,
   WorkspaceBacklogState,
   WorkspaceFileExplorerState,
+  WorkspaceFolderRole,
   WorkspaceGitPanelState,
   WorkspaceHighlight,
   WorkspaceId,
@@ -175,6 +176,28 @@ export function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState 
   return { expandedPaths: [], selectedPath: null }
 }
 
+const FOLDER_ROLE_VALUES = {
+  sources: true,
+  'test-sources': true,
+  resources: true,
+  'test-resources': true,
+  generated: true,
+  excluded: true,
+} satisfies Record<WorkspaceFolderRole, true>
+
+// Absent rather than empty when nothing is marked, so the persisted registry
+// does not carry a `{}` per workspace. An unknown role string is dropped, not
+// coerced: a wrong colour on a folder is worse than no colour, and a role this
+// build does not know about is one a newer build wrote.
+function normalizeWorkspaceFolderRoles(input: unknown): Record<string, WorkspaceFolderRole> | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const entries = Object.entries(input as Record<string, unknown>).filter(
+    (entry): entry is [string, WorkspaceFolderRole] =>
+      entry[0].trim().length > 0 && typeof entry[1] === 'string' && entry[1] in FOLDER_ROLE_VALUES
+  )
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
 export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFileExplorerState {
   const obj = input && typeof input === 'object' ? (input as Partial<WorkspaceFileExplorerState>) : null
   const rawExpandedPaths = obj?.expandedPaths
@@ -183,7 +206,8 @@ export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFi
     : []
   const selectedPath =
     typeof obj?.selectedPath === 'string' && obj.selectedPath.trim().length > 0 ? obj.selectedPath : null
-  return { expandedPaths, selectedPath }
+  const folderRoles = normalizeWorkspaceFolderRoles(obj?.folderRoles)
+  return folderRoles ? { expandedPaths, selectedPath, folderRoles } : { expandedPaths, selectedPath }
 }
 
 export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
@@ -372,6 +396,7 @@ export interface WorkspacesSliceActions {
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
+  setFileExplorerFolderRole: (id: WorkspaceId, folderPath: string, role: WorkspaceFolderRole | null) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
@@ -1580,6 +1605,23 @@ export function createWorkspacesSlice(
         ws.fileExplorerState = normalizeWorkspaceFileExplorerState({
           expandedPaths,
           selectedPath: ws.fileExplorerState?.selectedPath ?? null,
+          folderRoles: ws.fileExplorerState?.folderRoles,
+        })
+      }),
+
+    setFileExplorerFolderRole: (id, folderPath, role) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const folderRoles = { ...(ws.fileExplorerState?.folderRoles ?? {}) }
+        // A null role CLEARS the mark rather than storing "none": the absence
+        // of an entry is what lets a folder inherit from an ancestor again.
+        if (role) folderRoles[folderPath] = role
+        else delete folderRoles[folderPath]
+        ws.fileExplorerState = normalizeWorkspaceFileExplorerState({
+          expandedPaths: ws.fileExplorerState?.expandedPaths ?? [],
+          selectedPath: ws.fileExplorerState?.selectedPath ?? null,
+          folderRoles,
         })
       }),
 
@@ -1590,6 +1632,7 @@ export function createWorkspacesSlice(
         ws.fileExplorerState = normalizeWorkspaceFileExplorerState({
           expandedPaths: ws.fileExplorerState?.expandedPaths ?? [],
           selectedPath,
+          folderRoles: ws.fileExplorerState?.folderRoles,
         })
       }),
 

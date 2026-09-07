@@ -1261,6 +1261,37 @@ samp,
 .chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
 /* design-tokens-allow-end */
 
+/* File-tree row washes - "what IS this file?", answered by the row's own
+ * background (ruled 2026-09-07, principles.md ->
+ * "Identity colour"). Two washes only: `test` for test material, `generated`
+ * for machine-written trees.
+ *
+ * Mixed against --bg-surface rather than stated as a hex, because the app
+ * ships twelve themes and four of them are light: a wash tuned on the dark
+ * default washes out on Vellum and muddies Paper. Same recipe as .chip-bg-*
+ * above, one step weaker - a whole row is a lot of area, and this has to read
+ * as a tint rather than a fill.
+ *
+ * These sit UNDER interaction state on purpose. A wash is a property of the
+ * file; hover and selection are states of the pointer and the keyboard, and
+ * they win while they last. Selection is handled by the caller, which drops the
+ * wash class from a selected row entirely. Hover is handled HERE, by the
+ * `@layer utilities` wrapper, and it is load-bearing rather than tidiness:
+ * Tailwind v4 emits its utilities into that cascade layer, and an UNLAYERED
+ * rule beats every layered one no matter how specific the layered one is. Left
+ * unlayered next to its neighbours in this file, a wash would outrank
+ * `hover:bg-[--bg-hover]` and the row would never light up under the pointer.
+ * Inside the layer the two compete on specificity as normal, and `:hover` wins.
+ *
+ * Test the two together after any change here - a wash that survives hover or
+ * selection makes the row a person is pointing at unreadable.
+ * design-tokens-allow-block: identity mark hues, mixed per theme */
+@layer utilities {
+  .file-row-wash-test { background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-teal)); }
+  .file-row-wash-generated { background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-orange)); }
+}
+/* design-tokens-allow-end */
+
 /* Git graph lane palette — branch-line identity for the commit graph
  * (each branch line keeps one hue; ref pills wear the same
  * hue). Identity data colour, not a second accent — documented north-star
