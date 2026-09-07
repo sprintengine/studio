@@ -24,7 +24,7 @@ import {
   PrimaryButton,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
   type ConversationProviderListEntry,
   type ProviderSecretView,
@@ -162,17 +162,14 @@ export function ProviderSettingsTab() {
       aria-labelledby="settings-tab-providers"
       className="space-y-5"
     >
-      <p className="text-body leading-5 text-[color:var(--text-muted)]">
-        Add an API key to use a model provider in standard workspace agents. Keys are stored on this
-        device and never shown again after saving.
-      </p>
+      <SettingsPageHeader title="Providers" />
 
       {tabState.kind === 'unavailable' ? (
         <p className="text-body leading-5 text-[color:var(--text-muted)]">{tabState.message}</p>
       ) : null}
 
       {tabState.kind === 'loading' ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading conversation providers…</p>
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
       ) : null}
 
       {tabState.kind === 'error' ? (
@@ -191,8 +188,7 @@ export function ProviderSettingsTab() {
       {tabState.kind === 'empty' ? (
         <EmptyState
           density="list"
-          title="No conversation providers are installed."
-          body="Provider plugins are added through the provider install flow, not this tab."
+          title="No providers installed."
         />
       ) : null}
 
@@ -252,9 +248,7 @@ function ProviderRow({
       {secretView?.kind === 'error' ? (
         <InlineNotice tone="error">{secretView.message}</InlineNotice>
       ) : secretView?.kind === 'none-required' ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">
-          This provider authenticates without a stored API key.
-        </p>
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">No API key needed.</p>
       ) : configured ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
@@ -281,11 +275,11 @@ function ProviderRow({
           </div>
           {!canClear ? (
             <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
-              Set from your environment. Remove it there to change it.
+              Set from the environment.
             </p>
           ) : secretView.persistence === 'session' ? (
             <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
-              Stored for this session only — clears when the app quits.
+              Kept for this session only.
             </p>
           ) : null}
         </div>

@@ -3,7 +3,7 @@ import type { DesignSystemAttachSource } from '../../../../shared/design-system/
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../shared/design-system/bundle-scaffold'
 import type { DesignSystemBundleReadFailure } from '../../../../shared/design-system/bundle-view'
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
-import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { GhostButton, InlineNotice, OutlineButton, PrimaryButton } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { DesignSystemAttachStep } from '../workspace/newWorkspace/DesignSystemAttachStep'
 import { pathJoin } from '../../utils/paths'
@@ -209,9 +209,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
 
   if (!workspaceRoot) {
     return (
-      <p className="text-body leading-5 text-[color:var(--text-muted)]">
-        Open a workspace to configure its design system.
-      </p>
+      <p className="text-body leading-5 text-[color:var(--text-muted)]">Open a workspace first.</p>
     )
   }
   if (bundle.kind === 'probing') return null
@@ -257,7 +255,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
                 <span className="font-medium text-[color:var(--text-strong)]">
                   v{update.version}
                 </span>{' '}
-                is available in your library.
+                available
               </span>
               <OutlineButton
                 size="xs"
@@ -269,10 +267,6 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
               </OutlineButton>
             </div>
           ) : null}
-          <p className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
-            <StatusDot tone="good" />
-            Every agent launched here is being held to this design system.
-          </p>
         </>
       ) : null}
 
@@ -291,9 +285,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
 
       {bundle.kind === 'none' && !pickerOpen ? (
         <div className="rounded-md border border-dashed border-[color:var(--border-default)] px-4 py-5 text-center">
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            No design system attached. Agents follow the codebase’s existing style.
-          </p>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">No design system attached.</p>
           <PrimaryButton
             size="sm"
             className="mt-3"
@@ -303,7 +295,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
               setPickerOpen(true)
             }}
           >
-            Attach a design system
+            Attach
           </PrimaryButton>
         </div>
       ) : null}

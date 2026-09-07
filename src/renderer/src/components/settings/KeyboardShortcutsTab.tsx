@@ -25,16 +25,16 @@ import {
 } from '../../commands'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
   FOCUS_RING_CLASS,
   IconButton,
   InboxSearchInput,
   KbdChord,
-  OutlineButton,
   StatusDot,
   Tooltip,
 } from '../ui'
+import { ResetIcon } from '../AppIcons'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 // --- View model (pure, exported for tests) ---------------------------------
@@ -296,21 +296,34 @@ export function KeyboardShortcutsTab() {
 
   return (
     <div role="tabpanel" id="settings-panel-shortcuts" aria-labelledby="settings-tab-shortcuts" className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <InboxSearchInput
-          value={query}
-          onChange={setQuery}
-          ariaLabel="Search shortcuts by command, category, or key"
-          placeholder="Search shortcuts"
-        />
-        <OutlineButton
-          onClick={handleResetAll}
-          disabled={customizedCount === 0}
-          aria-label="Reset all keyboard shortcuts to defaults"
-        >
-          Reset all{customizedCount > 0 ? ` (${customizedCount})` : ''}
-        </OutlineButton>
-      </div>
+      {/* The page's chrome, on the header band: the count,
+          the search field, and the reset as a glyph that names how many it
+          would undo. */}
+      <SettingsPageHeader
+        title="Shortcuts"
+        meta={`${rows.length} bindings`}
+        actions={
+          <>
+            <div className="flex w-52 max-w-full">
+              <InboxSearchInput
+                value={query}
+                onChange={setQuery}
+                ariaLabel="Search shortcuts by command, category, or key"
+                placeholder="Search"
+              />
+            </div>
+            <Tooltip content={customizedCount > 0 ? `Reset all (${customizedCount} changed)` : 'Nothing to reset'}>
+              <IconButton
+                onClick={handleResetAll}
+                disabled={customizedCount === 0}
+                aria-label="Reset all keyboard shortcuts to defaults"
+              >
+                <ResetIcon className="icon-sm" />
+              </IconButton>
+            </Tooltip>
+          </>
+        }
+      />
 
       {groups.length === 0 ? (
         <p className="px-1 py-6 text-center text-body text-[color:var(--text-muted)]">
@@ -411,7 +424,7 @@ function ShortcutRowView({
           {row.customized ? (
             <Tooltip content={defaultRendered ? `Reset to ${defaultRendered}` : 'Reset to default'}>
               <IconButton onClick={onReset} aria-label={`Reset the ${row.title} shortcut to default`}>
-                <ResetIcon />
+                <ResetIcon className="icon-sm" />
               </IconButton>
             </Tooltip>
           ) : null}
@@ -522,24 +535,6 @@ function KeybindingCell({
         {recording ? `Recording a shortcut for ${row.title}. Press Escape to cancel.` : ''}
       </span>
     </>
-  )
-}
-
-function ResetIcon() {
-  return (
-    <svg
-      className="icon-sm"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
   )
 }
 

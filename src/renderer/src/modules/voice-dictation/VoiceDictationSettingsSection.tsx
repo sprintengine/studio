@@ -40,13 +40,7 @@ export function VoiceDictationSettingsSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-body leading-5 text-[color:var(--text-muted)]">
-        Press the microphone in the top bar (or {window.api.platform === 'darwin' ? 'Cmd+Shift+1' : 'Ctrl+Shift+1'}) to record, then again to stop.
-        The audio is sent to a Multivoice transcription host and the text is copied to your clipboard.
-        The server can run on this machine, on your network, or be hosted remotely — point the URL at wherever it lives.
-      </p>
-
-      <Field label="Server URL" htmlFor="voice-server-url" help="Base URL of the Multivoice transcription host.">
+      <Field label="Server URL" htmlFor="voice-server-url" help="The Multivoice transcription host.">
         <Input
           id="voice-server-url"
           value={voiceDictation.serverUrl}
@@ -63,7 +57,7 @@ export function VoiceDictationSettingsSection() {
       <Field
         label="Auth token"
         htmlFor="voice-auth-token"
-        help="Optional. Sent as an Authorization: Bearer header when set."
+        help="Optional."
       >
         <Input
           id="voice-auth-token"
@@ -80,7 +74,7 @@ export function VoiceDictationSettingsSection() {
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Whisper model" htmlFor="voice-model" help="The host loads or downloads this model.">
+        <Field label="Whisper model" htmlFor="voice-model">
           <Select
             ariaLabel="Whisper model"
             items={VOICE_MODEL_ITEMS}

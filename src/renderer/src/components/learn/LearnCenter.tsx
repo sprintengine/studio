@@ -8,7 +8,8 @@ import {
 } from '../../content/learning/types'
 import { searchLearningItems } from '../../content/learning/selectors'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { GhostButton, InboxSearchInput, Switch, Tabs, type TabItem } from '../ui'
+import { GhostButton, IconButton, InboxSearchInput, Switch, Tabs, Tooltip, type TabItem } from '../ui'
+import { ResetIcon } from '../AppIcons'
 
 type LearnCenterProps = {
   onSettingsTab?: (tabId: string) => void
@@ -118,7 +119,11 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
               Show on startup
             </label>
           </div>
-          <GhostButton onClick={() => resetLearningProgress()}>Reset progress</GhostButton>
+          <Tooltip content="Reset progress">
+            <IconButton aria-label="Reset learning progress" onClick={() => resetLearningProgress()}>
+              <ResetIcon className="icon-sm" />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
 
@@ -138,8 +143,8 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
       {items.length === 0 ? (
         <p className="py-4 text-meta leading-5 text-[color:var(--text-muted)]">
           {query.trim()
-            ? `No tips match "${query.trim()}" in ${category === 'all' ? 'any category' : LEARNING_CATEGORY_LABELS[category as LearningCategory]}.`
-            : 'No tips available for this category yet.'}
+            ? `No tips match "${query.trim()}".`
+            : 'No tips here yet.'}
         </p>
       ) : (
         <ul className="divide-y divide-[color:var(--border-subtle)]">

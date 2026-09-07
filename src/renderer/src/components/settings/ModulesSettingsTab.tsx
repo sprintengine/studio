@@ -14,6 +14,7 @@ import { EmptyState, GhostButton, InboxSearchInput, Switch } from '../ui'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
+import { SettingsPageHeader } from './SettingsAtoms'
 
 // Module manager: one surface for everything that plugs into the app — the
 // bundled capability modules, the specialist packs that feed the spawn menu,
@@ -176,21 +177,19 @@ export function ModulesSettingsTab() {
       aria-labelledby="settings-tab-modules"
       className="space-y-5"
     >
-      <p className="text-body leading-5 text-[color:var(--text-muted)]">
-        Everything that plugs into the app, in one place. Turning a module off hides its surfaces —
-        nothing is uninstalled, and you can turn it back on any time. Specialist packs group the
-        agents offered in the spawn menu; turning a pack off hides its agents from the dropdown while
-        the Terminal, General, and Conversation rows always stay available.
-      </p>
-
-      <div className="flex">
-        <InboxSearchInput
-          value={query}
-          onChange={setQuery}
-          ariaLabel="Search modules and specialist packs"
-          placeholder="Search modules and packs"
-        />
-      </div>
+      <SettingsPageHeader
+        title="Modules"
+        actions={
+          <div className="flex w-52 max-w-full">
+            <InboxSearchInput
+              value={query}
+              onChange={setQuery}
+              ariaLabel="Search modules and specialist packs"
+              placeholder="Search"
+            />
+          </div>
+        }
+      />
 
       {moduleGroups.length === 0 && visiblePacks.length === 0 ? (
         <p className="text-body leading-5 text-[color:var(--text-muted)]">
@@ -221,7 +220,6 @@ export function ModulesSettingsTab() {
           <EmptyState
             density="list"
             title="No specialist packs installed."
-            body="Install one from the marketplace and its agents appear in the spawn menu, alongside the Terminal, General, and Conversation rows."
             action={
               <GhostButton
                 size="md"

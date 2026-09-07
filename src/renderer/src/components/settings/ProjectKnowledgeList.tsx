@@ -205,9 +205,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
 
   if (projects.length === 0) {
     return (
-      <p className="text-body leading-5 text-[color:var(--text-subtle)]">
-        Open a workspace folder before configuring the Knowledge Graph.
-      </p>
+      <p className="text-body leading-5 text-[color:var(--text-subtle)]">Open a workspace first.</p>
     )
   }
 
