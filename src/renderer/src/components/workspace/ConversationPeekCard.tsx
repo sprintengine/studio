@@ -576,6 +576,16 @@ export function ConversationPeekCard({
               </>
             ) : null}
           </>
+        ) : peek && peek.source === 'unknown' ? (
+          // We hold no record of this chat at all — the app was killed rather
+          // than quit, or it was parked past the sidecar's TTL. Deliberately
+          // NOT the `none` line below: that one is about the runtime, and
+          // saying it here would tell someone their Claude Code chat cannot
+          // report messages. This says what is actually true — the messages are
+          // gone from OUR records, not from the chat.
+          <p className="m-0 text-meta leading-relaxed text-[color:var(--text-subtle)]">
+            No record of this chat’s messages any more. Open it and the next one will be here.
+          </p>
         ) : peek && peek.source === 'none' ? (
           // Identity only (mockup frame 8): OpenCode, Muse and a plain shell
           // report neither a prompt nor a transcript.

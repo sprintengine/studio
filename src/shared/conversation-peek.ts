@@ -77,15 +77,22 @@ export type ConversationPeekMessage = {
 }
 
 /**
- * Where the answer came from, because the card must say which of the three
- * shapes it is in rather than look broken:
+ * Where the answer came from, because the card must say which shape it is in
+ * rather than look broken:
  * - `transcript` — the CLI's own file: the whole history, images and files.
  * - `live` — prompts seen since this app launched, for a runtime that reports
  *   `UserPromptSubmit` but hands us no transcript. Text only, no attachments.
  * - `none` — the runtime reports neither (OpenCode, Muse, a plain shell). The
  *   card still carries the model and the session id.
+ * - `unknown` — main holds no state for this session id at all: the app was
+ *   killed rather than quit, so no sidecar was written, or the chat was parked
+ *   past the sidecar's TTL. This is NOT `none`, and the distinction is the
+ *   whole reason it exists — `none` is a statement about the RUNTIME, and
+ *   saying it here tells someone their Claude Code chat cannot report messages,
+ *   which is both false and unfixable-looking. `unknown` is a statement about
+ *   our own records, which is the honest one.
  */
-export type ConversationPeekSource = 'transcript' | 'live' | 'none'
+export type ConversationPeekSource = 'transcript' | 'live' | 'none' | 'unknown'
 
 export type ConversationPeek = {
   sessionId: string

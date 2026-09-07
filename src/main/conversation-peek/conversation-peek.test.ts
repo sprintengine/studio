@@ -774,9 +774,14 @@ async function testSourceSelection(): Promise<void> {
   assert.equal(silent.source, 'none')
   assert.equal(silent.first, null)
 
+  // A session main holds no state for is `unknown`, NEVER `none`: the app was
+  // killed rather than quit, or the chat was parked past the sidecar TTL. Both
+  // are statements about our records; `none` is a statement about the runtime,
+  // and making it here tells someone their Claude Code chat cannot report.
   const unknown = await service.readConversationPeek('no-such-session')
-  assert.equal(unknown.source, 'none')
+  assert.equal(unknown.source, 'unknown')
   assert.equal(unknown.sessionId, 'no-such-session')
+  assert.notEqual(unknown.source, 'none', 'no record of a chat is not a claim about its runtime')
 
   // Opening resolves an id against the peek main itself produced.
   await service.openConversationPeekAttachment('with-transcript', image.id)
@@ -870,8 +875,8 @@ async function testIpc(): Promise<void> {
 
   // A malformed payload answers the empty peek rather than throwing: a hover
   // must never surface an error.
-  assert.equal((await read({}, 42) as ConversationPeek).source, 'none')
-  assert.equal((await read({}, 'a'.repeat(600)) as ConversationPeek).source, 'none')
+  assert.equal((await read({}, 42) as ConversationPeek).source, 'unknown')
+  assert.equal((await read({}, 'a'.repeat(600)) as ConversationPeek).source, 'unknown')
   await open({}, null)
   await open({}, { sessionId: 'session-1' })
   await open({}, { sessionId: 'session-1', attachmentId: 'a\u00001' })

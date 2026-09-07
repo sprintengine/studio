@@ -151,6 +151,18 @@ run('an identity-only peek says the runtime reports nothing, and still earns its
   assert.equal(markup.includes('Since then'), false, 'no thread heading over an empty thread')
 })
 
+run('a chat we hold no record of blames our records, not the runtime', () => {
+  // The distinction this asserts is the one that made the `none` arm move to
+  // last: `none` is a claim about the RUNTIME. Saying it for a chat main simply
+  // has no state for — killed rather than quit, or parked past the sidecar TTL
+  // — tells someone their Claude Code chat cannot report messages, which is
+  // false and reads as unfixable.
+  const markup = card({ peek: peek({ source: 'unknown', first: null }) })
+  assert.match(markup, /No record of this chat/, 'says whose gap it is')
+  assert.equal(markup.includes('doesn’t report its messages'), false, 'never a claim about the runtime')
+  assert.match(markup, /claude-opus-5/, 'the identity still stands')
+})
+
 run('a chat nobody has spoken in says so plainly', () => {
   const markup = card({ peek: peek({ first: null, totalMessages: 0 }) })
   assert.match(markup, /No messages yet/, 'the never-prompted state')
