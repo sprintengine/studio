@@ -2126,21 +2126,100 @@ export default function WorkspaceSidebar({
               </svg>
             </button>
           </Tooltip>
-          <Tooltip content="Close workspace">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                handleClose(workspace.id)
-              }}
-              className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-              aria-label={`Close ${workspace.name}`}
-            >
-              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
-          </Tooltip>
+          {/* The one-click seat is rest, not removal (settled-chats,
+              2026-09-07). It used to be the ✕, which terminates the row's
+              terminals and removes the chat — the irreversible gesture in the
+              cheapest place on the row, and against this epic's own thesis
+              that a chat comes to rest instead of vanishing. Close keeps its
+              entry in `···`, where a gesture that cannot be taken back
+              belongs; Settle, the one you make fifty times a day and can undo
+              with the next click, takes the seat.
+
+              Neutral ink, deliberately: green already means "an agent
+              finished while you were away — come look" on this exact surface
+              (`doneRowClass` washes the whole row in --tone-good-faint), so a
+              green tick would be the opposite instruction in the same hue six
+              pixels away — the mistake the green ring was struck down for
+              (owner ruling 2026-09-05). The tick's SHAPE says done; it does
+              not need the tone to say it.
+
+              A settled row gets the undo arrow rather than a second tick: the
+              action there is "put this back", and a tick would still be
+              saying "done" about the state you are leaving.
+
+              A row born on a paired machine keeps the ✕: the Remote band has
+              no Settled shelf, so it has nothing to settle into — the same
+              rule the menu's Settle entry follows. */}
+          {workspace.remoteOrigin ? (
+            <Tooltip content="Close workspace">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  handleClose(workspace.id)
+                }}
+                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                aria-label={`Close ${workspace.name}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+          ) : options?.settled ? (
+            <Tooltip content="Un-settle">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setWorkspaceSettled(workspace.id, false)
+                }}
+                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                aria-label={`Un-settle ${workspace.name}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <path
+                    d="M6.2 3.3L3 6l3.2 2.7"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M3 6h6.4a3.3 3.3 0 0 1 0 6.6H7.2"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
+          ) : (
+            <Tooltip content="Settle">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setWorkspaceSettled(workspace.id, true)
+                }}
+                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                aria-label={`Settle ${workspace.name}`}
+              >
+                {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
+                    brought onto the 16-grid at its 1.4 stroke and inset to the
+                    12×12 live area. */}
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <path
+                    d="M3.75 8.5L6.5 11.25L12.25 5.25"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
         </span>
       </>
     )

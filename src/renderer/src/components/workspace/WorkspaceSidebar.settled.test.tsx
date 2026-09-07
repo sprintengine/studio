@@ -134,6 +134,9 @@ async function main(): Promise<void> {
       .map((row) => ['Alpha', 'Bravo', 'Charlie'].find((name) => row.textContent?.includes(name)))
       .filter((name): name is string => name !== undefined)
 
+  const actionLabel = (label: string): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+
   const shelfButton = (): HTMLButtonElement | null =>
     [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find((button) =>
       button.textContent?.startsWith('Settled')
@@ -186,6 +189,19 @@ async function main(): Promise<void> {
     assert.ok(settledMenu.includes('Un-settle'), `a resting row's menu offers Un-settle (got ${settledMenu.join(' | ')})`)
     assert.equal(settledMenu.includes('Settle'), false)
 
+    // The one-click seat is rest, not removal. The ✕ that used to sit here
+    // terminates the row's terminals and removes the chat; it keeps its entry
+    // in the row menu (asserted below) and gives up the cheap seat to Settle,
+    // which the next click can undo.
+    assert.ok(actionLabel('Settle Alpha'), 'an active row offers Settle in its hover seat')
+    assert.equal(actionLabel('Close Alpha'), null, 'and no longer offers Close there')
+    assert.ok(activeMenu.includes('Close workspace'), 'Close keeps its place in the row menu')
+
+    // A resting row's seat is the undo arrow, not a second tick: the action
+    // there is "put this back", and a tick would still be saying "done".
+    assert.ok(actionLabel('Un-settle Bravo'), 'a resting row offers Un-settle in its hover seat')
+    assert.equal(actionLabel('Settle Bravo'), null)
+
     // The row you are in always has a row: selecting a settled chat keeps it
     // in the active list (still settled) instead of in a closed shelf.
     await render({ ...props, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
@@ -196,6 +212,29 @@ async function main(): Promise<void> {
     // separate something from something else.
     await render({ ...props, workspaces: [workspace('w1', 'Alpha')] } as unknown as SidebarProps)
     assert.equal(shelfButton(), null, 'no settled rows, no shelf row')
+
+    // A row born on a paired machine keeps the ✕: the Remote band has no
+    // Settled shelf, so there is nothing for a tick to put it into — the same
+    // rule the menu's Settle entry already follows.
+    await render({
+      ...props,
+      workspaces: [
+        workspace('w1', 'Alpha'),
+        workspace('w4', 'Delta', {
+          folderPath: null,
+          remoteOrigin: {
+            connectionId: 'c1',
+            machineName: 'MacBook Air',
+            workspaceId: 'rw1',
+            workspaceName: 'relay',
+            workspaceRoot: '/Users/me/relay',
+          },
+        }),
+      ],
+      activityByWorkspaceId: { w1: 'idle', w4: 'idle' },
+    } as unknown as SidebarProps)
+    assert.ok(actionLabel('Close Delta'), 'a remote-band row keeps Close in its seat')
+    assert.equal(actionLabel('Settle Delta'), null, 'and is never offered Settle')
   } finally {
     act(() => {
       root.unmount()
