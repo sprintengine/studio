@@ -37,6 +37,10 @@ export function ConversationPeekPopover({
   className?: string
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
+  // The card's own subtree, so a scroll that starts inside it can be told apart
+  // from the app scrolling beneath it. It is portaled, so this is the only
+  // handle on it from here.
+  const cardRef = useRef<HTMLDivElement>(null)
   const [point, setPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   // The card opens on the roster's first entry — the most recently active
   // terminal, which is the one you are most likely reaching for. Not the first
@@ -128,10 +132,25 @@ export function ConversationPeekPopover({
   // A row that scrolls out from under an open card leaves the card hanging over
   // whatever took its place. The sidebar scrolls constantly, so the card goes
   // rather than tracks: a peek is a glance, and re-hovering costs one dwell.
+  //
+  // But it must be a scroll of the PAGE UNDER the card, never one inside it.
+  // `scroll` does not bubble, so this listens in the capture phase to catch
+  // nested scrollers — and capture on `window` sees every scroller in the
+  // document, the card's own thread included. That closed the card a frame
+  // after it opened: the thread scrolls itself to its newest message in a
+  // layout effect (see `Thread`), that programmatic scroll reached this
+  // listener, and the card dismissed itself before it had been seen. It also
+  // meant a person scrolling the thread by hand destroyed what they were
+  // reading. So a scroll that starts inside the card is not the app moving
+  // beneath it, and is ignored.
   const open = hover.open
   useEffect(() => {
     if (!open) return
-    const dismiss = () => closeNow()
+    const dismiss = (event: Event) => {
+      const target = event.target as Node | null
+      if (target && cardRef.current?.contains(target)) return
+      closeNow()
+    }
     window.addEventListener('scroll', dismiss, true)
     return () => window.removeEventListener('scroll', dismiss, true)
   }, [closeNow, open])
@@ -152,7 +171,7 @@ export function ConversationPeekPopover({
           {/* The card keeps itself open while the pointer rests on it — that is
               what makes the copy button and the attachment chips reachable
               across the gap from the row. */}
-          <div onMouseEnter={keepOpen} onMouseLeave={closeSoon}>
+          <div ref={cardRef} onMouseEnter={keepOpen} onMouseLeave={closeSoon}>
             <ConversationPeekCard
               identity={identity}
               peek={hover.peek}
