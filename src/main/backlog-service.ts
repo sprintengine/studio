@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
@@ -78,6 +79,12 @@ const LEGACY_STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 // shape is normalized down to `{schemaVersion, items}` and would drop a key.
 const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
+// Items are filed under the epic they belong to, so a folder under `backlog/`
+// IS an epic and its children are the items in it. An item with no epic still
+// needs a home, and the top level is reserved for those folders, so it goes
+// here. `epic:` frontmatter remains the authority on membership; the folder is
+// where the item was filed when it was created.
+const UNFILED_DIR = 'unfiled'
 const EPICS_PREFIX = 'backlog/epics/'
 
 // An epic's status is derived from its children and is never written to its file
@@ -708,7 +715,10 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
     return await withBacklogMutationLock(workspace, async () => {
       const store = await loadStore(workspace)
       const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
-      const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower)
+      // Filed into its epic's folder at birth, so a new item lands beside its
+      // siblings instead of at the top level among the epic folders themselves.
+      const folder = isValidEpicSlug(input.epic) ? input.epic : UNFILED_DIR
+      const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower, folder)
       const target = resolve(join(workspace.root, relativePath))
       if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
 
@@ -1384,8 +1394,14 @@ async function uniqueBacklogFilePath(
   workspace: ValidWorkspace,
   title: string,
   existingLower: Set<string>,
+  folder?: string,
 ): Promise<string> {
-  return uniqueBacklogFilePathFromBase(workspace, `${backlogTodayPrefix(new Date())}-${slugifyBacklogTitle(title)}`, existingLower)
+  return uniqueBacklogFilePathFromBase(
+    workspace,
+    `${backlogTodayPrefix(new Date())}-${slugifyBacklogTitle(title)}`,
+    existingLower,
+    folder,
+  )
 }
 
 // Collision-safe `backlog/<base>.md`, appending `-2`, `-3`, … against both the
@@ -1395,14 +1411,48 @@ async function uniqueBacklogFilePathFromBase(
   workspace: ValidWorkspace,
   base: string,
   existingLower: Set<string>,
+  folder?: string,
 ): Promise<string> {
-  let candidate = `${BACKLOG_PREFIX}${base}.md`
+  // `folder` is always an epic slug or UNFILED_DIR, both single path segments —
+  // isValidEpicSlug rejects separators and `..`, and validateBacklogRelativePath
+  // is the backstop.
+  const prefix = folder ? `${BACKLOG_PREFIX}${folder}/` : BACKLOG_PREFIX
+  // Uniqueness is checked on the filename STEM across the whole backlog, not just
+  // on the path inside the destination folder. `dependsOn:` and `epic:` address
+  // an item by its stem (backlogItemSlugFromPath), so two items sharing a stem in
+  // different epic folders would collide on every pointer aimed at either.
+  const takenStems = await backlogFileStems(workspace)
+  let stem = base
   let index = 2
-  while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
-    candidate = `${BACKLOG_PREFIX}${base}-${index}.md`
+  while (takenStems.has(stem.toLowerCase()) || existingLower.has(`${prefix}${stem}.md`.toLowerCase())) {
+    stem = `${base}-${index}`
     index += 1
   }
-  return validateBacklogRelativePath(candidate)
+  return validateBacklogRelativePath(`${prefix}${stem}.md`)
+}
+
+// Every backlog markdown stem already on disk, lowercased. Walks the tree because
+// items now live one folder deep (under their epic) and a stem must be unique
+// across all of them, not just within one directory.
+async function backlogFileStems(workspace: ValidWorkspace): Promise<Set<string>> {
+  const stems = new Set<string>()
+  const walk = async (directory: string): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await readdir(directory, { withFileTypes: true, encoding: 'utf-8' })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        await walk(join(directory, entry.name))
+        continue
+      }
+      if (entry.name.toLowerCase().endsWith('.md')) stems.add(entry.name.slice(0, -3).toLowerCase())
+    }
+  }
+  await walk(join(workspace.root, 'backlog'))
+  return stems
 }
 
 async function uniqueEpicFilePath(

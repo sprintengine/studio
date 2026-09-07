@@ -1175,11 +1175,48 @@ async function testLegacySidecarMigration(): Promise<void> {
   }
 }
 
+// A folder under `backlog/` is an epic and its children are the items in it, so a
+// new item has to be born in the right one — otherwise the structure decays back
+// to a flat directory one creation at a time.
+async function testNewItemsAreFiledUnderTheirEpic(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-filing-'))
+  try {
+    const filed = await createBacklogItem({ workspaceRoot: root, title: 'Filed item', epic: 'auth-revamp' })
+    assert.equal(filed.ok, true)
+    assert.equal(filed.ok ? filed.relativePath : '', `backlog/auth-revamp/${filed.ok ? filed.relativePath.split('/').pop() : ''}`)
+    assert.match(filed.ok ? filed.relativePath : '', /^backlog\/auth-revamp\/\d{4}-\d{2}-\d{2}-filed-item\.md$/)
+    assert.equal((await readBacklogItem(root, filed.ok ? filed.relativePath : '')).ok, true, 'and it is readable where it landed')
+
+    // No epic still needs a home, and the top level is reserved for epic folders.
+    const unfiled = await createBacklogItem({ workspaceRoot: root, title: 'Loose item' })
+    assert.equal(unfiled.ok, true)
+    assert.match(unfiled.ok ? unfiled.relativePath : '', /^backlog\/unfiled\/\d{4}-\d{2}-\d{2}-loose-item\.md$/)
+
+    // An epic slug can never escape its folder, whatever the caller passes.
+    const escaped = await createBacklogItem({ workspaceRoot: root, title: 'Escapee', epic: '../../etc' })
+    assert.equal(escaped.ok, true, 'an invalid slug is dropped, not fatal')
+    assert.match(escaped.ok ? escaped.relativePath : '', /^backlog\/unfiled\//, 'and the item falls back to unfiled')
+
+    // Stems stay unique ACROSS folders, because dependsOn and epic pointers
+    // address an item by its stem alone — two items sharing one would collide on
+    // every pointer aimed at either.
+    const sameTitleElsewhere = await createBacklogItem({ workspaceRoot: root, title: 'Filed item', epic: 'other-epic' })
+    assert.equal(sameTitleElsewhere.ok, true)
+    const firstStem = (filed.ok ? filed.relativePath : '').split('/').pop()
+    const secondStem = (sameTitleElsewhere.ok ? sameTitleElsewhere.relativePath : '').split('/').pop()
+    assert.notEqual(secondStem, firstStem, 'a colliding stem is suffixed even in a different folder')
+    assert.match(sameTitleElsewhere.ok ? sameTitleElsewhere.relativePath : '', /^backlog\/other-epic\//)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
   .then(() => testConfirmingRewritesLeaveTheSidecarAlone())
   .then(() => testLegacySidecarMigration())
+  .then(() => testNewItemsAreFiledUnderTheirEpic())
   .catch((error) => {
     console.error(error)
     process.exit(1)
