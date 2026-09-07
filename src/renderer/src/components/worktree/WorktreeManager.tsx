@@ -47,7 +47,16 @@ type WorktreeRow = {
 
 type Props = {
   workspaceId: string
+  /** The checkout git operations run against (add/remove/prune/list). */
   repoRoot: string
+  /**
+   * The same project, in the app's OWN spelling of the path, for recording on a
+   * worktree workspace this manager opens. `repoRoot` above comes from git and
+   * is realpath-resolved, which under a symlinked root would not string-match
+   * the parent workspace's folderPath — and the worktree would found a project
+   * header of its own instead of filing under the project it was cut from.
+   */
+  projectRoot: string
   currentBranch: string | null
   branchOptions: string[]
   mode?: 'section' | 'tab'
@@ -95,6 +104,7 @@ function messageFromResult<T>(result: GitWorktreeOperationResult<T>, success: st
 export default function WorktreeManager({
   workspaceId,
   repoRoot,
+  projectRoot,
   currentBranch,
   branchOptions,
   mode = 'section',
@@ -306,8 +316,10 @@ export default function WorktreeManager({
       name: workspaceName,
       folderPath: row.path,
       // Flag the workspace as worktree-backed so its Git view and terminal glyph
-      // treat it as a worktree (its folderPath already IS the worktree).
-      worktree: { branch: row.branch ?? undefined },
+      // treat it as a worktree (its folderPath already IS the worktree), and
+      // record the checkout it was cut from so the sidebar files it under that
+      // project rather than founding a header named after the worktree.
+      worktree: { branch: row.branch ?? undefined, repoRoot: projectRoot },
       windowId: workspaceWindowId,
     })
     setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)

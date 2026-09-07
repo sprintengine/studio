@@ -6,6 +6,7 @@
 import { isStarred } from '../../utils/highlight'
 import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
 import { sortWorkspacesByActivity } from '../../utils/workspaceRecency'
+import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
@@ -442,9 +443,12 @@ export function buildSidebarWorkspaceOrder(
   const folderBuckets = new Map<string, Workspace[]>()
   for (const workspace of workspaces) {
     if (isStarred(workspace.highlight)) continue
-    const folderPath = workspace.folderPath ?? null
-    const key = folderPath
-      ? folderPath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+    // Grouped by the workspace's PROJECT, the same key the sidebar groups by, so
+    // a worktree chat sits inside its parent's group here too instead of opening
+    // a group of its own named after the worktree slug.
+    const projectRoot = workspaceProjectRoot(workspace)
+    const key = projectRoot
+      ? projectRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
       : '__no_folder__'
     if (!folderBuckets.has(key)) {
       seenFolders.push(key)

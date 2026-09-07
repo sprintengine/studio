@@ -6,6 +6,7 @@ import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
 import { normalizeWorkspaceForPartialize } from './slices/normalizers'
 import { normalizeWorkspaceForRegistry } from '../../../shared/workspace-registry'
+import { workspaceProjectRoot } from '../utils/workspaceWorktree'
 
 type RegistryRecord = {
   state: {
@@ -783,6 +784,40 @@ assert.equal(
   partializedNoWorktree.worktree ?? undefined,
   undefined,
   'a workspace without a worktree marker stays without one (no-op for existing workspaces)',
+)
+
+// The marker's `repoRoot` (the project a worktree was cut from) rides along, and
+// a row written before that field existed still loads with the marker intact —
+// its project is derived from the container path instead.
+const partializedWorktreeRepoRoot = JSON.parse(
+  JSON.stringify(normalizeWorkspaceForPartialize({
+    ...runtimeBaseWorkspace,
+    worktree: { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: '/Users/example/project' },
+  })),
+) as Workspace
+assert.deepEqual(
+  partializedWorktreeRepoRoot.worktree,
+  { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: '/Users/example/project' },
+  'partialize + storage round-trip preserves the worktree marker repoRoot',
+)
+const partializedLegacyWorktree = JSON.parse(
+  JSON.stringify(normalizeWorkspaceForPartialize({
+    ...runtimeBaseWorkspace,
+    worktree: { branch: 'spike/parser' },
+  })),
+) as Workspace
+assert.deepEqual(
+  partializedLegacyWorktree.worktree,
+  { branch: 'spike/parser' },
+  'a persisted worktree marker without repoRoot still loads unchanged',
+)
+assert.equal(
+  workspaceProjectRoot({
+    folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+    worktree: partializedLegacyWorktree.worktree,
+  }),
+  '/Users/example/project',
+  'a legacy marker derives its project from the container path',
 )
 
 // ── Duplicate Automations hosts in a CURRENT-version envelope ───────────────

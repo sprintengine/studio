@@ -7,6 +7,7 @@ import type {
   WorkspaceWindowId,
   WorkspaceWindowState,
 } from '../renderer/src/types/workspace'
+import { workspaceProjectRootOf } from './worktree-paths'
 
 export type WindowPlacement = Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
 
@@ -565,9 +566,14 @@ function addCreatedWorkspace(
   timestamp: number
 ): void {
   state.workspaces = state.workspaces.filter((candidate) => candidate.id !== workspace.id)
-  const insertFolderKey = workspaceFolderKey(folderPath)
+  // The block is the workspace's PROJECT, not its own folder: a worktree chat's
+  // `folderPath` is the worktree, so keying on it would unshift the chat to the
+  // registry head and, after a restart, yank its parent's whole group to the top
+  // of the sidebar. `folderPath` stays the event's payload for compatibility;
+  // the record itself carries the marker this reads.
+  const insertFolderKey = workspaceFolderKey(workspaceProjectRootOf(workspace) ?? folderPath)
   const blockStart = state.workspaces.findIndex(
-    (candidate) => workspaceFolderKey(candidate.folderPath) === insertFolderKey
+    (candidate) => workspaceFolderKey(workspaceProjectRootOf(candidate)) === insertFolderKey
   )
   if (blockStart === -1) {
     state.workspaces.unshift(cloneWorkspace(workspace))

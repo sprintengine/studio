@@ -8,6 +8,7 @@ import type {
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import type { Workspace } from '../../types/workspace'
 import {
+  buildSidebarWorkspaceOrder,
   compareSessionItemsByAttention,
   deriveSessionStatus,
   getSessionItems,
@@ -31,9 +32,38 @@ function main(): void {
   assertWizardPtySessionsSurfaceWithHumanLabel()
   assertWorkspacelessSessionsStillSurface()
   assertDetachedBucketsTrailRealWorkspaces()
+  assertSidebarOrderGroupsWorktreesUnderTheirProject()
   assertPaidAccessIsDecidedByFeatureKeys()
   assertPlanDisplayTierIsPresentationOnly()
   console.log('workspaceManagerHelpers.test.ts: all assertions passed')
+}
+
+// This dropdown claims to mirror the sidebar, so it groups by the project a
+// workspace files under. A worktree chat belongs inside its parent's group,
+// whether the parent is recorded on the marker or only derivable from the
+// container path — its own folder would open a group named after the slug.
+function assertSidebarOrderGroupsWorktreesUnderTheirProject(): void {
+  const ws = (id: string, folderPath: string, repoRoot?: string): Workspace =>
+    ({
+      id,
+      name: id,
+      folderPath,
+      worktree: folderPath.includes('.multicode-worktrees') ? { branch: `agent/${id}`, repoRoot } : null,
+      agents: {},
+    }) as unknown as Workspace
+  const order = buildSidebarWorkspaceOrder([
+    ws('parent', '/repo/a'),
+    ws('other-project', '/repo/b'),
+    ws('worktree', '/repo/.multicode-worktrees/a/chat-a1b2', '/repo/a'),
+    ws('legacy-worktree', '/repo/.multicode-worktrees/a/chat-c3d4'),
+  ])
+  const at = (id: string): number => order.get(id) ?? -1
+  assert.deepEqual(
+    [at('parent'), at('worktree'), at('legacy-worktree')].map((index) => index >= 0 && index < 3),
+    [true, true, true],
+    'both worktree chats sit inside their parent project group, not in groups of their own',
+  )
+  assert.equal(at('other-project'), 3, 'the next project still trails that whole group')
 }
 
 // The sessions popover groups by bucket: workspaces in sidebar order, detached

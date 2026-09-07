@@ -52,7 +52,12 @@ import type {
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../../types/workspace'
-import { agentWorktreePaths, worktreeIdFromPath } from '../../utils/workspaceWorktree'
+import {
+  agentWorktreePaths,
+  workspaceProjectRoot,
+  workspaceProjectRootOf,
+  worktreeIdFromPath,
+} from '../../utils/workspaceWorktree'
 import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
 import { resolveModelPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
@@ -2366,7 +2371,11 @@ export default function WorkspaceManager() {
         value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
       const targetKey = normalize(folderPath)
       workspaces.forEach((workspace) => {
-        if (workspace.folderPath && normalize(workspace.folderPath) === targetKey) {
+        // The same predicate the store's forgetFolder uses: the project the
+        // workspace files under, so a worktree chat's terminals are terminated
+        // along with the parent's rather than outliving the record.
+        const projectRoot = workspaceProjectRoot(workspace)
+        if (projectRoot && normalize(projectRoot) === targetKey) {
           // Nothing on disk is touched afterwards, so the kills run in the
           // background rather than holding the folder out of the sidebar.
           void terminateWorkspaceTerminals(workspace)
@@ -2928,6 +2937,19 @@ export default function WorkspaceManager() {
   // worktree, the way the Worktree panel's "New chat here" does. Null after a
   // diagnostic when it cannot be made — the caller aborts rather than start
   // the chat in the checkout the person asked to keep clean.
+  //
+  // The returned marker records the chat's project so the sidebar files it under
+  // the project it was cut from instead of founding a header named after the
+  // slug. It is deliberately the folder the chat was scoped to and not the
+  // git-resolved `repoRoot` below: under a symlinked root git's realpath would
+  // not string-match the open parent workspace's folderPath, and the chat would
+  // found its own header all over again.
+  //
+  // The scoped folder can itself be one of our worktrees — the plain New chat
+  // button inherits the active workspace's folder, and that workspace may be a
+  // worktree chat. Everything here works off the PROJECT behind it, so the new
+  // worktree is a sibling of the one it was started from rather than nested
+  // inside its container, and records the real project as its own.
   const createNewChatWorktree = async (
     folderPath: string | null,
     requestedName: string,
@@ -2937,7 +2959,8 @@ export default function WorkspaceManager() {
       return null
     }
     if (!folderPath) return fail('Worktree needs a project', 'Choose a project folder before starting a chat on a worktree.')
-    const repoRoot = await window.api.getGitRepoRoot(folderPath)
+    const projectFolder = workspaceProjectRootOf({ folderPath }) ?? folderPath
+    const repoRoot = await window.api.getGitRepoRoot(projectFolder)
     if (!repoRoot) {
       return fail('Worktree needs a git repository', 'This project is not a git repository, so a worktree cannot be created.')
     }
@@ -2953,7 +2976,10 @@ export default function WorkspaceManager() {
       copyIncludedFiles: true,
     })
     if (!result.ok) return fail('Worktree failed', result.message)
-    return { folderPath: result.data.path, worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD' } }
+    return {
+      folderPath: result.data.path,
+      worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD', repoRoot: projectFolder },
+    }
   }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the

@@ -10,7 +10,7 @@ import {
   fileExplorerSelectionFromVerticalRange,
   fileExplorerSelectionRange,
 } from '../../utils/fileExplorerSelection'
-import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
+import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
@@ -1925,6 +1925,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <WorktreeManager
             workspaceId={workspaceId}
             repoRoot={mainRepoRoot ?? repoRoot}
+            // The project a worktree opened from here files under, in the app's
+            // own spelling — `mainRepoRoot` is git's realpath and under a
+            // symlinked root would not match the parent workspace's folderPath.
+            // It follows the picked project for a run spanning several, and for
+            // a worktree-backed workspace resolves to ITS parent, which is where
+            // a worktree cut from here belongs too.
+            projectRoot={
+              activeRepoEntry?.repoRoot
+              ?? (workspace ? workspaceProjectRoot(workspace) : null)
+              ?? mainRepoRoot
+              ?? repoRoot
+            }
             currentBranch={branches?.current ?? null}
             branchOptions={branchOptions.map((branch) => branch.name)}
             mode="tab"

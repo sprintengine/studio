@@ -1,7 +1,10 @@
 import { isAbsoluteFilePath, joinFilePath, pathSeparatorFor, samePath } from './paths'
 import {
   agentWorktreePaths,
+  repoRootFromWorktreePath,
   slugifyWorktreeName,
+  workspaceProjectRootOf,
+  WORKTREE_CONTAINER_DIR,
   worktreeContainerPath,
 } from '../../../shared/worktree-paths'
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
@@ -11,7 +14,35 @@ import type { AgentExecutionMode, Workspace } from '../types/workspace'
 // so the main process can reuse it (agent-at-launch worktrees over the App
 // Automation MCP). Re-exported here so existing renderer import sites are
 // untouched.
-export { agentWorktreePaths, slugifyWorktreeName, worktreeContainerPath }
+export {
+  agentWorktreePaths,
+  repoRootFromWorktreePath,
+  slugifyWorktreeName,
+  workspaceProjectRootOf,
+  WORKTREE_CONTAINER_DIR,
+  worktreeContainerPath,
+}
+
+/**
+ * The project a workspace files under: its own folder, or — for a
+ * worktree-backed one — the checkout the worktree was cut from. A worktree chat
+ * lives at `<parent>/.multicode-worktrees/<repo>/<slug>`, so grouping by
+ * `folderPath` alone would give it a project header of its own named after the
+ * slug instead of filing it under the project it belongs to.
+ *
+ * Single source for grouping, "New chat in project", ordering and forgetting a
+ * project. Everything not worktree-backed (including sprint runs, whose
+ * folderPath is already the parent) is its own folder unchanged.
+ *
+ * The rule itself lives in the shared module because main's registry ordering
+ * has to answer the same question about the same records; this is the renderer's
+ * `Workspace`-typed door onto it.
+ */
+export function workspaceProjectRoot(
+  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
+): string | null {
+  return workspaceProjectRootOf(workspace)
+}
 
 export type ResolvedWorkspaceWorktree = {
   /** Absolute git root to use for this workspace's Git view. */
@@ -109,6 +140,12 @@ export function resolveWorkspaceWorktrees(
   }
 
   if (workspace.worktree) {
+    // Deliberately no `repoRoot`: the Git panel reads it as "the checkout to
+    // operate on" (it picks the scope list, and the `main` scope diffs, stages,
+    // commits and spawns its terminal there). Naming the parent project here
+    // would quietly move all of that out of a perfectly healthy worktree. The
+    // project this worktree was cut from is a grouping fact, and grouping asks
+    // workspaceProjectRoot for it.
     return [{ gitRoot: folderPath, branch: workspace.worktree.branch }]
   }
 

@@ -9,9 +9,11 @@ import {
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
   resolveWorkspaceWorktrees,
+  repoRootFromWorktreePath,
   resolveWorktreeFallbackRoot,
   resolveWorktreeSpawnFallback,
   slugifyWorktreeName,
+  workspaceProjectRoot,
   worktreeContainerPath,
   worktreeIdFromPath,
   type WorktreeScopeCandidate,
@@ -67,6 +69,27 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     gitRoot: '/Users/example/wt/parser-spike',
     branch: 'spike/parser',
   })
+}
+
+// 2b. The marker's own `repoRoot` (the project the worktree was cut from) is a
+//     grouping fact and stays OUT of the resolved entry: the Git panel reads
+//     `repoRoot` as the checkout to operate on, and naming the parent there
+//     would diff, stage, commit and spawn terminals in the parent while a
+//     perfectly healthy worktree sits in front of the user.
+{
+  const ws = make({
+    folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+    worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/project' },
+  })
+  assert.deepEqual(resolveWorkspaceWorktree(ws), {
+    gitRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+    branch: 'agent/chat-a1b2',
+  })
+  assert.equal(
+    resolveWorktreeFallbackRoot(ws, '/Users/example/.multicode-worktrees/project/chat-a1b2'),
+    '/Users/example/.multicode-worktrees/project/chat-a1b2',
+    'the fallback root is unchanged for a worktree workspace',
+  )
 }
 
 // 3. Sprint vcs takes precedence over an explicit marker (a worktree-mode sprint
@@ -340,6 +363,95 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 //     instead of creating a worktree at the container root).
 {
   assert.equal(agentWorktreePaths('/Users/example/project', ' // '), null)
+}
+
+// --- repoRootFromWorktreePath / workspaceProjectRoot ---
+
+// 31. The inverse of the container convention: whatever worktreeContainerPath
+//     and agentWorktreePaths build, this takes apart again.
+{
+  const repo = '/Users/example/project'
+  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1`), repo)
+  assert.equal(repoRootFromWorktreePath(agentWorktreePaths(repo, 'Fix Payments')!.destinationPath), repo)
+  // A slug may itself contain `/` (slugifyWorktreeName allows it); everything
+  // past `<repo>` is slug and simply falls away.
+  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/feat/x`), repo)
+  // Windows separators survive as Windows separators, drive letter included.
+  assert.equal(
+    repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'),
+    'C:\\a\\proj',
+  )
+  // A trailing separator is not a slug segment.
+  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1/`), repo)
+}
+
+// 32. Anything not inside a container is not a worktree path.
+{
+  assert.equal(repoRootFromWorktreePath('/Users/example/project'), null, 'a plain checkout')
+  assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees'), null, 'the container dir itself')
+  assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees/project'), null, 'no slug segment')
+  assert.equal(repoRootFromWorktreePath('.multicode-worktrees/project/slug'), null, 'nothing before the marker')
+}
+
+// 33. workspaceProjectRoot: the recorded project wins over the derived one, so a
+//     symlinked or relocated worktree still files under the folder the chat was
+//     scoped to.
+{
+  assert.equal(
+    workspaceProjectRoot({
+      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/other-checkout' },
+    }),
+    '/Users/example/other-checkout',
+  )
+}
+
+// 34. A row written before `repoRoot` existed still files under its parent,
+//     derived from the container convention.
+{
+  assert.equal(
+    workspaceProjectRoot({
+      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      worktree: { branch: 'agent/chat-a1b2' },
+    }),
+    '/Users/example/project',
+  )
+}
+
+// 34b. A worktree cut from a worktree nests its container. Both the derived and
+//      the recorded answer peel all the way out, so such a chat files under the
+//      real project and never under the intermediate worktree.
+{
+  const nested = `${worktreeContainerPath('/Users/example/.multicode-worktrees/project/chat-a1b2')}/chat-e5f6`
+  assert.equal(
+    nested,
+    '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6',
+  )
+  assert.equal(
+    workspaceProjectRoot({ folderPath: nested, worktree: { branch: 'agent/chat-e5f6' } }),
+    '/Users/example/project',
+    'a legacy nested row derives past the intermediate worktree',
+  )
+  assert.equal(
+    workspaceProjectRoot({
+      folderPath: nested,
+      worktree: { branch: 'agent/chat-e5f6', repoRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2' },
+    }),
+    '/Users/example/project',
+    'a recorded intermediate worktree is peeled too',
+  )
+}
+
+// 35. Everything else is its own folder, unchanged: a plain workspace, and a
+//     sprint run (no worktree marker, and its folderPath is already the parent).
+{
+  assert.equal(workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: null }), '/Users/example/project')
+  assert.equal(
+    workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: undefined }),
+    '/Users/example/project',
+  )
+  assert.equal(workspaceProjectRoot({ folderPath: null, worktree: null }), null, 'folderless workspace')
+  assert.equal(workspaceProjectRoot({ folderPath: '   ', worktree: null }), null, 'blank folderPath')
 }
 
 // --- resolveWorktreeSpawnFallback ---

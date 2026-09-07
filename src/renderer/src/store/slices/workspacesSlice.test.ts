@@ -793,6 +793,26 @@ assert.equal(
   'a creation into this renderer window is focused as global active',
 )
 
+// A worktree chat's created event carries the worktree as its folderPath; the
+// block it joins is the project the marker names, so it lands at the head of
+// that project rather than at the registry head.
+useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
+  workspace: {
+    ...driftWorkspace('repo-b-worktree', '/repo/.multicode-worktrees/b/chat-a1b2'),
+    worktree: { branch: 'agent/chat-a1b2', repoRoot: '/repo/b' },
+  } as Workspace,
+  windowId: 'primary',
+  folderPath: '/repo/.multicode-worktrees/b/chat-a1b2',
+  createdAt: 4200,
+  isCurrentWindowTarget: true,
+})
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaces.map((workspace) => workspace.id),
+  ['repo-a-3', 'repo-a-2', 'repo-a-1', 'repo-b-worktree', 'repo-b-1'],
+  'a created worktree chat inserts at the head of the project it was cut from',
+)
+
 // --- Open-in-new-chat seeding (addWorkspace `seedAgent`) ---------------------
 
 type SeededTab = { component?: unknown; name?: unknown; config?: Record<string, unknown> }
@@ -984,6 +1004,73 @@ assert.equal(
   state.workspaces.find((workspace) => workspace.id === plainWsId)?.worktree,
   undefined,
   'addWorkspace omits the worktree marker when not provided',
+)
+
+// A worktree-backed chat files under the project it was cut from. It inserts at
+// the head of THAT project's block rather than at the registry head (which would
+// yank the project's group to the top of the sidebar), whether the parent is
+// recorded on the marker or only derivable from the container path. Forgetting
+// the parent then takes the worktree rows with it — the forget dialog counts the
+// group's rows and promises to close them.
+const worktreeParent = '/Users/example/worktree-parent'
+const parentChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Parent chat',
+  folderPath: worktreeParent,
+})
+const elsewhereChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Elsewhere',
+  folderPath: '/Users/example/worktree-elsewhere',
+})
+const worktreeChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Worktree chat',
+  folderPath: '/Users/example/.multicode-worktrees/worktree-parent/chat-a1b2',
+  worktree: { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: worktreeParent },
+})
+const legacyWorktreeChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Legacy worktree chat',
+  folderPath: '/Users/example/.multicode-worktrees/worktree-parent/chat-c3d4',
+  worktree: { branch: 'agent/chat-c3d4' },
+})
+state = useWorkspaceStore.getState()
+const worktreeBlockIds = [parentChatId, elsewhereChatId, worktreeChatId, legacyWorktreeChatId]
+assert.deepEqual(
+  state.workspaces.filter((workspace) => worktreeBlockIds.includes(workspace.id)).map((workspace) => workspace.id),
+  [elsewhereChatId, legacyWorktreeChatId, worktreeChatId, parentChatId],
+  'a worktree chat inserts at the head of its parent project block, not the registry head',
+)
+assert.deepEqual(
+  state.appSettings.recentWorkspaceFolders.filter((folder) => folder.includes('worktree-parent')),
+  [worktreeParent],
+  'a worktree chat contributes its PROJECT to recents, never the worktree path',
+)
+// A stale worktree path from before that rule still has to go when the project
+// is forgotten, or it comes back in New chat's picker named after the slug.
+useWorkspaceStore.setState({
+  appSettings: {
+    ...state.appSettings,
+    recentWorkspaceFolders: [
+      '/Users/example/.multicode-worktrees/worktree-parent/chat-legacy',
+      ...state.appSettings.recentWorkspaceFolders,
+    ],
+  },
+})
+assert.ok(
+  useWorkspaceStore.getState().appSettings.recentWorkspaceFolders.includes(
+    '/Users/example/.multicode-worktrees/worktree-parent/chat-legacy',
+  ),
+  'the stale worktree recent is actually in place before forgetting',
+)
+useWorkspaceStore.getState().forgetFolder(worktreeParent)
+state = useWorkspaceStore.getState()
+assert.deepEqual(
+  state.workspaces.filter((workspace) => worktreeBlockIds.includes(workspace.id)).map((workspace) => workspace.id),
+  [elsewhereChatId],
+  'forgetting the parent removes its worktree rows too, recorded or derived',
+)
+assert.deepEqual(
+  state.appSettings.recentWorkspaceFolders.filter((folder) => folder.includes('worktree-parent')),
+  [],
+  'forgetting a project also drops worktree paths under it from recents',
 )
 
 // Creation activates too, so it must clear the door as well (item 1833: the
