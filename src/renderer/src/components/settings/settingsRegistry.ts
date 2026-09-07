@@ -115,7 +115,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'appearance-theme',
     label: 'Theme',
-    help: 'Theme applies across every workspace and panel.',
     scope: 'app',
     group: 'appearance',
     field: { type: 'select', items: APP_THEME_OPTIONS },
@@ -127,7 +126,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'keep-running-in-background',
     label: 'Keep running when the last window closes',
-    help: 'Sprint runs, the scheduler and the Studio gateway keep working with no window open. Quit from the menu bar to stop for real.',
+    help: 'Sprints and automations keep working with no window open.',
     scope: 'app',
     group: 'background',
     field: { type: 'switch' },
@@ -139,7 +138,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'usage-telemetry-send-data',
     label: 'Send anonymous usage data',
-    help: 'Reports feature usage counts. No file contents, no terminal output.',
+    help: 'Feature counts only. Never file contents or terminal output.',
     scope: 'app',
     group: 'telemetry',
     field: { type: 'switch' },
@@ -149,7 +148,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'usage-telemetry-local-export',
     label: 'Export usage data to a local file',
-    help: 'Writes a daily local JSON export of usage events for self-review.',
+    help: 'A daily JSON file you can read yourself.',
     scope: 'app',
     group: 'telemetry',
     field: { type: 'switch' },
@@ -159,7 +158,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'usage-telemetry-export-diagnostics',
     label: 'Include diagnostic logs in exports',
-    help: 'When the local export is on, also include diagnostic events for support sessions.',
+    help: 'Adds diagnostic events to the local export.',
     scope: 'app',
     group: 'telemetry',
     field: { type: 'switch' },
@@ -171,7 +170,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'last-selected-cli',
     label: 'Default CLI runtime',
-    help: 'Used when spawning a new agent without an explicit CLI override.',
+    help: 'For new agents with no CLI chosen.',
     scope: 'app',
     group: 'agents',
     field: { type: 'select', items: CLI_OPTIONS },
@@ -181,7 +180,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'last-agent-spawn-permission-preset',
     label: 'Default agent permission preset',
-    help: 'Permission mode used for new agent spawns and as the initial default for sprint runs without a local override.',
+    help: 'For new agents and sprint runs.',
     scope: 'app',
     group: 'agents',
     field: { type: 'select', items: PERMISSION_PRESET_OPTIONS },
@@ -191,7 +190,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'terminal-idle-suspend-minutes',
     label: 'Pause idle terminals after',
-    help: 'Minutes an unused agent terminal sits before it is paused to free memory. Its painted view is kept and resumes the instant you click or type. Agents waiting on you or mid-work are never paused.',
+    help: 'Minutes. Paused terminals keep their screen and resume on click.',
     scope: 'app',
     group: 'agents',
     field: { type: 'number', min: 1, max: 1440, step: 1 },
@@ -201,7 +200,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'terminal-keep-recent-alive',
     label: 'Always keep running',
-    help: 'Number of most recently used agent terminals that are never paused, even when idle. Set to 0 to allow pausing every idle terminal.',
+    help: 'The most recent terminals that are never paused.',
     scope: 'app',
     group: 'agents',
     field: { type: 'number', min: 0, max: 20, step: 1 },
@@ -210,8 +209,8 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   },
   {
     id: 'guided-brief-conversation-sessions',
-    label: 'Run Claude design specialists as chat sessions (experimental)',
-    help: 'Off by default: Design Wizard specialists run in terminals. Turn on to run Claude specialists as chat sessions with clickable question cards instead.',
+    label: 'Design specialists as chat sessions',
+    help: 'Experimental. Claude specialists get question cards instead of a terminal.',
     scope: 'app',
     group: 'agents',
     field: { type: 'switch' },
@@ -222,7 +221,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'learning-show-tips-on-startup',
     label: 'Show tips on startup',
-    help: 'When on, a tip dialog appears the first time the app opens each day.',
+    help: 'One tip, the first time the app opens each day.',
     scope: 'app',
     group: 'learn',
     field: { type: 'switch' },

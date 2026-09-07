@@ -1,22 +1,19 @@
 import React, { useCallback, useRef } from 'react'
-import { APP_THEMES, type AppTheme, type ThemeSwatches } from '../../types/appTheme'
+import { APP_THEMES, colorSchemeForResolvedTheme, type AppTheme, type ThemeSwatches } from '../../types/appTheme'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { Tooltip, TruncatedText } from '../ui'
-
-const ANTI_DITHER_TOOLTIP = 'Anti-temporal dithering'
-const LOW_BLUE_TOOLTIP = 'Low blue light'
+import { TruncatedText } from '../ui'
 
 type AppThemePickerProps = {
   value: AppTheme
   onChange: (next: AppTheme) => void
 }
 
-// Visual theme picker — replaces the legacy Select dropdown. Cards lay out
-// in a responsive grid (1 column narrow, 2 medium, 3 wide). Each card
-// renders a miniature preview of the theme's surface ramp + accent + text,
-// the theme name + description, optional feature glyphs (low-blue-light),
-// and a selected-state indicator. Anti-dither is not surfaced as a glyph —
-// every theme is anti-dither baseline.
+// Visual theme picker (2026-09-06). A grid of cards, each
+// one a round swatch — the theme's canvas graded into its surface, with its
+// accent as the one dot — over the theme's name. Nothing else: the earlier
+// card carried a description, a feature-glyph row and a mini chrome mock,
+// and nineteen of them read as a wall. A sun or moon on the swatch's corner
+// says light or dark, which is the one fact a person picks on.
 //
 // Accessibility:
 //   * `role="radiogroup"` with `role="radio"` per card.
@@ -74,20 +71,11 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
     <div
       role="radiogroup"
       aria-label="Theme"
-      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
     >
       {themes.map((theme, index) => {
         const isSelected = value === theme.id
-        // Full feature inventory in the aria-label so screen-reader users
-        // hear "Lantern, low blue light, anti-temporal-dither" without
-        // needing to interact with each glyph individually.
-        const featureLabel = [
-          theme.label,
-          'anti-temporal-dither',
-          theme.lowBlueLight ? 'low blue light' : null,
-        ]
-          .filter(Boolean)
-          .join(', ')
+        const scheme = theme.resolved ? colorSchemeForResolvedTheme(theme.resolved) : null
         return (
           <button
             key={theme.id}
@@ -97,12 +85,12 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             type="button"
             role="radio"
             aria-checked={isSelected}
-            aria-label={featureLabel}
+            aria-label={scheme ? `${theme.label}, ${scheme}` : theme.label}
             tabIndex={index === fallbackTabIndex ? 0 : -1}
             onClick={() => onChange(theme.id)}
             onKeyDown={(event) => handleKeyDown(event, index)}
             className={[
-              'interactive group flex flex-col gap-2.5 rounded-md border p-3 text-left',
+              'interactive flex flex-col items-center gap-2.5 rounded-md border px-3 pb-3 pt-4 text-center',
               // Selection is neutral: the selected fill and the strong edge,
               // never the accent — an accent ring on an unfocused card read
               // as focus, and spent the one solid hue on a resting state.
@@ -113,29 +101,17 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             ].join(' ')}
           >
             {theme.swatches ? (
-              <ThemePreview swatches={theme.swatches} />
+              <ThemeSwatch swatches={theme.swatches} scheme={scheme ?? 'dark'} />
             ) : (
-              <SystemPreview />
+              <SystemSwatch />
             )}
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <TruncatedText
-                    as="span"
-                    text={theme.label}
-                    className="text-body font-semibold text-[color:var(--text-strong)]"
-                  />
-                  <ThemeGlyphs lowBlueLight={theme.lowBlueLight} />
-                </div>
-                {theme.description ? (
-                  <TruncatedText
-                    text={theme.description}
-                    className="mt-0.5 text-meta leading-4 text-[color:var(--text-muted)]"
-                  />
-                ) : null}
-              </div>
-              {isSelected ? <SelectedCheckmark /> : null}
-            </div>
+            <TruncatedText
+              as="span"
+              text={theme.label}
+              className={`w-full text-body ${
+                isSelected ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}
+            />
           </button>
         )
       })}
@@ -143,137 +119,77 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
   )
 }
 
-function ThemePreview({ swatches }: { swatches: ThemeSwatches }) {
+// The round swatch: the canvas as the outer ring, the surface as the disc
+// inside it, the accent as one dot, and the scheme glyph on the corner. Solid
+// fills, no gradient — the ramp reads as two concentric surfaces, which is
+// what it is. The hex values are the theme's own (types/appTheme.ts): the
+// picker paints every theme while the document wears one of them, so it
+// cannot read the others off :root.
+function ThemeSwatch({ swatches, scheme }: { swatches: ThemeSwatches; scheme: 'light' | 'dark' }) {
   return (
-    <div
-      aria-hidden="true"
-      className="relative h-16 w-full overflow-hidden rounded-sm"
-      style={{ backgroundColor: swatches.bgApp }}
-    >
-      {/* Inner "panel" — bg-surface inside bg-app, mimicking real chrome. */}
-      <div
-        className="absolute inset-1.5 overflow-hidden rounded-[3px]"
-        style={{ backgroundColor: swatches.bgSurface }}
+    <span aria-hidden="true" className="relative block size-14">
+      <span
+        className="flex size-full items-center justify-center rounded-full border border-[color:var(--border-subtle)]"
+        style={{ backgroundColor: swatches.bgApp }}
       >
-        {/* Strong text line. */}
-        <div
-          className="absolute left-2 top-2 h-[3px] w-10 rounded-full"
-          style={{ backgroundColor: swatches.textStrong, opacity: 0.92 }}
-        />
-        {/* Muted text line — same hex at lower opacity to mimic --text-muted. */}
-        <div
-          className="absolute left-2 top-[14px] h-[2px] w-6 rounded-full"
-          style={{ backgroundColor: swatches.textStrong, opacity: 0.45 }}
-        />
-        {/* Accent button-like element. */}
-        <div
-          className="absolute bottom-1.5 right-1.5 h-3 w-8 rounded-sm"
-          style={{ backgroundColor: swatches.accent }}
-        />
-        {/* Raised-surface chip (a smaller secondary surface). */}
-        <div
-          className="absolute bottom-1.5 left-1.5 h-3 w-3 rounded-sm"
-          style={{ backgroundColor: swatches.bgSurfaceRaised, opacity: 0.95 }}
-        />
-      </div>
-    </div>
+        <span className="block size-10 rounded-full" style={{ backgroundColor: swatches.bgSurface }} />
+      </span>
+      <span
+        className="absolute bottom-2 right-2 block size-2.5 rounded-full"
+        style={{ backgroundColor: swatches.accent }}
+      />
+      <span
+        className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]"
+      >
+        {scheme === 'light' ? <SunGlyph /> : <MoonGlyph />}
+      </span>
+    </span>
   )
 }
 
-function SystemPreview() {
+// `Match system` has no palette of its own: a monitor in the same round frame.
+function SystemSwatch() {
   return (
-    <div
+    <span
       aria-hidden="true"
-      className="flex h-16 w-full items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+      className="flex size-14 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
     >
       <svg
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.4"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="icon-lg text-[color:var(--text-muted)]"
+        className="icon-lg"
       >
-        <rect x="3" y="4" width="18" height="13" rx="1.5" />
-        <path d="M8 21h8M12 17v4" />
+        <rect x="3" y="4.5" width="18" height="12.5" rx="1.5" />
+        <path d="M8.5 20.5h7M12 17v3.5" />
       </svg>
-    </div>
-  )
-}
-
-// Feature glyph row. Anti-temporal-dither is shown on every theme because
-// it's a baseline property of the whole catalogue; the low-blue-light moon
-// is shown only when the theme opts in. Each glyph is wrapped in the
-// Tooltip primitive so hover gives the user the longer explanation.
-// Glyphs themselves are `aria-hidden` — the parent button's `aria-label`
-// already announces the features for screen-reader users, so we don't
-// double-announce them here.
-function ThemeGlyphs({ lowBlueLight }: { lowBlueLight?: boolean }) {
-  return (
-    <span className="flex items-center gap-1">
-      <Tooltip content={ANTI_DITHER_TOOLTIP}>
-        <span className="inline-flex" tabIndex={-1} aria-hidden="true">
-          <AntiDitherGlyph />
-        </span>
-      </Tooltip>
-      {lowBlueLight ? (
-        <Tooltip content={LOW_BLUE_TOOLTIP}>
-          <span className="inline-flex" tabIndex={-1} aria-hidden="true">
-            <LowBlueLightGlyph />
-          </span>
-        </Tooltip>
-      ) : null}
     </span>
   )
 }
 
-// Eye-in-circle glyph — "safe for eyes." Outer ring = protection; inner
-// almond + pupil = vision. Reads as "eye safety / no flicker."
-function AntiDitherGlyph() {
+function SunGlyph() {
   return (
     <svg
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.3"
       strokeLinecap="round"
-      strokeLinejoin="round"
-      className="icon-xs shrink-0 text-[color:var(--text-muted)]"
+      className="icon-xs"
     >
-      <circle cx="8" cy="8" r="6.5" />
-      <path d="M3.6 8s1.6-2.6 4.4-2.6S12.4 8 12.4 8s-1.6 2.6-4.4 2.6S3.6 8 3.6 8z" />
-      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="2.6" />
+      <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" />
     </svg>
   )
 }
 
-// Crescent moon — low blue light / night-shift family.
-function LowBlueLightGlyph() {
+function MoonGlyph() {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      className="icon-xs shrink-0 text-[color:var(--text-muted)]"
-    >
+    <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs">
       <path d="M6.6 2.2a5.9 5.9 0 0 0 7.3 7.4 6.5 6.5 0 1 1-7.3-7.4z" />
-    </svg>
-  )
-}
-
-function SelectedCheckmark() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="icon-sm shrink-0 text-[color:var(--text-strong)]"
-    >
-      <path d="M3.5 8.5l3 3 6-6.5" />
     </svg>
   )
 }

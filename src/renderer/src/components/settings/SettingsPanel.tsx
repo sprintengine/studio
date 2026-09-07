@@ -42,10 +42,8 @@ import {
   resolveCliProviderState,
   SegmentedControl,
   Spinner,
-  StatusDot,
   Switch,
   Textarea,
-  type Tone,
   Tooltip,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -55,7 +53,7 @@ import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
+import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
 import {
   resolveVersionControlRow,
   versionControlSections,
@@ -86,6 +84,8 @@ import {
   RemoteSettingsIcon,
   LearnSettingsIcon,
   PlusIcon,
+  FolderPlusIcon,
+  ReleaseNotesIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
@@ -278,21 +278,6 @@ type RoleInstallMessage = ActionResult | null
 type SprintEngineRoleInstallTarget = {
   sourcePath: string
   destinationKind: 'roles' | 'skills'
-}
-
-function StatusTag({
-  tone,
-  label,
-}: {
-  tone: Tone
-  label: string
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-body text-[color:var(--text-muted)]">
-      <StatusDot tone={tone} label={label} />
-      <span className="font-medium text-[color:var(--text-default)]">{label}</span>
-    </span>
-  )
 }
 
 // Per-plugin custom model ids. Multicode does not persist an app-level default
@@ -579,29 +564,14 @@ function RegistrySwitchRow({
   disabled?: boolean
 }) {
   if (descriptor.field.type !== 'switch') return null
-  const labelId = `setting-${descriptor.id}-label`
-  const helpId = descriptor.help ? `setting-${descriptor.id}-help` : undefined
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <span id={labelId} className="block text-body font-medium text-[color:var(--text-strong)]">
-          {descriptor.label}
-        </span>
-        {descriptor.help ? (
-          <p id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
-            {descriptor.help}
-          </p>
-        ) : null}
-      </div>
-      <Switch
-        checked={checked}
-        onChange={onChange}
-        disabled={disabled}
-        ariaLabelledBy={labelId}
-        ariaDescribedBy={helpId}
-        className="mt-0.5"
-      />
-    </div>
+    <SettingToggle
+      label={descriptor.label}
+      description={descriptor.help}
+      enabled={checked}
+      onChange={onChange}
+      disabled={disabled}
+    />
   )
 }
 
@@ -643,7 +613,7 @@ function CommittedNumberField({
     setDraft(String(clamped))
   }
   return (
-    <Field label={descriptor.label} htmlFor={descriptor.id} help={descriptor.help}>
+    <SettingsRow label={descriptor.label} help={descriptor.help} htmlFor={descriptor.id}>
       <Input
         id={descriptor.id}
         type="number"
@@ -658,9 +628,11 @@ function CommittedNumberField({
           if (event.key === 'Enter') event.currentTarget.blur()
         }}
         size="md"
-        className={MONO_FIELD}
+        variant="well"
+        fullWidth={false}
+        className={`w-20 text-right ${MONO_FIELD}`}
       />
-    </Field>
+    </SettingsRow>
   )
 }
 
@@ -676,10 +648,10 @@ function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor })
   return <CommittedNumberField descriptor={descriptor} value={count} onCommit={setCount} />
 }
 
-// The Agent CLIs section band: title on the left, freshness meta and the two
-// section controls on the right. The one chrome row for this list — the
-// freshness fact and the control that refreshes it share a band rather than
-// stacking a toolbar on a status line.
+// The Agents page header: the name on the left, the freshness fact and the two
+// page controls on the right. The one chrome row for this list — the fact and
+// the control that refreshes it share a band rather than stacking a toolbar on
+// a status line.
 function AgentCliBand({
   count,
   checkedAt,
@@ -696,14 +668,15 @@ function AgentCliBand({
   onRecheck: () => void
 }) {
   const freshness = formatRelativeMsAgo(checkedAt, now)
+  const meta = [count !== undefined ? `${count} installed` : null, freshness ? `checked ${freshness}` : null]
+    .filter(Boolean)
+    .join(' · ')
   return (
-    <SettingsSectionTitle
-      count={count}
-      action={
-        <div className="flex items-center gap-1.5">
-          {freshness ? (
-            <span className="text-micro text-[color:var(--text-subtle)]">{`Checked ${freshness}`}</span>
-          ) : null}
+    <SettingsPageHeader
+      title="Agents"
+      meta={meta || undefined}
+      actions={
+        <>
           <Tooltip content={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}>
             <IconButton
               aria-label={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}
@@ -712,7 +685,7 @@ function AgentCliBand({
             >
               {/* The glyph reports the install, so a dimmed plus is never the
                   only sign that something is happening. */}
-              {addPending ? <Spinner className="icon-sm" /> : <PlusIcon className="icon-sm" />}
+              {addPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
             </IconButton>
           </Tooltip>
           <Tooltip content="Re-check every CLI now">
@@ -720,11 +693,9 @@ function AgentCliBand({
               <RefreshIcon />
             </IconButton>
           </Tooltip>
-        </div>
+        </>
       }
-    >
-      Agent CLIs
-    </SettingsSectionTitle>
+    />
   )
 }
 
@@ -917,45 +888,6 @@ export function VersionControlSections({
           })}
         </section>
       ))}
-    </div>
-  )
-}
-
-function CompoundSwitchRow({
-  label,
-  description,
-  checked,
-  onChange,
-  disabled,
-}: {
-  label: string
-  description?: string
-  checked: boolean
-  onChange: (next: boolean) => void
-  disabled?: boolean
-}) {
-  const labelId = React.useId()
-  const helpId = description ? `${labelId}-help` : undefined
-  return (
-    <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <span id={labelId} className="block text-body font-medium text-[color:var(--text-strong)]">
-          {label}
-        </span>
-        {description ? (
-          <p id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <Switch
-        checked={checked}
-        onChange={onChange}
-        disabled={disabled}
-        ariaLabelledBy={labelId}
-        ariaDescribedBy={helpId}
-        className="mt-0.5"
-      />
     </div>
   )
 }
@@ -1936,54 +1868,38 @@ export default function SettingsPanel({
   const fullWidthTab = activeTab.id === 'shortcuts' || activeTab.id === 'learn'
 
   const bodyContent = (
-    <div className={fullWidthTab ? undefined : 'mx-auto max-w-[640px]'}>
+    <div className={fullWidthTab ? undefined : 'mx-auto max-w-[720px]'}>
       {/* Built-in tabs self-title via their own section headings and the rail
           orientation, so they take no page header. Module-contributed sections
           render a third-party component with no title of its own, so the host
           supplies the section's heading (icon + label) here. */}
-      {activeTab.moduleSection ? (
-        <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
-          <h3 className="flex items-center gap-2 text-title font-semibold text-[color:var(--text-strong)]">
-            <activeTab.moduleSection.icon className="icon-md shrink-0" aria-hidden="true" />
-            {activeTab.label}
-          </h3>
-          {activeTab.description ? (
-            <p className="mt-1 text-body text-[color:var(--text-muted)]">
-              {activeTab.description}
-            </p>
-          ) : null}
-        </header>
-      ) : null}
+      {activeTab.moduleSection ? <SettingsPageHeader title={activeTab.label} /> : null}
 
       {activeSettingsTab === 'appearance' ? (
         <div
           role="tabpanel"
           id="settings-panel-appearance"
           aria-labelledby="settings-tab-appearance"
-          className="space-y-4"
+          className="space-y-5"
         >
-          <div className="space-y-2">
-            <SettingsSectionTitle>Theme</SettingsSectionTitle>
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Theme applies across every workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
-            </p>
-          </div>
+          <SettingsPageHeader title="Appearance" />
           <AppThemePicker value={appearanceTheme} onChange={setAppearanceTheme} />
           {window.api.platform === 'darwin' ? (
-            <div className="space-y-2">
-              <SettingsSectionTitle>Window material</SettingsSectionTitle>
-              {/* A value choice, so the kit's segmented control: one tab stop,
-                  arrow keys, and a neutral selected segment — not an
-                  aria-pressed pair painted with the accent. */}
-              <SegmentedControl<'solid' | 'glass'>
-                ariaLabel="Window material"
-                items={[
-                  { value: 'solid', label: 'Solid' },
-                  { value: 'glass', label: 'Glass' },
-                ]}
-                value={appearanceWindowMaterial}
-                onChange={setAppearanceWindowMaterial}
-              />
+            <div className="border-t border-[color:var(--border-subtle)] pt-5">
+              <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">
+                {/* A value choice, so the kit's segmented control: one tab stop,
+                    arrow keys, and a neutral selected segment — not an
+                    aria-pressed pair painted with the accent. */}
+                <SegmentedControl<'solid' | 'glass'>
+                  ariaLabel="Window material"
+                  items={[
+                    { value: 'solid', label: 'Solid' },
+                    { value: 'glass', label: 'Glass' },
+                  ]}
+                  value={appearanceWindowMaterial}
+                  onChange={setAppearanceWindowMaterial}
+                />
+              </SettingsRow>
             </div>
           ) : null}
         </div>
@@ -1994,8 +1910,8 @@ export default function SettingsPanel({
           role="tabpanel"
           id="settings-panel-profile"
           aria-labelledby="settings-tab-profile"
-          className="space-y-4"
         >
+          <SettingsPageHeader title="Profile" />
           <ProfileSection
             authState={authState}
             message={profileMessage}
@@ -2013,135 +1929,100 @@ export default function SettingsPanel({
           role="tabpanel"
           id="settings-panel-general"
           aria-labelledby="settings-tab-general"
-          className="space-y-8"
         >
-          <section className="space-y-4">
-            <SettingsSectionTitle>Updates</SettingsSectionTitle>
-            {/* Identity row with one state-driven action: the update flow is a
-                line (check → download → restart), so only the current step's
-                action renders instead of three buttons with two disabled. */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <SprintEngineFrond tone="current" className="icon-md shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-body font-medium text-[color:var(--text-strong)]">
-                    Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
-                  </div>
-                  <div className="mt-0.5 text-body text-[color:var(--text-muted)]">
-                    {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
-                  </div>
+          <SettingsPageHeader title="General" />
+          {/* The version row: identity on the left, the one state-driven action
+              on the right. The update flow is a line (check → download →
+              restart), so only the current step's action renders. Checking is
+              a glyph; downloading and restarting are the primary action. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <SprintEngineFrond tone="current" className="icon-md shrink-0" />
+              <div className="min-w-0">
+                <div className="text-body font-medium text-[color:var(--text-strong)]">
+                  Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
+                </div>
+                <div
+                  className={`mt-0.5 text-body ${
+                    updateState?.status === 'error'
+                      ? 'text-[color:var(--tone-error)]'
+                      : 'text-[color:var(--text-muted)]'
+                  }`}
+                >
+                  {formatUpdateChannel(updateState?.channel)} · {formatUpdateStatus(updateState)}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <GhostButton size="md" onClick={() => void window.api.updateOpenReleaseNotes()}>
-                  Release notes
-                </GhostButton>
-                {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
-                  <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
-                    Restart to install
-                  </PrimaryButton>
-                ) : nextUpdateAction === 'download' ? (
-                  <PrimaryButton
-                    size="md"
-                    onClick={() => void downloadUpdate()}
-                    disabled={updateActionPending || updateState?.status === 'downloading'}
-                  >
-                    {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
-                  </PrimaryButton>
-                ) : (
-                  <OutlineButton
-                    size="md"
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Tooltip content="Release notes">
+                <IconButton aria-label="Release notes" onClick={() => void window.api.updateOpenReleaseNotes()}>
+                  <ReleaseNotesIcon className="icon-sm" />
+                </IconButton>
+              </Tooltip>
+              {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
+                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
+                  Restart to install
+                </PrimaryButton>
+              ) : nextUpdateAction === 'download' ? (
+                <PrimaryButton
+                  size="md"
+                  onClick={() => void downloadUpdate()}
+                  disabled={updateActionPending || updateState?.status === 'downloading'}
+                >
+                  {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
+                </PrimaryButton>
+              ) : (
+                <Tooltip content={updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}>
+                  <IconButton
+                    aria-label={updateState?.status === 'error' ? 'Retry the update check' : 'Check for updates'}
                     onClick={() => void checkForUpdates()}
                     disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
                   >
-                    {updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}
-                  </OutlineButton>
-                )}
-              </div>
+                    {updateState?.status === 'checking' ? <Spinner className="icon-sm" /> : <RefreshIcon />}
+                  </IconButton>
+                </Tooltip>
+              )}
             </div>
+          </div>
+          {updateState?.progress ? (
+            <div className="mt-3 h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
+              <div
+                className="h-full rounded-full bg-[color:var(--accent-primary)]"
+                style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
+              />
+            </div>
+          ) : null}
 
-            <p
-              className={`text-body leading-5 ${
-                updateState?.status === 'error'
-                  ? 'text-[color:var(--tone-error)]'
-                  : 'text-[color:var(--text-muted)]'
-              }`}
-            >
-              {formatUpdateStatus(updateState)}
-            </p>
-            {updateState?.progress ? (
-              <div className="h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
-                <div
-                  className="h-full rounded-full bg-[color:var(--accent-primary)]"
-                  style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
-                />
-              </div>
+          <div className="mt-4 divide-y divide-[color:var(--border-subtle)]">
+            {backgroundModeDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={backgroundModeDescriptor}
+                checked={keepRunningInBackground}
+                onChange={(enabled) => setKeepRunningInBackground(enabled)}
+              />
             ) : null}
-          </section>
-
-          <section className="space-y-4">
-            <SettingsSectionTitle>Background</SettingsSectionTitle>
-            <div className="divide-y divide-[color:var(--border-subtle)]">
-              {backgroundModeDescriptor ? (
-                <RegistrySwitchRow
-                  descriptor={backgroundModeDescriptor}
-                  checked={keepRunningInBackground}
-                  onChange={(enabled) => setKeepRunningInBackground(enabled)}
-                />
-              ) : null}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <SettingsSectionTitle>Privacy &amp; telemetry</SettingsSectionTitle>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 text-title font-semibold text-[color:var(--text-strong)]">
-                SprintEngine usage data and diagnostics
-              </div>
-              <StatusTag
-                tone={import.meta.env.DEV ? 'warn' : 'neutral'}
-                label={import.meta.env.DEV ? 'Development build' : 'Production build'}
+            {telemetrySendDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetrySendDescriptor}
+                checked={usageTelemetry.sendUsageData}
+                onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
               />
-            </div>
-
-            <div className="divide-y divide-[color:var(--border-subtle)]">
-              {telemetrySendDescriptor ? (
-                <RegistrySwitchRow
-                  descriptor={telemetrySendDescriptor}
-                  checked={usageTelemetry.sendUsageData}
-                  onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
-                />
-              ) : null}
-              {telemetryLocalDescriptor ? (
-                <RegistrySwitchRow
-                  descriptor={telemetryLocalDescriptor}
-                  checked={usageTelemetry.localDevExportEnabled}
-                  onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
-                />
-              ) : null}
-              {telemetryDiagnosticsDescriptor ? (
-                <RegistrySwitchRow
-                  descriptor={telemetryDiagnosticsDescriptor}
-                  checked={usageTelemetry.exportDiagnostics}
-                  onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
-                />
-              ) : null}
-            </div>
-
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
-              Production upload is separate from local export and remains disabled until you turn on Send anonymous usage data.
-            </p>
-
-            <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
-              <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
-              <MetaCell
-                label="Upload consent"
-                value={usageTelemetry.sendUsageData ? 'Enabled' : 'Disabled'}
-                tone={usageTelemetry.sendUsageData ? 'positive' : undefined}
+            ) : null}
+            {telemetryLocalDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetryLocalDescriptor}
+                checked={usageTelemetry.localDevExportEnabled}
+                onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
               />
-            </div>
-          </section>
+            ) : null}
+            {telemetryDiagnosticsDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetryDiagnosticsDescriptor}
+                checked={usageTelemetry.exportDiagnostics}
+                onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
+              />
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -2262,10 +2143,10 @@ export default function SettingsPanel({
             }}
           />
           <div className="divide-y divide-[color:var(--border-subtle)]">
-            <CompoundSwitchRow
+            <SettingToggle
               label="Check for CLI updates"
-              description="Asks each CLI's package registry for its newest version once an hour and offers Update when yours is behind."
-              checked={checkCliVersions}
+              description="Offers Update when a newer version is published."
+              enabled={checkCliVersions}
               onChange={setCheckCliVersions}
             />
             <HostedFeedRow now={agentsFreshnessNow} />
@@ -2284,7 +2165,7 @@ export default function SettingsPanel({
           ) : null}
 
           {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading installed agent plugins…</p>
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
           ) : pluginCatalogStatus === 'error' ? (
             // The failure carries its own recovery, per the notice contract —
             // a Retry parked below the message is a dead end with a button.
@@ -2460,9 +2341,9 @@ export default function SettingsPanel({
                       </SettingsRow>
 
                       {isWindows && (
-                        <CompoundSwitchRow
+                        <SettingToggle
                           label={`Run ${plugin.displayName} through WSL`}
-                          checked={override.useWsl}
+                          enabled={override.useWsl}
                           onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
                         />
                       )}
@@ -2508,18 +2389,15 @@ export default function SettingsPanel({
           )}
 
           {idleSuspendDescriptor ? (
-            <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
+            <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
               <SettingsSectionTitle>Memory</SettingsSectionTitle>
-              <p className="text-body leading-5 text-[color:var(--text-muted)]">
-                Unused agent terminals are paused to free memory — their CLI process stops while the
-                last screen stays painted, and they resume the moment you click or type. Agents
-                waiting on you or actively working are never paused.
-              </p>
-              <IdleSuspendField descriptor={idleSuspendDescriptor} />
-              {keepRecentAliveDescriptor ? (
-                <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} />
-              ) : null}
-            </div>
+              <div className="divide-y divide-[color:var(--border-subtle)]">
+                <IdleSuspendField descriptor={idleSuspendDescriptor} />
+                {keepRecentAliveDescriptor ? (
+                  <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} />
+                ) : null}
+              </div>
+            </section>
           ) : null}
           {/* The MCP gateway every Studio-launched agent receives. It was a rail
               row of the Plugins door until the source-tabs ruling (2026-09-05):
@@ -2541,43 +2419,36 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-roles"
           className="space-y-5"
         >
-          <div className="space-y-1">
-            <SettingsSectionTitle
-              count={roleRegistryStatus === 'ready' ? registryRoles.length : undefined}
-              action={
-                <PrimaryButton
-                  size="md"
+          <SettingsPageHeader title="Roles" />
+          <SettingsSectionTitle
+            count={roleRegistryStatus === 'ready' ? registryRoles.length : undefined}
+            action={
+              <Tooltip content={roleInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}>
+                <IconButton
+                  aria-label={roleInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}
                   onClick={() => void installSprintEngineRoleFolder()}
                   disabled={roleInstallPending || !activeSprintEngineRoot}
                 >
-                  {roleInstallPending ? 'Installing' : 'Install folder'}
-                </PrimaryButton>
-              }
-            >
-              Workspace roles
-            </SettingsSectionTitle>
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Install accepts a registry folder, a roles folder of JSON manifests, or a skills folder of SKILL.md directories.
-            </p>
-          </div>
+                  {roleInstallPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
+                </IconButton>
+              </Tooltip>
+            }
+          >
+            Workspace roles
+          </SettingsSectionTitle>
 
           {roleRegistryStatus === 'loading' ? (
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Loading Sprint Engine roles from the workspace registry.
-            </p>
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
           ) : null}
 
           {roleRegistryStatus === 'unavailable' ? (
             <InlineNotice tone="warn">
-              {roleRegistryMessage ?? 'Sprint Engine role registry is unavailable for this workspace.'}
+              {roleRegistryMessage ?? 'The role registry is unavailable for this workspace.'}
             </InlineNotice>
           ) : null}
 
           {roleRegistryStatus === 'ready' && registryRoles.length === 0 ? (
-            <EmptyState
-              density="list"
-              title="No Sprint Engine roles were found in the registry for this workspace."
-            />
+            <EmptyState density="list" title="No roles in this workspace." />
           ) : null}
 
           {roleRegistryStatus === 'ready' && registryRoles.length > 0 ? (
@@ -2617,14 +2488,12 @@ export default function SettingsPanel({
                             {role.description}
                           </p>
                         ) : null}
+                        {/* Why the switch is locked, in three words on the meta
+                            line rather than a sentence under the description. */}
                         {manifestDisabled ? (
-                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
-                            Disabled by the role manifest; the app setting cannot override it.
-                          </p>
+                          <p className="mt-0.5 text-meta text-[color:var(--text-subtle)]">Disabled by manifest</p>
                         ) : isArchitect ? (
-                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
-                            Required for planning; cannot be disabled.
-                          </p>
+                          <p className="mt-0.5 text-meta text-[color:var(--text-subtle)]">Required for planning</p>
                         ) : null}
                         {warnings.map((warning) => (
                           // Degraded, not failed: the role still runs. The glyph
@@ -2662,32 +2531,31 @@ export default function SettingsPanel({
           <ActionResultMessage message={roleInstallMessage} />
 
           <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-            <div className="space-y-1">
-              <SettingsSectionTitle
-                count={userRoles.length || undefined}
-                action={
-                  <div className="flex items-center gap-2">
-                    {userRoleAuthoringSupported ? (
-                      <PrimaryButton size="md" onClick={openCreateRole} disabled={Boolean(roleAuthoring)}>
-                        Create custom role
-                      </PrimaryButton>
-                    ) : null}
-                    <OutlineButton
-                      size="md"
+            <SettingsSectionTitle
+              count={userRoles.length || undefined}
+              action={
+                <div className="flex items-center gap-1.5">
+                  <Tooltip content={globalInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}>
+                    <IconButton
+                      aria-label={globalInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}
                       onClick={() => void installGlobalRoleFolder()}
                       disabled={globalInstallPending}
                     >
-                      {globalInstallPending ? 'Installing' : 'Install from folder'}
-                    </OutlineButton>
-                  </div>
-                }
-              >
-                Global roles
-              </SettingsSectionTitle>
-              <p className="text-body leading-5 text-[color:var(--text-muted)]">
-                Authored or installed here and available to every workspace. Invalid manifests are skipped; reload open workspaces to pick up changes.
-              </p>
-            </div>
+                      {globalInstallPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
+                    </IconButton>
+                  </Tooltip>
+                  {userRoleAuthoringSupported ? (
+                    <Tooltip content="New custom role">
+                      <IconButton aria-label="New custom role" onClick={openCreateRole} disabled={Boolean(roleAuthoring)}>
+                        <PlusIcon className="icon-sm" />
+                      </IconButton>
+                    </Tooltip>
+                  ) : null}
+                </div>
+              }
+            >
+              Global roles
+            </SettingsSectionTitle>
 
             {roleAuthoring ? (
               <UserRoleAuthoringForm
@@ -2706,9 +2574,7 @@ export default function SettingsPanel({
             <ActionResultMessage message={userRoleMessage} />
 
             {userRoles.length === 0 ? (
-              <p className="text-body leading-5 text-[color:var(--text-muted)]">
-                No global roles yet. {userRoleAuthoringSupported ? 'Create a custom role or install a folder of manifests.' : 'Install a folder of manifests to add some.'}
-              </p>
+              <p className="text-body leading-5 text-[color:var(--text-muted)]">No global roles yet.</p>
             ) : (
               <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
                 {userRoles.map((role) => {
@@ -2768,33 +2634,24 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-knowledge-graph"
           className="space-y-4"
         >
-          <div className="space-y-1">
-            <SettingsSectionTitle
-              action={
-                activeProjectRoot ? (
-                  <span
-                    className="max-w-[260px] truncate font-mono text-meta text-[color:var(--text-subtle)]"
-                    title={activeProjectRoot}
-                  >
-                    {basename(activeProjectRoot)}
-                  </span>
-                ) : undefined
-              }
-            >
-              Markdown knowledge graph
-            </SettingsSectionTitle>
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Each project points at a knowledge folder; its workspaces and Sprint Engine runs inherit it.
-            </p>
-          </div>
+          <SettingsPageHeader
+            title="Knowledge graph"
+            meta={
+              activeProjectRoot ? (
+                <span className="inline-block max-w-[260px] truncate align-bottom font-mono" title={activeProjectRoot}>
+                  {basename(activeProjectRoot)}
+                </span>
+              ) : undefined
+            }
+          />
 
           <ProjectKnowledgeList activeProjectRoot={activeProjectRoot} />
 
           <div className="border-t border-[color:var(--border-subtle)] pt-4">
-            <CompoundSwitchRow
-              label="Activity tracking (Claude Code)"
-              description="Record which knowledge files Claude touches and animate the graph as they are read. What gets installed is shown before enabling."
-              checked={activityInstalled}
+            <SettingToggle
+              label="Activity tracking"
+              description="Record which knowledge files Claude Code reads."
+              enabled={activityInstalled}
               disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
               onChange={(next) => void toggleActivityTracking(next)}
             />
@@ -2814,25 +2671,16 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-design-system"
           className="space-y-4"
         >
-          <div className="space-y-1">
-            <SettingsSectionTitle
-              action={
-                activeSprintEngineRoot ? (
-                  <span
-                    className="max-w-[260px] truncate font-mono text-meta text-[color:var(--text-subtle)]"
-                    title={activeSprintEngineRoot}
-                  >
-                    {basename(activeSprintEngineRoot)}
-                  </span>
-                ) : undefined
-              }
-            >
-              Design system
-            </SettingsSectionTitle>
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              Agents building UI in this workspace read the attached bundle and conform to it.
-            </p>
-          </div>
+          <SettingsPageHeader
+            title="Design system"
+            meta={
+              activeSprintEngineRoot ? (
+                <span className="inline-block max-w-[260px] truncate align-bottom font-mono" title={activeSprintEngineRoot}>
+                  {basename(activeSprintEngineRoot)}
+                </span>
+              ) : undefined
+            }
+          />
 
           <DesignSystemSettings workspaceRoot={activeSprintEngineRoot} />
         </div>
@@ -2844,6 +2692,7 @@ export default function SettingsPanel({
           id="settings-panel-learn"
           aria-labelledby="settings-tab-learn"
         >
+          <SettingsPageHeader title="Learn" />
           <LearnCenter onSettingsTab={onOpenSettingsTab} />
         </div>
       ) : null}
@@ -2912,7 +2761,6 @@ export default function SettingsPanel({
   return (
     <WorkspacePanel
       title="Settings"
-      subtitle="Configure local CLIs, workspace paths, updates, and telemetry."
       titleId="settings-panel-title"
       onClose={onClose}
       closeLabel="Close settings"
@@ -2958,14 +2806,12 @@ function ProfileSection({
 }) {
   if (!authState.authenticated) {
     return (
-      <div className="space-y-4">
-        <SettingsSectionTitle>Account</SettingsSectionTitle>
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">
-          Sign in to sync entitlements and unlock Pro features.
-        </p>
-        <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
-          Sign in
-        </PrimaryButton>
+      <div className="space-y-2">
+        <SettingsRow label="Not signed in" help="Sign in to unlock Pro features.">
+          <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
+            Sign in
+          </PrimaryButton>
+        </SettingsRow>
         {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
       </div>
     )
@@ -2983,7 +2829,6 @@ function ProfileSection({
 
   return (
     <div className="space-y-5">
-      <SettingsSectionTitle>Account</SettingsSectionTitle>
       <div className="flex items-center gap-3">
         <AccountAvatar
           user={authState.user}
@@ -3081,23 +2926,26 @@ function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
   return 'Not set'
 }
 
+// One clause after the channel on the version row: a state, never a sentence.
 function formatUpdateStatus(state: AppUpdateState | null): string {
-  if (!state) return 'Loading update status.'
-  if (!state.packaged) return 'Update checks are available after installing a packaged build.'
+  if (!state) return 'loading'
+  if (!state.packaged) return 'unpackaged build'
   switch (state.status) {
     case 'checking':
-      return 'Checking for updates.'
+      return 'checking…'
     case 'available':
-      return state.updateVersion ? `Version ${state.updateVersion} is available.` : 'An update is available.'
+      return state.updateVersion ? `${state.updateVersion} available` : 'update available'
     case 'downloading':
-      return state.progress ? `Downloading update (${Math.round(state.progress.percent)}%).` : 'Downloading update.'
+      return state.progress ? `downloading ${Math.round(state.progress.percent)}%` : 'downloading…'
     case 'downloaded':
-      return 'Update downloaded. Restart to install it.'
+      return 'restart to install'
     case 'not_available':
-      return 'You’re up to date.'
+      return 'up to date'
     case 'error':
-      return state.errorMessage ?? 'Update check failed.'
+      return state.errorMessage ?? 'check failed'
     default:
-      return 'No update check is running.'
+      return state.lastCheckedAt
+        ? `checked ${formatRelativeMsAgo(Date.parse(state.lastCheckedAt), Date.now()) || 'just now'}`
+        : 'not checked yet'
   }
 }

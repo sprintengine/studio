@@ -4,6 +4,41 @@ import { Switch } from '../ui'
 export type MetaTone = 'positive' | 'muted'
 
 /**
+ * The page header every Settings tab opens with (2026-09-06): the tab's name
+ * as the one heading, and a trailing cluster for
+ * the page's chrome — a count, a freshness note, glyph buttons. It is the
+ * page saying its own name, so the rail can stay a rail; it carries no
+ * sentence under it. What a setting does is said once, on its row.
+ */
+export function SettingsPageHeader({
+  title,
+  id,
+  meta,
+  actions,
+}: {
+  title: React.ReactNode
+  id?: string
+  /** A fact about the page — "12 bindings", "Checked 2 minutes ago". */
+  meta?: React.ReactNode
+  /** The page's chrome: glyph buttons and at most one text button. */
+  actions?: React.ReactNode
+}) {
+  return (
+    <div className="mb-5 flex min-h-control-md items-center justify-between gap-3">
+      <h3 id={id} className="min-w-0 truncate text-title font-semibold text-[color:var(--text-strong)]">
+        {title}
+      </h3>
+      {meta || actions ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          {meta ? <span className="mr-1 text-meta text-[color:var(--text-subtle)]">{meta}</span> : null}
+          {actions}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
  * Canonical settings section heading. One typographic treatment for every
  * section header across the Settings tabs: 14px semibold, sentence case,
  * flush-left, with an optional muted count next to the title and a trailing
@@ -43,10 +78,9 @@ export function SettingsSectionTitle({
 }
 
 /**
- * Canonical settings row: label and help on the left, a compact right-aligned
- * control on the right. This is the same grammar `RegistrySwitchRow` /
- * `CompoundSwitchRow` use for switches, generalized to inputs, selects, and
- * action sets. Compose consecutive rows inside a
+ * Canonical settings row: label and one line of help on the left, a compact
+ * right-aligned control on the right. Switches, inputs, selects, and action
+ * sets all take this grammar. Compose consecutive rows inside a
  * `divide-y divide-[color:var(--border-subtle)]` wrapper for hairline rhythm.
  *
  * Controls passed as children stay sized to their content (240 px inputs,
@@ -68,7 +102,7 @@ export function SettingsRow({
 }) {
   const labelClass = 'block text-body font-medium text-[color:var(--text-strong)]'
   return (
-    <div className={`flex items-center justify-between gap-8 py-2.5 first:pt-0 last:pb-0 ${className ?? ''}`}>
+    <div className={`flex items-center justify-between gap-8 py-3 first:pt-0 last:pb-0 ${className ?? ''}`}>
       <div className="min-w-0">
         {htmlFor ? (
           <label htmlFor={htmlFor} className={labelClass}>
@@ -86,6 +120,11 @@ export function SettingsRow({
   )
 }
 
+/**
+ * The switch row: the one shape for every boolean setting in the modal. Was
+ * three copies (this, SettingsPanel's RegistrySwitchRow and CompoundSwitchRow)
+ * until 2026-09-06; they drew the same row.
+ */
 export function SettingToggle({
   label,
   description,
@@ -94,8 +133,8 @@ export function SettingToggle({
   disabled,
   requirement,
 }: {
-  label: string
-  description?: string
+  label: React.ReactNode
+  description?: React.ReactNode
   enabled: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
@@ -106,7 +145,7 @@ export function SettingToggle({
   const labelId = React.useId()
   const helpId = description ? `${labelId}-help` : undefined
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+    <div className="flex items-center justify-between gap-8 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0">
         <div id={labelId} className="text-body font-medium text-[color:var(--text-strong)]">
           {label}
@@ -128,7 +167,6 @@ export function SettingToggle({
         disabled={disabled}
         ariaLabelledBy={labelId}
         ariaDescribedBy={helpId}
-        className="mt-0.5"
       />
     </div>
   )
