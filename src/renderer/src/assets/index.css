@@ -82,11 +82,14 @@
 /* Glass: `bg.surface-raised` at `glass.opacity` over a blur-and-saturate of
  * whatever is behind — a corner-sized area, which is why this is allowed where
  * a scrim's full-viewport blur is not (see the `backdrop-filter` rule in
- * scripts/lint-design-system-conformance.mjs). Two kit shells consume it and
- * nothing else may: the toast card (owner ruling 2026-09-04) and `PointerPopover`'s opt-in `material="glass"`, which the
+ * scripts/lint-design-system-conformance.mjs). Three kit shells consume it and
+ * nothing else may: the toast card (owner ruling 2026-09-04, a frosted card
+ * over whatever it is dropped on), `PointerPopover`'s opt-in `material="glass"`, which the
  * conversation peek asks for because it is drawn across a running terminal
- * rather than out of a control. Where backdrop-filter is unsupported both fall
- * back to a solid bg.surface-raised. */
+ * rather than out of a control, and `Popover`'s opt-in of the same name (2026-09-08),
+ * which the composer skill type-ahead asks for because it is drawn across the
+ * transcript the person is reading. Where backdrop-filter is unsupported all
+ * fall back to a solid bg.surface-raised. */
 @utility surface-glass {
   background: color-mix(in srgb, var(--bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
   -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));

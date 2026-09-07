@@ -42,7 +42,7 @@ import { renderMarkdown } from '../../utils/markdown'
 import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import { renderChatSkillPrefill } from '../../utils/skillInvocation'
+import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { CheckIcon, LockGlyph, UnlockedGlyph } from '../AppIcons'
 
@@ -1201,6 +1201,31 @@ export function composerSendAction(options: {
     disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
   }
 }
+/**
+ * The skill type-ahead the draft is asking for, if any. Two doors into one list
+ * (agent-harness chats only — plain model chats run no tools):
+ *
+ * - `slash` — a `/` opening an otherwise-empty draft, the CLI-native habit. Only
+ *   until the first space: a space commits the text as literal.
+ * - `mention` — a `$` at the start of a word anywhere in the draft, so a skill
+ *   can be named mid-sentence.
+ *   The token runs to the end of the draft; a space ends it.
+ *
+ * `token` is the exact text the pick replaces, `query` the part after the
+ * trigger character that filters the list. Pure, so the contract is testable
+ * without a DOM.
+ */
+export type ChatSkillTrigger = { kind: 'slash' | 'mention'; query: string; token: string }
+
+export function chatSkillTrigger(draft: string): ChatSkillTrigger | null {
+  if (draft.startsWith('/') && !/\s/.test(draft)) {
+    return { kind: 'slash', query: draft.slice(1), token: draft }
+  }
+  const mention = /(?:^|\s)(\$(\S*))$/.exec(draft)
+  if (mention) return { kind: 'mention', query: mention[2], token: mention[1] }
+  return null
+}
+
 
 // Menu shortcut hints use the platform's own editing chords, so the composer
 // menu teaches the keyboard path instead of inventing one.
@@ -1356,10 +1381,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const pendingCaretRef = useRef<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
-  // Slash trigger: Escape or non-matching text sets dismissed so the slash
-  // stays literal; cleared once the draft no longer starts with '/'.
-  const [slashDismissed, setSlashDismissed] = useState(false)
-  const slashPickerRef = useRef<InlineSkillPickerHandle | null>(null)
+  // Skill type-ahead: Escape, a click elsewhere, or non-matching text sets
+  // dismissed so the trigger character stays literal; cleared once the draft no
+  // longer carries a trigger token (the `/` was removed, or a space ended the
+  // `$word`), so the next one opens the list again.
+  const [skillTriggerDismissed, setSkillTriggerDismissed] = useState(false)
+  const skillPickerRef = useRef<InlineSkillPickerHandle | null>(null)
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -1984,14 +2011,21 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // that stages images no one will receive is worse than no control.
   const imagesEnabled = ready && providerAcceptsImages(conversation.providerId)
 
-  // Skills doors (agent harness only — plain model chats run no tools):
-  // a '/' opening an otherwise-empty draft filters the same inventory the
-  // Skills chip shows. A space commits the text as literal (no skill picked).
-  const slashPickerActive =
-    isAgentHarness && !slashDismissed && draft.startsWith('/') && !/\s/.test(draft)
+  // Skills doors (agent harness only — plain model chats run no tools): a '/'
+  // opening an otherwise-empty draft, or a '$' starting a word anywhere in it,
+  // filters the same inventory the Skills chip shows. See `chatSkillTrigger`.
+  const skillTrigger = isAgentHarness && !skillTriggerDismissed ? chatSkillTrigger(draft) : null
+  const dismissSkillTrigger = useCallback(() => setSkillTriggerDismissed(true), [])
   const applySkillPick = (skill: WorkspaceSkill) => {
-    setDraft(renderChatSkillPrefill(skill))
-    setSlashDismissed(true)
+    if (skillTrigger?.kind === 'mention') {
+      // The `$word` is the tail of the draft by construction; swap it for the
+      // mention and leave the caret after a space, ready for the next word.
+      const head = draft.slice(0, draft.length - skillTrigger.token.length)
+      setDraft(`${head}${renderChatSkillMention(skill)} `)
+    } else {
+      setDraft(renderChatSkillPrefill(skill))
+    }
+    setSkillTriggerDismissed(true)
     composerRef.current?.focus()
   }
   const modelLabelFor = (modelId?: string): string => {
@@ -2118,19 +2152,6 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       </div>
 
       <div className="relative px-4 pb-4 pt-1">
-        {slashPickerActive ? (
-          <InlineSkillPicker
-            ref={slashPickerRef}
-            workspaceRoot={workspaceRoot}
-            query={draft.slice(1)}
-            onPick={applySkillPick}
-            onMatchCountChange={(count) => {
-              // Non-matching text dismisses; the slash stays literal.
-              if (count === 0 && draft.length > 1) setSlashDismissed(true)
-            }}
-            className="bottom-full left-4"
-          />
-        ) : null}
         {!atBottom && timelineRows.length > 0 ? (
           <OutlineButton
             size="xs"
@@ -2272,32 +2293,45 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               if (!imagesEnabled) return
               const files = imageFilesFromDataTransfer(event.clipboardData)
               if (files.length === 0) return
+          {skillTrigger ? (
+            <InlineSkillPicker
+              ref={skillPickerRef}
+              workspaceRoot={workspaceRoot}
+              query={skillTrigger.query}
+              onPick={applySkillPick}
+              onMatchCountChange={(count) => {
+                // Non-matching text dismisses; the trigger character stays literal.
+                if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
+              }}
+              onDismiss={dismissSkillTrigger}
+            />
+          ) : null}
               event.preventDefault()
               void attachFiles(files)
             }}
             onChange={(event) => {
               const value = event.target.value
               setDraft(value)
-              if (!value.startsWith('/')) setSlashDismissed(false)
+              if (!chatSkillTrigger(value)) setSkillTriggerDismissed(false)
             }}
             onContextMenu={(event) => void openComposerMenu(event)}
             onKeyDown={(event) => {
-              // While the slash picker is up, the textarea keeps focus and
+              // While the skill picker is up, the textarea keeps focus and
               // forwards navigation; Enter picks instead of sending.
-              if (slashPickerActive) {
+              if (skillTrigger) {
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                  if (slashPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
+                  if (skillPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
                     event.preventDefault()
                     return
                   }
                 } else if (event.key === 'Enter' && !event.shiftKey) {
-                  if (slashPickerRef.current?.pickActive()) {
+                  if (skillPickerRef.current?.pickActive()) {
                     event.preventDefault()
                     return
                   }
                 } else if (event.key === 'Escape') {
                   event.preventDefault()
-                  setSlashDismissed(true)
+                  setSkillTriggerDismissed(true)
                   return
                 }
               }

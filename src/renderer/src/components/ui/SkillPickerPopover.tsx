@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,20 +16,23 @@ import type {
 } from '../../../../shared/electron-api'
 import { builtinInstallsIntoHarness } from '../../../../shared/skills'
 import { ensureSkillForAgent } from '../../utils/skillInvocation'
+import { Badge } from './Badge'
 import { Popover, type PopoverPlacement, type PopoverProps } from './Popover'
-import { MENU_ITEM_STACKED_CLASS } from './menuClasses'
+import { MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 import { Spinner } from './Spinner'
 import { StarGlyph } from './StarGlyph'
-import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
 
 // One inventory, every door: the searchable workspace-skill list behind the
-// composer Skills chip, the slash trigger, the terminal panel-header action and
-// the agent composer's "+ Skill" attachment. Rows show the real SKILL.md
-// name/description with a source label, grouped installed-first; a bundled
-// skill not yet installed installs inline on pick, then behaves identically.
-// Picking NEVER auto-sends — callers prefill their input and keep the caret.
+// composer Skills chip, the `/` and `$` type-aheads, the terminal panel-header
+// action and the agent composer's "+ Skill" attachment. Rows show the real
+// SKILL.md name with its description on the same line and a source badge at
+// the far edge (one row per skill,
+// the description beside the name rather than under it, so twelve skills fit
+// in the height six used to), grouped installed-first; a bundled skill not yet
+// installed installs inline on pick, then behaves identically. Picking NEVER
+// auto-sends — callers prefill their input and keep the caret.
 
 const SOURCE_LABEL: Record<WorkspaceSkillSource, string> = {
   builtin: 'Built-in',
@@ -192,9 +196,11 @@ function SkillRow({
   onHover: () => void
 }) {
   const notInstalled = skill.installState === 'available'
-  // The row clamps the description to one line; hover restores it in full
-  // (same pattern as the agent composer's roster rows).
-  const row = (
+  // One line per skill: the name, then the description beside it taking the
+  // slack and truncating (its full text surfaces in the truncation tooltip),
+  // then the source at the far edge. A menu row, so it takes the menu item's
+  // full-bleed geometry and meta type (design-system/components/menu).
+  return (
     <button
       type="button"
       role="menuitem"
@@ -202,7 +208,7 @@ function SkillRow({
       onClick={() => onPick(skill)}
       onMouseMove={onHover}
       disabled={installing}
-      className={`${MENU_ITEM_STACKED_CLASS} disabled:cursor-wait ${
+      className={`${MENU_ITEM_CLASS} disabled:cursor-wait ${
         // One paint for the one state: the keyboard cursor and the pointer
         // hover are the same "you are here" and share `--bg-hover` — the
         // `--bg-active` split painted two colors for it (the ConnectorPicker
@@ -213,37 +219,34 @@ function SkillRow({
       }`}
     >
       <SkillGlyph
-        className={`icon-sm mt-0.5 shrink-0 ${active ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-subtle)]'}`}
+        className={`icon-xs shrink-0 ${active ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-subtle)]'}`}
       />
-      <span className="min-w-0 flex-1">
-        <TruncatedText as="span" text={skill.name} className="block text-body font-medium text-[color:var(--text-strong)]" />
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <TruncatedText
+          as="span"
+          text={skill.name}
+          className="max-w-[60%] shrink-0 font-medium text-[color:var(--text-strong)]"
+        />
         {skill.description ? (
-          <TruncatedText as="span" text={skill.description} className="block text-meta text-[color:var(--text-muted)]" />
+          <TruncatedText
+            as="span"
+            text={skill.description}
+            className="min-w-0 flex-1 text-[color:var(--text-muted)]"
+          />
         ) : null}
       </span>
       {installing ? (
-        <Spinner className="mt-0.5 shrink-0" />
+        <Spinner className="shrink-0" />
       ) : notInstalled ? (
-        <span className="mt-0.5 shrink-0 text-micro font-medium text-[color:var(--accent-primary)]">Install</span>
+        <span className="shrink-0 text-micro font-medium text-[color:var(--accent-primary)]">Install</span>
       ) : (
-        <span className="mt-0.5 shrink-0 text-micro text-[color:var(--text-subtle)]">
-          {SOURCE_LABEL[skill.source]}
-        </span>
+        // The source is the only thing on the row that says where the skill
+        // comes from, so the chip is named by its own text rather than marked
+        // decorative (design-system/components/badge, "Only a count is a live
+        // region").
+        <Badge className="shrink-0">{SOURCE_LABEL[skill.source]}</Badge>
       )}
     </button>
-  )
-  if (!skill.description) return row
-  return (
-    <Tooltip
-      // The tooltip surface is nowrap by design; the inner span opts this one
-      // back into wrapping so a multi-sentence SKILL.md description reads as a
-      // paragraph, not a viewport-wide line.
-      content={<span className="block max-w-[300px] whitespace-normal">{skill.description}</span>}
-      placement="left"
-      wrapperClassName="block"
-    >
-      {row}
-    </Tooltip>
   )
 }
 
@@ -305,7 +308,7 @@ function SkillList({
   const renderGroup = (label: string, skills: WorkspaceSkill[], offset: number) =>
     skills.length > 0 ? (
       <div className="py-0.5">
-        <div className="px-2.5 pb-0.5 pt-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
+        <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>
           {label}
         </div>
         {skills.map((skill, index) => (
@@ -322,7 +325,10 @@ function SkillList({
     ) : null
 
   return (
-    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1">
+    // Vertical inset only: rows reach both side edges so the highlight is
+    // full-bleed, per the menu spec — a horizontal inset here is what forced
+    // the nested-card fill the spec rules out.
+    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
       {renderGroup('In this workspace', groups.installed, 0)}
       {renderGroup('Available to install', groups.available, groups.installed.length)}
     </div>
@@ -518,10 +524,33 @@ export type InlineSkillPickerHandle = {
   matchCount: () => number
 }
 
-// Slash-trigger mode: the same list anchored above the caller's input. Focus
+// The type-ahead surface's height budget. The cap is the combobox listbox's
+// (roughly ten rows before it scrolls); the floor is what keeps the list
+// usable when the composer has grown until only a sliver of transcript is
+// left above it — below that the shell's own flip-and-clamp takes over.
+const INLINE_PICKER_MAX_HEIGHT = 340
+const INLINE_PICKER_MIN_HEIGHT = 120
+// The shell's 8px viewport clamp plus its 4px trigger gap: what the surface
+// can never occupy between the top of the window and the top of the composer.
+const INLINE_PICKER_VIEWPORT_INSET = 12
+
+// Type-ahead mode: the same list anchored to the caller's composer box. Focus
 // stays in the caller's textarea; it forwards ↑↓/⏎ through the ref handle and
-// drives `query` from the draft text after the slash. Rendered only while
-// open, inside a `relative` ancestor.
+// drives `query` from the draft text after the trigger character. Rendered
+// only while open, as a child of the composer box (which must be `relative`):
+// the anchor covers the box, so the surface hugs its top or bottom edge and
+// spans its width.
+//
+// It rides the shared `Popover` engine rather than positioning itself. The
+// first version was an `absolute bottom-full` surface inside the composer's
+// container, which meant its height was whatever space happened to be above
+// the composer — a long draft grew the composer, the surface slid up with it,
+// and the top rows left the window with no way to scroll to them. The shell
+// portals to <body> and clamps inside the viewport; this picks the side of the
+// composer with room (above, where a chat composer sits at the foot of its
+// pane; below, where the New chat door's composer sits near the top of the
+// window) and caps its own height to that room, so it never has to choose
+// between covering the field and running off an edge.
 export const InlineSkillPicker = forwardRef<
   InlineSkillPickerHandle,
   {
@@ -530,12 +559,15 @@ export const InlineSkillPicker = forwardRef<
     query: string
     onPick: (skill: WorkspaceSkill) => void
     // Fires when the settled (not loading, not errored) match count changes,
-    // so the caller can dismiss on non-matching text per the slash contract.
+    // so the caller can dismiss on non-matching text per the trigger contract.
     onMatchCountChange?: (count: number) => void
-    className?: string
+    // A light dismiss the shell saw — a pointer landing outside the surface, or
+    // an Escape the caller's field did not already consume. The caller marks
+    // the trigger dismissed so the typed character stays literal.
+    onDismiss?: () => void
   }
 >(function InlineSkillPicker(
-  { workspaceRoot, pluginId = null, query, onPick, onMatchCountChange, className },
+  { workspaceRoot, pluginId = null, query, onPick, onMatchCountChange, onDismiss },
   ref,
 ) {
   const [activeIndex, setActiveIndex] = useState(0)
@@ -578,34 +610,86 @@ export const InlineSkillPicker = forwardRef<
     [clampedActive, groups.flat, pick],
   )
 
+  // The room beside the composer is the surface's height budget. Above is the
+  // preferred side (the list completes the field the way a menu completes its
+  // trigger, and a chat composer sits at the foot of its pane); below wins
+  // only when above cannot hold the full list and below has more. Measured on
+  // every render (each keystroke re-renders this, and each keystroke is what
+  // can grow the composer) and on resize; React drops a write of the same
+  // value, so the re-measure is free when nothing moved.
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const [fit, setFit] = useState<{ side: 'top' | 'bottom'; maxHeight: number }>({
+    side: 'top',
+    maxHeight: INLINE_PICKER_MAX_HEIGHT,
+  })
+  useLayoutEffect(() => {
+    const measure = () => {
+      const anchor = anchorRef.current
+      if (!anchor) return
+      const rect = anchor.getBoundingClientRect()
+      const above = rect.top - INLINE_PICKER_VIEWPORT_INSET
+      const below = window.innerHeight - rect.bottom - INLINE_PICKER_VIEWPORT_INSET
+      const side = above >= INLINE_PICKER_MAX_HEIGHT || above >= below ? 'top' : 'bottom'
+      const room = side === 'top' ? above : below
+      const maxHeight = Math.max(INLINE_PICKER_MIN_HEIGHT, Math.min(INLINE_PICKER_MAX_HEIGHT, room))
+      // Same values, same state: a fresh object every render would re-render
+      // forever, since this effect has no dependency list.
+      setFit((current) => (current.side === side && current.maxHeight === maxHeight ? current : { side, maxHeight }))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  })
+
+  const onOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) onDismiss?.()
+    },
+    [onDismiss],
+  )
+
   return (
-    <div
-      role="menu"
-      aria-label="Use a skill"
-      className={[
-        // Positioning (bottom-full / left offset) belongs to the caller's anchor.
-        'absolute z-[var(--z-float)] mb-2 flex max-h-[340px] w-[380px] flex-col overflow-hidden',
-        'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]',
-        'shadow-[var(--shadow-popover)]', // the shared Popover elevation, for an input-anchored surface
-        className ?? '',
-      ].join(' ')}
-    >
-      <SkillList
-        groups={groups}
-        loading={inventory.loading}
-        error={actionError ?? inventory.error}
-        query={query}
-        activeIndex={clampedActive}
-        installingId={installingId}
-        onPick={(skill) => void pick(skill)}
-        onActiveIndexChange={setActiveIndex}
-      />
-      <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-1.5 text-micro text-[color:var(--text-subtle)]">
-        <span>↑↓ choose · ⏎ use · esc dismiss</span>
-        <span className="ml-auto tabular-nums">
-          {groups.flat.length} of {inventory.skills.length} skills
-        </span>
-      </div>
+    // The anchor: an inert layer covering the composer box, so the shell's
+    // trigger rect IS the box and either edge can be glued to. It is not the
+    // surface (the shell portals that to <body>), so nothing here is focusable
+    // or announced. `flex`, so the shell's empty inline-flex wrapper is a
+    // stretched flex item and not an inline box sitting on a line's baseline
+    // — which put the anchor a strut below the box's top edge.
+    <div ref={anchorRef} aria-hidden="true" className="pointer-events-none absolute inset-0 flex">
+      <Popover
+        open
+        onOpenChange={onOpenChange}
+        ariaLabel="Use a skill"
+        popupRole="menu"
+        placement={fit.side === 'top' ? 'top-start' : 'bottom-start'}
+        // Glass, because this is drawn over the transcript the person is
+        // reading — see the material note on `Popover`.
+        material="glass"
+        className="w-full"
+        renderTrigger={() => null}
+        // Composer-wide, like the field it completes; the shell mirrors the
+        // anchor's width into the variable and clamps the rest.
+        surfaceClassName="w-[var(--popover-trigger-width)] max-w-[calc(100vw-16px)]"
+      >
+        <div className="flex flex-col overflow-hidden" style={{ maxHeight: fit.maxHeight }}>
+          <SkillList
+            groups={groups}
+            loading={inventory.loading}
+            error={actionError ?? inventory.error}
+            query={query}
+            activeIndex={clampedActive}
+            installingId={installingId}
+            onPick={(skill) => void pick(skill)}
+            onActiveIndexChange={setActiveIndex}
+          />
+          <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-1.5 text-micro text-[color:var(--text-subtle)]">
+            <span>↑↓ choose · ⏎ use · esc dismiss</span>
+            <span className="ml-auto tabular-nums">
+              {groups.flat.length} of {inventory.skills.length} skills
+            </span>
+          </div>
+        </div>
+      </Popover>
     </div>
   )
 })

@@ -397,13 +397,22 @@ run('overlay elevation comes from a shadow token, in both themes', () => {
       `${file} draws the shared overlay chrome rather than a copy of it`,
     )
   }
-  for (const file of ['PointerPopover.tsx', 'CursorErrorPopover.tsx', 'SkillPickerPopover.tsx']) {
+  for (const file of ['PointerPopover.tsx', 'CursorErrorPopover.tsx']) {
     assert.match(
       code(join(KIT, file)),
       /shadow-\[var\(--shadow-popover\)\]/,
       `${file} takes its elevation from the popover token, which is defined per theme`,
     )
   }
+  // The skill picker used to be on that list: its type-ahead mode drew its own
+  // `absolute` shell. Since 2026-09-08 both of its modes ride `Popover`, so the
+  // elevation reaches it through the shell and spelling the token here again
+  // would be the drift the shell exists to end.
+  assert.doesNotMatch(
+    code(join(KIT, 'SkillPickerPopover.tsx')),
+    /shadow-\[/,
+    'SkillPickerPopover draws no shell of its own — both modes ride Popover',
+  )
 })
 
 // ── ratchets ─────────────────────────────────────────────────────────────────

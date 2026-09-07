@@ -40,8 +40,12 @@ deliberately over a running terminal — is the second, through
 toast and this is not pretended otherwise: the ruling accepts that cost for a
 surface whose whole point is to sit *over* the app it is describing, while
 the area argument still holds against the thing it was written for, a
-full-viewport scrim. The conformance lint pins the glass utility to those two
-**kit shells** (`Toast.tsx`, `PointerPopover.tsx`); a product file that
+full-viewport scrim. **Amended again 2026-09-08:** the trigger-anchored
+`Popover` carries the same opt-in, for the composer's skill type-ahead drawn
+over the transcript being read — the popover spec's "Material" section had
+already ruled glass a material of the whole popover family, and the anchored
+shell is that family's engine. The conformance lint pins the glass utility to
+those three **kit shells** (`Toast.tsx`, `PointerPopover.tsx`, `Popover.tsx`); a product file that
 blurs, or borrows the utility directly, is still a violation — a surface that
 wants glass asks the shell for it.
 

@@ -1163,7 +1163,7 @@ export default function NewAgentPanel({
               onMatchCountChange={(count) => {
                 if (count === 0 && mentionQuery.length > 0) setMentionDismissed(true)
               }}
-              className="bottom-full left-0"
+              onDismiss={() => setMentionDismissed(true)}
             />
           ) : null}
 
