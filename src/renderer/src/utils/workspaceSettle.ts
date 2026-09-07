@@ -9,10 +9,14 @@ import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // A chat settles — moves from its folder's active list into the folder's
 // Settled shelf — once it has gone this long without activity. One constant,
-// on purpose: three days is shared by all chats, and the fold this
-// replaces was also a single unconfigurable threshold. Settling is
-// presentation-level tidiness: the workspace stays on disk and in the store,
-// its terminals keep whatever state they had, and input into it wakes it.
+// on purpose: the fold this replaces was also a single unconfigurable
+// threshold, and three days is long enough that a chat someone means to come
+// back to tomorrow is never swept out from under them. Settling keeps the
+// workspace on disk and in the store, and opening it brings it back — but it
+// is no longer free of consequence: a resting chat holds no terminals (owner
+// ruling 2026-09-07), so the ptys are killed with the row and the agent
+// resumes from its CLI session when the chat is next opened. This module
+// still only DECIDES; the sidebar carries the decision out.
 export const WORKSPACE_AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 
 // Sprint run states that must never settle on their own, no matter how old:

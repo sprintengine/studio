@@ -312,11 +312,12 @@ export interface WorkspacesSliceActions {
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /** Returns the ids that CAME TO REST on this tick, for the caller to quiet. */
   reconcileWorkspaceSettlement: (input: {
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
-  }) => void
+  }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   forgetFolder: (folderPath: string) => void
@@ -1011,6 +1012,11 @@ export function createWorkspacesSlice(
         ...current.workspaceWindows.map((windowState) => windowState.activeWorkspaceId),
       ])
       const patches: [WorkspaceId, WorkspaceFieldsPatch][] = []
+      // Reported back so the caller can quiet what came to rest: a settled
+      // chat holds no terminals (2026-09-07), and the sidebar is the layer
+      // that kills ptys. Only rows that actually SETTLED — a wake is not a
+      // reason to touch anything.
+      const settledIds: WorkspaceId[] = []
       for (const ws of current.workspaces) {
         if (!thisWindowSpeaksFor(current, ws.id)) continue
         const decision = decideWorkspaceSettlement({
@@ -1023,8 +1029,9 @@ export function createWorkspacesSlice(
         if (decision === 'none') continue
         const patch = decision === 'settle' ? settleWorkspacePatch(ws, now, null) : wakeWorkspacePatch(null)
         patches.push([ws.id, patch])
+        if (decision === 'settle') settledIds.push(ws.id)
       }
-      if (patches.length === 0) return
+      if (patches.length === 0) return settledIds
       set((state) => {
         for (const [id, patch] of patches) {
           const ws = state.workspaces.find((w) => w.id === id)
@@ -1032,6 +1039,7 @@ export function createWorkspacesSlice(
         }
       })
       for (const [id, patch] of patches) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+      return settledIds
     },
 
     // Monotonic: `lastTerminalActivityAt` only moves forward, and is fed from the

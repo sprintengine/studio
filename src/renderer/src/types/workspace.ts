@@ -1074,8 +1074,10 @@ export type Workspace = {
   // folder's Settled shelf rather than in the active list. Set by the
   // sidebar's reconcile sweep after three idle days, or by hand from the row
   // menu; cleared by input into the chat, by the agent working or blocking
-  // on input again, or by hand. Presentation-level: settling never touches
-  // agents, sessions, or run state. See `utils/workspaceSettle.ts`. The
+  // on input again, or by hand. Settling kills the chat's terminals (owner
+  // ruling 2026-09-07) — the agent record, its CLI session id and the run
+  // state are untouched, so opening the chat resumes it. See
+  // `utils/workspaceSettle.ts`. The
   // retired `archivedAt` (the startup archive sweep, gone 2026-09-07) heals
   // into this on registry read.
   settledAt?: number | null

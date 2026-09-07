@@ -135,7 +135,8 @@ import {
 } from './globalSurface/extensions/extensionsSurfaceHost'
 import { WorkspacePaneColumn } from './pane/WorkspacePaneColumn'
 import { isWorkspacePaneFocused } from './pane/paneFocus'
-import { closePaneTabAndItsTerminal, paneTerminalSessionId } from './pane/paneTerminals'
+import { closePaneTabAndItsTerminal } from './pane/paneTerminals'
+import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import {
   claimSprintCreationForDoor,
   releaseSprintCreationDoorClaim,
@@ -5057,57 +5058,6 @@ function firstTabset(model: Model): TabSetNode | null {
 }
 
 
-type LayoutSessionNode = {
-  component?: string
-  config?: {
-    agentId?: string
-    terminalId?: string
-  }
-  children?: LayoutSessionNode[]
-}
-
-/**
- * Kill every terminal session the workspace holds. The returned promise settles
- * once main has acknowledged each kill — the pty has been signalled and the
- * session dropped from the registry — which is as close to "this workspace's
- * writers are done" as the renderer can get. Kill failures are absorbed: a
- * session that died first must not hold up the close.
- */
-async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
-  const sessionIds = new Set<string>()
-
-  Object.values(workspace.agents).forEach((agent) => {
-    if (agent.cliSessionId) sessionIds.add(agent.cliSessionId)
-  })
-
-  const collectLayoutSessions = (node: LayoutSessionNode | undefined) => {
-    if (!node) return
-
-    if (node.component === 'agent') {
-      const agentId = node.config?.agentId
-      const sessionId = agentId ? workspace.agents[agentId]?.cliSessionId : undefined
-      if (sessionId) sessionIds.add(sessionId)
-    }
-
-    if (node.component === 'terminal') {
-      const terminalId = node.config?.terminalId
-      if (terminalId) sessionIds.add(`terminal-${terminalId}`)
-    }
-
-    node.children?.forEach(collectLayoutSessions)
-  }
-
-  collectLayoutSessions(workspace.layoutModel.layout as LayoutSessionNode)
-  workspace.layoutModel.borders?.forEach((border) => collectLayoutSessions(border as LayoutSessionNode))
-  // The pane's terminal tabs own ptys the layout knows nothing about.
-  for (const tab of workspace.paneState?.tabs ?? []) {
-    if (tab.kind === 'terminal' && tab.terminalId) sessionIds.add(paneTerminalSessionId(tab.terminalId))
-  }
-
-  await Promise.all(
-    [...sessionIds].map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
-  )
-}
 
 // The kit's EmptyState (MC-2117). This shipped in `--text-disabled` ink with a
 // hand-rolled `rounded bg-…` button — a sentence meant to be read, greyed out as

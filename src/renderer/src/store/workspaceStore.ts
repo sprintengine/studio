@@ -246,11 +246,12 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /** Returns the ids that CAME TO REST on this tick, for the caller to quiet. */
   reconcileWorkspaceSettlement: (input: {
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
-  }) => void
+  }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void

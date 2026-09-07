@@ -44,14 +44,29 @@ class NoopResizeObserver {
 anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
+// Alpha holds a live agent pty; the settled rows hold nothing, which is what
+// a chat that came to rest looks like after the kill lands.
+const killed: string[] = []
 domWindow.api = {
   platform: 'darwin',
   detectProjectLogo: async () => null,
-  terminalList: async () => [],
+  terminalList: async () => [
+    {
+      sessionId: 'alpha-pty',
+      workspaceId: 'w1',
+      processAlive: true,
+      kind: 'agent',
+      cli: 'claude-code',
+      activity: { kind: 'idle', since: 1 },
+    },
+  ],
   onTerminalSessionsChanged: () => () => {},
   onSprintRunsChanged: () => () => {},
   listSprintRuns: async () => [],
   getWorkspaceChangeSummary: async () => null,
+  terminalKill: async (sessionId: string) => {
+    killed.push(sessionId)
+  },
 }
 
 async function main(): Promise<void> {
@@ -71,7 +86,9 @@ async function main(): Promise<void> {
   // day more recently than Bravo — outside the sort's 30-minute "just now"
   // tie window, so recency and not stored order decides the shelf's order.
   const workspaces = [
-    workspace('w1', 'Alpha'),
+    workspace('w1', 'Alpha', {
+      agents: { 'agent-1': { id: 'agent-1', name: 'Clod', cliSessionId: 'alpha-pty' } },
+    }),
     workspace('w2', 'Bravo', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
     workspace('w3', 'Charlie', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 4 * DAY }),
   ]
@@ -201,6 +218,19 @@ async function main(): Promise<void> {
     // there is "put this back", and a tick would still be saying "done".
     assert.ok(actionLabel('Un-settle Bravo'), 'a resting row offers Un-settle in its hover seat')
     assert.equal(actionLabel('Settle Bravo'), null)
+
+    // Rest means rest (owner ruling 2026-09-07): a chat that has come to rest
+    // holds no terminals, so settling takes its ptys with it. Nothing is
+    // killed until then — the sweep leaves the selected row and the already
+    // resting rows alone, so an idle sidebar kills nothing.
+    assert.deepEqual(killed, [], 'no settle, no kill')
+    const settleAlpha = actionLabel('Settle Alpha')
+    assert.ok(settleAlpha, 'Alpha has a Settle button to click')
+    act(() => {
+      settleAlpha.click()
+    })
+    await settle()
+    assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
 
     // The row you are in always has a row: selecting a settled chat keeps it
     // in the active list (still settled) instead of in a closed shelf.

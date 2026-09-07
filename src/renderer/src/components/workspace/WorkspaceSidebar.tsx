@@ -5,6 +5,7 @@ import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSess
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { peekStatusOf, rowConversationPeekIdentity } from './conversationPeekRow'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
@@ -1327,6 +1328,45 @@ export default function WorkspaceSidebar({
   // the Extensions home — which uses the same resolver — listed it.
   const now = useRelativeNow()
 
+  // A chat that has come to rest holds no terminals (owner ruling 2026-09-07).
+  // Settling was presentation-only when the model landed — the row moved, the
+  // ptys kept running — which left a folder's worth of shelved chats each
+  // holding a live CLI process for as long as the app was up. Rest now means
+  // rest: the ptys go with the row.
+  //
+  // Every settle goes through here — the hand gesture, the row menu, and the
+  // sweep's three-idle-day decision — so the three cannot disagree about what
+  // resting means.
+  //
+  // Gated on the row actually having something open, because the first sweep
+  // after a restart settles hundreds of rows at once: without the gate each
+  // one would fan out a kill per recorded agent session, and every one of
+  // those is a no-op IPC round trip for a chat whose ptys died with the last
+  // app run. Only a row with live sessions (or a mounted fleet pane) is worth
+  // asking main about.
+  //
+  // Nothing here can kill a working agent: the sweep never settles a row that
+  // is busy, held, or selected, and a hand Settle is the person saying so
+  // about a chat they are looking at.
+  const quietSettledWorkspace = useCallback(
+    (id: WorkspaceId) => {
+      const workspace = workspaces.find((candidate) => candidate.id === id)
+      if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
+      void terminateWorkspaceTerminals(workspace)
+    },
+    [workspaces, sessionsByWorkspaceId]
+  )
+
+  // Settle by hand: the record first, then the ptys — the row must move even
+  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
+  const settleWorkspaceById = useCallback(
+    (id: WorkspaceId) => {
+      setWorkspaceSettled(id, true)
+      quietSettledWorkspace(id)
+    },
+    [setWorkspaceSettled, quietSettledWorkspace]
+  )
+
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
   // labels ride, and whenever an agent's activity flips — so a resting row
   // whose agent starts working wakes at once, not a tick later. This is the
@@ -1346,8 +1386,9 @@ export default function WorkspaceSidebar({
       if (activity === 'working') busyIds.add(id)
       else if (activity === 'needs-input') heldIds.add(id)
     }
-    useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
-  }, [now, activityByWorkspaceId, unseenDoneIds, terminalSessions])
+    const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
+    for (const id of settledNow) quietSettledWorkspace(id)
+  }, [now, activityByWorkspaceId, unseenDoneIds, terminalSessions, quietSettledWorkspace])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // Which folders have their Settled shelf open. Session-only and closed by
@@ -2222,7 +2263,7 @@ export default function WorkspaceSidebar({
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
-                  setWorkspaceSettled(workspace.id, true)
+                  settleWorkspaceById(workspace.id)
                 }}
                 className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                 aria-label={`Settle ${workspace.name}`}
@@ -3150,7 +3191,8 @@ export default function WorkspaceSidebar({
               return
             }
             if (action === 'toggle-settle') {
-              setWorkspaceSettled(workspace.id, !isSettledWorkspace(workspace))
+              if (isSettledWorkspace(workspace)) setWorkspaceSettled(workspace.id, false)
+              else settleWorkspaceById(workspace.id)
               setContextMenu(null)
               return
             }
