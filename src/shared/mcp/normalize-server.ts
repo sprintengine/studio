@@ -95,8 +95,17 @@ export function normalizeMcpSourceRef(value: unknown): McpServerSourceRef | unde
   const sourceId = typeof candidate.sourceId === 'string' ? candidate.sourceId.trim() : ''
   const itemId = typeof candidate.itemId === 'string' ? candidate.itemId.trim() : ''
   const commitSha = typeof candidate.commitSha === 'string' ? candidate.commitSha.trim() : ''
+  // Not trimmed: it is an absolute path, and a path may legitimately end in a
+  // space on macOS and Linux. Only an empty one is dropped.
+  const pluginRoot = typeof candidate.pluginRoot === 'string' && candidate.pluginRoot !== '' ? candidate.pluginRoot : ''
   if (!sourceId || !itemId) return undefined
-  return { sourceId, itemId, commitSha, ...(candidate.missing === true ? { missing: true } : {}) }
+  return {
+    sourceId,
+    itemId,
+    commitSha,
+    ...(candidate.missing === true ? { missing: true } : {}),
+    ...(pluginRoot ? { pluginRoot } : {}),
+  }
 }
 
 function sourceOf(source: McpServerSource | undefined, sourceRef: McpServerSourceRef | undefined): McpServerSource {

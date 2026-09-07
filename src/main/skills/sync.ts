@@ -22,6 +22,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
+import { referencesPluginRoot, resolvePluginRoot } from '../../shared/mcp/plugin-root'
 import { isOwnedBySource, mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { scanMcpServers, skillDirName, type ScanResult, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
@@ -196,11 +197,24 @@ export function refreshSourceMcpServers(input: {
       updated.push({ ...server, sourceRef: { ...server.sourceRef!, missing: true } })
       continue
     }
-    const fresh = mcpServerConfigFromScanned(scanned, server.clients, {
-      sourceId: input.sourceId,
-      itemId,
-      commitSha: input.commitSha,
-    })
+    // A server whose command runs out of the plugin's own directory is
+    // re-resolved against the directory the install recorded on the entry.
+    // Without this, a sync would write `${CLAUDE_PLUGIN_ROOT}` back over a
+    // working absolute path and break the server it was refreshing
+    // (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+    // The root is the entry's, not looked up: MCP settings are app-level and a
+    // sync runs with no workspace open.
+    const pluginRoot = server.sourceRef?.pluginRoot ?? ''
+    const fresh = mcpServerConfigFromScanned(
+      pluginRoot !== '' && referencesPluginRoot(scanned) ? resolvePluginRoot(scanned, pluginRoot) : scanned,
+      server.clients,
+      {
+        sourceId: input.sourceId,
+        itemId,
+        commitSha: input.commitSha,
+        ...(pluginRoot !== '' ? { pluginRoot } : {}),
+      }
+    )
     const next: McpServerConfig = {
       ...fresh,
       // The id is the entry's identity in the settings map; a source that

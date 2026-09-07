@@ -55,6 +55,7 @@ import {
   sectionConnectors,
   type ConnectorEntry,
 } from '../../../../panels/ConnectorsPanel/connectorsFacets'
+import { referencesPluginRoot } from '../../../../../../../shared/mcp/plugin-root'
 import { mcpServerConfigFromScanned } from '../../../../../../../shared/mcp/server-from-scanned'
 import type { ConnectorSources } from '../../../../panels/ConnectorsPanel/useConnectorSources'
 import type { AgentComposerConnector } from '../../../agentComposer/AgentComposer'
@@ -517,16 +518,37 @@ export function PluginsCatalogue({
       }
       const server = item.server
       const installed = connectors.installedServerIds.has(server.id)
+      // A server whose command runs out of the plugin's own directory cannot be
+      // added on its own: nothing would have copied that directory, so the
+      // entry would land and never start. The row sends the person to the
+      // plugin, which is the thing that actually installs it
+      // (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+      const needsPlugin = referencesPluginRoot(server)
       return (
         <ConnectorRow
           key={server.id}
           icon={<SourceMonogram monogram={initials(server.name)} size="lg" />}
           name={server.name}
-          summary={server.description || server.declaredIn}
-          chips={['MCP server']}
+          summary={
+            needsPlugin
+              ? `Runs from the ${server.declaredBy || 'plugin'}'s own directory, so it is installed with the plugin.`
+              : server.description || server.declaredIn
+          }
+          chips={needsPlugin ? ['MCP server', 'Part of a plugin'] : ['MCP server']}
           actions={
             installed ? (
               <span className="pr-1 text-meta font-medium text-[color:var(--accent-primary)]">Added</span>
+            ) : needsPlugin ? (
+              server.declaredBy ? (
+                <GhostButton
+                  size="sm"
+                  onClick={() => openPluginRow(server.declaredBy)}
+                  className="border border-[color:var(--border-default)]"
+                  aria-label={`Open ${server.declaredBy}`}
+                >
+                  Open plugin
+                </GhostButton>
+              ) : null
             ) : (
               <GhostButton
                 size="sm"
