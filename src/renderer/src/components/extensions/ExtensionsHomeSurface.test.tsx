@@ -840,13 +840,21 @@ async function main(): Promise<void> {
     act(() => {
       effortTrigger?.click()
     })
-    const highLevel = [...dom.window.document.querySelectorAll('[data-reasoning-option="true"]')].find(
-      (option) => option.textContent?.trim() === 'high',
-    ) as HTMLElement | undefined
-    assert.ok(highLevel, 'and the levels the manifest declares are the levels offered')
-    act(() => {
-      highLevel?.click()
-    })
+    // Effort is a ramp on a slider: the levels the manifest declares are its
+    // stops, and one is reached by walking to it from the leading stop.
+    const ramp = () => dom.window.document.querySelector('[data-slider="true"]') as HTMLElement | null
+    assert.ok(ramp(), 'and the levels the manifest declares are the levels offered')
+    const step = (key: string) =>
+      act(() => {
+        ramp()?.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+        )
+      })
+    step('Home')
+    for (let walked = 0; walked <= 12 && ramp()?.getAttribute('aria-valuetext') !== 'high'; walked += 1) {
+      step('ArrowRight')
+    }
+    assert.equal(ramp()?.getAttribute('aria-valuetext'), 'high', 'the ramp reached the declared level')
     assert.equal(
       useWorkspaceStore.getState().appSettings.specialistModelDefaults?.__general__?.reasoning,
       undefined,

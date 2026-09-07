@@ -50,6 +50,14 @@
   --ref-color-gray-500: #6b7280;
   --ref-color-mist-225: #e4e8ec;
   --ref-color-slate-450: #6e7682;
+  --ref-color-blue-600: #2b6cd4;
+  --ref-color-blue-400: #5ea0f2;
+  --ref-color-orange-700: #c2410c;
+  --ref-color-orange-400: #fb923c;
+  --ref-color-teal-700: #0f766e;
+  --ref-color-teal-400: #2dd4bf;
+  --ref-color-cyan-700: #0e7490;
+  --ref-color-cyan-400: #22d3ee;
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
@@ -83,6 +91,13 @@
   --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
   --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
+  --sem-color-mark-blue: var(--ref-color-blue-600);
+  --sem-color-mark-yellow: var(--ref-color-amber-800);
+  --sem-color-mark-orange: var(--ref-color-orange-700);
+  --sem-color-mark-red: var(--ref-color-red-600);
+  --sem-color-mark-teal: var(--ref-color-teal-700);
+  --sem-color-mark-cyan: var(--ref-color-cyan-700);
+  --sem-color-mark-violet: var(--ref-color-violet-500);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -182,6 +197,12 @@
   --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
   --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
+  --sem-color-mark-blue: var(--ref-color-blue-400);
+  --sem-color-mark-yellow: var(--ref-color-amber-400);
+  --sem-color-mark-orange: var(--ref-color-orange-400);
+  --sem-color-mark-red: var(--ref-color-coral-400);
+  --sem-color-mark-teal: var(--ref-color-teal-400);
+  --sem-color-mark-cyan: var(--ref-color-cyan-400);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -227,6 +248,12 @@
   --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
   --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
+  --sem-color-mark-blue: var(--ref-color-blue-400);
+  --sem-color-mark-yellow: var(--ref-color-amber-400);
+  --sem-color-mark-orange: var(--ref-color-orange-400);
+  --sem-color-mark-red: var(--ref-color-coral-400);
+  --sem-color-mark-teal: var(--ref-color-teal-400);
+  --sem-color-mark-cyan: var(--ref-color-cyan-400);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -269,6 +296,12 @@
   --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
   --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
+  --sem-color-mark-blue: var(--ref-color-blue-600);
+  --sem-color-mark-yellow: var(--ref-color-amber-800);
+  --sem-color-mark-orange: var(--ref-color-orange-700);
+  --sem-color-mark-red: var(--ref-color-red-600);
+  --sem-color-mark-teal: var(--ref-color-teal-700);
+  --sem-color-mark-cyan: var(--ref-color-cyan-700);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -573,6 +606,8 @@ code {
 #ds-view-component-side-pane:checked ~ .ds-catalog #component-side-pane { display: block; }
 #ds-view-component-skeleton:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-skeleton:checked ~ .ds-catalog #component-skeleton { display: block; }
+#ds-view-component-slider:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-slider:checked ~ .ds-catalog #component-slider { display: block; }
 #ds-view-component-spinner:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-spinner:checked ~ .ds-catalog #component-spinner { display: block; }
 #ds-view-component-split-button:checked ~ .ds-catalog #components { display: block; }
@@ -653,6 +688,8 @@ code {
 #ds-view-component-side-pane:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-side-pane"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-skeleton:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-skeleton"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-skeleton:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-skeleton"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-slider:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-slider"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-slider:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-slider"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-spinner:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-spinner"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-spinner:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-spinner"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-split-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-split-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -4179,6 +4216,130 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
+/* components/slider/component.css */
+/* Slider — one value taken off a ramp of ordered, discrete stops.
+ *
+ * Not a continuous range: every stop is a named value the domain already has,
+ * and the control snaps between them. The stops are drawn as ticks so the
+ * ramp reads as stepped before it is touched, and the current value is named
+ * by the consumer beside the control — a slider that shows only a position
+ * makes the person infer what they picked.
+ *
+ * Geometry is the switch's, one size up. The root is `size.control.xs` tall so
+ * the whole strip is the hit target, and it insets `space.sm` on both sides —
+ * exactly half the thumb — so the track ends where the thumb's CENTRE can
+ * reach. Every tick offset and the fill's own width then share one coordinate
+ * space, and a tick can never sit where the thumb cannot rest.
+ *
+ * Two custom properties carry the state, both set by the consumer as inline
+ * styles because they are per-instance data rather than design values:
+ *   --ds-slider-position  0–1, the selected stop's fraction of the ramp (root)
+ *   --ds-slider-tick      0–1, one tick's fraction of the ramp (each tick)
+ */
+
+.ds-slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Stated, not inherited: the inset is padding on a full-width box, so under
+     content-box sizing the control overflows its container by exactly the
+     16px it insets and the track runs out past the surface's own edge. */
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-sm);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  cursor: pointer;
+  /* The whole strip drags, so the browser must not claim the gesture for a
+     scroll before the first pointermove is delivered. */
+  touch-action: none;
+}
+
+.ds-slider:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-slider[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The off-state hairline is an inset shadow rather than a border, for the
+   switch's reason: a border would take 1px out of the box and the fill sitting
+   inside it would stop 1px short of the thumb it is supposed to meet. */
+.ds-slider-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+.ds-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--ds-slider-position) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  transition: width var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* Ticks take the ink of whatever they are lying on: the accent's own
+   foreground where the fill has reached them, the disabled ink where it has
+   not. A single tick colour reads as a defect on one half of every ramp. */
+.ds-slider-tick {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-tick) * 100%);
+  width: 3px;
+  height: 3px;
+  translate: -50% -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  opacity: 0.55;
+}
+
+.ds-slider-tick[data-reached='false'] {
+  background: var(--sem-color-text-disabled);
+  opacity: 1;
+}
+
+/* Absolute offsets, not deltas: 0 at the leading stop, width - 16 at the far
+   one, which puts the centre on the track's own two ends. */
+.ds-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-position) * (100% - 16px));
+  width: 16px;
+  height: 16px;
+  translate: 0 -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-subtle);
+  transition: left var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* At the leading stop nothing is filled, so the thumb is resting on the
+   neutral track and takes a neutral ink instead — the switch's rule that the
+   thumb follows the surface under it, stated for the one position where that
+   surface changes. `text.muted` rather than `text.primary`: the leading stop
+   is the ramp at rest, and the switch's full-strength off-thumb made the
+   quietest state on the control the loudest thing on it. */
+.ds-slider[data-at-start='true'] .ds-slider-thumb {
+  background: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-slider-fill,
+  .ds-slider-thumb {
+    transition: none;
+  }
+}
+
 /* components/spinner/component.css */
 /* Spinner — the one "working right now" mark: faint track ring + rotating
  * quarter arc in accent ink (src/renderer/src/components/ui/Spinner.tsx) —
@@ -6534,6 +6695,44 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-skeleton .demo-terminal .ds-skeleton {
     height: 10px;
   }
+.ds-embed-component-slider {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-slider .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-slider .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+.ds-embed-component-slider .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+  }
+.ds-embed-component-slider .demo-field {
+    width: 200px;
+  }
+.ds-embed-component-slider .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding: 0 var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-slider .demo-value-name {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+.ds-embed-component-slider .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
 .ds-embed-component-spinner {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -7605,6 +7804,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-select" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-side-pane" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-skeleton" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-slider" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-spinner" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-split-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-status-dot" />
@@ -7665,6 +7865,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-select">Select</label>
 <label class="catalog-nav-item" for="ds-view-component-side-pane">Side pane</label>
 <label class="catalog-nav-item" for="ds-view-component-skeleton">Skeleton</label>
+<label class="catalog-nav-item" for="ds-view-component-slider">Slider</label>
 <label class="catalog-nav-item" for="ds-view-component-spinner">Spinner</label>
 <label class="catalog-nav-item" for="ds-view-component-split-button">Split button</label>
 <label class="catalog-nav-item" for="ds-view-component-status-dot">Status dot</label>
@@ -7719,7 +7920,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-500</code><code class="catalog-token-value">#8957e5</code></p><p class="catalog-token-meta">Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-gray-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.gray-500</code><code class="catalog-token-value">#6b7280</code></p><p class="catalog-token-meta">Neutral status grey for light surfaces. Source: light --tone-neutral.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-225)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-225</code><code class="catalog-token-value">#e4e8ec</code></p><p class="catalog-token-meta">Resting-selection surface in light mode.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-450)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-450</code><code class="catalog-token-value">#6e7682</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-450)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-450</code><code class="catalog-token-value">#6e7682</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-blue-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.blue-600</code><code class="catalog-token-value">#2b6cd4</code></p><p class="catalog-token-meta">Deep identity blue for light surfaces (4.9:1 on white). Source: light --sem-color-mark-blue.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-blue-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.blue-400</code><code class="catalog-token-value">#5ea0f2</code></p><p class="catalog-token-meta">Luminous identity blue for dark surfaces. Source: dark --sem-color-mark-blue.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-orange-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.orange-700</code><code class="catalog-token-value">#c2410c</code></p><p class="catalog-token-meta">Deep identity orange for light surfaces (4.6:1 on white). Source: light --sem-color-mark-orange.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-orange-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.orange-400</code><code class="catalog-token-value">#fb923c</code></p><p class="catalog-token-meta">Luminous identity orange for dark surfaces. Source: dark --sem-color-mark-orange.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-teal-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.teal-700</code><code class="catalog-token-value">#0f766e</code></p><p class="catalog-token-meta">Deep identity teal for light surfaces (5.3:1 on white). Kept apart from the success emerald by hue. Source: light --sem-color-mark-teal.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-teal-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.teal-400</code><code class="catalog-token-value">#2dd4bf</code></p><p class="catalog-token-meta">Luminous identity teal for dark surfaces. Source: dark --sem-color-mark-teal.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-cyan-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.cyan-700</code><code class="catalog-token-value">#0e7490</code></p><p class="catalog-token-meta">Deep identity cyan for light surfaces (5.0:1 on white). Source: light --sem-color-mark-cyan.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-cyan-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.cyan-400</code><code class="catalog-token-value">#22d3ee</code></p><p class="catalog-token-meta">Luminous identity cyan for dark surfaces. Source: dark --sem-color-mark-cyan.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
@@ -7752,6 +7961,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-faint)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-faint)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-faint</code><code class="catalog-token-value">rgba(21, 127, 55, 0.10)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">The quietest success fill: a wash for a whole row that has finished while the person was elsewhere. list-row --finished: the row-wide wash under a good-edge ring. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable. <strong>Do not:</strong> Chips, banners, or anything smaller than a row — those take good-soft. Never as a hover or selection fill.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-edge)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-edge)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-edge</code><code class="catalog-token-value">rgba(21, 127, 55, 0.55)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Success ring at edge strength: the good tone let down so a 1px ring reads as an edge, not a wire. list-row --finished: the inset ring around a finished row. Full-strength status.good is for marks and ink; on a hairline around a whole row it out-shouts the needs-input gold it is meant to sit under. <strong>Do not:</strong> Text, icons, dots, or a focus ring — ink stays full strength, and focus is border.focus.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-overlay-scrim)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-overlay-scrim)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.overlay.scrim</code><code class="catalog-token-value">rgba(20, 24, 28, 0.42)</code><span class="catalog-badge">overlay</span></p><p class="catalog-token-meta">Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim. The backdrop layer behind modals, dialogs, and drawers. <strong>Do not:</strong> Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-blue)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-blue)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.blue</code><code class="catalog-token-value">{ref.color.blue-600}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity blue. The mark colour of TypeScript, Python and Markdown file glyphs (ruled 2026-09-06). Ink of a file-type glyph whose language wears blue; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-yellow)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-yellow)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.yellow</code><code class="catalog-token-value">{ref.color.amber-800}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity yellow — the same value as status.warn, spent on identity rather than warning. JavaScript, JSON and lockfile glyphs. Ink of a file-type glyph whose kind wears yellow; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-orange)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-orange)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.orange</code><code class="catalog-token-value">{ref.color.orange-700}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity orange. HTML and Rust file glyphs. Ink of a file-type glyph whose kind wears orange; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-red)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-red)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.red</code><code class="catalog-token-value">{ref.color.red-600}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity red — the same value as status.danger, spent on identity rather than danger. YAML and Java file glyphs. Ink of a file-type glyph whose kind wears red; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-teal)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-teal)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.teal</code><code class="catalog-token-value">{ref.color.teal-700}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity teal. Shell-script glyphs. A hue of its own so a coloured glyph never borrows the success emerald. Ink of a file-type glyph whose kind wears teal; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-cyan)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-cyan)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.cyan</code><code class="catalog-token-value">{ref.color.cyan-700}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity cyan. React and Go file glyphs. Ink of a file-type glyph whose kind wears cyan; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-mark-violet)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.violet</code><code class="catalog-token-value">{ref.color.violet-500}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity violet — the same value as status.merged, spent on identity rather than a merge. Stylesheet and image file glyphs. Ink of a file-type glyph whose kind wears violet; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
 </div>
 <div id="foundations-type" class="catalog-view">
 <h3>Type</h3>
@@ -7893,7 +8109,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Restraint is the whole craft. The default failure of a generated interface is not ugliness — it is genericness: many accents, decorative chrome, a happy-path-only screen. Density is bought by removing elements, words, and chrome, never by shrinking type or crushing rhythm.</p>
 <p><strong>The accent budget.</strong> Solid, saturated color is the strongest signal the system has, so it is spent on almost nothing:</p>
 <ul><li><code>accent.primary</code> as a <strong>solid fill</strong> appears on the <strong>primary action</strong> and nowhere else. One per view — an inspector aside counts as its own view.</li><li><code>accent.primary</code> as <strong>ink or a hairline</strong> may mark focus (<code>focus.ring</code>) and a genuinely live process.</li><li>Everything else earns its weight from the neutral ink and surface ramps.</li></ul>
-<p>If a surface needs a second accent, it is missing hierarchy, not color. Status hues (<code>status.*</code>) are not accents: never a button background, section border, chrome tint, or category code.</p>
+<p>If a surface needs a second accent, it is missing hierarchy, not color. Status hues (<code>status.*</code>) are not accents: never a button background, section border, chrome tint, or category code. (Identity hues on vendor marks and file-type glyphs are a different thing — see &quot;Identity colour&quot; below.)</p>
+<p><strong>The storefront exception</strong> (2026-09-06). A grid of offers — cards in a catalogue, each with one identical action in the same place — takes the accent on *every* card's action, not on one. The budget above is a rule about a <strong>working</strong> surface, where a second accent means the hierarchy is missing; in a storefront the picture and the title do the ranking and the button is furniture that has to be findable. Spending the accent once there leaves every card but one with its call to action as the quietest thing on it.</p>
+<p>Two conditions, and both are load-bearing: the actions must be <strong>the same action repeated</strong> (a row of unlike accented controls is a category code, which the rule above forbids), and the surrounding chrome must stay neutral — the Extensions home accents its cards' buttons and deliberately leaves its tile glyphs in neutral ink for exactly this reason.</p>
+<p><strong>Identity colour</strong> (ruled 2026-09-06, revising the 2026-09-02 monochrome ruling for two families). Two kinds of glyph carry a colour of their own, and the accent budget does not count them, because the colour is not ours: it names something.</p>
+<ul><li><strong>A vendor's mark wears the vendor's colour.</strong> The VS Code and IntelliJ marks on the open-in-editor control, the CLI badges, the product mark. A monochrome logo is a drawing of a logo; every other app on the machine shows the real one, and the neutral version read as a placeholder. These are brand assets with hex of their own, exempted by file from the token guard.</li><li><strong>A file-type glyph may wear its language's hue</strong> — the <code>color.mark.*</code> tokens (blue for TypeScript, yellow for JavaScript, orange for HTML …), the pairings people already know from the editor's Project view and VS Code's Explorer, so a tree of forty files scans by colour before it is read. This is opt-in per surface (<code>FileTypeGlyph tone=&quot;kind&quot;</code>) and the condition is load-bearing: <strong>only where nothing else in the row is coloured.</strong> The File Explorer qualifies. The Git changes list does not — there the filename's status tint is the row's one colour, and the glyph stays in ink.</li></ul>
+<p>What does not change: the hue identifies, it never grades. <code>color.mark.*</code> is not a status ramp, not an accent, and never a category code on a control, a row, a section, or a background. A gear, a plain document, or a folder — glyphs that name no language — stay in the row's ink; colour that says nothing is still chrome.</p>
 <p><strong>Selection is neutral.</strong> A selected row uses <code>bg.selected</code> — a neutral fill — and lifts its title to <code>text.primary</code>. It does not use the accent, and it does not carry a left bar, a border box, or a glow. A row that is merely *chosen* must never outrank the one action worth taking. The Backlog rows' epic-colour left bar was retired on 2026-09-02 under this rule: the <code>EpicColorDot</code> carries epic identity, and the skeleton no longer reserves the bar.</p>
 <h4>Quantified restraint</h4>
 <p>Ceilings, not guidelines. Exceeding one signals missing hierarchy; when a view exceeds one, model the domain again rather than adding chrome.</p>
@@ -12444,7 +12665,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>Two drawing grids, each with its own stroke discipline:</p>
 <p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
 <p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.3</code> on the Switchboard dividers), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
-<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tool-switchboard</code>), the Claude Code brand mark in <code>CliIcon</code>, and the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants).</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
+<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tool-switchboard</code>), the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
 <p><strong>The size ramp</strong> — these four steps are the sanctioned sizes, and 16 px is the rail canon (the leading-glyph slot of every sidebar and door-rail row):</p>
 <p>| Token | Value | Use | |---|---|---| | <code>--sem-icon-size-xs</code> | 13px | Inline glyphs beside meta copy and inside chips | | <code>--sem-icon-size-sm</code> | 16px | <strong>The default.</strong> List-row leading slots, toolbars, close glyphs | | <code>--sem-icon-size-md</code> | 18px | Icons paired with button labels, panel-header chrome | | <code>--sem-icon-size-lg</code> | 22px | Empty-state glyphs, large overlay close buttons |</p>
 <p>A rail row reserves a fixed 16 px leading slot whether or not the glyph fills it — an unreserved slot is what lets sibling doors' titles start at three different x-offsets (Known drift, MC-2098).</p>
@@ -12473,9 +12694,11 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>CLI / runtime marks (<code>CliIcon.tsx</code>)</h5>
 <p><code>CliIcon(cli)</code> resolves an agent CLI to one of eight marks: <code>claude-code</code> (the brand starburst — the one glyph with its own fill), <code>codex</code> (the knot mark, <code>currentColor</code>), <code>opencode</code>, and four original rounded-square tile marks (<code>zai</code>, <code>grok</code>, <code>kimi</code>, <code>cursor</code> — placeholders until official brand SVGs are bundled; both Kimi runtimes share one mark so they read as one provider), with <code>terminal</code> as the fallback. Tile marks keep the 24-grid discipline: 1.7 frame, 1.9 letterform.</p>
 <h5>File type (16-grid — <code>ui/FileTypeGlyph.tsx</code>)</h5>
-<p>*Which kind of file is this row about*, answered by shape alone. One drawing per kind, <code>currentColor</code>, in the 16 px leading slot every tree and list row reserves — the File Explorer and the Git changes list wear the same mark for the same file, so a <code>.ts</code> reads as a <code>.ts</code> on both (owner 2026-09-05, the IDE Project-view idiom). <code>fileTypeKind(name)</code> is the pure resolver; <code>FILE_TYPE_LABEL</code> names each kind for a tooltip or <code>aria-label</code>.</p>
+<p>*Which kind of file is this row about*, answered by shape first. One drawing per kind in the 16 px leading slot every tree and list row reserves — the File Explorer and the Git changes list wear the same mark for the same file, so a <code>.ts</code> reads as a <code>.ts</code> on both (owner 2026-09-05, the IDE Project-view idiom). <code>fileTypeKind(name)</code> is the pure resolver; <code>FILE_TYPE_LABEL</code> names each kind for a tooltip or <code>aria-label</code>; <code>fileTypeKindInk(kind)</code> is the identity hue a kind wears when coloured.</p>
 <p>| Kind | Shape | |---|---| | <code>typescript</code> · <code>javascript</code> · <code>python</code> · <code>rust</code> · <code>go</code> | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the <code>CliIcon</code> placeholder tile | | <code>typescript-test</code> · <code>javascript-test</code> | The same tile with its bottom-right corner notched for a tick — <code>*.test.*</code> and <code>*.spec.*</code> | | <code>react</code> | The atom — <code>.tsx</code> / <code>.jsx</code> | | <code>json</code> | Braces <code>{ }</code> | | <code>markdown</code> | M with a down arrow | | <code>yaml</code> | Indented list lines | | <code>html</code> | Angle brackets <code>&lt; &gt;</code> | | <code>css</code> | Hash <code>#</code> | | <code>shell</code> | Prompt <code>&gt;_</code> | | <code>java</code> | Cup | | <code>image</code> | Framed landscape | | <code>lock</code> | Padlock — lockfiles (<code>package-lock.json</code>, <code>yarn.lock</code>, <code>Cargo.lock</code> …) | | <code>config</code> | Gear — dotfiles, <code>.env*</code>, <code>Dockerfile</code>, <code>.toml</code> / <code>.ini</code> / <code>.xml</code> | | <code>text</code> | Document with lines — <code>.txt</code>, <code>.csv</code>, <code>LICENSE</code>, <code>README</code> | | <code>generic</code> | Plain document — anything unrecognised |</p>
-<p>The family is deliberately monochrome. The 2026-09-02 ruling that retired the explorer's sixteen hard-coded hues stands: category colour is not a status channel (&quot;Restraint&quot;), so the glyph takes the row's ink and the status tint on the filename stays the one colour in the row. <code>glyphs/file-typescript.svg</code> and <code>glyphs/file-generic.svg</code> are the framework-neutral samples of the tile and document idioms.</p>
+<p>Colour is the <code>tone</code> axis, and the surface picks it (ruled 2026-09-06, principles.md → &quot;Identity colour&quot;). <code>tone=&quot;ink&quot;</code>, the default, is the monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is the rule wherever the filename already carries a status tint — the Git changes list — so that tint stays the row's one colour. <code>tone=&quot;kind&quot;</code> inks the glyph in its language's identity hue from the <code>--sem-color-mark-*</code> ramp, the pairings people know from their editors:</p>
+<p>| Hue | Kinds | |---|---| | <code>mark.blue</code> | <code>typescript</code> · <code>typescript-test</code> · <code>python</code> · <code>markdown</code> | | <code>mark.yellow</code> | <code>javascript</code> · <code>javascript-test</code> · <code>json</code> · <code>lock</code> | | <code>mark.cyan</code> | <code>react</code> · <code>go</code> | | <code>mark.orange</code> | <code>html</code> · <code>rust</code> | | <code>mark.red</code> | <code>yaml</code> · <code>java</code> | | <code>mark.teal</code> | <code>shell</code> | | <code>mark.violet</code> | <code>css</code> · <code>image</code> | | *(row ink)* | <code>config</code> · <code>text</code> · <code>generic</code> — they name no language |</p>
+<p>The File Explorer is the surface that qualifies: nothing else in its rows is coloured. The hue identifies and never grades — it is not a status ramp, and a <code>.ts</code> row is not &quot;more&quot; than a <code>.md</code> row for being bluer. <code>glyphs/file- typescript.svg</code> and <code>glyphs/file-generic.svg</code> are the framework-neutral samples of the tile and document idioms, in <code>currentColor</code>.</p>
 <p><code>FolderGlyph(open)</code> is the family's folder: the outlined folder in the same 16 px slot, so a folder row's name starts at the same x as a file row's. The chevron beside it carries expanded state, so a tree may leave <code>open</code> off and let the folder read the same either way. <code>glyphs/folder.svg</code>.</p>
 <h5>Git views (16-grid — <code>panels/GitPanel.tsx</code>)</h5>
 <p>The Git panel's glyph-only view strip. Three of the five were redrawn on 2026-09-05 to the shapes IDEs have taught a decade of developers to read; the first set had to be learned from the tooltip.</p>
@@ -20862,6 +21085,478 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     &lt;div aria-hidden=&quot;true&quot; class=&quot;demo-terminal-row&quot;&gt;&lt;div class=&quot;ds-skeleton ds-skeleton--static&quot; style=&quot;width: 40px&quot;&gt;&lt;/div&gt;&lt;div class=&quot;ds-skeleton ds-skeleton--static&quot; style=&quot;width: 64%&quot;&gt;&lt;/div&gt;&lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-slider" class="catalog-view catalog-component">
+<h3>Slider</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-slider">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-a">Reasoning</span><span class="demo-value-name">High</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-a" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="4" aria-valuenow="3" aria-valuetext="High" style="--ds-slider-position: 0.75">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-b">Reasoning</span><span class="demo-value-name">Auto</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-b" aria-orientation="horizontal"
+           data-at-start="true" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="Auto"
+           style="--ds-slider-position: 0">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-c">Retention</span><span class="demo-value-name">90 days</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-c" aria-orientation="horizontal"
+           aria-disabled="true" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3" aria-valuetext="90 days"
+           style="--ds-slider-position: 1">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.3333"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.6667"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-a">Reasoning</span><span class="demo-value-name">High</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-a" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="4" aria-valuenow="3" aria-valuetext="High" style="--ds-slider-position: 0.75">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-b">Reasoning</span><span class="demo-value-name">Auto</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-b" aria-orientation="horizontal"
+           data-at-start="true" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="Auto"
+           style="--ds-slider-position: 0">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-c">Retention</span><span class="demo-value-name">90 days</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-c" aria-orientation="horizontal"
+           aria-disabled="true" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3" aria-valuetext="90 days"
+           style="--ds-slider-position: 1">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.3333"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.6667"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>One value taken off a ramp of ordered, discrete stops — an effort level, a verbosity, a retention window. The stops are the domain's own named values and the control snaps between them; there is no continuous range in this system, because there is no quantity in the product a person sets to an arbitrary number.</p>
+<p>Reach for it when the choice is <strong>ordered and the order is the point</strong>: the ramp itself says that the stop on the right costs more than the stop on the left, which a menu of the same words does not. When the options are unordered, or the person needs to read a description of each, it is a select or radio rows.</p>
+<p>It is also not a segmented control. A segmented strip shows every label at once and is capped at four; a slider shows a *position* and one value name, and stays legible at six or eight stops where the strip has long since run out of row. The other half of that trade is real: a slider makes the person move through the ramp to read it, so a two-stop slider is a switch wearing a track. Three stops is the floor.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-slider</code> | yes — <code>role=&quot;slider&quot;</code>, <code>tabindex=&quot;0&quot;</code>, <code>aria-valuemin</code> / <code>aria-valuemax</code> / <code>aria-valuenow</code> / <code>aria-valuetext</code>, and a name | | Track | <code>.ds-slider-track</code> | yes — <code>aria-hidden</code>; owns the groove and its hairline | | Fill | <code>.ds-slider-fill</code> | yes — inside the track, from the leading end to the thumb's centre | | Tick | <code>.ds-slider-tick</code> | one per stop — <code>aria-hidden</code>, positioned inside the track | | Thumb | <code>.ds-slider-thumb</code> | yes — <code>aria-hidden</code>, a sibling of the track, positioned against the root |</p>
+<p>Two custom properties carry the state, set by the consumer as inline styles because they are per-instance data, not design values: <code>--ds-slider-position</code> (0–1) on the root, and <code>--ds-slider-tick</code> (0–1) on each tick. A tick past the thumb marks itself <code>data-reached=&quot;false&quot;</code>; the root at the leading stop marks itself <code>data-at-start=&quot;true&quot;</code>.</p>
+<p>The root is <code>size.control.xs</code> tall and insets <code>space.sm</code> — half the thumb — on both sides, so the track ends exactly where the thumb's centre can reach. That is what puts ticks, fill and thumb in one coordinate space; a track drawn edge to edge leaves the first and last ticks somewhere the thumb never arrives.</p>
+<p>There is no label part and no value part. The name is the consumer's own text (<code>aria-labelledby</code>, or <code>aria-label</code> when the control is genuinely alone), and <strong>the consumer displays the current value's name beside or above the control</strong> — a position alone does not tell anyone what they just picked, and <code>aria-valuetext</code> says it only to a screen reader.</p>
+<h4>Variants</h4>
+<p>None. One height, one thumb, one accent.</p>
+<p>A continuous variant is a rejected idea, not a missing one: a value with no named stops has nothing to put in the value line above the control, and the person is left reading a number they did not choose in units nobody named. A vertical variant is rejected for the same kind of reason — the ramp reads left-to-right as cheap-to-costly because that is how the rest of the product reads, and a vertical one would need its own convention for which end is more.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | <code>bg.active</code> track with a <code>border.default</code> hairline, <code>accent.primary</code> fill, thumb in <code>text.on-accent</code> | | Leading stop | Nothing filled; the thumb takes <code>text.muted</code>, a neutral ink for the neutral ground it is resting on | | Ticks | <code>text.on-accent</code> at 55% where the fill has reached them, <code>text.disabled</code> past the thumb | | Focus | the shared <code>focus.ring</code> outline at <code>focus.ring-offset</code>, on <code>:focus-visible</code> only | | Disabled | <code>aria-disabled=&quot;true&quot;</code>: 45% opacity, <code>not-allowed</code>, no keyboard or pointer response |</p>
+<p>The fill is the one place this control spends the accent, and it spends it the way the switch does — as the <strong>state</strong> of a setting, not as an action. The accent budget in <code>foundations/principles.md</code> governs solid accent on the primary *action*; a filled track is the same object as a thrown switch, and the two controls are deliberately made of the same material so a person reads them as one family.</p>
+<p>The thumb follows the surface under it, which is why the leading stop is called out. A thumb pinned to <code>text.on-accent</code> disappears against the neutral track at position zero — dark ink on a dark groove in dark mode — and that is the position a slider is in the moment it is first shown. It takes <code>text.muted</code> there rather than the switch's full-strength <code>text.primary</code>: the leading stop is the ramp at rest, and a full-strength thumb made the quietest state on the control the loudest mark on it.</p>
+<h4>Keyboard</h4>
+<p>The control is one tab stop and the value follows the keys.</p>
+<ul><li>ArrowRight / ArrowUp move one stop up, ArrowLeft / ArrowDown one stop down. Neither wraps: a ramp has ends, and wrapping from the costliest stop to the cheapest is a value nobody meant to pick.</li><li>Home selects the leading stop, End the trailing one.</li><li>PageUp / PageDown move by a larger step on a long ramp; on a ramp of five or fewer stops they are the same as the arrows.</li></ul>
+<p>Like the segmented control, this applies values as it moves, so it is for cheap, reversible settings only. A choice with side effects belongs where focus and commitment are separate steps.</p>
+<h4>Pointer</h4>
+<p>Pressing anywhere on the strip selects the nearest stop and starts a drag; the value snaps stop to stop while the pointer moves, and the press releases wherever it is let go. The whole <code>size.control.xs</code> strip is the target, not the 8px groove — a 6px-tall hit area is a control that has to be aimed at.</p>
+<h4>Usage</h4>
+<ul><li>Three stops or more. Two is a switch; one is a label.</li><li>The value's name goes next to the control, in the consumer's own type. Stop labels *under* the track are a rejected layout: they cannot fit past four short words, and they force a truncation the position was supposed to avoid.</li><li>Put the cheap, safe, or small end on the left. Every ramp in the product reads the same direction, and a reversed one is read wrong before it is read at all.</li><li>One slider per question, and never a slider beside a select answering the same question in a second shape.</li></ul>
+<h4>Accessibility</h4>
+<ul><li><code>role=&quot;slider&quot;</code> on a real focusable element with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code> — indices into the ramp, not the values themselves — and <code>aria-valuetext</code> carrying the current stop's <strong>name</strong>, which is the thing the person actually chose. Without <code>valuetext</code> a screen reader announces &quot;3&quot;, which is not a level anyone selected.</li><li><code>aria-orientation=&quot;horizontal&quot;</code> is the default and is stated anyway, because the arrow-key mapping depends on it.</li><li>The root carries the name; the track, fill, ticks and thumb are all <code>aria-hidden</code> — they are one control's parts, and announcing them makes the control read as five things.</li><li>Never an interactive descendant. A focusable tick inside a <code>slider</code> breaks the role's contract and puts a second tab stop where a person expects one.</li><li>Disabled is <code>aria-disabled=&quot;true&quot;</code>, not the removal of the tab stop: which stops exist is information even when the ramp cannot be moved.</li><li>The value survives greyscale — the thumb's position, not the fill's hue, is what states it.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/slider/component.css</summary><pre><code>/* Slider — one value taken off a ramp of ordered, discrete stops.
+ *
+ * Not a continuous range: every stop is a named value the domain already has,
+ * and the control snaps between them. The stops are drawn as ticks so the
+ * ramp reads as stepped before it is touched, and the current value is named
+ * by the consumer beside the control — a slider that shows only a position
+ * makes the person infer what they picked.
+ *
+ * Geometry is the switch's, one size up. The root is `size.control.xs` tall so
+ * the whole strip is the hit target, and it insets `space.sm` on both sides —
+ * exactly half the thumb — so the track ends where the thumb's CENTRE can
+ * reach. Every tick offset and the fill's own width then share one coordinate
+ * space, and a tick can never sit where the thumb cannot rest.
+ *
+ * Two custom properties carry the state, both set by the consumer as inline
+ * styles because they are per-instance data rather than design values:
+ *   --ds-slider-position  0–1, the selected stop's fraction of the ramp (root)
+ *   --ds-slider-tick      0–1, one tick's fraction of the ramp (each tick)
+ */
+
+.ds-slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Stated, not inherited: the inset is padding on a full-width box, so under
+     content-box sizing the control overflows its container by exactly the
+     16px it insets and the track runs out past the surface's own edge. */
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-sm);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  cursor: pointer;
+  /* The whole strip drags, so the browser must not claim the gesture for a
+     scroll before the first pointermove is delivered. */
+  touch-action: none;
+}
+
+.ds-slider:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-slider[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The off-state hairline is an inset shadow rather than a border, for the
+   switch's reason: a border would take 1px out of the box and the fill sitting
+   inside it would stop 1px short of the thumb it is supposed to meet. */
+.ds-slider-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+.ds-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--ds-slider-position) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  transition: width var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* Ticks take the ink of whatever they are lying on: the accent's own
+   foreground where the fill has reached them, the disabled ink where it has
+   not. A single tick colour reads as a defect on one half of every ramp. */
+.ds-slider-tick {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-tick) * 100%);
+  width: 3px;
+  height: 3px;
+  translate: -50% -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  opacity: 0.55;
+}
+
+.ds-slider-tick[data-reached='false'] {
+  background: var(--sem-color-text-disabled);
+  opacity: 1;
+}
+
+/* Absolute offsets, not deltas: 0 at the leading stop, width - 16 at the far
+   one, which puts the centre on the track's own two ends. */
+.ds-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-position) * (100% - 16px));
+  width: 16px;
+  height: 16px;
+  translate: 0 -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-subtle);
+  transition: left var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* At the leading stop nothing is filled, so the thumb is resting on the
+   neutral track and takes a neutral ink instead — the switch's rule that the
+   thumb follows the surface under it, stated for the one position where that
+   surface changes. `text.muted` rather than `text.primary`: the leading stop
+   is the ramp at rest, and the switch's full-strength off-thumb made the
+   quietest state on the control the loudest thing on it. */
+.ds-slider[data-at-start='true'] .ds-slider-thumb {
+  background: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-slider-fill,
+  .ds-slider-thumb {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/slider/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Slider&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+  }
+  /* The consumer's composition, not the component's: a slider states its value
+     in the host's own type, above the track it is set on. */
+  .demo-field {
+    width: 200px;
+  }
+  .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding: 0 var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-value-name {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;l-a&quot;&gt;Reasoning&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;High&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;l-a&quot; aria-orientation=&quot;horizontal&quot;
+           aria-valuemin=&quot;0&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-valuetext=&quot;High&quot; style=&quot;--ds-slider-position: 0.75&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.25&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.5&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.75&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;l-b&quot;&gt;Reasoning&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;Auto&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;l-b&quot; aria-orientation=&quot;horizontal&quot;
+           data-at-start=&quot;true&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;0&quot; aria-valuetext=&quot;Auto&quot;
+           style=&quot;--ds-slider-position: 0&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.25&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.5&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.75&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;l-c&quot;&gt;Retention&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;90 days&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;l-c&quot; aria-orientation=&quot;horizontal&quot;
+           aria-disabled=&quot;true&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;3&quot; aria-valuenow=&quot;3&quot; aria-valuetext=&quot;90 days&quot;
+           style=&quot;--ds-slider-position: 1&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.3333&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.6667&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;d-a&quot;&gt;Reasoning&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;High&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;d-a&quot; aria-orientation=&quot;horizontal&quot;
+           aria-valuemin=&quot;0&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-valuetext=&quot;High&quot; style=&quot;--ds-slider-position: 0.75&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.25&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.5&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.75&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;d-b&quot;&gt;Reasoning&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;Auto&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;d-b&quot; aria-orientation=&quot;horizontal&quot;
+           data-at-start=&quot;true&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;0&quot; aria-valuetext=&quot;Auto&quot;
+           style=&quot;--ds-slider-position: 0&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.25&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.5&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 0.75&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;d-c&quot;&gt;Retention&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;90 days&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;d-c&quot; aria-orientation=&quot;horizontal&quot;
+           aria-disabled=&quot;true&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;3&quot; aria-valuenow=&quot;3&quot; aria-valuetext=&quot;90 days&quot;
+           style=&quot;--ds-slider-position: 1&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.3333&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 0.6667&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;script&gt;
+  // The demo is live so the keyboard and pointer contracts in component.md can
+  // actually be tried. A consuming app owns this logic in its own framework —
+  // nothing here is part of the component.
+  const NAMES = {
+    Reasoning: ['Auto', 'Low', 'Medium', 'High', 'Max'],
+    Retention: ['7 days', '14 days', '30 days', '90 days'],
+  }
+  for (const slider of document.querySelectorAll('.ds-slider')) {
+    const axis = document.getElementById(slider.getAttribute('aria-labelledby')).textContent
+    const names = NAMES[axis]
+    const field = slider.closest('.demo-field')
+    const readout = field.querySelector('.demo-value-name')
+    const max = Number(slider.getAttribute('aria-valuemax'))
+    const ticks = [...slider.querySelectorAll('.ds-slider-tick')]
+
+    const apply = (next) =&gt; {
+      if (slider.getAttribute('aria-disabled') === 'true') return
+      const index = Math.max(0, Math.min(max, next))
+      slider.setAttribute('aria-valuenow', String(index))
+      slider.setAttribute('aria-valuetext', names[index])
+      slider.style.setProperty('--ds-slider-position', String(index / max))
+      slider.toggleAttribute('data-at-start', index === 0)
+      if (index === 0) slider.setAttribute('data-at-start', 'true')
+      ticks.forEach((tick, i) =&gt; {
+        if (i &lt;= index) tick.removeAttribute('data-reached')
+        else tick.setAttribute('data-reached', 'false')
+      })
+      readout.textContent = names[index]
+    }
+
+    const at = (clientX) =&gt; {
+      const box = slider.getBoundingClientRect()
+      const span = box.width - 16
+      if (span &lt;= 0) return 0
+      return Math.round(((clientX - box.left - 8) / span) * max)
+    }
+
+    slider.addEventListener('keydown', (event) =&gt; {
+      const now = Number(slider.getAttribute('aria-valuenow'))
+      const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key]
+      if (step !== undefined) apply(now + step)
+      else if (event.key === 'Home') apply(0)
+      else if (event.key === 'End') apply(max)
+      else return
+      event.preventDefault()
+    })
+    slider.addEventListener('pointerdown', (event) =&gt; {
+      slider.setPointerCapture(event.pointerId)
+      apply(at(event.clientX))
+    })
+    slider.addEventListener('pointermove', (event) =&gt; {
+      if (slider.hasPointerCapture(event.pointerId)) apply(at(event.clientX))
+    })
+  }
+&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

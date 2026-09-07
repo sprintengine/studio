@@ -47,6 +47,7 @@
       "select",
       "side-pane",
       "skeleton",
+      "slider",
       "spinner",
       "split-button",
       "status-dot",

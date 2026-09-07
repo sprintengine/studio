@@ -1,0 +1,122 @@
+/* Slider — one value taken off a ramp of ordered, discrete stops.
+ *
+ * Not a continuous range: every stop is a named value the domain already has,
+ * and the control snaps between them. The stops are drawn as ticks so the
+ * ramp reads as stepped before it is touched, and the current value is named
+ * by the consumer beside the control — a slider that shows only a position
+ * makes the person infer what they picked.
+ *
+ * Geometry is the switch's, one size up. The root is `size.control.xs` tall so
+ * the whole strip is the hit target, and it insets `space.sm` on both sides —
+ * exactly half the thumb — so the track ends where the thumb's CENTRE can
+ * reach. Every tick offset and the fill's own width then share one coordinate
+ * space, and a tick can never sit where the thumb cannot rest.
+ *
+ * Two custom properties carry the state, both set by the consumer as inline
+ * styles because they are per-instance data rather than design values:
+ *   --ds-slider-position  0–1, the selected stop's fraction of the ramp (root)
+ *   --ds-slider-tick      0–1, one tick's fraction of the ramp (each tick)
+ */
+
+.ds-slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Stated, not inherited: the inset is padding on a full-width box, so under
+     content-box sizing the control overflows its container by exactly the
+     16px it insets and the track runs out past the surface's own edge. */
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-sm);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  cursor: pointer;
+  /* The whole strip drags, so the browser must not claim the gesture for a
+     scroll before the first pointermove is delivered. */
+  touch-action: none;
+}
+
+.ds-slider:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-slider[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The off-state hairline is an inset shadow rather than a border, for the
+   switch's reason: a border would take 1px out of the box and the fill sitting
+   inside it would stop 1px short of the thumb it is supposed to meet. */
+.ds-slider-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+.ds-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--ds-slider-position) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  transition: width var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* Ticks take the ink of whatever they are lying on: the accent's own
+   foreground where the fill has reached them, the disabled ink where it has
+   not. A single tick colour reads as a defect on one half of every ramp. */
+.ds-slider-tick {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-tick) * 100%);
+  width: 3px;
+  height: 3px;
+  translate: -50% -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  opacity: 0.55;
+}
+
+.ds-slider-tick[data-reached='false'] {
+  background: var(--sem-color-text-disabled);
+  opacity: 1;
+}
+
+/* Absolute offsets, not deltas: 0 at the leading stop, width - 16 at the far
+   one, which puts the centre on the track's own two ends. */
+.ds-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--ds-slider-position) * (100% - 16px));
+  width: 16px;
+  height: 16px;
+  translate: 0 -50%;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-on-accent);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-subtle);
+  transition: left var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* At the leading stop nothing is filled, so the thumb is resting on the
+   neutral track and takes a neutral ink instead — the switch's rule that the
+   thumb follows the surface under it, stated for the one position where that
+   surface changes. `text.muted` rather than `text.primary`: the leading stop
+   is the ramp at rest, and the switch's full-strength off-thumb made the
+   quietest state on the control the loudest thing on it. */
+.ds-slider[data-at-start='true'] .ds-slider-thumb {
+  background: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-slider-fill,
+  .ds-slider-thumb {
+    transition: none;
+  }
+}

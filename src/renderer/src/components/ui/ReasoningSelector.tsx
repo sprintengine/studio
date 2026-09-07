@@ -3,6 +3,7 @@ import React from 'react'
 import { ChevronDownIcon } from '../AppIcons'
 import { DefaultChip } from './DefaultChip'
 import { Popover } from './Popover'
+import { Slider } from './Slider'
 import {
   MENU_DIVIDER_CLASS,
   MENU_GROUP_LABEL_CLASS,
@@ -23,8 +24,27 @@ import type { PluginReasoningCatalog, PluginReasoningOption } from '../../../../
 // CLI whose manifest declares levels, and the Context window group only for a
 // model the catalog actually ships at more than one window. A CLI with neither
 // renders no control at all — not a greyed one, not an empty menu.
+//
+// The two groups are not the same SHAPE, because the two axes are not the same
+// kind of choice. Effort is a RAMP — Auto, Low, Medium, High, Extra high, Max,
+// each one costlier than the last — and a menu of six rows threw that ordering
+// away: the price of the choice was the whole point and nothing on the surface
+// said it. It is a `Slider` now (design-system/components/slider), where the
+// position IS the cost and one drag crosses the range a menu made you read.
+// Context window stays a menu: two or three unordered windows a model happens
+// to ship at is a list, and a two-stop slider is a switch wearing a track.
+//
+// Auto is the ramp's leading stop rather than a reset button beside it. It is
+// already the first row of the menu this replaces, and it lands honestly: at
+// stop zero nothing is filled, which is exactly what "no effort dialed in, the
+// CLI's own default wins" looks like.
 
 const REASONING_OPTION_SELECTOR = '[data-reasoning-option="true"]'
+const REASONING_SLIDER_SELECTOR = '[data-slider="true"]'
+
+// The stop id for "pass no flag". Empty rather than a sentinel word so it can
+// never collide with a level a manifest declares.
+const UNSET_LEVEL_ID = ''
 
 // The costliest level is the last one the manifest declares (Codex `ultra`,
 // claude-code `max`). Derived rather than listed, so a manifest that adds a
@@ -150,10 +170,12 @@ export function ReasoningSelector({
 
   const focusChecked = (surface: HTMLElement) => {
     surfaceRef.current = surface
-    const checked = surface.querySelector<HTMLButtonElement>(
-      `${REASONING_OPTION_SELECTOR}[data-checked="true"]`,
-    )
-    const target = checked ?? surface.querySelector<HTMLButtonElement>(REASONING_OPTION_SELECTOR)
+    // The slider first when there is one: it is the axis the trigger names, and
+    // the arrow keys that open onto it are the whole point of the shape.
+    const checked =
+      surface.querySelector<HTMLElement>(REASONING_SLIDER_SELECTOR) ??
+      surface.querySelector<HTMLElement>(`${REASONING_OPTION_SELECTOR}[data-checked="true"]`)
+    const target = checked ?? surface.querySelector<HTMLElement>(REASONING_OPTION_SELECTOR)
     if (!target) return
     target.focus()
     // Popover paints its surface `visibility: hidden` until it has measured and
@@ -205,7 +227,10 @@ export function ReasoningSelector({
       open={open}
       onOpenChange={setOpen}
       ariaLabel={ariaLabel}
-      popupRole="menu"
+      // A surface holding only the effort ramp is a small dialog, not a menu —
+      // it has no menuitems for `role="menu"` to be describing. It goes back to
+      // being a menu the moment the context-window list is on it too.
+      popupRole={variants.length > 0 ? 'menu' : 'dialog'}
       placement="bottom-start"
       className="shrink-0"
       surfaceClassName={`w-[220px] ${MENU_LIST_CLASS}`}
@@ -243,27 +268,19 @@ export function ReasoningSelector({
     >
       {levels.length > 0 ? (
         <ReasoningGroup heading={grouped ? 'Reasoning' : undefined}>
-          <ReasoningMenuItem
-            checked={!reasoning}
-            onKeyDown={onOptionKey}
-            onSelect={() => choose(() => onSelectReasoning!(null))}
-          >
-            {UNSET_LEVEL_LABEL}
-          </ReasoningMenuItem>
-          {levels.map((level) => (
-            <ReasoningMenuItem
-              key={level.id}
-              checked={level.id === reasoning}
-              defaultChip={level.id === reasoningSelection?.default}
-              // The costliest level carries the warn tone inside the menu, so it
-              // reads as expensive before it is chosen rather than after.
-              warn={level.id === costliest}
-              onKeyDown={onOptionKey}
-              onSelect={() => choose(() => onSelectReasoning!(level.id))}
-            >
-              {level.label ?? level.id}
-            </ReasoningMenuItem>
-          ))}
+          <EffortSlider
+            ariaLabel={grouped ? 'Reasoning' : ariaLabel}
+            levels={levels}
+            reasoning={reasoning}
+            catalogDefault={reasoningSelection?.default}
+            costliest={costliest}
+            // The slider does NOT close the surface. A menu row is one
+            // decision and closing on it is the reward; a ramp is walked, and a
+            // control that vanished on the first arrow key would make the range
+            // it exists to show unreachable. Escape and a click outside close
+            // it, which is what every other popover already teaches.
+            onSelect={onSelectReasoning!}
+          />
         </ReasoningGroup>
       ) : null}
       {grouped ? <div role="separator" className={MENU_DIVIDER_CLASS} /> : null}
@@ -283,6 +300,68 @@ export function ReasoningSelector({
         </ReasoningGroup>
       ) : null}
     </Popover>
+  )
+}
+
+// The effort ramp: the value it is set to, named, over the track that says what
+// that value COSTS. The name is the control's other half — a position alone
+// leaves the person to infer which stop they landed on, and `aria-valuetext`
+// says it only to a screen reader.
+function EffortSlider({
+  ariaLabel,
+  levels,
+  reasoning,
+  catalogDefault,
+  costliest,
+  onSelect,
+}: {
+  ariaLabel: string
+  levels: ReadonlyArray<PluginReasoningOption>
+  reasoning?: string
+  catalogDefault?: string
+  costliest?: string
+  onSelect: (reasoning: string | null) => void
+}): JSX.Element {
+  // Auto leads the ramp, exactly where it led the menu this replaces.
+  const stops = [
+    { id: UNSET_LEVEL_ID, label: UNSET_LEVEL_LABEL },
+    ...levels.map((level) => ({ id: level.id, label: level.label ?? level.id })),
+  ]
+  const index = Math.max(
+    0,
+    stops.findIndex((stop) => stop.id === (reasoning ?? UNSET_LEVEL_ID)),
+  )
+  const current = stops[index]!
+
+  return (
+    <div className="px-2.5 pb-1 pt-0.5">
+      {/* The value line: what the ramp is set to, named. A slider that shows a
+          position and nothing else leaves the person to infer which stop they
+          landed on, and `aria-valuetext` says it only to a screen reader. */}
+      <div data-reasoning-value="true" className="flex items-center justify-between gap-2 pb-1">
+        <span
+          className={[
+            'min-w-0 truncate text-body font-medium',
+            // The costliest stop carries the warn tone, so the ramp's top reads
+            // as expensive while it is being crossed rather than after.
+            current.id === costliest
+              ? 'text-[color:var(--tone-warn-on-tint)]'
+              : 'text-[color:var(--text-strong)]',
+          ].join(' ')}
+        >
+          {current.label}
+        </span>
+        {/* The catalog's own default, marked with a neutral chip rather than a
+            tone: it is a fact about the stop, not a status. */}
+        {current.id && current.id === catalogDefault ? <DefaultChip /> : null}
+      </div>
+      <Slider
+        ariaLabel={ariaLabel}
+        stops={stops}
+        value={index}
+        onChange={(next) => onSelect(stops[next]!.id || null)}
+      />
+    </div>
   )
 }
 
@@ -306,14 +385,12 @@ function ReasoningGroup({
 function ReasoningMenuItem({
   checked,
   defaultChip,
-  warn,
   children,
   onSelect,
   onKeyDown,
 }: {
   checked: boolean
   defaultChip?: boolean
-  warn?: boolean
   children: React.ReactNode
   onSelect: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
@@ -339,9 +416,7 @@ function ReasoningMenuItem({
         MENU_ITEM_CLASS,
         checked
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : warn
-            ? 'text-[color:var(--tone-warn-on-tint)]'
-            : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
+          : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
       ].join(' ')}
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>

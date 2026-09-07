@@ -36,6 +36,8 @@ export {
   storedModelPermissionPreset,
   useModelPermissionPreset,
 } from './modelPermissionPresets'
+export { Slider } from './Slider'
+export type { SliderStop } from './Slider'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

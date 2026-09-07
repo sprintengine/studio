@@ -117,6 +117,8 @@ async function main(): Promise<void> {
     tabs: () => HTMLButtonElement[]
     search: () => HTMLInputElement
     menuItems: () => HTMLButtonElement[]
+    slider: () => HTMLElement | undefined
+    sliderValue: () => string | undefined
     click: (element: Element | undefined | null) => Promise<void>
     key: (element: Element | undefined | null, key: string, init?: KeyboardEventInit) => Promise<void>
     type: (value: string) => Promise<void>
@@ -141,6 +143,10 @@ async function main(): Promise<void> {
       tabs: () => query<HTMLButtonElement>('[role="radio"]'),
       search: () => query<HTMLInputElement>('input[type="search"]')[0]!,
       menuItems: () => query<HTMLButtonElement>('[data-reasoning-option="true"]'),
+      // The effort ramp is one control, not a row per level: it is read by its
+      // value line and its aria-valuetext, and driven with the arrow keys.
+      slider: () => query<HTMLElement>('[data-slider="true"]')[0],
+      sliderValue: () => query<HTMLElement>('[data-reasoning-value="true"]')[0]?.textContent ?? undefined,
       click: async (element) => {
         assert.ok(element, 'element to click exists')
         await act(async () => {
@@ -663,9 +669,16 @@ async function main(): Promise<void> {
       ['Reasoning', 'Context window'],
       'two groups, so the headings are earned',
     )
+    // Effort is a ramp and rides the slider; the windows stay a list, because
+    // two windows a model happens to ship at are not ordered by cost.
+    assert.equal(
+      withWindows.slider()?.getAttribute('aria-valuemax'),
+      String(CLAUDE_LEVELS.length),
+      'every declared level is a stop, with Auto leading the ramp',
+    )
     assert.deepEqual(
       withWindows.menuItems().map((item) => item.textContent),
-      ['Auto', 'Low', 'Medium', 'High', 'Extra high', 'Max', 'StandardDefault', '1M'],
+      ['StandardDefault', '1M'],
       'both windows are offered, the base one carrying the neutral Default chip',
     )
     withWindows.unmount()
@@ -685,32 +698,43 @@ async function main(): Promise<void> {
     noWindows.unmount()
   })
 
-  await run('the catalog’s declared default is the only entry that gets the chip', async () => {
-    const view = mountElement(
-      React.createElement(ReasoningSelector, {
-        ariaLabel: 'Reasoning',
-        reasoningSelection: { levels: CODEX_LEVELS, default: 'medium' },
-        onSelectReasoning: () => {},
-        onSelectModel: () => {},
-      } as unknown as Parameters<typeof ReasoningSelector>[0]),
-    )
-    await view.click(view.container.querySelector('[data-reasoning-trigger="true"]'))
-    const chipped = view.menuItems().filter((item) => item.textContent?.endsWith('Default'))
-    assert.deepEqual(
-      chipped.map((item) => item.textContent),
-      ['MediumDefault'],
-    )
-    view.unmount()
-  })
-
-  await run('picking a level writes it through, and Auto clears back to the CLI’s own effort', async () => {
-    const picked: Array<string | null> = []
-    const open = async () => {
+  await run('the catalog’s declared default is chipped on the stop the ramp is resting on', async () => {
+    const open = async (reasoning?: string) => {
       const view = mountElement(
         React.createElement(ReasoningSelector, {
           ariaLabel: 'Reasoning',
           reasoningSelection: { levels: CODEX_LEVELS, default: 'medium' },
-          reasoning: 'ultra',
+          reasoning,
+          onSelectReasoning: () => {},
+          onSelectModel: () => {},
+        } as unknown as Parameters<typeof ReasoningSelector>[0]),
+      )
+      await view.click(view.container.querySelector('[data-reasoning-trigger="true"]'))
+      return view
+    }
+    // A slider names one stop at a time, so the chip travels with the value
+    // line rather than sitting on a row of its own.
+    const onDefault = await open('medium')
+    assert.equal(onDefault.sliderValue(), 'MediumDefault')
+    onDefault.unmount()
+
+    const elsewhere = await open('high')
+    assert.equal(elsewhere.sliderValue(), 'High', 'and no other stop wears it')
+    elsewhere.unmount()
+
+    const unset = await open()
+    assert.equal(unset.sliderValue(), 'Auto', 'Auto is the runtime’s choice, not the catalog’s default')
+    unset.unmount()
+  })
+
+  await run('the ramp walks the levels, and its leading stop clears back to the CLI’s own effort', async () => {
+    const picked: Array<string | null> = []
+    const open = async (reasoning?: string) => {
+      const view = mountElement(
+        React.createElement(ReasoningSelector, {
+          ariaLabel: 'Reasoning',
+          reasoningSelection: { levels: CODEX_LEVELS, default: 'medium' },
+          reasoning,
           onSelectReasoning: (next: string | null) => picked.push(next),
           onSelectModel: () => {},
         } as unknown as Parameters<typeof ReasoningSelector>[0]),
@@ -718,16 +742,28 @@ async function main(): Promise<void> {
       await view.click(view.container.querySelector('[data-reasoning-trigger="true"]'))
       return view
     }
-    const view = await open()
-    await view.click(view.menuItems().find((item) => item.textContent === 'High'))
-    assert.deepEqual(picked, ['high'])
+
+    // 'ultra' is the last of CODEX_LEVELS, so the ramp is at its far end and one
+    // step down is the level before it.
+    const view = await open('ultra')
+    assert.equal(view.slider()?.getAttribute('aria-valuetext'), 'Ultra')
+    await view.key(view.slider(), 'ArrowLeft')
+    assert.deepEqual(picked, [CODEX_LEVELS[CODEX_LEVELS.length - 2]!.id])
     view.unmount()
 
     picked.length = 0
-    const second = await open()
-    await second.click(second.menuItems().find((item) => item.textContent === 'Auto'))
-    assert.deepEqual(picked, [null], 'Auto is the explicit way back to blank')
+    const second = await open('high')
+    await second.key(second.slider(), 'Home')
+    assert.deepEqual(picked, [null], 'the leading stop is the explicit way back to blank')
     second.unmount()
+
+    // A ramp has ends. Walking off the cheap end from Auto writes nothing, so a
+    // held arrow key cannot roll round to the costliest level.
+    picked.length = 0
+    const third = await open()
+    await third.key(third.slider(), 'ArrowLeft')
+    assert.deepEqual(picked, [], 'neither end wraps')
+    third.unmount()
   })
 
   await run('picking a context window selects that window’s catalog id', async () => {

@@ -393,17 +393,17 @@ async function main(): Promise<void> {
     await act(async () => {
       trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    const low = [...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]')].find(
-      (item) => item.textContent?.includes('Low'),
-    )
-    assert.ok(low, 'the menu lists the declared levels')
+    // Effort is a ramp on a slider, not a row per level: the stored level is the
+    // stop it opens on, and one step down the ramp is the level before it.
+    const slider = dom.window.document.body.querySelector('[data-slider="true"]')
+    assert.ok(slider, 'the effort ramp is on the open surface')
+    assert.equal(slider.getAttribute('aria-valuetext'), 'High', 'opened on the stored level')
     await act(async () => {
-      low.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+      slider.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+      )
     })
-    await act(async () => {
-      low.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-    })
-    assert.deepEqual(written, [['developer', 'low']], 'the pick is written against the row’s role')
+    assert.deepEqual(written, [['developer', 'medium']], 'the pick is written against the row’s role')
     view.unmount()
   })
 
@@ -505,15 +505,13 @@ async function main(): Promise<void> {
     await act(async () => {
       trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    const medium = [...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]')].find(
-      (item) => item.textContent?.includes('Medium'),
-    )
-    assert.ok(medium, 'the menu lists the CLI’s declared levels')
+    const slider = dom.window.document.body.querySelector('[data-slider="true"]')
+    assert.ok(slider, 'the effort ramp carries the CLI’s declared levels')
+    assert.equal(slider.getAttribute('aria-valuetext'), 'High', 'opened on the stored level')
     await act(async () => {
-      medium.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
-    })
-    await act(async () => {
-      medium.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      slider.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+      )
     })
     assert.deepEqual(written, [['developer', 'medium']], 'the pick reaches the wizard’s own setter')
     view.unmount()

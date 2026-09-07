@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Slider</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+  }
+  /* The consumer's composition, not the component's: a slider states its value
+     in the host's own type, above the track it is set on. */
+  .demo-field {
+    width: 200px;
+  }
+  .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding: 0 var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-value-name {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-a">Reasoning</span><span class="demo-value-name">High</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-a" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="4" aria-valuenow="3" aria-valuetext="High" style="--ds-slider-position: 0.75">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-b">Reasoning</span><span class="demo-value-name">Auto</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-b" aria-orientation="horizontal"
+           data-at-start="true" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="Auto"
+           style="--ds-slider-position: 0">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-c">Retention</span><span class="demo-value-name">90 days</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-c" aria-orientation="horizontal"
+           aria-disabled="true" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3" aria-valuetext="90 days"
+           style="--ds-slider-position: 1">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.3333"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.6667"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-a">Reasoning</span><span class="demo-value-name">High</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-a" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="4" aria-valuenow="3" aria-valuetext="High" style="--ds-slider-position: 0.75">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-b">Reasoning</span><span class="demo-value-name">Auto</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-b" aria-orientation="horizontal"
+           data-at-start="true" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="Auto"
+           style="--ds-slider-position: 0">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.25"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.5"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 0.75"></span>
+          <span class="ds-slider-tick" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-c">Retention</span><span class="demo-value-name">90 days</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-c" aria-orientation="horizontal"
+           aria-disabled="true" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3" aria-valuetext="90 days"
+           style="--ds-slider-position: 1">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.3333"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 0.6667"></span>
+          <span class="ds-slider-tick" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // The demo is live so the keyboard and pointer contracts in component.md can
+  // actually be tried. A consuming app owns this logic in its own framework —
+  // nothing here is part of the component.
+  const NAMES = {
+    Reasoning: ['Auto', 'Low', 'Medium', 'High', 'Max'],
+    Retention: ['7 days', '14 days', '30 days', '90 days'],
+  }
+  for (const slider of document.querySelectorAll('.ds-slider')) {
+    const axis = document.getElementById(slider.getAttribute('aria-labelledby')).textContent
+    const names = NAMES[axis]
+    const field = slider.closest('.demo-field')
+    const readout = field.querySelector('.demo-value-name')
+    const max = Number(slider.getAttribute('aria-valuemax'))
+    const ticks = [...slider.querySelectorAll('.ds-slider-tick')]
+
+    const apply = (next) => {
+      if (slider.getAttribute('aria-disabled') === 'true') return
+      const index = Math.max(0, Math.min(max, next))
+      slider.setAttribute('aria-valuenow', String(index))
+      slider.setAttribute('aria-valuetext', names[index])
+      slider.style.setProperty('--ds-slider-position', String(index / max))
+      slider.toggleAttribute('data-at-start', index === 0)
+      if (index === 0) slider.setAttribute('data-at-start', 'true')
+      ticks.forEach((tick, i) => {
+        if (i <= index) tick.removeAttribute('data-reached')
+        else tick.setAttribute('data-reached', 'false')
+      })
+      readout.textContent = names[index]
+    }
+
+    const at = (clientX) => {
+      const box = slider.getBoundingClientRect()
+      const span = box.width - 16
+      if (span <= 0) return 0
+      return Math.round(((clientX - box.left - 8) / span) * max)
+    }
+
+    slider.addEventListener('keydown', (event) => {
+      const now = Number(slider.getAttribute('aria-valuenow'))
+      const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key]
+      if (step !== undefined) apply(now + step)
+      else if (event.key === 'Home') apply(0)
+      else if (event.key === 'End') apply(max)
+      else return
+      event.preventDefault()
+    })
+    slider.addEventListener('pointerdown', (event) => {
+      slider.setPointerCapture(event.pointerId)
+      apply(at(event.clientX))
+    })
+    slider.addEventListener('pointermove', (event) => {
+      if (slider.hasPointerCapture(event.pointerId)) apply(at(event.clientX))
+    })
+  }
+</script>
+</body>
+</html>

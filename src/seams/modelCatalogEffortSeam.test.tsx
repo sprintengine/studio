@@ -210,6 +210,31 @@ async function main(): Promise<void> {
           element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
         })
       },
+      key: async (element: Element | undefined | null, key: string) => {
+        assert.ok(element, 'expected the control to exist before keying it')
+        await act(async () => {
+          element.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+          )
+        })
+      },
+      // Effort is a ramp on a slider, not a row per level, so a level is
+      // reached by WALKING it. Home first so the walk starts from a known stop
+      // whatever the control was showing; the surface is re-rendered and the
+      // element re-read each step, because these mounts read their level back
+      // out of a store they do not subscribe to.
+      pickLevel: async (label: string) => {
+        const slider = () =>
+          dom.window.document.body.querySelector('[data-slider="true"]') as HTMLElement | null
+        assert.ok(slider(), 'the effort ramp is on the open surface')
+        await view.key(slider(), 'Home')
+        for (let step = 0; step <= 12; step += 1) {
+          view.render({})
+          if (slider()?.getAttribute('aria-valuetext') === label) return
+          await view.key(slider(), 'ArrowRight')
+        }
+        assert.fail(`the ramp never reached ${label}`)
+      },
       unmount: () => {
         if (unmounted) return
         unmounted = true
@@ -413,8 +438,7 @@ async function main(): Promise<void> {
       .find((picker) => (picker.getAttribute('aria-label') ?? '').startsWith('Reasoning'))
     assert.ok(reasoningPicker, `reasoning is its own control: ${pickerLabels}`)
     await view.click(reasoningPicker)
-    const xhigh = view.menuItems().find((item) => item.textContent?.includes('Extra high'))
-    await view.click(xhigh)
+    await view.pickLevel('Extra high')
 
     // Evidence A — store state. Necessary, and on its own worth nothing: MC-1885
     // shipped with every layer below the producer proved from state exactly like
@@ -727,7 +751,9 @@ async function main(): Promise<void> {
       options: options as never,
       currentCli: 'claude-code' as never,
       effectiveModelFor: () => discoveredId,
-      effectiveReasoningFor: () => undefined,
+      // Reads back what it was told, the way the real host's store does: a ramp
+      // that never reflects its own writes cannot be walked past its first stop.
+      effectiveReasoningFor: () => picked ?? undefined,
       onSelectReasoning: (_cli, reasoning) => {
         picked = reasoning
       },
@@ -738,7 +764,7 @@ async function main(): Promise<void> {
     const trigger = view.pickers()[0]
     assert.ok(trigger, 'the reasoning selector rides the surface beside the model list')
     await view.click(trigger)
-    await view.click(view.menuItems().find((item) => item.textContent?.startsWith('High')))
+    await view.pickLevel('High')
     assert.equal(picked, 'high', 'and a level picked while a discovered row is selected writes through')
     view.unmount()
   })
