@@ -33,7 +33,7 @@ const PRECISE_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-service-'))
   const itemPath = join(tempRoot, 'backlog', 'checkout.md')
-  const storePath = join(tempRoot, '.multi-code', 'backlog', 'items.json')
+  const storePath = join(tempRoot, '.multi-code', 'backlog', 'cache', 'links.json')
 
   // The exact body the lifecycle/triage writes must preserve byte-for-byte.
   const body = '# Checkout\n\nSpeed up the checkout flow.\n\n- step one\n- step two\n'
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
     await mkdir(join(tempRoot, 'backlog'), { recursive: true })
     await writeFile(itemPath, body, 'utf-8')
 
-    // Lifecycle status now writes the markdown frontmatter, not items.json.
+    // Lifecycle status writes the markdown frontmatter, never the link cache.
     const statusUpdated = await updateBacklogStatus({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     assert.match(afterStatus.fields.updated ?? '', PRECISE_ISO_TIMESTAMP, 'a mutation must stamp a precise UTC instant')
     assert.equal(afterStatus.body, body, 'status write must preserve the document body byte-for-byte')
     // Writing frontmatter must not create or touch the sidecar object store.
-    await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter writes must not create items.json')
+    await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter writes must not create the link cache')
 
     // An agent blocked on a human decision parks the item as needs_input — the
     // lifecycle signal the Backlog panel surfaces with the warn glyph.
@@ -418,7 +418,7 @@ async function main(): Promise<void> {
     await rm(mockPath)
 
     // All lifecycle/type/triage/epic/dependsOn work so far must have stayed off the sidecar.
-    await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create items.json')
+    await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create the link cache')
 
     // Module metadata is app-owned churn and still writes the sidecar store.
     const metadataUpdated = await updateBacklogModuleMetadata({
@@ -441,16 +441,19 @@ async function main(): Promise<void> {
       color: 'amber',
     })
     assert.equal(highlighted.ok, true)
-    assert.deepEqual(highlighted.ok ? highlighted.store.items[0]?.highlight : null, { starred: true, color: 'amber' })
-    const highlightedUpdatedAt = highlighted.ok ? highlighted.store.items[0]?.updatedAt : undefined
-    assert.ok(
-      highlightedUpdatedAt && beforeHighlightUpdatedAt
-        && Date.parse(highlightedUpdatedAt) >= Date.parse(beforeHighlightUpdatedAt),
-      'highlight mutation must bump updatedAt',
-    )
+    // The star is durable, so it lands in the item's own frontmatter rather than
+    // the cache — that is what makes it survive losing the cache and travel with
+    // the file. The read model recomposes it (see backlog.test.ts).
+    {
+      const item = await readItem()
+      assert.equal(item.fields.starred, 'true')
+      assert.equal(item.fields.highlight, 'amber')
+      assert.equal(item.body, body, 'the body is byte-preserved')
+    }
+    assert.ok(beforeHighlightUpdatedAt, 'the cache still carries its own churn timestamp')
 
     // Unknown color names are rejected explicitly, never coerced or persisted.
-    const beforeInvalidColor = await readFile(storePath, 'utf-8')
+    const beforeInvalidColor = await readFile(itemPath, 'utf-8')
     const rejectedColor = await updateBacklogHighlight({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',
@@ -460,9 +463,9 @@ async function main(): Promise<void> {
     assert.equal(rejectedColor.ok, false)
     assert.match(rejectedColor.ok ? '' : rejectedColor.message, /highlight color/)
     assert.equal(
-      await readFile(storePath, 'utf-8'),
+      await readFile(itemPath, 'utf-8'),
       beforeInvalidColor,
-      'rejected highlight colors must not mutate the sidecar',
+      'rejected highlight colors must not touch the item file',
     )
 
     const rejectedStarred = await updateBacklogHighlight({
@@ -482,15 +485,14 @@ async function main(): Promise<void> {
       color: null,
     })
     assert.equal(starredOnly.ok, true)
-    assert.deepEqual(starredOnly.ok ? starredOnly.store.items[0]?.highlight : null, { starred: true, color: null })
+    {
+      const item = await readItem()
+      assert.equal(item.fields.starred, 'true')
+      assert.equal(item.fields.highlight, undefined, 'no colour writes no colour key')
+    }
 
-    // The persisted highlight survives a reload (normalization carries it).
-    const reloadedHighlight = await readBacklogObjectStore(tempRoot)
-    assert.equal(reloadedHighlight.ok, true)
-    assert.deepEqual(reloadedHighlight.ok ? reloadedHighlight.store.items[0]?.highlight : null, { starred: true, color: null })
-
-    // Clearing both star and color removes the field, keeping un-highlighted
-    // records in their original schema-v1 shape (no migration, no empty object).
+    // Clearing both star and colour removes BOTH keys, so an un-highlighted item
+    // reads exactly as it did before these keys existed — no empty leftovers.
     const clearedHighlight = await updateBacklogHighlight({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',
@@ -498,11 +500,12 @@ async function main(): Promise<void> {
       color: null,
     })
     assert.equal(clearedHighlight.ok, true)
-    assert.equal(clearedHighlight.ok ? clearedHighlight.store.items[0]?.highlight : 'missing', undefined)
-    const persistedCleared = JSON.parse(await readFile(storePath, 'utf-8')) as {
-      items: Array<Record<string, unknown>>
+    {
+      const item = await readItem()
+      assert.equal(item.fields.starred, undefined, 'cleared star removes its line')
+      assert.equal(item.fields.highlight, undefined, 'cleared colour removes its line')
+      assert.equal(item.body, body, 'the body is still byte-preserved')
     }
-    assert.ok(!('highlight' in persistedCleared.items[0]), 'cleared highlight must not persist a field')
 
     const linked = await addOrUpdateBacklogLink({
       workspaceRoot: tempRoot,
@@ -519,7 +522,7 @@ async function main(): Promise<void> {
     })
     assert.equal(linked.ok, true)
     assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.multi-code/sprintengine/checkout/run.yaml')
-    assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into items.json')
+    assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into the link cache')
     assert.equal((await readItem()).fields.status, 'in_progress', 'link lifecycle writes the frontmatter source of truth')
 
     // Manual lifecycle control clears stale v1/link-written sidecar status so a
@@ -596,7 +599,7 @@ async function main(): Promise<void> {
     }
 
     // Create-epic writes a new concept file under backlog/epics/ with type: epic
-    // and the title heading; it never adds an items.json membership record.
+    // and the title heading; it never adds a link-cache membership record.
     const storeBeforeEpicCreate = await readFile(storePath, 'utf-8')
     const createdEpic = await createBacklogEpic({ workspaceRoot: tempRoot, title: 'Auth Revamp' })
     assert.equal(createdEpic.ok, true)
@@ -606,7 +609,7 @@ async function main(): Promise<void> {
     assert.equal(epicFile.fields.type, 'epic')
     assert.match(epicFile.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
     assert.match(epicFile.body, /^# Auth Revamp$/m)
-    assert.equal(await readFile(storePath, 'utf-8'), storeBeforeEpicCreate, 'creating an epic must not touch items.json')
+    assert.equal(await readFile(storePath, 'utf-8'), storeBeforeEpicCreate, 'creating an epic must not touch the link cache')
 
     // A second epic with the same title gets a collision-safe slug, not a clobber.
     const createdEpic2 = await createBacklogEpic({ workspaceRoot: tempRoot, title: 'Auth Revamp' })
@@ -641,7 +644,7 @@ async function main(): Promise<void> {
       })
       assert.equal(rejectedFreshAbsoluteItem.ok, false)
       await assert.rejects(
-        () => stat(join(absoluteFreshRoot, '.multi-code', 'backlog', 'items.json')),
+        () => stat(join(absoluteFreshRoot, '.multi-code', 'backlog', 'cache', 'links.json')),
         /ENOENT/,
         'absolute backlog item paths must not create a missing sidecar',
       )
@@ -744,7 +747,7 @@ async function main(): Promise<void> {
 // guard for T23 (T21 live-verification F-1).
 async function assertArchiveLeavesSidecarLifecycleFree(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-archive-'))
-  const storePath = join(root, '.multi-code', 'backlog', 'items.json')
+  const storePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
   const lifecycleKeys = ['status', 'type', 'difficulty', 'criticality', 'risk', 'epic']
   try {
     // The file has already been moved on disk to its archived path, carrying its
@@ -819,7 +822,7 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   assert.deepEqual((plan.slimRecords[0] as { metadata?: unknown }).metadata, { x: 1 })
   // An already-migrated store is a no-op.
   assert.equal(planBacklogStoreMigration({ schemaVersion: 1, items: [{ id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' } }] }).changed, false)
-  // sec F1: a crafted multi-line items.json scalar is flattened before it can
+  // sec F1: a crafted multi-line cache scalar is flattened before it can
   // reach the frontmatter writer, so it cannot inject extra keys.
   const injected = planBacklogStoreMigration({
     schemaVersion: 1,
@@ -829,13 +832,13 @@ async function assertLazyMigrationMatrix(): Promise<void> {
 
   // --- On-disk migration via readBacklogObjectStore -------------------------
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-migrate-'))
-  const storePath = join(root, '.multi-code', 'backlog', 'items.json')
+  const storePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
   try {
     const body = '# Checkout\n\nSpeed up checkout.\n'
     await mkdir(join(root, 'backlog'), { recursive: true })
     // The file already carries a status; the sidecar must WIN over it on migrate.
     await writeFile(join(root, 'backlog', 'a.md'), `---\nstatus: idea\n---\n${body}`, 'utf-8')
-    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await mkdir(join(root, '.multi-code', 'backlog', 'cache'), { recursive: true })
     await writeFile(storePath, `${JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -1004,7 +1007,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
     // Read-only means read-only: listing registers nothing and persists no key.
     await assert.rejects(() => stat(join(tempRoot, '.multi-code')), /ENOENT/, 'listing must not create .multi-code')
 
-    await mkdir(join(tempRoot, '.multi-code', 'backlog'), { recursive: true })
+    await mkdir(join(tempRoot, '.multi-code', 'backlog', 'cache'), { recursive: true })
     await writeFile(join(tempRoot, '.multi-code', 'backlog', 'config.json'), '{"key":"MC"}\n', 'utf-8')
     const keyed = await listBacklogItems(tempRoot)
     assert.equal(keyed.ok && keyed.key, 'MC')
@@ -1039,7 +1042,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
 // content, because only the pair proves no write happened at all.
 async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-nochurn-'))
-  const storePath = join(tempRoot, '.multi-code', 'backlog', 'items.json')
+  const storePath = join(tempRoot, '.multi-code', 'backlog', 'cache', 'links.json')
   try {
     const created = await createBacklogItem({ workspaceRoot: tempRoot, title: 'Churn guard' })
     assert.equal(created.ok, true)
@@ -1084,10 +1087,99 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
   }
 }
 
+// The one-time drain off the committed sidecar. It is the only step that deletes
+// user data, so it is pinned on all four outcomes: durable facts reach the file,
+// volatile ones reach the cache, orphans are dropped, and the sidecar goes.
+async function testLegacySidecarMigration(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-legacy-'))
+  const legacyPath = join(root, '.multi-code', 'backlog', 'items.json')
+  const cachePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
+  try {
+    const body = '# Worked item\n\nBody text that must survive byte-for-byte.\n'
+    await mkdir(join(root, 'backlog'), { recursive: true })
+    await writeFile(join(root, 'backlog', 'worked.md'), `---\nstatus: completed\nid: 7\n---\n${body}`, 'utf-8')
+    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await writeFile(legacyPath, `${JSON.stringify({
+      schemaVersion: 1,
+      items: [
+        {
+          id: 'backlog_worked',
+          source: { type: 'file', relativePath: 'backlog/worked.md' },
+          highlight: { starred: true, color: 'amber' },
+          metadata: { 'agent-runtime': { agentId: 'agent-x' } },
+          links: [
+            // Durable: belongs in the file.
+            {
+              id: 'sprint-engine:2026-08-04-a-run',
+              moduleId: 'sprint-engine',
+              type: 'execution',
+              label: 'Sprint',
+              target: { kind: 'sprintengine.run', id: '2026-08-04-a-run', path: '.multi-code/sprintengine/2026-08-04-a-run/run.yaml' },
+              status: 'completed',
+            },
+            {
+              id: 'sprint-engine:pull-request',
+              moduleId: 'sprint-engine',
+              type: 'external',
+              label: 'Pull request',
+              target: { kind: 'sprintengine.pullRequest', id: 'https://x.test/pull/9', url: 'https://x.test/pull/9' },
+              status: 'active',
+            },
+            // Volatile: a terminal id, meaningless after a restart.
+            {
+              id: 'agent-runtime:working-agent',
+              moduleId: 'agent-runtime',
+              type: 'agent',
+              label: 'Agent: Someone',
+              target: { kind: 'agent.terminal', id: 'ws1/agent-x' },
+            },
+          ],
+        },
+        // Orphan: the markdown is gone, so the record describes nothing.
+        { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, links: [] },
+      ],
+    }, null, 2)}\n`, 'utf-8')
+
+    const read = await readBacklogObjectStore(root)
+    assert.equal(read.ok, true, 'the migration runs on the first read')
+
+    // 1. Durable facts landed in the item's own frontmatter, body untouched.
+    const migrated = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'worked.md'), 'utf-8'))
+    assert.equal(migrated.fields.sprints, '2026-08-04-a-run')
+    assert.equal(migrated.fields.pr, 'https://x.test/pull/9')
+    assert.equal(migrated.fields.starred, 'true')
+    assert.equal(migrated.fields.highlight, 'amber')
+    assert.equal(migrated.fields.status, 'completed', 'existing frontmatter is preserved')
+    assert.equal(migrated.body, body, 'the body is byte-preserved')
+    assert.doesNotMatch(migrated.fields.sprints ?? '', /completed/, 'no resolved status reaches the file')
+
+    // 2. The sidecar is gone, so the migration cannot run twice.
+    await assert.rejects(() => stat(legacyPath), /ENOENT/, 'the legacy sidecar is removed')
+
+    // 3. Volatile state survives in the gitignored cache, orphan dropped.
+    const cache = JSON.parse(await readFile(cachePath, 'utf-8')) as {
+      items: Array<{ source: { relativePath: string }; links?: Array<{ id: string }>; highlight?: unknown }>
+    }
+    assert.equal(cache.items.length, 1, 'the orphan record is dropped, not carried over')
+    assert.equal(cache.items[0].source.relativePath, 'backlog/worked.md')
+    assert.ok(cache.items[0].links?.some((link) => link.id === 'agent-runtime:working-agent'), 'the agent link stays cached')
+    assert.equal(cache.items[0].highlight, undefined, 'the star moved to the file and is not duplicated')
+
+    // 4. Idempotent: a second read changes nothing.
+    const fileAfterFirst = await readFile(join(root, 'backlog', 'worked.md'), 'utf-8')
+    const again = await readBacklogObjectStore(root)
+    assert.equal(again.ok, true)
+    assert.equal(await readFile(join(root, 'backlog', 'worked.md'), 'utf-8'), fileAfterFirst, 're-reading rewrites nothing')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
   .then(() => testConfirmingRewritesLeaveTheSidecarAlone())
+  .then(() => testLegacySidecarMigration())
   .catch((error) => {
     console.error(error)
     process.exit(1)

@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
@@ -22,6 +22,12 @@ import {
 } from '../shared/backlog/item-id'
 import { isRoadmapContent } from '../shared/backlog/roadmap'
 import { reconcileBacklogObjectRecordIds, stableBacklogObjectId } from '../shared/backlog/object-id'
+import {
+  backlogHighlightFields,
+  durableBacklogLinkFields,
+  durableBacklogLinksFromFrontmatter,
+  isDurableBacklogLink,
+} from '../shared/backlog/durable-links'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
@@ -51,9 +57,24 @@ import type {
   BacklogWorkspaceKeyResult,
 } from '../shared/electron-api'
 
-const STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
+// The volatile half of an item's links, and nothing else: resolved statuses, the
+// agent terminal currently holding an item, module metadata keyed to a live
+// session. Gitignored, because every value in here is re-derived from the world
+// and worthless after a restart — which is precisely why it used to churn a
+// TRACKED file (`.multi-code/backlog/items.json`) on every resolve tick.
+//
+// Durable facts moved to the item's own markdown frontmatter (see
+// shared/backlog/durable-links.ts), so they travel with the file, diff for a
+// human, and cannot be a merge-conflict surface between two agents.
+//
+// Deleting this file is always safe: the next scan resolves it again.
+const STORE_PATH = ['.multi-code', 'backlog', 'cache', 'links.json'] as const
+// The retired sidecar, read once by migrateBacklogSidecarToFiles and then
+// deleted. Kept as a constant so the migration cannot drift from the path it
+// must look under.
+const LEGACY_STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 // Per-workspace, committed config holding the display key (`MC`) so `KEY-n` ids
-// render identically on every machine. Separate from items.json, whose store
+// render identically on every machine. Separate from the cache, whose store
 // shape is normalized down to `{schemaVersion, items}` and would drop a key.
 const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
@@ -288,7 +309,82 @@ function recordRelativePath(raw: unknown): string | null {
 // Read items.json, run the lazy migration when it still carries v1 fields, and
 // return the (slimmed) store. When nothing needs migrating this is a plain load,
 // so steady-state reads incur no extra fs writes (idempotent).
+// One-time move off the committed sidecar. `.multi-code/backlog/items.json` held
+// both halves of every link plus the star; the durable halves go into each item's
+// own frontmatter, the volatile remainder becomes the gitignored cache, and the
+// sidecar is deleted.
+//
+// Idempotent by construction: it runs only while the legacy file exists, and it
+// deletes that file as its last act. A record whose markdown is gone contributes
+// nothing — those are the orphans the sidecar had been accumulating (175 of them
+// in the repo this shipped from), and dropping them is the point.
+//
+// The durable write is skipped when the item already declares the same scalars,
+// because serializeBacklogFrontmatterFields returns the content unchanged and the
+// writer compares before writing — so re-running costs reads and no writes.
+async function migrateLegacyBacklogSidecar(workspace: ValidWorkspace): Promise<void> {
+  const legacyPath = resolve(join(workspace.root, ...LEGACY_STORE_PATH))
+  if (!isPathInside(workspace.root, legacyPath)) return
+  let rawText: string
+  try {
+    rawText = await readFile(legacyPath, 'utf-8')
+  } catch (error) {
+    if (isMissingFileError(error)) return
+    throw new Error(`Could not read the legacy Backlog sidecar: ${errorMessage(error)}`)
+  }
+  let legacy: BacklogObjectStore
+  try {
+    legacy = normalizeStore(JSON.parse(rawText))
+  } catch (error) {
+    // An unparseable sidecar is not worth failing every Backlog read over, and
+    // there is nothing recoverable in it. Leave it in place for a human.
+    console.warn(`Backlog: could not parse the legacy sidecar, leaving it alone: ${errorMessage(error)}`)
+    return
+  }
+
+  const cacheRecords: BacklogObjectRecord[] = []
+  for (const record of legacy.items) {
+    const relativePath = record.source.relativePath
+    const target = resolve(join(workspace.root, relativePath))
+    if (!isPathInside(workspace.root, target)) continue
+    let content: string
+    try {
+      content = await readFile(target, 'utf-8')
+    } catch {
+      // Orphan: the markdown is gone, so the record describes nothing.
+      continue
+    }
+    const durable = (record.links ?? []).filter(isDurableBacklogLink)
+    const updates = {
+      ...durableBacklogLinkFields(durable),
+      ...backlogHighlightFields(record.highlight),
+    }
+    const next = serializeBacklogFrontmatterFields(content, updates)
+    if (next !== content) {
+      try {
+        await writeFile(target, next, 'utf-8')
+      } catch (error) {
+        throw new Error(`Could not migrate Backlog item ${relativePath}: ${errorMessage(error)}`)
+      }
+    }
+    // Everything the file cannot carry stays behind in the cache: the volatile
+    // links, the resolved statuses of the durable ones, and module metadata bound
+    // to a live session.
+    cacheRecords.push({ ...record, highlight: undefined })
+  }
+
+  await saveStore(workspace, normalizeStore({ schemaVersion: 1, items: cacheRecords }))
+  try {
+    await rm(legacyPath, { force: true })
+  } catch (error) {
+    throw new Error(`Could not remove the legacy Backlog sidecar: ${errorMessage(error)}`)
+  }
+}
+
 async function loadMigratedStore(workspace: ValidWorkspace): Promise<BacklogObjectStore> {
+  // Drains the retired sidecar into the files and the cache the first time this
+  // workspace is read after the upgrade; a no-op on every read after that.
+  await migrateLegacyBacklogSidecar(workspace)
   let rawText: string
   try {
     rawText = await readFile(workspace.storePath, 'utf-8')
@@ -933,13 +1029,16 @@ export async function updateBacklogHighlight(input: BacklogHighlightInput): Prom
   if (input.color !== null && !isBacklogHighlightColor(input.color)) {
     return { ok: false, message: 'Enter a valid Backlog highlight color.' }
   }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
-    ...record,
-    // Unstarred with no color is the default state: drop the field instead of
-    // persisting an empty highlight object.
-    highlight: input.starred || input.color !== null ? { starred: input.starred, color: input.color } : undefined,
-    updatedAt: now,
-  }))
+  // Durable: a person's choice about their own backlog, so it belongs in the file
+  // beside the status they also chose. Unstarred with no colour is the default
+  // and clears both keys rather than writing an empty highlight.
+  return writeBacklogFrontmatter(
+    input.workspaceRoot,
+    input.relativePath,
+    backlogHighlightFields(
+      input.starred || input.color !== null ? { starred: input.starred, color: input.color } : undefined,
+    ),
+  )
 }
 
 export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult> {
@@ -966,7 +1065,25 @@ export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput)
       updatedAt: now,
     }
   })
-  if (!linked.ok || input.status === undefined) return linked
+  if (!linked.ok) return linked
+
+  // A durable link is ALSO recorded in the item's own frontmatter, which is what
+  // makes it survive losing the cache and travel with a `git mv`. The cache copy
+  // above stays because it carries the volatile half (resolved status, the prior
+  // status a cancel restores); the two are recombined by mergeBacklogLinks on
+  // read. Writing the same scalars twice is a no-op — the frontmatter writer
+  // compares before writing — so a confirming re-resolve still touches nothing.
+  if (isDurableBacklogLink(link)) {
+    const durable = await readDurableBacklogLinks(input.workspaceRoot, input.relativePath)
+    const next = [...durable.filter((candidate) => candidate.id !== link.id), link]
+    const written = await writeBacklogFrontmatter(
+      input.workspaceRoot,
+      input.relativePath,
+      durableBacklogLinkFields(next),
+    )
+    if (!written.ok) return written
+  }
+  if (input.status === undefined) return linked
 
   // Link lifecycle may advance the item, but the lifecycle source of truth is
   // still the Markdown frontmatter. Never reintroduce status into items.json.
@@ -980,11 +1097,44 @@ export async function addOrUpdateBacklogLink(input: BacklogAddOrUpdateLinkInput)
 export async function removeBacklogLink(input: BacklogRemoveLinkInput): Promise<BacklogMutationResult> {
   const linkId = input.linkId.trim()
   if (!linkId) return { ok: false, message: 'Choose a Backlog link to remove.' }
-  return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
+  const removed = await mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
     ...record,
     links: (record.links ?? []).filter((candidate) => candidate.id !== linkId),
     updatedAt: now,
   }))
+  if (!removed.ok) return removed
+
+  // The frontmatter half has to go too, or the next scan rebuilds the link from
+  // the file and the removal silently undoes itself.
+  const durable = await readDurableBacklogLinks(input.workspaceRoot, input.relativePath)
+  if (!durable.some((candidate) => candidate.id === linkId)) return removed
+  const written = await writeBacklogFrontmatter(
+    input.workspaceRoot,
+    input.relativePath,
+    durableBacklogLinkFields(durable.filter((candidate) => candidate.id !== linkId)),
+  )
+  return written.ok ? removed : written
+}
+
+// An item's durable links as its own file currently declares them. Reading the
+// file rather than the cache is the point: the file is the source of truth, and a
+// cache wiped between two writes must not silently drop the other links.
+async function readDurableBacklogLinks(
+  workspaceRoot: string,
+  relativePath: string,
+): Promise<BacklogItemLinkPayload[]> {
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    const normalizedPath = validateBacklogRelativePath(relativePath)
+    const target = resolve(join(workspace.root, normalizedPath))
+    if (!isPathInside(workspace.root, target)) return []
+    const { fields } = parseBacklogFrontmatter(await readFile(target, 'utf-8'))
+    return durableBacklogLinksFromFrontmatter(fields) as BacklogItemLinkPayload[]
+  } catch {
+    // A missing or unreadable item contributes no links; the caller's own write
+    // reports the real failure.
+    return []
+  }
 }
 
 async function clearBacklogSidecarStatus(

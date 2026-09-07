@@ -24,7 +24,8 @@
 //
 // Pure and shared by both processes, like frontmatter.ts and item-id.ts: no
 // renderer-only or main-only imports.
-import type { BacklogItemLink } from './scan'
+import type { BacklogHighlight, BacklogItemLink } from './scan'
+import { isBacklogHighlightColor } from './scan'
 import {
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
@@ -169,4 +170,69 @@ function parsePrEntry(entry: string): { url: string; repoId?: string } | null {
 function repoIdFromPullRequestLinkId(linkId: string): string | null {
   const parts = linkId.split(':')
   return parts.length > 2 ? parts.slice(2).join(':') : null
+}
+
+// Recombine the two halves into the single `links` array every reader already
+// consumes. Durable links (from frontmatter) keep their identity and take their
+// volatile fields — resolved status, the prior status a cancel restores, the
+// instant it was resolved — from the cached overlay of the same link id. Cached
+// links with no durable counterpart are appended: that is the agent-terminal
+// link, which has no frontmatter half at all.
+//
+// A durable link with nothing cached keeps no status, and readers render that as
+// `unknown` — which is exactly true before anything resolves it, and the reason
+// throwing the cache away costs a lookup rather than data.
+export function mergeBacklogLinks(
+  durable: readonly BacklogItemLink[],
+  cached: readonly BacklogItemLink[],
+): BacklogItemLink[] {
+  const overlayById = new Map(cached.map((link) => [link.id, link]))
+  const merged = durable.map((link) => {
+    const overlay = overlayById.get(link.id)
+    if (!overlay) return link
+    return {
+      ...link,
+      ...(overlay.status ? { status: overlay.status } : {}),
+      ...(overlay.priorStatus ? { priorStatus: overlay.priorStatus } : {}),
+      ...(overlay.updatedAt ? { updatedAt: overlay.updatedAt } : {}),
+    }
+  })
+  const durableIds = new Set(durable.map((link) => link.id))
+  for (const link of cached) {
+    if (!durableIds.has(link.id)) merged.push(link)
+  }
+  return merged
+}
+
+// The star and its colour are a person's choice about their own backlog — as
+// durable as the item's status, and just as much at home in the file. They were
+// the last non-link field the sidecar owned.
+//
+// `starred` and `highlight` rather than reusing `color`, which epic files
+// already spend on the epic's own colour (updateBacklogEpicColor); an item may
+// be both.
+export const HIGHLIGHT_FIELDS = ['starred', 'highlight'] as const
+
+export function backlogHighlightFromFrontmatter(
+  fields: Readonly<Record<string, string>>,
+): BacklogHighlight | undefined {
+  const starred = (fields.starred ?? '').trim().toLowerCase() === 'true'
+  const raw = (fields.highlight ?? '').trim().toLowerCase()
+  const color = isBacklogHighlightColor(raw) ? raw : null
+  // Unstarred with no colour is the default, and writes nothing — so an item
+  // that was never highlighted reads exactly as it did before these keys existed.
+  if (!starred && color === null) return undefined
+  return { starred, color }
+}
+
+export function backlogHighlightFields(
+  highlight: BacklogHighlight | undefined,
+): Record<(typeof HIGHLIGHT_FIELDS)[number], string | null> {
+  if (!highlight || (!highlight.starred && highlight.color === null)) {
+    return { starred: null, highlight: null }
+  }
+  return {
+    starred: highlight.starred ? 'true' : null,
+    highlight: highlight.color ?? null,
+  }
 }

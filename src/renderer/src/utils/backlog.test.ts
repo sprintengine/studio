@@ -452,14 +452,18 @@ run('recently-updated recency uses precise frontmatter timestamps and falls back
   assert.equal(badDate.modifiedAt, 1000)
 })
 
-run('highlight comes only from the object store, never frontmatter', () => {
+// Reversed deliberately. The star used to be sidecar-only, because the sidecar
+// owned it; it is a person's choice about their own backlog, so it moved into the
+// file with the rest of the durable data. The cache half stays readable only so a
+// workspace that has not run the migration yet still shows its stars.
+run('highlight is frontmatter-owned, with the cache as a pre-migration fallback', () => {
   const seeded = createBacklogItem({
     path: '/repo/backlog/starred.md',
     relativePath: 'backlog/starred.md',
     sourceContent: '---\nhighlight: red\nstarred: true\n---\n# Starred idea',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
-  assert.equal(seeded.highlight, undefined)
+  assert.deepEqual(seeded.highlight, { starred: true, color: 'red' })
 
   const hydrated = createBacklogItem({
     path: '/repo/backlog/starred.md',
@@ -468,7 +472,28 @@ run('highlight comes only from the object store, never frontmatter', () => {
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
     object: { objectId: 'obj_starred', metadata: {}, links: [], highlight: { starred: true, color: 'pink' } },
   })
-  assert.deepEqual(hydrated.highlight, { starred: true, color: 'pink' })
+  assert.deepEqual(hydrated.highlight, { starred: true, color: 'pink' }, 'an un-migrated row keeps its star')
+
+  // Both present: the file wins, so a migrated item can never be shadowed by a
+  // stale cache entry that outlived it.
+  const both = createBacklogItem({
+    path: '/repo/backlog/starred.md',
+    relativePath: 'backlog/starred.md',
+    sourceContent: '---\nhighlight: green\nstarred: true\n---\n# Starred idea',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+    object: { objectId: 'obj_starred', metadata: {}, links: [], highlight: { starred: true, color: 'pink' } },
+  })
+  assert.deepEqual(both.highlight, { starred: true, color: 'green' })
+
+  // An unstarred, uncoloured item writes no keys and reads as undefined, exactly
+  // as it did before these keys meant anything.
+  const plain = createBacklogItem({
+    path: '/repo/backlog/plain.md',
+    relativePath: 'backlog/plain.md',
+    sourceContent: '# Plain idea',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(plain.highlight, undefined)
 })
 
 run('archived paths are always marked archived', () => {

@@ -8,6 +8,11 @@ import { deriveDefaultBacklogKey, isValidBacklogKey, parseBacklogNumericId } fro
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
 import { stableBacklogObjectId } from './object-id'
+import {
+  backlogHighlightFromFrontmatter,
+  durableBacklogLinksFromFrontmatter,
+  mergeBacklogLinks,
+} from './durable-links'
 import { parseBacklogMockups } from './mockups'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../../renderer/src/types/workspace'
 import {
@@ -388,9 +393,15 @@ export function createBacklogItem(input: {
     // before the field existed.
     ...(dependenciesPlanned ? { dependenciesPlanned } : {}),
     mockups: mockupsList.length > 0 ? mockupsList : undefined,
-    highlight: input.object?.highlight,
+    // Frontmatter first: the star is the person's own choice and lives with the
+    // item. The cache is only a fallback for a row not migrated yet.
+    highlight: backlogHighlightFromFrontmatter(fields) ?? input.object?.highlight,
     metadata: input.object?.metadata ?? {},
-    links: input.object?.links ?? [],
+    // Durable links come from this file's own frontmatter, so they travel with it
+    // and never depend on a sidecar keyed by path. `input.object` is now the
+    // volatile cache: it overlays resolved status onto those, and contributes the
+    // agent-terminal link, which has no durable half.
+    links: mergeBacklogLinks(durableBacklogLinksFromFrontmatter(fields), input.object?.links ?? []),
     objectUpdatedAt: input.object?.updatedAt,
     excerpt: backlogExcerpt(body, title),
     modifiedAt: resolveBacklogRecencyMs(frontmatterValue(fields, 'updated'), input.stats.modifiedAtMs),

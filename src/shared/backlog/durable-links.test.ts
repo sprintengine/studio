@@ -4,6 +4,7 @@ import {
   durableBacklogLinkFields,
   durableBacklogLinksFromFrontmatter,
   isDurableBacklogLink,
+  mergeBacklogLinks,
   sprintRunPath,
 } from './durable-links'
 import type { BacklogItemLink } from './scan'
@@ -103,6 +104,28 @@ function main(): void {
 
   // --- Duplicates collapse rather than producing two identical scalars.
   assert.equal(durableBacklogLinkFields([run, run]).sprints, run.target.id)
+
+  // --- Recombining the halves. The durable link keeps its identity and takes
+  // only its volatile fields from the cache.
+  const cachedRun: BacklogItemLink = {
+    ...run,
+    label: 'ignored — the durable half owns the label',
+    status: 'completed',
+    priorStatus: 'ready',
+    updatedAt: '2026-09-07T10:00:00.000Z',
+  }
+  const merged = mergeBacklogLinks([run], [cachedRun, agent])
+  assert.equal(merged.length, 2, 'the cache-only agent link is appended')
+  assert.equal(merged[0].label, 'Sprint', 'the durable half wins on identity fields')
+  assert.equal(merged[0].status, 'completed', 'and takes the resolved status from cache')
+  assert.equal(merged[0].priorStatus, 'ready')
+  assert.equal(merged[0].updatedAt, '2026-09-07T10:00:00.000Z')
+  assert.equal(merged[1].id, 'agent-runtime:working-agent')
+
+  // A durable link with nothing cached carries no status: unresolved, which is
+  // what it is. Losing the cache costs a lookup, never data.
+  assert.deepEqual(mergeBacklogLinks([run], []), [run])
+  assert.equal(mergeBacklogLinks([run], [])[0].status, undefined)
 
   console.log('durable-links: ok')
 }

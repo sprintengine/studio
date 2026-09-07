@@ -51,6 +51,14 @@ electron.vite.config.*.mjs
 # (backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md).
 !resources/studio-plugin/**/.mcp.json
 
+# Backlog link cache: resolved link statuses, the agent terminal holding an item,
+# module metadata bound to a live session. Every value is re-derived from the
+# world, so deleting it costs a lookup and never data. It replaced
+# `.multi-code/backlog/items.json`, which held the same volatile state in a
+# TRACKED file and churned it on every resolve tick; the durable half now lives in
+# each item's own markdown frontmatter.
+.multi-code/backlog/cache/
+
 # Debug Mode ephemeral state (one scratch file per agent terminal)
 .multi-code/debug/
 # Browser tab screenshots and element crops (browser-pane epic).
