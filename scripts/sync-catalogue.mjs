@@ -30,7 +30,7 @@
 // whatever the last release happened to hold. Run before cutting a release so a
 // fresh install boots with the index every other machine is already polling;
 // then run the app's own gates on the result:
-//   npm run verify:marketplace-registry && npm run test:main:mcp-catalog
+//   npm run verify:marketplace-registry && node scripts/testing/run-tests.mjs src/main/mcp-catalog.test.ts
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -3,7 +3,7 @@
 // module names, the elapsed window, diff totals, the activity sparkline, the one
 // merged timeline, and the lifecycle glyph each entry kind reads as.
 //
-//   npm run test:renderer:sprintengine-inspector
+//   node scripts/testing/run-tests.mjs sprintEngineInspector.test
 
 import assert from 'node:assert/strict'
 

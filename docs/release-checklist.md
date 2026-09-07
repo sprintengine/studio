@@ -5,7 +5,7 @@ Use this checklist for every preview or stable desktop release.
 ## Before Tagging
 
 - Confirm `npm run typecheck` passes.
-- Confirm `npm run test:main:mobile-sprintengine-command` passes.
+- Confirm `node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts` passes.
 - Confirm `npm run build` passes.
 - Update `package.json` version.
 - Run `npm run sync:model-feed`, and commit the result if it moved. This pulls

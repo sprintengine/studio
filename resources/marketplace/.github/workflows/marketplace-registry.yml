@@ -56,4 +56,4 @@ jobs:
 
       - name: Exercise valid and tampered submissions
         working-directory: multicode
-        run: npm run test:marketplace-publish
+        run: node scripts/testing/run-tests.mjs verify-marketplace.test

@@ -168,7 +168,7 @@ To run the same validator locally from a Multicode repo checkout:
 
 ```bash
 npm run verify:marketplace-registry
-npm run test:marketplace-publish
+node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
 ```
 
 Pass `-- --root <registry-checkout>` when validating a standalone registry

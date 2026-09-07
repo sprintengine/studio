@@ -20,11 +20,15 @@
     "icons": "node scripts/generate-icons.js",
     "test": "node scripts/testing/run-tests.mjs",
     "test:all": "node scripts/testing/run-tests.mjs --all",
+    "test:sdk:drift": "tsc -p packages/module-sdk/tsconfig.json && tsc -p packages/module-sdk/tsconfig.drift.json && esbuild packages/module-sdk/drift/sdk-drift-guard.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/sdk-drift-guard.cjs && node node_modules/.cache/multicode/sdk-drift-guard.cjs",
+    "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
+    "test:model-feed": "node scripts/check-model-feed-seed.mjs",
+    "test:card-feed": "node scripts/check-card-feed-seed.mjs",
     "typecheck": "npm run typecheck:app",
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
-    "verify:app": "npm run typecheck && npm run lint && npm run test",
+    "verify:app": "npm run typecheck && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:model-feed && npm run test:card-feed",
     "verify:panels": "npm run lint && node scripts/testing/run-tests.mjs switchboardBoard.test accessibility-contracts.test",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-registry-verify.cjs && node node_modules/.cache/multicode/marketplace-registry-verify.cjs",
     "verify:third-party-modules-e2e": "node scripts/testing/third-party-module-e2e.mjs",
@@ -199,7 +203,7 @@
         "from": "resources/design-system",
         "to": "design-system",
         "filter": [
-          "**/*"
+          "templates/**"
         ]
       },
       {

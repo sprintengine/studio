@@ -16,7 +16,7 @@
  * REAL renderer refresh tick. Nothing between the epic file and the child's new
  * status is stubbed. The one exception is named in UNCOVERED at the bottom.
  *
- * Run: npm run test:renderer:seeded-epic-pipeline
+ * Run: node scripts/testing/run-tests.mjs seededEpicPipeline.integration.test
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'

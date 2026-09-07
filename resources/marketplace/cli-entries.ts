@@ -4,7 +4,7 @@
 // The entries are GENERATED from the plugin manifests so the two cannot drift:
 // `npm run catalogue:cli-entries` rewrites the seed's inline-CLI section (and
 // the reviewable icon marks under icons/<id>.svg), and
-// `npm run test:marketplace-cli-entries` regenerates from the manifests and
+// `node scripts/testing/run-tests.mjs resources/marketplace/cli-entries.test.ts` regenerates from the manifests and
 // fails the build unless the committed seed is byte-identical. Entry fields
 // come from each plugin.json (`summary`/`category`/`icon` were added there for
 // exactly this purpose) — this module never invents copy.
