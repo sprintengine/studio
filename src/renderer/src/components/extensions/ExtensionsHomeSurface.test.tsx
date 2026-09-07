@@ -438,189 +438,207 @@ for (const poster of cardsIn(home.host)) {
   assert.ok(stretched, `${titleOf(poster)}: something stretches over the card, so the card is the target`)
 }
 
-// ── `Go` runs the card once, and never twice (item 2469) ────────────────────
-// The run itself belongs to the shell: this page asks the Extensions host to do
-// it, because a page that installed things would be a second implementation of
-// every installer. So what is asserted here is the half that IS this page's —
-// one press, one run — plus the two states around it.
-//
-// With no host registered (no WorkspaceManager mounted), a press is a no-op
-// that must not throw: the same guard every reader on this page already has.
-act(() => {
-  goButtons()[0]?.click()
-  cardsIn(home.host)[1]?.click()
-})
-
-// With one registered, a double click starts ONE run. A state flag alone could
-// not promise this — two clicks in the same tick read the same render — so the
-// page holds a ref, and this is the assertion that would catch its loss.
-{
-  let settle: (() => void) | null = null
-  const ran: string[] = []
-  setExtensionsSurfaceHost({
-    onLaunchConnector: () => {},
-    onUseInAutomation: () => {},
-    onUseSkillInNewAgent: () => {},
-    onRunCard: (card) => {
-      ran.push(card.slug)
-      return new Promise<void>((resolve) => {
-        settle = resolve
-      })
-    },
-  })
+// The rest of this file runs inside `main()` for one reason: the assertions
+// below need to flush a settled promise before they read the DOM again, and a
+// cjs bundle has no top-level await to do it on. `WorkspaceSidebar.liveRows
+// .test.tsx` is written the same way, and so is this item’s own
+// `run-card.test.ts` — the shape is the repo’s, not a special case.
+async function main(): Promise<void> {
+  // ── `Go` runs the card once, and never twice (item 2469) ────────────────────
+  // The run itself belongs to the shell: this page asks the Extensions host to do
+  // it, because a page that installed things would be a second implementation of
+  // every installer. So what is asserted here is the half that IS this page's —
+  // one press, one run — plus the two states around it.
+  //
+  // With no host registered (no WorkspaceManager mounted), a press is a no-op
+  // that must not throw: the same guard every reader on this page already has.
   act(() => {
     goButtons()[0]?.click()
-    goButtons()[0]?.click()
-    // …and the other card too: one run at a time on the page, not one per card.
-    goButtons()[1]?.click()
+    cardsIn(home.host)[1]?.click()
   })
-  assert.deepEqual(ran.length, 1, 'a double click — on one card or on two — starts exactly one run')
-  // Every Go is disabled while it is in flight, because a button that looks
-  // pressable and does nothing is worse than one that says it cannot be pressed.
-  for (const go of goButtons()) {
-    assert.equal((go as HTMLButtonElement).disabled, true, 'every Go is disabled while a run is in flight')
+
+  // With one registered, a double click starts ONE run. A state flag alone could
+  // not promise this — two clicks in the same tick read the same render — so the
+  // page holds a ref, and this is the assertion that would catch its loss.
+  {
+    let settle: (() => void) | null = null
+    const ran: string[] = []
+    setExtensionsSurfaceHost({
+      onLaunchConnector: () => {},
+      onUseInAutomation: () => {},
+      onUseSkillInNewAgent: () => {},
+      onRunCard: (card) => {
+        ran.push(card.slug)
+        return new Promise<void>((resolve) => {
+          settle = resolve
+        })
+      },
+    })
+    act(() => {
+      goButtons()[0]?.click()
+      goButtons()[0]?.click()
+      // …and the other card too: one run at a time on the page, not one per card.
+      goButtons()[1]?.click()
+    })
+    assert.deepEqual(ran.length, 1, 'a double click — on one card or on two — starts exactly one run')
+    // Every Go is disabled while it is in flight, because a button that looks
+    // pressable and does nothing is worse than one that says it cannot be pressed.
+    for (const go of goButtons()) {
+      assert.equal((go as HTMLButtonElement).disabled, true, 'every Go is disabled while a run is in flight')
+    }
+    assert.equal(
+      goButtons()[0]?.getAttribute('aria-busy'),
+      'true',
+      'and the card that is actually working says so, without a spinner on a poster',
+    )
+    // Settled, then flushed, then asserted. This is the only cover the page's
+    // `finally` and its `mounted` ref have: without it a run that ended would
+    // leave every Go on the page disabled for good, and the page would look
+    // exactly like one still working. The flush is the shape the repo already
+    // uses for this (`WorkspaceSidebar.liveRows.test.tsx`).
+    settle?.()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    for (const go of goButtons()) {
+      assert.equal((go as HTMLButtonElement).disabled, false, 'and every Go is pressable again once the run settles')
+    }
+    assert.equal(goButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
+    setExtensionsSurfaceHost(null)
   }
+
+  // ── The tiles are still there, and they are underneath ───────────────────────
+  assert.ok(tilesIn(home.host).length > 0, 'the tiles keep their place on the page')
+  const regions = [...home.host.querySelectorAll('article, ul')]
   assert.equal(
-    goButtons()[0]?.getAttribute('aria-busy'),
-    'true',
-    'and the card that is actually working says so, without a spinner on a poster',
+    regions[regions.length - 1]?.tagName,
+    'UL',
+    'the cards are the reason to be here and the tiles are the way off, so the tiles come last',
   )
-  // Settled so the page's own `finally` re-enables the buttons. Not asserted
-  // here: this bundle has no top-level await to flush the microtask on, and the
-  // re-enable is one `finally` on the same promise this block already holds.
-  settle?.()
-  setExtensionsSurfaceHost(null)
-}
-
-// ── The tiles are still there, and they are underneath ───────────────────────
-assert.ok(tilesIn(home.host).length > 0, 'the tiles keep their place on the page')
-const regions = [...home.host.querySelectorAll('article, ul')]
-assert.equal(
-  regions[regions.length - 1]?.tagName,
-  'UL',
-  'the cards are the reason to be here and the tiles are the way off, so the tiles come last',
-)
-assert.ok(
-  home.host.textContent?.includes('Or go straight to the parts'),
-  'and the quiet heading that turns them into the way off arrives with the cards',
-)
-
-// ── The search filters on title, dek and credit ──────────────────────────────
-const searchField = () => home.host.querySelector('input[type="search"]') as HTMLInputElement | null
-assert.ok(searchField(), 'a feed with cards in it gets a field to search them')
-
-// React DOM is imported above the jsdom globals in this bundle (esbuild hoists
-// it), so it decided at load that no DOM exists and runs its change-event
-// polyfill: a focused element is watched and a value change is noticed on
-// keyup. Typing here is that sequence — focus, set, keyup — the same one
-// `topbar/RemotePopover.test.tsx` and `ToastHost.test.tsx` already use.
-function search(value: string): void {
-  const input = searchField()
-  assert.ok(input, 'the search field is on the chrome row')
-  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
-  act(() => {
-    input?.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
-    setter?.call(input, value)
-    input?.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    input?.dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true }))
-  })
-}
-
-search('postcode')
-assert.deepEqual(
-  cardsIn(home.host).map(titleOf),
-  ['Build a 3D apocalypse of your own street'],
-  'the dek is searched',
-)
-search('playwright')
-assert.deepEqual(cardsIn(home.host).map(titleOf), ['Let an agent drive your browser'], 'so is the credit, case and all')
-search('big task')
-assert.deepEqual(cardsIn(home.host).map(titleOf), ['Big task? No problem.'], 'and so is the title')
-assert.equal(
-  [...home.host.querySelectorAll('button')].filter((button) =>
-    (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
-  ).length,
-  1,
-  'the hero keeps the accent while it is the only card showing',
-)
-search('nothing on any of these cards')
-assert.equal(cardsIn(home.host).length, 0)
-const noMatch = [...home.host.querySelectorAll('p')].find((line) =>
-  line.textContent?.includes('No cards match this search'),
-)
-assert.ok(
-  noMatch,
-  'a search that matches nothing gets an answer — that is the person’s own question, not the page apologising for its network',
-)
-// And it is answered where the field said to look. `aria-controls` on the input
-// names the grid region, so a sentence sitting outside that region is a sentence
-// a reader following the pointer is never sent to; the live region inside it is
-// what makes the answer arrive rather than merely exist.
-assert.ok(
-  noMatch?.closest(`#${searchField()?.getAttribute('aria-controls')}`),
-  'the answer lives inside the region the search field says it controls',
-)
-assert.ok(noMatch?.closest('[aria-live="polite"]'), 'and inside a region that is watched, so it is spoken')
-assert.ok(tilesIn(home.host).length > 0, 'and the tiles are still there to leave by')
-search('')
-
-// ── A query does not outlive the field that typed it ─────────────────────────
-// The field is absent when there are no cards, so the query has to go with it:
-// state outlives the element that edits it, and a feed that emptied and came
-// back would otherwise return to a filter typed against a page that no longer
-// showed the box holding it — cards back, and an instant "no cards match".
-search('playwright')
-act(() => {
-  useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'ready' as const }))
-})
-assert.equal(searchField(), null, 'the field goes with the cards')
-act(() => {
-  useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
-})
-assert.equal(searchField()?.value, '', 'and the query went with the field')
-assert.equal(
-  cardsIn(home.host).length,
-  3,
-  'so a feed that emptied and refilled comes back whole, not behind a filter nobody can see',
-)
-
-// ── Loading is a skeleton grid ───────────────────────────────────────────────
-act(() => {
-  useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'loading' as const }))
-})
-const shimmers = [...home.host.querySelectorAll('.skeleton-shimmer')]
-assert.ok(
-  shimmers.length > 0,
-  'a page with nothing to draw yet draws the shape of what is coming',
-)
-// And the shape is PAINTED. `.skeleton-shimmer` carries the sweep and no ground,
-// and the sweep itself only runs under `prefers-reduced-motion: no-preference` —
-// so a caller that passes no background draws transparent rectangles, and draws
-// nothing whatsoever on a machine that asked for less motion.
-for (const shimmer of shimmers) {
   assert.ok(
-    /bg-\[color:var\(--[a-z-]+\)\]/.test(shimmer.getAttribute('class') ?? ''),
-    'every skeleton carries the surface colour its own docstring says the caller owns',
+    home.host.textContent?.includes('Or go straight to the parts'),
+    'and the quiet heading that turns them into the way off arrives with the cards',
   )
+
+  // ── The search filters on title, dek and credit ──────────────────────────────
+  const searchField = () => home.host.querySelector('input[type="search"]') as HTMLInputElement | null
+  assert.ok(searchField(), 'a feed with cards in it gets a field to search them')
+
+  // React DOM is imported above the jsdom globals in this bundle (esbuild hoists
+  // it), so it decided at load that no DOM exists and runs its change-event
+  // polyfill: a focused element is watched and a value change is noticed on
+  // keyup. Typing here is that sequence — focus, set, keyup — the same one
+  // `topbar/RemotePopover.test.tsx` and `ToastHost.test.tsx` already use.
+  function search(value: string): void {
+    const input = searchField()
+    assert.ok(input, 'the search field is on the chrome row')
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      input?.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
+      setter?.call(input, value)
+      input?.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      input?.dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true }))
+    })
+  }
+
+  search('postcode')
+  assert.deepEqual(
+    cardsIn(home.host).map(titleOf),
+    ['Build a 3D apocalypse of your own street'],
+    'the dek is searched',
+  )
+  search('playwright')
+  assert.deepEqual(cardsIn(home.host).map(titleOf), ['Let an agent drive your browser'], 'so is the credit, case and all')
+  search('big task')
+  assert.deepEqual(cardsIn(home.host).map(titleOf), ['Big task? No problem.'], 'and so is the title')
+  assert.equal(
+    [...home.host.querySelectorAll('button')].filter((button) =>
+      (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
+    ).length,
+    1,
+    'the hero keeps the accent while it is the only card showing',
+  )
+  search('nothing on any of these cards')
+  assert.equal(cardsIn(home.host).length, 0)
+  const noMatch = [...home.host.querySelectorAll('p')].find((line) =>
+    line.textContent?.includes('No cards match this search'),
+  )
+  assert.ok(
+    noMatch,
+    'a search that matches nothing gets an answer — that is the person’s own question, not the page apologising for its network',
+  )
+  // And it is answered where the field said to look. `aria-controls` on the input
+  // names the grid region, so a sentence sitting outside that region is a sentence
+  // a reader following the pointer is never sent to; the live region inside it is
+  // what makes the answer arrive rather than merely exist.
+  assert.ok(
+    noMatch?.closest(`#${searchField()?.getAttribute('aria-controls')}`),
+    'the answer lives inside the region the search field says it controls',
+  )
+  assert.ok(noMatch?.closest('[aria-live="polite"]'), 'and inside a region that is watched, so it is spoken')
+  assert.ok(tilesIn(home.host).length > 0, 'and the tiles are still there to leave by')
+  search('')
+
+  // ── A query does not outlive the field that typed it ─────────────────────────
+  // The field is absent when there are no cards, so the query has to go with it:
+  // state outlives the element that edits it, and a feed that emptied and came
+  // back would otherwise return to a filter typed against a page that no longer
+  // showed the box holding it — cards back, and an instant "no cards match".
+  search('playwright')
+  act(() => {
+    useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'ready' as const }))
+  })
+  assert.equal(searchField(), null, 'the field goes with the cards')
+  act(() => {
+    useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+  })
+  assert.equal(searchField()?.value, '', 'and the query went with the field')
+  assert.equal(
+    cardsIn(home.host).length,
+    3,
+    'so a feed that emptied and refilled comes back whole, not behind a filter nobody can see',
+  )
+
+  // ── Loading is a skeleton grid ───────────────────────────────────────────────
+  act(() => {
+    useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'loading' as const }))
+  })
+  const shimmers = [...home.host.querySelectorAll('.skeleton-shimmer')]
+  assert.ok(
+    shimmers.length > 0,
+    'a page with nothing to draw yet draws the shape of what is coming',
+  )
+  // And the shape is PAINTED. `.skeleton-shimmer` carries the sweep and no ground,
+  // and the sweep itself only runs under `prefers-reduced-motion: no-preference` —
+  // so a caller that passes no background draws transparent rectangles, and draws
+  // nothing whatsoever on a machine that asked for less motion.
+  for (const shimmer of shimmers) {
+    assert.ok(
+      /bg-\[color:var\(--[a-z-]+\)\]/.test(shimmer.getAttribute('class') ?? ''),
+      'every skeleton carries the surface colour its own docstring says the caller owns',
+    )
+  }
+  assert.equal(cardsIn(home.host).length, 0, 'and no cards while it waits')
+  assert.ok(tilesIn(home.host).length > 0, 'the tiles do not wait on the network')
+
+  // A read that fails behind cards that are already up keeps them: the feed going
+  // away must never empty the page (R6).
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      cards: FEED,
+      cardFeedStatus: 'error' as const,
+      cardFeedError: 'GitHub was slow',
+    }))
+  })
+  assert.equal(cardsIn(home.host).length, 3, 'a failed re-read leaves the cards alone')
+  assert.ok(
+    !home.host.textContent?.includes('GitHub was slow'),
+    'and the page does not repeat what its own network said',
+  )
+
+  home.unmount()
+  drawer.unmount()
+  console.log('ExtensionsHomeSurface.test.tsx: ok')
 }
-assert.equal(cardsIn(home.host).length, 0, 'and no cards while it waits')
-assert.ok(tilesIn(home.host).length > 0, 'the tiles do not wait on the network')
 
-// A read that fails behind cards that are already up keeps them: the feed going
-// away must never empty the page (R6).
-act(() => {
-  useWorkspaceStore.setState(() => ({
-    cards: FEED,
-    cardFeedStatus: 'error' as const,
-    cardFeedError: 'GitHub was slow',
-  }))
-})
-assert.equal(cardsIn(home.host).length, 3, 'a failed re-read leaves the cards alone')
-assert.ok(
-  !home.host.textContent?.includes('GitHub was slow'),
-  'and the page does not repeat what its own network said',
-)
-
-home.unmount()
-drawer.unmount()
-console.log('ExtensionsHomeSurface.test.tsx: ok')
+void main()

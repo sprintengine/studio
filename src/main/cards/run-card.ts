@@ -54,6 +54,28 @@
 // to a filesystem path is one already-single-segment folder name, re-checked
 // below and joined onto a parent directory the app chose.
 //
+// That sentence shipped on 2026-09-06 as an unqualified claim and it was not
+// true, in two places, both closed here:
+//
+//  - **The prompt IS an argument.** `open.chat`'s prompt travels through
+//    `cliStartupPrompt` to `renderAgentLaunchArgv` and comes out as the
+//    `{{prompt}}` positional — the last argv token, with no `--` in front of
+//    it. The shell never saw it unquoted, so nothing could be injected into a
+//    command line; the CLI's own option parser is another matter, and a card
+//    carrying `"prompt": "--permission-mode=bypassPermissions"` was accepted by
+//    the parser and handed to `claude` as a flag. A prompt beginning with `-`
+//    is now refused by the shared parser AND again in `openChat` below: the
+//    parser keeps such a card out of the feed, and this file is the boundary
+//    the value crosses last, so neither is allowed to be the only check.
+//  - **An existing directory is not proof of a clone.** `clone.repo` adopted
+//    any directory that already existed at its target path as the run's
+//    workspace — and the parent directory is the parent of the person's own
+//    projects, so a card naming `x/my-other-project` silently installed into
+//    the project beside it and scoped the chat there. A directory is now only
+//    "already there" when its `origin` remote is the repository the card named;
+//    anything else fails the action by name rather than borrowing the folder.
+
+//
 // **`open.chat` and `open.surface` are not run here.** Main cannot open a chat
 // or move a door; the renderer can. Both verbs are validated in the same switch
 // as the rest and returned as a hand-off for the surface to perform once every
@@ -79,8 +101,20 @@ import type {
   SkillScanOutcome,
 } from '../../shared/electron-api'
 import type { CardAction, CardSurfaceView } from '../../shared/hosted-card-feed'
+import { refuseCardActions } from '../../shared/hosted-card-feed'
 import { mcpServerFromCatalog } from '../../shared/connector-launch'
 import { scanPlugins, skillDirName } from '../../shared/skills'
+
+/**
+ * The whole-card rules — one chat and it goes last, a clone before any install,
+ * a chat that only names servers the card installs — now live in the shared
+ * parser beside the schema they are about, so a card that can never succeed is
+ * dropped from the feed rather than rendered with a `Go` that cannot work. This
+ * file calls the same function again because the action list has been to the
+ * renderer and back since; re-exported under the name the executor's callers
+ * already use.
+ */
+export { refuseCardActions as refuseCard } from '../../shared/hosted-card-feed'
 
 /**
  * The installers the executor composes, injected so the test can watch the
@@ -115,6 +149,14 @@ export type CardRunDeps = {
   cloneRepo: (input: { url: string; parentDir: string; folderName: string }) => Promise<GitHubCloneResult>
   /** Whether a path is already there. Only used to make a repeated clone a no-op. */
   pathExists: (path: string) => boolean | Promise<boolean>
+  /**
+   * The `owner/name` this directory's `origin` remote points at, or null when
+   * there is no origin, it is not GitHub, or the directory is not a repository
+   * at all. This is the whole of what makes a repeated `clone.repo` safe: an
+   * existing directory is only the card's clone if it IS the card's repository,
+   * and everything else is somebody else's project sitting at the same path.
+   */
+  repoOriginName: (dir: string) => Promise<string | null>
   /** `path.join`, injected so the test can assert the join without a platform in it. */
   joinPath: (...segments: string[]) => string
 }
@@ -123,23 +165,6 @@ export type CardRunDeps = {
 const REPO_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 
 const SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
-
-/**
- * Refuse the whole card before anything runs.
- *
- * `open.chat` is the only ordering rule the schema cannot express, and it is
- * the one that matters: the chat is the payoff, so it goes last or the card is
- * not run at all. A second `open.chat` is refused for the same reason — the
- * first one would open a chat with installs still pending behind it.
- */
-export function refuseCard(actions: readonly CardAction[]): string | null {
-  const chats = actions.filter((action) => action.verb === 'open.chat')
-  if (chats.length > 1) return 'This card opens more than one chat, so it was not run.'
-  if (chats.length === 1 && actions[actions.length - 1]?.verb !== 'open.chat') {
-    return 'This card opens its chat before it has finished setting up, so it was not run.'
-  }
-  return null
-}
 
 export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<CardRunResult> {
   const actions = [...input.actions]
@@ -150,7 +175,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     message: 'Did not run.',
   }))
 
-  const refusal = refuseCard(actions)
+  const refusal = refuseCardActions(actions)
   if (refusal) {
     return {
       ok: false,
@@ -168,11 +193,29 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
   let workspaceRoot = input.workspaceRoot
   // The settings as this run has them so far. Started from what the renderer
   // sent, added to by `install.mcp` and by the servers a plugin declares, and
-  // handed back at the end for the store to persist.
+  // synced from as a whole, because a sync writes the merged settings and a
+  // partial one would prune every server it was not told about.
   let servers: Record<string, McpServerConfig> = {}
   for (const server of input.mcpServers) servers[server.id] = server
-  let serversChanged = false
+  // The servers this run ADDED, and only those. The store is handed these
+  // rather than the whole merged map: `upsertMcpServer` turns MCP sync back on
+  // for every server it is given, and doing that to servers the person already
+  // had — because a card added a different one — would undo a setting they
+  // chose (settingsSlice.ts says exactly this about `refreshMcpServersFromSource`).
+  const added: Record<string, McpServerConfig> = {}
+  // The app's own MCP sync switch, carried in rather than assumed. It flips to
+  // true only when this run adds a server, because that is what the store will
+  // do with that same server a moment later — adding one IS the person saying
+  // "wire this up". A run that adds nothing syncs under the setting as it
+  // stands, so a person who turned sync off keeps it off.
+  let syncEnabled = input.mcpSyncEnabled
 
+  // The CLI a `require.cli` in this card verified, handed back so the chat
+  // launches on the SAME one. It did not, until 2026-09-06: `require.cli`
+  // checked `claude-code` and the renderer then launched on whatever
+  // `resolveTemplateAgentCli` returned, which could be a different harness —
+  // one the skill this card just installed was never copied into.
+  let requiredCli: string | null = null
   let chat: CardChatHandoff | null = null
   let surface: CardSurfaceHandoff | null = null
   let failure: string | null = null
@@ -190,7 +233,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     ok: failure === null,
     outcomes,
     workspaceRoot,
-    mcpServers: serversChanged ? Object.values(servers) : [],
+    mcpServers: Object.values(added),
     chat: failure === null ? chat : null,
     surface: failure === null ? surface : null,
     ...(failure === null ? {} : { message: failure }),
@@ -234,7 +277,10 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
       return { status: 'failed', message: `${action.cli} is not an agent CLI this build knows.` }
     }
     const detected = await deps.detectCli(action.cli)
-    if (detected.installed) return { status: 'already', message: `${action.cli} is already installed.` }
+    if (detected.installed) {
+      requiredCli = action.cli
+      return { status: 'already', message: `${action.cli} is already installed.` }
+    }
     // Deliberately a refusal and not an install. Installing a CLI runs a shell
     // command on the person's machine, and `CliInstallMethodInfo` says in its
     // own type why that command is shown first: it is "surfaced to the UI for
@@ -253,9 +299,21 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     action: Extract<CardAction, { verb: 'install.mcp' }>,
   ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
     if (!workspaceRoot) return { status: 'failed', message: noWorkspace('an MCP server') }
-    // Already there is not an error: a second Go must not write the row again
-    // and must not overwrite the env and header edits the person has since made.
-    if (servers[action.id]) return { status: 'already', message: `${action.id} is already installed.` }
+    // The settings row and the sync are two different facts, and conflating
+    // them was a bug: the row lives in the app's settings (one list, all
+    // projects) while the sync writes `{{workspaceRoot}}/.mcp.json` (one
+    // project). Until 2026-09-06 this returned `already` on the row alone and
+    // skipped the sync — so a person who installed Playwright in project A,
+    // opened project B and pressed Go got `already`, no `.mcp.json`, and a chat
+    // with no tools and no message. It bit hardest right after a `clone.repo`,
+    // since a fresh clone has never been synced to anything.
+    //
+    // So the row is what makes this a no-op, and the sync runs either way: the
+    // question a person is asking with a second press is "does THIS project
+    // have it", and running the sync is what makes the answer yes. A sync of
+    // settings that already hold the server rewrites the same bytes, so the
+    // repeat costs a file write and changes nothing.
+    const existing = servers[action.id]
     const catalog = await deps.listMcpCatalog()
     if (!catalog.ok) return { status: 'failed', message: catalog.message }
     // Exact match against the one bundled catalogue. There is no source
@@ -263,11 +321,15 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // in this list is an id this build cannot honour.
     const entry = catalog.servers.find((server) => server.id === action.id)
     if (!entry) return { status: 'failed', message: `${action.id} is not in this build's MCP catalogue.` }
-    const next = { ...servers, [entry.id]: mcpServerFromCatalog(entry) }
-    const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled: true, servers: next } })
+    // A server the person already has keeps the config they have: a second Go
+    // must not overwrite the env and header edits they made since the first.
+    const next = { ...servers, [entry.id]: existing ?? mcpServerFromCatalog(entry) }
+    if (!existing) syncEnabled = true
+    const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled, servers: next } })
     if (!synced.ok) return { status: 'failed', message: synced.message }
     servers = next
-    serversChanged = true
+    if (existing) return { status: 'already', message: `${entry.name} was already installed, and this project now has it.` }
+    added[entry.id] = next[entry.id]!
     return { status: 'done', message: `${entry.name} installed.` }
   }
 
@@ -331,11 +393,16 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // configs and the store agree.
     if (installed.mcpServers.length > 0) {
       const next = { ...servers }
-      for (const server of installed.mcpServers) next[server.id] = server
-      const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled: true, servers: next } })
+      const fresh: McpServerConfig[] = []
+      for (const server of installed.mcpServers) {
+        if (!servers[server.id]) fresh.push(server)
+        next[server.id] = server
+      }
+      if (fresh.length > 0) syncEnabled = true
+      const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled, servers: next } })
       if (!synced.ok) return { status: 'failed', message: synced.message }
       servers = next
-      serversChanged = true
+      for (const server of fresh) added[server.id] = server
     }
     return { status: 'done', message: `${plugin.name} installed.` }
   }
@@ -345,16 +412,35 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
   ): Omit<CardActionOutcome, 'index' | 'verb'> {
     const prompt = action.prompt.trim()
     if (prompt.length === 0) return { status: 'failed', message: 'This card has no prompt to send.' }
-    // Names, not paths: `skills` are installed skill directory names and
-    // `mcpServers` are catalogue ids, and the renderer attaches them by
-    // matching what the workspace already has. Neither is joined onto anything
-    // here or there, which is why a list this build does not recognise is a
-    // chat with one fewer chip rather than a refusal.
+    // The executor boundary for the argv hole described at the top of this
+    // file. The shared parser refuses a leading `-` too, and deliberately so:
+    // this value has been to the renderer and back since that parse, and the
+    // next thing that happens to it is that it becomes the last token on an
+    // agent CLI's command line with no `--` in front of it. Neither check is
+    // allowed to be the only one.
+    if (prompt.startsWith('-')) {
+      return { status: 'failed', message: 'This card’s prompt begins with a dash, which an agent CLI would read as an option, so it was not sent.' }
+    }
+    // Names, not paths: `skills` are installed skill directory names, and the
+    // renderer attaches them by matching what the workspace already has —
+    // nothing is joined onto anything here or there, which is why a name this
+    // build does not recognise is a chat with one fewer chip rather than a
+    // refusal.
+    //
+    // `mcpServers` is not carried across. The card's servers reach the chat by
+    // being in the `{{workspaceRoot}}/.mcp.json` that `install.mcp` wrote on
+    // the way past, so there is nothing left to hand over; and a card may only
+    // name a server it installs itself (`refuseCardActions`), which is what
+    // makes that true rather than accidental. The field the first cut of this
+    // hand-off carried was read by nothing on either renderer path.
     chat = {
       prompt,
       send: action.send,
       skills: [...(action.skills ?? [])],
-      mcpServers: [...(action.mcpServers ?? [])],
+      // The CLI the card required, so the chat opens on the harness the skills
+      // were installed into; null when the card required none and the app's own
+      // default stands.
+      cli: requiredCli,
     }
     return { status: 'done', message: action.send ? 'Chat opened, prompt sent.' : 'Chat opened.' }
   }
@@ -399,8 +485,22 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     }
     const target = deps.joinPath(parentDir, folderName)
     // A second Go finds the clone it made the first time and adopts it as the
-    // workspace rather than failing on an occupied path.
+    // workspace rather than failing on an occupied path — but ONLY if it is
+    // genuinely that repository. `parentDir` is the parent of the person's own
+    // projects and the folder name defaults to the repository's leaf, so until
+    // 2026-09-06 a card naming `x/my-other-project` adopted the project sitting
+    // beside the open one: it installed into it, scoped the chat to it, and
+    // overrode `cloneGitHubRepo`'s own refusal on an occupied path. The schema
+    // says a card cannot reach into a project the person was not looking at;
+    // this is what makes that sentence true.
     if (await deps.pathExists(target)) {
+      const origin = await deps.repoOriginName(target)
+      if (origin?.toLowerCase() !== repo.toLowerCase()) {
+        return {
+          status: 'failed',
+          message: `${folderName} is already a folder here and it is not ${repo}, so nothing was cloned or opened.`,
+        }
+      }
       workspaceRoot = target
       return { status: 'already', message: `${folderName} is already here.` }
     }

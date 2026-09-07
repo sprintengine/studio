@@ -63,7 +63,13 @@ const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skil
 // `clone.repo` is the one verb that makes a new one, and everything after it in
 // the same card runs in that.
 export type CardAction =
-  // Make sure an agent CLI is there, and install it if not. `cli` is a plugin id
+  // Make sure an agent CLI is there — and say which one is missing rather than
+  // installing it. Installing a CLI runs a shell command on the person's
+  // machine, and `CliInstallMethodInfo` exists so that command is shown before
+  // anybody consents to it; a card may not answer that disclosure on somebody's
+  // behalf, so the executor refuses and points at Extensions → Agent CLIs. This
+  // comment said "and install it if not" until 2026-09-06, which described
+  // behaviour the executor deliberately does not have. `cli` is a plugin id
   // under `resources/plugins/` (`claude-code`, `codex`), never a vendor name or
   // a binary path.
   | { verb: 'require.cli'; cli: string }
@@ -241,6 +247,13 @@ function parseCard(raw: unknown): { ok: true; card: HostedCard } | { ok: false; 
     go.push(action.action)
   }
 
+  // The ordering rules, applied here so a card that can never succeed drops
+  // like any other bad row rather than rendering a `Go` that cannot work. They
+  // lived only in the executor until 2026-09-06, which meant the home page drew
+  // a button whose one press was always a toast.
+  const refusal = refuseCardActions(go)
+  if (refusal) return { ok: false, message: `"${slug}" was dropped: ${refusal}` }
+
   const card: HostedCard = { slug, kind: kind as HostedCardKind, title, dek, art, publishedAt, go }
   const credit = text(raw.credit)
   if (credit) card.credit = credit
@@ -278,6 +291,18 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
     case 'open.chat': {
       const prompt = text(raw.prompt)
       if (!prompt) return { ok: false, message: 'open.chat needs a prompt.' }
+      // A prompt is not just copy: it becomes the LAST argv token the agent CLI
+      // is launched with (`{{prompt}}` in `resources/plugins/*/plugin.json`),
+      // and there is no `--` in front of it. The shell is safe — every value is
+      // single-quoted — but the CLI's own option parser is not, so a prompt of
+      // `--permission-mode=bypassPermissions` parsed as copy and rendered as a
+      // flag. A card may say anything it likes to an agent; it may not say
+      // anything to the launcher, and the cheapest true line between the two is
+      // the first character. (The `--` separator the manifests should also carry
+      // is backlog/2026-09-06-agent-cli-argv-ends-with-a-separator.md.)
+      if (prompt.startsWith('-')) {
+        return { ok: false, message: 'open.chat prompt must not begin with "-" — a leading dash is an option to a CLI, not a sentence.' }
+      }
       // Required, and required to be a boolean: a card that forgets to say
       // whether Go sends the prompt is a card nobody can read, and defaulting
       // either way would put words in the author's mouth.
@@ -313,6 +338,56 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
     default:
       return { ok: false, message: `${JSON.stringify(raw.verb)} is not a verb this build implements.` }
   }
+}
+
+const INSTALL_VERBS: readonly CardActionVerb[] = ['install.mcp', 'install.skill', 'install.plugin']
+
+/**
+ * The rules a whole card has to obey that no single action can state, and the
+ * sentence to say when it does not. `null` means the card is runnable.
+ *
+ * This is one function called at two boundaries: `parseCard` above drops a row
+ * that fails it, so the home page never draws a `Go` that cannot work, and
+ * `src/main/cards/run-card.ts` calls it again before it runs anything, because
+ * the action list has been to the renderer and back by then. The messages are
+ * written for a toast, because that is where the second caller puts them.
+ *
+ * Four rules, each of them a state somebody could otherwise not see or undo:
+ *
+ *  - **One chat, and it goes last.** The chat is the payoff, so it opens onto
+ *    tools that are already there; a chat attached to a server that failed to
+ *    install is worse than no chat.
+ *  - **A clone comes first or not at all.** `clone.repo` moves the workspace
+ *    everything after it runs in, so `[install.mcp, clone.repo, open.chat]`
+ *    synced a server into the workspace the person was in and then opened the
+ *    chat somewhere else entirely — an install nobody asked for in a project
+ *    nobody was looking at.
+ *  - **A chat may only name servers the card itself installed.** The chat gets
+ *    its MCP servers by reading the `.mcp.json` this card just wrote, so a name
+ *    nothing installed is a chat that silently opens with no tools; the card
+ *    said what it was, and this is what makes that true.
+ */
+export function refuseCardActions(actions: readonly CardAction[]): string | null {
+  const chats = actions.filter((action) => action.verb === 'open.chat')
+  if (chats.length > 1) return 'This card opens more than one chat, so it was not run.'
+  if (chats.length === 1 && actions[actions.length - 1]?.verb !== 'open.chat') {
+    return 'This card opens its chat before it has finished setting up, so it was not run.'
+  }
+
+  const clone = actions.findIndex((action) => action.verb === 'clone.repo')
+  const install = actions.findIndex((action) => INSTALL_VERBS.includes(action.verb))
+  if (clone >= 0 && install >= 0 && install < clone) {
+    return 'This card clones a project after it has already installed something, so it was not run.'
+  }
+
+  const installed = new Set<string>()
+  for (const action of actions) {
+    if (action.verb === 'install.mcp') installed.add(action.id)
+    if (action.verb !== 'open.chat') continue
+    const missing = (action.mcpServers ?? []).find((id) => !installed.has(id))
+    if (missing) return `This card opens a chat with ${missing}, which it never installs, so it was not run.`
+  }
+  return null
 }
 
 // Epoch millis of `updatedAt`, or 0 when unparsable: an undated copy loses

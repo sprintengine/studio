@@ -139,17 +139,45 @@ const rejects = (go: unknown, match: RegExp) => {
   }
 
   // open.chat keeps skills and MCP servers apart, and must say whether Go sends.
-  assert.deepEqual(one({ verb: 'open.chat', prompt: 'Do the thing.', skills: ['frontend-design'], mcpServers: ['net-todoist-mcp'], send: true }), {
-    verb: 'open.chat',
-    prompt: 'Do the thing.',
-    send: true,
-    skills: ['frontend-design'],
-    mcpServers: ['net-todoist-mcp'],
-  })
+  // The card installs the server it then names, because a card that names one
+  // it does not install is refused whole (see the card-level rules below).
+  {
+    const parsed = parseHostedCardFeed(
+      feed([
+        card({
+          go: [
+            { verb: 'install.mcp', id: 'net-todoist-mcp' },
+            { verb: 'open.chat', prompt: 'Do the thing.', skills: ['frontend-design'], mcpServers: ['net-todoist-mcp'], send: true },
+          ],
+        }),
+      ]),
+    )
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.message)
+    assert.deepEqual(parsed.feed.cards[0]?.go[1], {
+      verb: 'open.chat',
+      prompt: 'Do the thing.',
+      send: true,
+      skills: ['frontend-design'],
+      mcpServers: ['net-todoist-mcp'],
+    })
+  }
   assert.deepEqual(one({ verb: 'open.chat', prompt: 'Park it.', send: false }), { verb: 'open.chat', prompt: 'Park it.', send: false })
   rejects({ verb: 'open.chat', prompt: 'Do the thing.' }, /open\.chat needs send: true or false/)
   rejects({ verb: 'open.chat', prompt: 'Do the thing.', send: 'yes' }, /open\.chat needs send: true or false/)
   rejects({ verb: 'open.chat', send: true }, /open\.chat needs a prompt/)
+  // A prompt is the LAST argv token an agent CLI is launched with, and there is
+  // no `--` in front of it, so a leading dash is not copy — it is an option.
+  // `--permission-mode=bypassPermissions` was a well-formed card until
+  // 2026-09-06 and rendered as a flag on `claude`'s command line.
+  for (const prompt of ['--permission-mode=bypassPermissions', '-p', '--help']) {
+    rejects({ verb: 'open.chat', prompt, send: true }, /must not begin with "-"/)
+  }
+  // The dash has to LEAD; a sentence with one in it is a sentence.
+  assert.deepEqual(one({ verb: 'open.chat', prompt: 'Run it with --verbose on.', send: true }), {
+    verb: 'open.chat',
+    prompt: 'Run it with --verbose on.',
+    send: true,
+  })
   // The old single `attach` list is not a field any more, and naming it does
   // not smuggle anything through.
   assert.deepEqual(one({ verb: 'open.chat', prompt: 'p', send: true, attach: ['playwright'] }), { verb: 'open.chat', prompt: 'p', send: true })
@@ -216,6 +244,68 @@ const rejects = (go: unknown, match: RegExp) => {
   assert.ok(parsed.ok)
   assert.equal(parsed.feed.cards.length, 0)
   assert.match(parsed.dropReasons[0] ?? '', /"half" go\[1\]/)
+}
+
+// ── The card-level rules, applied where a bad row is dropped ─────────────────
+// These four live in the parser rather than only in the executor, so a card
+// that can never succeed drops like any other bad row instead of rendering a
+// `Go` whose one press is always a toast. The executor calls the same function
+// again on the far side of the wire.
+{
+  const dropped = (go: unknown[], match: RegExp) => {
+    const parsed = parseHostedCardFeed(feed([card({ go })]))
+    assert.ok(parsed.ok)
+    assert.equal(parsed.feed.cards.length, 0, 'a card that can never run is not a card')
+    assert.match(parsed.dropReasons[0] ?? '', match)
+  }
+
+  dropped(
+    [
+      { verb: 'open.chat', prompt: 'One.', send: true },
+      { verb: 'open.chat', prompt: 'Two.', send: true },
+    ],
+    /opens more than one chat/,
+  )
+  dropped(
+    [
+      { verb: 'open.chat', prompt: 'Go on then.', send: true },
+      { verb: 'install.mcp', id: 'net-todoist-mcp' },
+    ],
+    /opens its chat before it has finished setting up/,
+  )
+  // A clone moves the workspace everything after it runs in, so an install in
+  // front of one lands in the project the person was already in while the chat
+  // opens somewhere else entirely.
+  dropped(
+    [
+      { verb: 'install.mcp', id: 'net-todoist-mcp' },
+      { verb: 'clone.repo', repo: 'sprintengine/example' },
+      { verb: 'open.chat', prompt: 'Read it.', send: true },
+    ],
+    /clones a project after it has already installed something/,
+  )
+  dropped(
+    [{ verb: 'open.chat', prompt: 'Drive it.', mcpServers: ['net-todoist-mcp'], send: true }],
+    /opens a chat with net-todoist-mcp, which it never installs/,
+  )
+
+  // And the shapes that are allowed: a clone in front of the installs, and a
+  // card with no chat at all.
+  const fine = parseHostedCardFeed(
+    feed([
+      card({
+        slug: 'clone-first',
+        go: [
+          { verb: 'clone.repo', repo: 'sprintengine/example' },
+          { verb: 'install.mcp', id: 'net-todoist-mcp' },
+          { verb: 'open.chat', prompt: 'Read it.', mcpServers: ['net-todoist-mcp'], send: true },
+        ],
+      }),
+      card({ slug: 'no-chat', go: [{ verb: 'install.mcp', id: 'net-todoist-mcp' }] }),
+    ]),
+  )
+  assert.ok(fine.ok)
+  assert.deepEqual(fine.feed.cards.map((c) => c.slug), ['clone-first', 'no-chat'])
 }
 
 // The result shares no object or array with the body it was parsed from, so a

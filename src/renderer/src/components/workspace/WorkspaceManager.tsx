@@ -3016,6 +3016,11 @@ export default function WorkspaceManager() {
           recentFolders: state.appSettings.recentWorkspaceFolders ?? [],
         }),
         mcpServers: Object.values(state.appSettings.mcp?.servers ?? {}),
+        // The switch as it stands, not as a card would like it. Main flips it
+        // on only when the card actually adds a server, which is the same thing
+        // `upsertMcpServer` does below with that same server — so a person who
+        // turned MCP sync off keeps it off unless they install something.
+        mcpSyncEnabled: state.appSettings.mcp?.syncEnabled === true,
       })
       .catch((error: unknown): CardRunResult => ({
         ok: false,
@@ -3032,18 +3037,29 @@ export default function WorkspaceManager() {
     // server to disk; leaving it out of the settings would be the one outcome
     // the review focus names — a workspace in a state the person cannot see and
     // cannot undo. Whatever main reports is what the store now says.
+    //
+    // `result.mcpServers` is the servers this run ADDED, never the merged list:
+    // `upsertMcpServer` turns MCP sync back on for every server it is handed,
+    // and re-upserting servers the person already had would flip that switch on
+    // their behalf for something they did not just install.
     for (const server of result.mcpServers) upsertMcpServer(server)
 
     if (!result.ok) {
+      // A card refused before anything ran marks EVERY outcome `skipped`, so
+      // counting them said "3 later steps did not run" when nothing ran at all
+      // and there was no earlier step to be later than. The count is only worth
+      // saying when something did happen first.
+      const ran = result.outcomes.some((outcome) => outcome.status !== 'skipped')
       const notRun = result.outcomes.filter((outcome) => outcome.status === 'skipped').length
+      const said = result.message ?? 'Something went wrong.'
       // A toast, not a modal and not a stack trace: it names what failed and,
       // when there was more to do, how much of it did not run.
       showToast({
         tone: 'warn',
-        title: `${card.title} did not finish`,
-        description: notRun > 0
-          ? `${result.message ?? 'Something went wrong.'} ${notRun} later ${notRun === 1 ? 'step' : 'steps'} did not run.`
-          : (result.message ?? 'Something went wrong.'),
+        title: `${card.title} ${ran ? 'did not finish' : 'did not run'}`,
+        description: ran && notRun > 0
+          ? `${said} ${notRun} later ${notRun === 1 ? 'step' : 'steps'} did not run.`
+          : said,
       })
       return
     }
@@ -3087,16 +3103,32 @@ export default function WorkspaceManager() {
     // into this workspace's `.mcp.json` through `mcpConfigService.sync` on the
     // way past, so the agent launched below already reads them.
     const movedWorkspace = chatRoot !== null && chatRoot !== workspaceRoot
-    if (chat.send && !movedWorkspace) {
-      // R4, kept: a general agent on the General-engine default CLI, with the
-      // skills attached and the prompt as its startup prompt — which is the
-      // launch path that SENDS. The door closes first or the new tab lands
-      // behind it.
+    // Which workspace the person is looking at NOW, read live from the store
+    // rather than from the render this press came out of. The run is a round
+    // trip and a person can switch projects during it; `addNewCliAgent` places
+    // the new tab in the workspace that was active when Go was pressed, which
+    // is the right place — it is where every install went — but it can no
+    // longer be the workspace on screen, and a prompt that SENDS would then be
+    // an agent working somewhere nobody is looking.
+    const activeNow =
+      useWorkspaceStore.getState().workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
+        ?.activeWorkspaceId ?? null
+    const switchedAway =
+      windowActiveWorkspaceId !== null && activeNow !== null && activeNow !== windowActiveWorkspaceId
+
+    if (chat.send && !movedWorkspace && workspaceRoot) {
+      // R4, kept: a general agent on the CLI the card required — falling back
+      // to the General-engine default only when it required none — with the
+      // skills attached and the prompt as its startup prompt, which is the
+      // launch path that SENDS. `require.cli` verified a CLI and the chat used
+      // to launch on whatever the template resolver returned, so a card could
+      // check `claude-code` and open a chat in a harness the skill it had just
+      // installed was never copied into.
       closeGlobalSurface()
       closeModalSurface()
       void addNewCliAgent(
         resolveTemplateAgentCli(
-          specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+          chat.cli ?? specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
           lastSelectedCli,
           agentCliCatalog,
         ),
@@ -3105,22 +3137,49 @@ export default function WorkspaceManager() {
         undefined,
         { prompt: chat.prompt },
       )
+      if (switchedAway) {
+        // Not silently, and not by dragging them back: the agent is running in
+        // the project the card set up, and the least this can do is say which.
+        const landed = useWorkspaceStore
+          .getState()
+          .workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
+        showToast({
+          tone: 'neutral',
+          title: `${card.title} started in ${landed?.name ?? 'the project you pressed Go in'}`,
+          description: 'You moved to another project while it was setting up, so the chat opened where the card installed.',
+        })
+      }
       return
     }
-    // Two cases land here, and both go through the New chat door.
+    // Three cases land here, and all three go through the New chat door. Two of
+    // them used to arrive with no explanation at all — a prompt sitting in a
+    // composer, and nothing on screen saying why it had not been sent.
     //
     // `send: false` is the card saying so, and the composer is where a prompt
-    // waits for somebody to press Start.
+    // waits for somebody to press Start. That one needs no line.
     //
-    // A `clone.repo` that moved the workspace is the other, and it is a limit
+    // A `clone.repo` that moved the workspace is the second, and it is a limit
     // rather than a choice: `addNewCliAgent` spawns into the ACTIVE workspace,
     // and the clone is not one yet — this app makes a folder into a project
     // through the New chat door (`cloneNewChatProject` above does exactly this
     // with the same folder). Spawning into the workspace the person happened to
     // be in would run the card's prompt against the wrong repository, which is
     // worse than a prompt that waits one press.
+    //
+    // No project open at all is the third: `addNewCliAgent` early-returns
+    // without one, so a card whose only action is `open.chat` pressed on a
+    // fresh install closed the door and did nothing whatsoever.
     openNewChatPanel(chatRoot ?? undefined)
     writeNewChatDraft(workspaceWindowId, { prompt: chat.prompt, skills })
+    if (chat.send) {
+      showToast({
+        tone: 'neutral',
+        title: `${card.title} is ready`,
+        description: movedWorkspace
+          ? 'The clone is not a project yet, so the prompt is waiting in New chat — press Start and it runs in the clone.'
+          : 'There is no project open, so the prompt is waiting in New chat — choose a folder and press Start.',
+      })
+    }
   }, [
     addNewCliAgent,
     agentCliCatalog,

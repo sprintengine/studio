@@ -146,15 +146,19 @@ function recorder(overrides: Partial<CardRunDeps> = {}): Recorder {
       return { ok: true, path: `${input.parentDir}/${input.folderName}` }
     },
     pathExists: () => false,
+    repoOriginName: async (dir) => {
+      calls.push(`repoOriginName ${dir}`)
+      return null
+    },
     joinPath: (...segments) => segments.join('/'),
     ...overrides,
   }
   return { calls, deps }
 }
 
-function run(actions: CardAction[], deps: CardRunDeps, mcpServers: McpServerConfig[] = []) {
+function run(actions: CardAction[], deps: CardRunDeps, mcpServers: McpServerConfig[] = [], mcpSyncEnabled = false) {
   return runCard(
-    { slug: 'browser', actions, workspaceRoot: WORKSPACE, cloneParentDir: PARENT, mcpServers },
+    { slug: 'browser', actions, workspaceRoot: WORKSPACE, cloneParentDir: PARENT, mcpServers, mcpSyncEnabled },
     deps,
   )
 }
@@ -196,7 +200,10 @@ async function main(): Promise<void> {
         prompt: 'Open example.com and read the headline.',
         send: true,
         skills: ['browser'],
-        mcpServers: [],
+        // The CLI `require.cli` verified, so the chat opens on the harness the
+        // skill was installed into rather than on whatever the renderer's
+        // template resolver would otherwise pick.
+        cli: 'claude-code',
       },
       'the chat is handed back for the renderer to open, and it carries `send` (R4: Go goes)',
     )
@@ -241,19 +248,94 @@ async function main(): Promise<void> {
         return new Map<string, readonly { sourceId: string }[]>([['browser', [{ sourceId: SOURCE.id }]]])
       },
     })
-    const result = await run(HAPPY, deps, [installedServer])
+    const result = await run(HAPPY, deps, [installedServer], true)
     assert.equal(result.ok, true, 'pressing Go a second time succeeds — already satisfied is a no-op, not an error')
     assert.deepEqual(
       result.outcomes.map((outcome) => `${outcome.verb}:${outcome.status}`),
       ['require.cli:already', 'install.mcp:already', 'install.skill:already', 'open.chat:done'],
       'every install reports itself already done',
     )
+    assert.ok(!calls.some((call) => call.startsWith('installSkill')), 'and no skill was copied a second time')
+    // But the SYNC runs, and this assertion is the one that used to say the
+    // opposite. The settings row is app-wide and the sync is per-workspace, so
+    // "already installed" answered a question nobody asked: install Playwright
+    // in project A, open project B, press Go, and the old code reported
+    // `already`, wrote no `.mcp.json` into B, and opened a chat there with no
+    // tools and nothing said. Right after a `clone.repo` it was guaranteed —
+    // a fresh clone has never been synced to anything.
     assert.ok(
-      !calls.some((call) => call.startsWith('installSkill') || call.startsWith('syncMcp')),
-      'and nothing was written a second time',
+      calls.includes(`syncMcp ${CATALOG_SERVER.id}`),
+      'a second press still syncs, because THIS workspace is the thing that may not have it yet',
     )
-    assert.deepEqual(result.mcpServers, [], 'a run that changed no server asks the store to write nothing')
+    assert.deepEqual(result.mcpServers, [], 'and the store is asked to write nothing, because nothing was added')
     assert.ok(result.chat, 'the person still lands in the chat, which is what makes a second press useful')
+  }
+
+  // ── The server the person already edited is not overwritten by the catalogue ─
+  {
+    const edited = {
+      ...CATALOG_SERVER,
+      enabled: true,
+      scope: 'workspace',
+      source: 'bundled',
+      env: { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' },
+    } as McpServerConfig
+    let synced: McpServerConfig | undefined
+    const { deps } = recorder({
+      syncMcp: (input) => {
+        synced = input.settings.servers[CATALOG_SERVER.id]
+        return { ok: true, targets: [], issues: [] }
+      },
+    })
+    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [edited], true)
+    assert.deepEqual(
+      synced?.env,
+      { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' },
+      'a second Go syncs the config the person has, not the catalogue default that would erase their edits',
+    )
+  }
+
+  // ── The app's MCP sync switch is carried, not assumed ────────────────────────
+  {
+    // The executor synced with `syncEnabled: true` hardcoded, which turned a
+    // setting back on for somebody who had turned it off. It may only flip when
+    // the run ADDS a server, because that is what `upsertMcpServer` does with
+    // that same server a moment later.
+    const installed = { ...CATALOG_SERVER, enabled: true, scope: 'workspace', source: 'bundled' } as McpServerConfig
+    const flags: boolean[] = []
+    const { deps } = recorder({
+      syncMcp: (input) => {
+        flags.push(input.settings.syncEnabled)
+        return { ok: true, targets: [], issues: [] }
+      },
+    })
+    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [installed], false)
+    assert.deepEqual(flags, [false], 'a run that adds nothing syncs under the setting as the person left it')
+    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [], false)
+    assert.deepEqual(flags, [false, true], 'and a run that adds a server turns sync on, exactly as the store will')
+  }
+
+  // ── Only the servers this run ADDED go back to the store ─────────────────────
+  {
+    const other = {
+      id: 'io-github-other',
+      name: 'Other',
+      transport: 'stdio',
+      command: 'npx',
+      args: [],
+      clients: ['claude-code'],
+      enabled: true,
+      scope: 'workspace',
+      source: 'custom',
+      riskLevel: 'local-command',
+    } as McpServerConfig
+    const { deps } = recorder()
+    const result = await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [other], true)
+    assert.deepEqual(
+      result.mcpServers.map((server) => server.id),
+      [CATALOG_SERVER.id],
+      'the server the card installed, and not the one the person already had — `upsertMcpServer` flips MCP sync on for everything it is handed',
+    )
   }
 
   // ── 4. `open.chat` is last, or the card is refused before anything runs ──────
@@ -281,6 +363,66 @@ async function main(): Promise<void> {
     assert.equal(result.chat, null)
   }
 
+  // ── 5. A prompt is an ARGUMENT, and a leading dash is an option ──────────────
+  {
+    // The hole: the prompt becomes the last argv token an agent CLI is launched
+    // with (`{{prompt}}` in the plugin manifests) and there is no `--` in front
+    // of it, so `--permission-mode=bypassPermissions` in a card's prompt was
+    // parsed as copy here and read as a flag by `claude`. The shared parser
+    // refuses it too; this is the second of the two checks, on purpose, because
+    // the value has crossed a process boundary since the first one.
+    const { deps } = recorder()
+    const result = await run([{ verb: 'open.chat', prompt: '--permission-mode=bypassPermissions', send: true }], deps)
+    assert.equal(result.ok, false, 'a prompt that begins with a dash never reaches a command line')
+    assert.match(result.message ?? '', /begins with a dash/)
+    assert.equal(result.chat, null, 'and no chat is handed back to open with it')
+  }
+
+  // ── 6. A clone comes first, or the card is refused ───────────────────────────
+  {
+    // `[install.mcp, clone.repo, open.chat]` synced the server into the
+    // workspace the person was in and then opened the chat in the clone: an
+    // install nobody asked for, in a project nobody was looking at.
+    const badOrder: CardAction[] = [
+      { verb: 'install.mcp', id: CATALOG_SERVER.id },
+      { verb: 'clone.repo', repo: 'sprintengine/example' },
+      { verb: 'open.chat', prompt: 'Read the README.', send: true },
+    ]
+    assert.ok(refuseCard(badOrder), 'a clone behind an install is refused')
+    assert.equal(
+      refuseCard([
+        { verb: 'clone.repo', repo: 'sprintengine/example' },
+        { verb: 'install.mcp', id: CATALOG_SERVER.id },
+      ]),
+      null,
+      'and a clone in front of one is the shape a card is allowed to have',
+    )
+    const { calls, deps } = recorder()
+    const result = await run(badOrder, deps)
+    assert.equal(result.ok, false)
+    assert.deepEqual(calls, [], 'the refusal happens before anything runs')
+  }
+
+  // ── 7. A chat may only name servers the card itself installs ─────────────────
+  {
+    // The chat gets its MCP servers by reading the `.mcp.json` the card just
+    // wrote, so a name nothing installed is a chat that opens silently with no
+    // tools. The hand-off used to carry the list and nothing read it; the list
+    // is a claim now, and this is where it is checked.
+    assert.ok(
+      refuseCard([{ verb: 'open.chat', prompt: 'Drive it.', mcpServers: [CATALOG_SERVER.id], send: true }]),
+      'a chat naming a server the card never installs is refused',
+    )
+    assert.equal(
+      refuseCard([
+        { verb: 'install.mcp', id: CATALOG_SERVER.id },
+        { verb: 'open.chat', prompt: 'Drive it.', mcpServers: [CATALOG_SERVER.id], send: true },
+      ]),
+      null,
+      'and one naming a server it installs first is fine',
+    )
+  }
+
   // ── The workspace is the app's, and only `clone.repo` moves it ───────────────
   {
     const { calls, deps } = recorder()
@@ -300,13 +442,49 @@ async function main(): Promise<void> {
   }
 
   {
-    // The same card twice: the folder is already there, so the clone is a no-op
-    // and the run still adopts it as its workspace.
-    const { calls, deps } = recorder({ pathExists: () => true })
+    // The same card twice: the folder is already there AND it is that
+    // repository, so the clone is a no-op and the run adopts it as its
+    // workspace.
+    const { calls, deps } = recorder({
+      pathExists: () => true,
+      repoOriginName: async () => 'SprintEngine/Example',
+    })
     const result = await run([{ verb: 'clone.repo', repo: 'sprintengine/example' }], deps)
-    assert.equal(result.outcomes[0]?.status, 'already', 'a clone target that is already there is a no-op')
+    assert.equal(result.outcomes[0]?.status, 'already', 'a clone target that is already that repository is a no-op')
     assert.ok(!calls.some((call) => call.startsWith('cloneRepo')), 'and git is never run a second time')
     assert.equal(result.workspaceRoot, `${PARENT}/example`, 'the folder name defaults to the repository’s own name')
+  }
+
+  // ── A folder that is NOT the card's repository is never adopted ──────────────
+  {
+    // The hole this closes: `parentDir` is the parent of the person's own
+    // projects and the folder name is the repository's leaf, so a card naming
+    // `x/my-other-project` used to adopt `~/code/my-other-project` — installing
+    // into it and scoping the chat to it — purely because the directory
+    // existed. `cloneGitHubRepo` refuses an occupied path; this branch was
+    // overriding that refusal.
+    for (const origin of ['someone-else/my-other-project', null]) {
+      const { calls, deps } = recorder({
+        pathExists: () => true,
+        repoOriginName: async () => origin,
+      })
+      const result = await run(
+        [
+          { verb: 'clone.repo', repo: 'sprintengine/my-other-project' },
+          { verb: 'install.skill', source: SOURCE.id, id: SKILL.id },
+        ],
+        deps,
+      )
+      assert.equal(result.ok, false, 'an occupied folder that is not the card’s repository fails the action')
+      assert.match(
+        result.message ?? '',
+        /my-other-project is already a folder here/,
+        'and the message names the directory it refused to take',
+      )
+      assert.equal(result.workspaceRoot, WORKSPACE, 'the run stays in the workspace it started in')
+      assert.ok(!calls.some((call) => call.startsWith('cloneRepo')), 'nothing is cloned over it')
+      assert.ok(!calls.some((call) => call.startsWith('installSkill')), 'and nothing is installed into it')
+    }
   }
 
   // ── Nothing a feed says is trusted as a path, an id or a host ────────────────
@@ -425,6 +603,7 @@ async function main(): Promise<void> {
         workspaceRoot: null,
         cloneParentDir: PARENT,
         mcpServers: [],
+        mcpSyncEnabled: false,
       },
       deps,
     )

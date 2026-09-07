@@ -14,9 +14,16 @@
 // part. That is the same rule the feed parser applies to a card with one bad
 // action, for the same reason: half of Go is worse than none of it.
 //
-// The two fields the request carries that a card does not — the workspace and
-// the parent directory clones go into — are the app's own facts and are checked
-// for shape here only. They never came from the feed.
+// The fields the request carries that a card does not — the workspace, the
+// parent directory clones go into, the MCP servers this machine has configured
+// and whether MCP sync is on — are the app's own facts, and they never came
+// from the feed. They are still checked here, because "the renderer sent it" is
+// a claim about a process, not about a shape: the two paths are checked for
+// shape and rejected when relative, and every server is put through
+// `normalizeMcpServerConfig` — the same normalizer the settings store uses —
+// rather than cast. The header claimed the checking until 2026-09-06 while
+// `raw.mcpServers` went through untouched, which would have let a malformed row
+// reach a sync and be written into every CLI's config.
 
 import type { IpcMain } from 'electron'
 import { existsSync } from 'node:fs'
@@ -24,8 +31,11 @@ import { join } from 'node:path'
 
 import type { CardRunInput, CardRunResult, McpServerConfig } from '../../shared/electron-api'
 import { parseCardAction, type CardAction } from '../../shared/hosted-card-feed'
+import { normalizeMcpServerConfig } from '../../shared/mcp/normalize-server'
 import { detectCli } from '../cli-runtime-install'
 import { cloneGitHubRepo } from '../git-clone'
+import { githubRepoFromRemote } from '../git-github'
+import { runGit } from '../git-utils'
 import type { GitHubTokenStore } from '../github-token-store'
 import type { McpConfigService } from '../mcp-config-service'
 import { listPluginRegistryEntries } from '../plugin-registry-instance'
@@ -69,6 +79,22 @@ export function registerCardsIpc(
     cloneRepo: async (input) =>
       cloneGitHubRepo({ ...input, token: await services.githubTokenStore.resolveToken() }),
     pathExists: (path) => existsSync(path),
+    // Strictly `origin`, and strictly GitHub. `getGitHubRepoRef` would answer
+    // from any remote it can parse, which is the wrong question here: a
+    // directory whose `origin` is somebody's fork and whose `upstream` happens
+    // to be the card's repository is not the card's clone, and adopting it as
+    // the workspace is the hole this check exists to close.
+    repoOriginName: async (dir) => {
+      try {
+        const ref = githubRepoFromRemote(await runGit(dir, ['remote', 'get-url', 'origin']))
+        return ref ? `${ref.owner}/${ref.repo}` : null
+      } catch {
+        // No origin, not a repository, or no git on the machine. All three mean
+        // the same thing to the caller: this directory is not known to be the
+        // card's clone, so it does not get adopted.
+        return null
+      }
+    },
     joinPath: (...segments) => join(...segments),
     ...overrides,
   }
@@ -126,9 +152,30 @@ function parseRequest(raw: unknown): ParsedRequest {
       actions,
       workspaceRoot: absolutePathOrNull(raw.workspaceRoot),
       cloneParentDir: absolutePathOrNull(raw.cloneParentDir),
-      mcpServers: Array.isArray(raw.mcpServers) ? (raw.mcpServers as McpServerConfig[]) : [],
+      mcpServers: mcpServersOf(raw.mcpServers),
+      // Absent reads as off. The executor turns it on when a card actually adds
+      // a server, so the only thing a missing field can do is leave a setting
+      // alone.
+      mcpSyncEnabled: raw.mcpSyncEnabled === true,
     },
   }
+}
+
+/**
+ * The MCP servers as the renderer's settings store holds them, put through the
+ * shared normalizer rather than cast. A row that does not normalize is dropped
+ * rather than refused: these are the app's existing servers, and one bad row in
+ * a long-lived settings file must not be the reason a card cannot run — it is
+ * left out of the sync, which is where the settings store would leave it too.
+ */
+function mcpServersOf(value: unknown): McpServerConfig[] {
+  if (!Array.isArray(value)) return []
+  const servers: McpServerConfig[] = []
+  for (const entry of value) {
+    const normalized = normalizeMcpServerConfig(entry)
+    if (normalized) servers.push(normalized)
+  }
+  return servers
 }
 
 /**

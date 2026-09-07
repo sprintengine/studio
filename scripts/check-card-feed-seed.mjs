@@ -23,6 +23,26 @@
 //     owner's 2026-09-06 ruling, enforced in renderableCards.ts), so a seed
 //     card with a misspelt `art` is not a card that looks wrong — it is a card
 //     nobody ever sees, and a fresh install quietly opens on a shorter page.
+//   - no card installs a plugin that declares HOOKS. This one is not about
+//     resolving an id, and it is the gate that stands in place of a dialog.
+//
+// About that last one, because it is the load-bearing half of an owner ruling
+// (R4a, 2026-09-06): **there is never a permission prompt for installing a
+// skill, an MCP server or a plugin.** Go goes. But a plugin's hooks are
+// arbitrary shell commands that this machine then runs on every session event,
+// and a card is a JSON file fetched from the internet — so `installPluginNow`
+// (src/main/skills/index.ts) refuses a plugin declaring hooks unless
+// `acknowledgedHooks` is true, and the card executor never passes it. Those two
+// facts together mean a card installing a hooked plugin is a card whose Go can
+// only ever fail.
+//
+// The ruling's consequence is that the answer is not to add the acknowledgement
+// to the card flow — that would BE the prompt — and not to acknowledge on the
+// person's behalf either. It is that such a card must never be published. This
+// check is where that happens: the gate moves to CI, in front of the author,
+// where a hooked plugin is a build failure with the commands named, rather than
+// to a dialog in front of somebody who pressed a button on a poster. A card
+// that wants a hooked plugin's skills should name the skills.
 //
 // Both lists are the real ones, built out of the renderer's own modules with
 // esbuild rather than re-typed here: the parser from src/shared/hosted-card-feed
@@ -74,6 +94,11 @@ const { CARD_ART_NAMES } = await shipped(
   'card-art-names',
 )
 const artNames = new Set(CARD_ART_NAMES)
+// The scanner's own hooks reader, for the same reason: `parseHooks` accepts both
+// shapes Claude Code does (`{ hooks: { Event: [...] } }` and the bare map), and
+// a second reading of that here would disagree with the installer's the day
+// either moved. What the installer counts as a hook is what this gate counts.
+const { parseHooks } = await shipped(['src', 'main', 'skills', 'scan-plugins.ts'], 'scan-plugins')
 
 let body
 try {
@@ -113,13 +138,55 @@ const cliIds = new Set(
 )
 
 // What our own marketplace publishes, from the bundled copy of its Claude
-// marketplace manifest.
-const studioPluginIds = new Set()
+// marketplace manifest — name to the directory the entry points at, because the
+// hooks check below has to open the plugin and not merely recognise its name.
+// `source` is a repo-relative path (`./sprintengine-studio`) for an in-tree
+// entry and something else entirely for a linked one; only the first kind can
+// be read offline, and only a plugin we can read is one a seed card may name.
+const studioPluginDirs = new Map()
 try {
   const manifest = JSON.parse(readFileSync(join(STUDIO_MIRROR, '.claude-plugin', 'marketplace.json'), 'utf8'))
-  for (const plugin of manifest.plugins ?? []) if (typeof plugin?.name === 'string') studioPluginIds.add(plugin.name)
+  for (const plugin of manifest.plugins ?? []) {
+    if (typeof plugin?.name !== 'string') continue
+    studioPluginDirs.set(plugin.name, inTreePluginDir(plugin.source))
+  }
 } catch (error) {
   errors.push(`resources/studio-plugin/.claude-plugin/marketplace.json could not be read: ${error.message}`)
+}
+
+// The directory a marketplace `source` names inside the mirror, or null when it
+// names anything else. A traversal is refused rather than followed, and so is an
+// absolute path: this resolves a path out of a manifest, and the fact that the
+// manifest is ours is a reason to keep it honest rather than a reason not to.
+function inTreePluginDir(source) {
+  if (typeof source !== 'string' || source === '' || source.startsWith('/')) return null
+  const segments = source.split('/').filter((segment) => segment !== '' && segment !== '.')
+  if (segments.length === 0 || segments.includes('..')) return null
+  return join(STUDIO_MIRROR, ...segments)
+}
+
+/**
+ * The hook commands a plugin declares, read the way the scanner reads them: the
+ * `hooks/hooks.json` beside the plugin, plus an inline `hooks` block in its
+ * `.claude-plugin/plugin.json`. Returns null when the plugin could not be read
+ * at all, which the caller treats as "unknown", not as "none" — the same
+ * distinction `componentsKnown` draws in the scanner, and for the same reason.
+ */
+function pluginHooks(dir) {
+  if (!dir || !existsSync(dir)) return null
+  const hooks = []
+  for (const [relative, inline] of [[['hooks', 'hooks.json'], false], [['.claude-plugin', 'plugin.json'], true]]) {
+    const path = join(dir, ...relative)
+    if (!existsSync(path)) continue
+    let parsed
+    try {
+      parsed = JSON.parse(readFileSync(path, 'utf8'))
+    } catch {
+      return null
+    }
+    hooks.push(...parseHooks(inline ? parsed?.hooks : parsed))
+  }
+  return hooks
 }
 
 // A skill id is its directory path within its source, so it resolves against
@@ -161,13 +228,30 @@ for (const card of cards) {
         installedSkillNames.add(action.id.split('/').pop())
         break
       }
-      case 'install.plugin':
+      case 'install.plugin': {
         if (action.source !== STUDIO_SOURCE_ID) {
           errors.push(`${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`)
-        } else if (!studioPluginIds.has(action.id)) {
+          break
+        }
+        if (!studioPluginDirs.has(action.id)) {
           errors.push(`${at}: "${action.id}" is not a plugin in resources/studio-plugin/.claude-plugin/marketplace.json`)
+          break
+        }
+        // And the hooks rule (R4a). See the head of this file for why this is a
+        // build failure and not a dialog: a hooked plugin cannot install without
+        // an acknowledgement, the card flow deliberately never gives one, and
+        // the ruling says the answer is that the card is never published.
+        const hooks = pluginHooks(studioPluginDirs.get(action.id))
+        if (hooks === null) {
+          errors.push(`${at}: "${action.id}" could not be read from resources/studio-plugin, so whether it declares hooks is unknown; a seed card may only install a plugin this repository carries whole`)
+        } else if (hooks.length > 0) {
+          const commands = [...new Set(hooks.map((hook) => hook.command))]
+          errors.push(
+            `${at}: "${action.id}" declares ${hooks.length} hook${hooks.length === 1 ? '' : 's'} (${commands.join(', ')}), and a plugin with hooks cannot install without an acknowledgement no card ever gives — name its skills instead, or publish it without hooks`,
+          )
         }
         break
+      }
       case 'open.chat':
         for (const skill of action.skills ?? []) {
           if (!installedSkillNames.has(skill)) {

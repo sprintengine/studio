@@ -809,6 +809,14 @@ export type CardRunInput = {
   /** Where this app puts projects — `clone.repo`'s parent directory. */
   cloneParentDir: string | null
   mcpServers: McpServerConfig[]
+  /**
+   * The app's MCP sync switch as it currently stands. Carried rather than
+   * assumed: the executor used to sync with `syncEnabled: true` hardcoded,
+   * which turned a setting back on for somebody who had turned it off. It flips
+   * to true only when a card ADDS a server, because that is what the settings
+   * store does with that same server (`upsertMcpServer`).
+   */
+  mcpSyncEnabled: boolean
 }
 
 /** `already` is a no-op that succeeded; `skipped` is an action a failure before it stopped. */
@@ -832,8 +840,19 @@ export type CardChatHandoff = {
   send: boolean
   /** Installed skill directory names. */
   skills: string[]
-  /** MCP catalogue ids. */
-  mcpServers: string[]
+  /**
+   * The agent CLI a `require.cli` in the same card verified, or null when it
+   * required none. The chat launches on this one so the harness the card's
+   * skills were installed into is the harness the chat runs in.
+   *
+   * There is no `mcpServers` here. The first cut carried one and neither
+   * renderer path read it: for a server the card installed it worked by
+   * accident, because the CLI reads the `.mcp.json` the install just wrote, and
+   * for one the card only named it silently attached nothing. The invariant is
+   * now real instead — `refuseCardActions` refuses a card whose chat names a
+   * server no earlier action installs — so the field had nothing left to say.
+   */
+  cli: string | null
 }
 
 export type CardSurfaceHandoff = { view: CardSurfaceView; installed: boolean }
@@ -844,7 +863,12 @@ export type CardRunResult = {
   outcomes: CardActionOutcome[]
   /** The workspace the run ended in — `clone.repo` moves it. */
   workspaceRoot: string | null
-  /** The MCP servers as they now stand, for the surface to write back. Empty when untouched. */
+  /**
+   * The servers this run ADDED, for the surface to write back — not the merged
+   * list. `upsertMcpServer` turns MCP sync on for every server it is handed,
+   * and handing it servers the person already had would flip that switch on
+   * their behalf for a server they did not just install.
+   */
   mcpServers: McpServerConfig[]
   chat: CardChatHandoff | null
   surface: CardSurfaceHandoff | null
