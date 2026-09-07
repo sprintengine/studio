@@ -40,15 +40,41 @@ const NOW = 1_800_000_000_000
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 
+const SOLO = {
+  sessionId: 'e4b3d55c-d78c-4687',
+  name: 'Deara Shea',
+  initials: 'DS',
+  cli: 'claude-code' as const,
+  model: 'claude-opus-5',
+  status: { tone: 'good' as const, pulse: true, label: 'Working' },
+}
+
 const IDENTITY: ConversationPeekIdentity = {
   name: 'Deara Shea',
-  cli: 'claude-code',
-  model: 'claude-opus-5',
-  sessionId: 'e4b3d55c-d78c-4687',
   taskId: null,
   status: { tone: 'good', pulse: true, label: 'Working' },
-  agentScope: null,
+  roster: [SOLO],
 }
+
+const ROSTER: ConversationPeekIdentity['roster'] = [
+  SOLO,
+  {
+    sessionId: '7c02f1aa-0000-9d31',
+    name: 'Lir Lynch',
+    initials: 'LL',
+    cli: 'codex',
+    model: 'gpt-5-codex',
+    status: { tone: 'warn', pulse: false, label: 'Waiting' },
+  },
+  {
+    sessionId: 'b81e04c7-0000-2f60',
+    name: 'Mira Kaur',
+    initials: 'MK',
+    cli: 'claude-code',
+    model: 'claude-opus-5',
+    status: { tone: 'neutral', pulse: false, label: 'Idle' },
+  },
+]
 
 const message = (over: Partial<ConversationPeekMessage> = {}): ConversationPeekMessage => ({
   id: 'm1',
@@ -75,6 +101,8 @@ function card(
     loading?: boolean
     copied?: boolean
     onOpenAttachment?: ((attachmentId: string) => void) | undefined
+    selectedSessionId?: string | null
+    pinnedSessionId?: string | null
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -86,6 +114,11 @@ function card(
       copied={over.copied ?? false}
       onCopySession={() => {}}
       onOpenAttachment={'onOpenAttachment' in over ? over.onOpenAttachment : () => {}}
+      selectedSessionId={over.selectedSessionId ?? null}
+      pinnedSessionId={over.pinnedSessionId ?? null}
+      onPreviewAgent={() => {}}
+      onEndPreview={() => {}}
+      onPinAgent={() => {}}
     />,
   )
 }
@@ -104,7 +137,7 @@ run('the card keeps the model and the session id, and drops the four rows that r
 })
 
 run('a model the agent never chose reads as the CLI default, never blank', () => {
-  const markup = card({ identity: { model: null } })
+  const markup = card({ identity: { roster: [{ ...SOLO, model: null }] } })
   assert.match(markup, /CLI default/, 'null model falls back to "CLI default"')
   assert.equal(markup.includes('claude-opus-5'), false, 'no stale model string when unset')
 })
@@ -341,15 +374,137 @@ run('the session id keeps its head and its tail', () => {
   assert.equal(elideSessionId('short-id'), 'short-id', 'an id that fits is left alone')
 })
 
-// --- A multi-agent chat says which agent it is quoting ---------------------
-run('a chat with several agents says which one the card is about', () => {
-  const markup = card({ identity: { agentScope: { agentName: 'Deara Shea', total: 3 } } })
-  assert.match(markup, /Showing/, 'the card says it is showing one of them')
-  assert.match(markup, /one of\s*3\s*agents/, 'and how many there are')
+// --- The roster: one agent at a time, nothing merged (mockup frame 9) ------
+const multi = (over: Parameters<typeof card>[0] = {}) =>
+  card({ ...over, identity: { name: 'Retry budget for stalled sprints', roster: ROSTER, ...(over.identity ?? {}) } })
+
+run('a chat with one terminal draws no roster — a selector over one thing is chrome', () => {
+  const markup = card()
+  assert.equal(/role="radiogroup"/.test(markup), false, 'no selector')
+  assert.equal(markup.includes('Terminals in this chat'), false, 'and nothing to label')
+  assert.match(markup, /claude-opus-5/, 'the single agent keeps its badge chips')
 })
 
-run('a chat with one agent says nothing about agents at all', () => {
-  assert.equal(card().includes('one of'), false, 'no scope line where there is nothing to disclaim')
+run('a chat with several terminals draws a disc each, initials out, names in', () => {
+  const markup = multi()
+  assert.match(markup, /role="radiogroup"[^>]*aria-label="Terminals in this chat"/, 'one group, named')
+  assert.equal((markup.match(/role="radio"/g) ?? []).length, 3, 'a disc per terminal')
+  for (const [initials, name, state] of [
+    ['DS', 'Deara Shea', 'Working'],
+    ['LL', 'Lir Lynch', 'Waiting'],
+    ['MK', 'Mira Kaur', 'Idle'],
+  ]) {
+    assert.match(markup, new RegExp(`aria-label="${name} — ${state}"`), `${name} is named, with state in words`)
+    assert.match(markup, new RegExp(`>${initials}<`), `${initials} is the face`)
+  }
+})
+
+run('the header counts the terminals instead of naming one state', () => {
+  assert.match(multi(), /3 agents/, 'each terminal’s own state is on its own disc')
+  assert.equal(multi().includes('>Working<'), false, 'so the header does not claim one of them')
+})
+
+run('the body belongs to the selected terminal, whole — nothing is merged', () => {
+  const markup = multi({ selectedSessionId: ROSTER[1]!.sessionId })
+  assert.match(markup, /Conversation with Lir Lynch/, 'the body is named for whose it is')
+  assert.match(markup, /gpt-5-codex/, 'and carries THAT terminal’s model')
+  assert.match(markup, /7c02f1aa…9d31/, 'and THAT terminal’s session id')
+  assert.equal(markup.includes('claude-opus-5'), false, 'never another terminal’s facts alongside')
+})
+
+run('the identity line names the agent whose conversation is showing', () => {
+  assert.match(multi({ selectedSessionId: ROSTER[2]!.sessionId }), /Mira Kaur/, 'who')
+  assert.match(multi({ selectedSessionId: ROSTER[2]!.sessionId }), /Copy session id for Mira Kaur/, 'and whose id you would copy')
+})
+
+run('with nothing selected the card opens on the roster’s first entry', () => {
+  const markup = multi()
+  assert.match(markup, /Conversation with Deara Shea/, 'the most recently active terminal leads the roster')
+})
+
+// --- Pinning: aria-checked follows the COMMIT, not the hover ---------------
+run('aria-checked follows the pinned terminal, never the previewed one', () => {
+  const markup = multi({ selectedSessionId: ROSTER[1]!.sessionId, pinnedSessionId: ROSTER[0]!.sessionId })
+  assert.match(markup, /aria-label="Deara Shea — Working" tabindex="0"/, 'the pinned disc is the group’s tab stop')
+  assert.match(
+    markup,
+    /aria-checked="true"[^>]*aria-label="Deara Shea — Working"/,
+    'the pinned disc reports checked while another is merely previewed',
+  )
+  assert.match(
+    markup,
+    /aria-checked="false"[^>]*aria-label="Lir Lynch — Waiting"/,
+    'a hover moves the body and commits nothing — announcing it as selected would be a lie',
+  )
+  assert.match(markup, /Conversation with Lir Lynch/, 'but the BODY is the previewed one')
+})
+
+run('pinning moves both the body and the checked state', () => {
+  const markup = multi({ selectedSessionId: ROSTER[1]!.sessionId, pinnedSessionId: ROSTER[1]!.sessionId })
+  assert.match(markup, /aria-checked="true"[^>]*aria-label="Lir Lynch — Waiting"/, 'the pin committed')
+  assert.match(markup, /Conversation with Lir Lynch/, 'and the body agrees with it')
+})
+
+run('the group is one tab stop, with the roving stop on the pinned disc', () => {
+  const markup = multi({ pinnedSessionId: ROSTER[2]!.sessionId })
+  assert.equal((markup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one disc is in the tab order')
+  assert.match(markup, /aria-label="Mira Kaur — Idle" tabindex="0"/, 'and it is the pinned one')
+})
+
+run('the roster is a radiogroup, not a tablist — the body is not a panel a tab owns', () => {
+  const markup = multi()
+  assert.equal(/role="tab"/.test(markup), false, 'no tab')
+  assert.equal(/role="tablist"/.test(markup), false, 'no tablist')
+  assert.equal(/role="tabpanel"/.test(markup), false, 'and no panel')
+})
+
+// --- The resize lock: the card must not move under the pointer -------------
+run('every terminal’s body reserves the same height, so sweeping the discs never resizes the card', () => {
+  const bodyClass = (markup: string): string =>
+    markup.match(/<div class="([^"]*px-3 pb-2\.5 pt-2[^"]*)"/)?.[1] ?? ''
+
+  // Three wildly different conversations: a long thread, a single message, and
+  // an empty chat. If any of them sized the body to its content, a pointer on a
+  // disc would be un-hovered by the card growing out from under it.
+  const long = multi({
+    selectedSessionId: ROSTER[0]!.sessionId,
+    peek: peek({
+      since: Array.from({ length: 9 }, (_, index) => message({ id: `m${index}`, text: `line ${index}` })),
+    }),
+  })
+  const short = multi({ selectedSessionId: ROSTER[1]!.sessionId, peek: peek({ since: [] }) })
+  const empty = multi({ selectedSessionId: ROSTER[2]!.sessionId, peek: peek({ first: null, since: [] }) })
+
+  assert.match(bodyClass(long), /min-h-\[196px\]/, 'the body reserves a fixed height')
+  assert.equal(bodyClass(short), bodyClass(long), 'a one-message conversation reserves exactly as much')
+  assert.equal(bodyClass(empty), bodyClass(long), 'and so does an empty one — it ends in space, not a jump')
+})
+
+run('the reserve is only for a roster — a single-agent card is sized by its content', () => {
+  assert.equal(card().includes('min-h-[196px]'), false, 'nothing to sweep, nothing to lock')
+})
+
+run('the identity line never wraps, because a second line is the card resizing too', () => {
+  const markup = multi({
+    identity: {
+      roster: [{ ...ROSTER[0]!, model: 'a-model-id-long-enough-to-wrap-any-reasonable-measure' }, ROSTER[1]!],
+    },
+  })
+  assert.match(markup, /flex-nowrap/, 'one line, always')
+  assert.match(markup, /truncate/, 'the model gives way rather than the row growing')
+})
+
+run('past six terminals the rest are counted, never wrapped onto a second line', () => {
+  const many = Array.from({ length: 9 }, (_, index) => ({
+    ...SOLO,
+    sessionId: `s${index}`,
+    name: `Agent ${index}`,
+    initials: `A${index}`,
+  }))
+  const markup = card({ identity: { roster: many } })
+  assert.equal((markup.match(/role="radio"/g) ?? []).length, 6, 'six discs')
+  assert.match(markup, /aria-label="3 more terminals"/, 'and the remainder counted')
+  assert.equal(/flex-wrap/.test(markup.split('radiogroup')[1]?.slice(0, 200) ?? ''), false, 'the strip never wraps')
 })
 
 // --- The thread tooltip only fires on a row that is actually cut -----------

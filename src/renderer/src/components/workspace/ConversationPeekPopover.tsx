@@ -38,9 +38,12 @@ export function ConversationPeekPopover({
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const [point, setPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const hover = useConversationPeek(identity.sessionId)
-  const { copied, copy } = useCopyValue(identity.sessionId)
-  const { openNow, openSoon, closeSoon, closeNow, keepOpen } = hover
+  // The card opens on the roster's first entry — the most recently active
+  // terminal, which is the one you are most likely reaching for. Not the first
+  // by name or id, which is an arbitrary answer dressed up as a considered one.
+  const hover = useConversationPeek(identity.roster[0]?.sessionId ?? null)
+  const { copied, copy } = useCopyValue(hover.selectedSessionId)
+  const { openNow, openSoon, closeSoon, closeNow, keepOpen, previewAgent, endPreview } = hover
 
   // THE WHOLE ROW is the trigger (owner, 2026-09-07). A chat row is two lines —
   // the title, and the meta line carrying heads · provenance · branch · diff —
@@ -86,6 +89,19 @@ export function ConversationPeekPopover({
       openSoon()
     }
     const onLeave = () => closeSoon()
+    // Hovering one of the row's own heads opens the card ON THAT TERMINAL
+    // (mockup frame 9). Delegated from the row rather than wired per line: the
+    // heads are the sidebar's markup, and one listener that reads the attribute
+    // beats threading a callback through every terminal line. `mouseover`, not
+    // `mouseenter`, precisely because it DOES fire moving between descendants —
+    // that is the whole event here.
+    const onOver = (event: MouseEvent) => {
+      const target = event.target as Element | null
+      const head = target?.closest?.('[data-peek-session]')
+      const session = head?.getAttribute('data-peek-session')
+      if (session) previewAgent(session)
+      else endPreview()
+    }
     const onFocusIn = () => {
       anchor()
       openNow()
@@ -97,15 +113,17 @@ export function ConversationPeekPopover({
     }
     row.addEventListener('mouseenter', onEnter)
     row.addEventListener('mouseleave', onLeave)
+    row.addEventListener('mouseover', onOver)
     row.addEventListener('focusin', onFocusIn)
     row.addEventListener('focusout', onFocusOut)
     return () => {
       row.removeEventListener('mouseenter', onEnter)
       row.removeEventListener('mouseleave', onLeave)
+      row.removeEventListener('mouseover', onOver)
       row.removeEventListener('focusin', onFocusIn)
       row.removeEventListener('focusout', onFocusOut)
     }
-  }, [closeSoon, openNow, openSoon])
+  }, [closeSoon, endPreview, openNow, openSoon, previewAgent])
 
   // A row that scrolls out from under an open card leaves the card hanging over
   // whatever took its place. The sidebar scrolls constantly, so the card goes
@@ -143,6 +161,11 @@ export function ConversationPeekPopover({
               copied={copied}
               onCopySession={copy}
               onOpenAttachment={hover.openAttachment}
+              selectedSessionId={hover.selectedSessionId}
+              pinnedSessionId={hover.pinnedSessionId}
+              onPreviewAgent={hover.previewAgent}
+              onEndPreview={hover.endPreview}
+              onPinAgent={hover.pinAgent}
             />
           </div>
         </PointerPopover>
