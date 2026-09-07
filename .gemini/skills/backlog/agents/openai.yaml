@@ -1,4 +1,4 @@
 interface:
   display_name: "Backlog"
   short_description: "Take and work a Multicode Backlog item with truthful lifecycle status."
-  default_prompt: "Use $backlog to take a Backlog item (or survey open items), keep its status current in .multi-code/backlog/items.json while working, and only mark it completed when the work is verified."
+  default_prompt: "Use $backlog to take a Backlog item (or survey open items), keep its status current in the item's own frontmatter while working, and only mark it completed when the work is verified."

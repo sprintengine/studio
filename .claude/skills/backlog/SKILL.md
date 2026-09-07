@@ -5,7 +5,9 @@ description: Work, create, or triage Multicode Backlog items and epics. Use when
 
 # Backlog
 
-Items are markdown files under `backlog/` (epics under `backlog/epics/`). Each
+Items are markdown files filed under the epic they belong to —
+`backlog/<epic-slug>/<item>.md` — or `backlog/unfiled/` when they have no epic.
+Epic definitions stay at `backlog/epics/<epic-slug>.md`. Each
 file's frontmatter is the source of truth for its lifecycle; `.multi-code/` is
 app-owned, never edited by hand. Field names and their valid values come from the
 `backlog.*` MCP tool schemas — read them there rather than from this skill, and
@@ -37,7 +39,10 @@ finding without evidence that refutes it; fix or record every one that stands.
 Without a subagent mechanism, review from a fresh session. Judge the result
 against what the epic said it was for.
 
-**Create.** Write the file yourself — no tool needed. Choose an unused slug,
+**Create.** Write the file yourself — no tool needed. Put it in its epic's
+folder, or `backlog/unfiled/` if it has none. Choose a slug unused anywhere in
+`backlog/` — `dependsOn:` and `epic:` point at an item by filename alone, so two
+items sharing one collide even in different folders. Then
 start with frontmatter carrying only fields you can honestly fill, then a
 `# Title` and the body: what, why, user impact, and anything needed to
 understand the request. Omit `id:` and `updated:`; the app assigns them.

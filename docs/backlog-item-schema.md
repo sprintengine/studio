@@ -1,12 +1,18 @@
 # Backlog item schema (v2)
 
-A backlog item is a markdown file under `backlog/`. Its lightweight,
-human-editable fields live in the file's **frontmatter** and are the source of
-truth there. Anyone — a human, Git, or an agent — creates an item by writing the
-file; existing items are preferably mutated through the validated
-`backlog.update` tool, which stamps precise timestamps. App-owned churn — stable source,
-star/highlight, links, module metadata, and sidecar timestamps — lives in the sidecar object store
-`.multi-code/backlog/items.json` and is merged over the file at scan time.
+A backlog item is a markdown file filed under the epic it belongs to —
+`backlog/<epic-slug>/<item>.md` — or `backlog/unfiled/` when it has no epic. Its
+lightweight, human-editable fields live in the file's **frontmatter** and are the
+source of truth there. Anyone — a human, Git, or an agent — creates an item by
+writing the file; existing items are preferably mutated through the validated
+`backlog.update` tool, which stamps precise timestamps.
+
+Durable app-written facts live in that same frontmatter: the star (`starred`,
+`highlight`) and the links an item declares (`sprints`, `pr`). What is left is
+volatile — resolved link status, the agent terminal holding an item — and lives
+in `.multi-code/backlog/cache/links.json`, which is gitignored, re-derivable, and
+merged over the file at scan time. It replaced the tracked `items.json`, which
+held both halves and rewrote itself on every resolve tick.
 
 This split follows Google Cloud's **Open Knowledge Format (OKF) v0.1**: `backlog/`
 is a bundle of markdown concept files, each with one required `type` field;
@@ -71,7 +77,7 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   an item can never depend on itself. Like `epic`, dependencies are **stored up,
   derived down**: only the dependent stores the edge; the reverse "blocks" edges
   and the derived signals below are recomputed on every scan and never persisted
-  to `items.json`.
+  to the cache.
   - **Derived blocked** (effective readiness): a stored `status: ready` with ≥1
     unresolved prerequisite (target not completed/archived, or a dangling slug)
     **presents as Blocked instead of Ready** everywhere — the readiness claim is

@@ -18,18 +18,23 @@ field schema (v2 frontmatter + the epic concept-file convention) is in
 A Backlog item is split across two stores (see
 [`docs/backlog-item-schema.md`](./backlog-item-schema.md) for the field schema):
 
-- **Frontmatter** in the item's markdown file under `backlog/` is the source of
-  truth for lifecycle and triage — `status`, `type`, `difficulty`,
-  `criticality`, `risk`, and the up-pointing `epic:` slug. The shared writer
-  `serializeBacklogFrontmatterFields` (`src/shared/backlog/frontmatter.ts`)
+- **Frontmatter** in the item's markdown file — `backlog/<epic-slug>/<item>.md`,
+  or `backlog/unfiled/` when it has no epic — is the source of truth for
+  lifecycle and triage (`status`, `type`, `difficulty`, `criticality`, `risk`,
+  and the up-pointing `epic:` slug) and for the durable app-written facts: the
+  star (`starred`, `highlight`) and declared links (`sprints`, `pr`). The shared
+  writer `serializeBacklogFrontmatterFields` (`src/shared/backlog/frontmatter.ts`)
   rewrites it while preserving the document body byte-for-byte.
-- **The object store** `.multi-code/backlog/items.json` holds only app-owned
-  churn — links, the star/highlight, module-scoped metadata, and timestamps.
+- **The link cache** `.multi-code/backlog/cache/links.json` holds only what is
+  volatile — resolved link status, the agent terminal holding an item,
+  module-scoped metadata, and its own timestamps. It is gitignored (the folder
+  carries its own `.gitignore`, so it stays invisible in any project) and
+  re-derivable: deleting it costs a lookup, never data.
 
 Both are mutated only through the named Electron API; the channel determines
 which store it writes.
 
-Frontmatter writers (rewrite the item `.md`, never `items.json`):
+Frontmatter writers (rewrite the item `.md`, never the cache):
 
 - `updateBacklogStatus(input)`
 - `updateBacklogType(input)`
@@ -37,7 +42,9 @@ Frontmatter writers (rewrite the item `.md`, never `items.json`):
 - `updateBacklogEpic(input)` — sets/clears the child's `epic:` slug
 - `createBacklogEpic(input)` — writes `backlog/epics/<slug>.md` with `type: epic`
 
-Object-store writers (`.multi-code/backlog/items.json`):
+Cache writers (`.multi-code/backlog/cache/links.json`) — `updateBacklogHighlight`
+and `addOrUpdateBacklogLink` also write the durable half into the item's
+frontmatter:
 
 - `readBacklogObjectStore(workspaceRoot)`
 - `ensureBacklogObjectRecords(workspaceRoot, items)`
@@ -48,7 +55,7 @@ Object-store writers (`.multi-code/backlog/items.json`):
 - `removeBacklogObjectRecord(input)`
 
 Renderer modules should use the action context helpers or `window.api` service
-methods. They must not read or write `.multi-code/backlog/items.json` or item
+methods. They must not read or write `.multi-code/backlog/cache/` or item
 frontmatter directly. Stored link target paths must stay project-root-relative,
 for example `.multi-code/sprintengine/<team>/run.yaml`.
 

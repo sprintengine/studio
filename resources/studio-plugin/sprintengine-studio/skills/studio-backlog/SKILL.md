@@ -5,7 +5,9 @@ description: Read, triage, update and hand out SprintEngine Studio Backlog items
 
 # Backlog
 
-Items are markdown files under `backlog/`, epics under `backlog/epics/`. Each
+Items are markdown files filed under the epic they belong to —
+`backlog/<epic-slug>/<item>.md` — or `backlog/unfiled/` when they have no epic.
+Epic definitions stay at `backlog/epics/<epic-slug>.md`. Each
 file's frontmatter is the source of truth for its lifecycle. `.multi-code/` is
 app-owned and never edited by hand.
 

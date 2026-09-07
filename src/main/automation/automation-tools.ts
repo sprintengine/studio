@@ -1275,7 +1275,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
         projectRoot: PROJECT_ROOT_PROPERTY,
       },
       required: ['path'],
@@ -1564,7 +1564,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
         projectRoot: PROJECT_ROOT_PROPERTY,
         status: { type: 'string', enum: [...BACKLOG_STATUSES] },
         type: { type: ['string', 'null'], enum: [...BACKLOG_TYPES, null] },
@@ -1699,7 +1699,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
         agentId: { type: 'string', description: 'Agent id within the workspace (see workspace.status).' },
         projectRoot: PROJECT_ROOT_PROPERTY,
       },
@@ -1755,7 +1755,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
         projectRoot: PROJECT_ROOT_PROPERTY,
         cli: { type: 'string', description: 'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the registered ids.' },
         name: { type: 'string', description: 'Agent display name.' },
