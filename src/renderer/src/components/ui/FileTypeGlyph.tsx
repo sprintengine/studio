@@ -6,12 +6,18 @@
 // Familiar shapes make file kinds recognizable — the TS / JS / PY
 // / RS / GO letter tiles, the React atom for `.tsx` / `.jsx`, `{}` for JSON,
 // the M-with-arrow for Markdown, `<>` for HTML, `#` for stylesheets, the prompt
-// for shell — and stay monochrome. The 2026-09-02 ruling that retired the
-// sixteen hard-coded hex hues stands: category colour is not a status channel
-// (principles.md → "Status hues are not accents … category code"), so the
-// glyph inherits the row's ink and the status tint on the filename stays the
-// one colour in the row. A `*.test.*` file wears its tile with the corner
-// notched for a tick, the way IDEs badge a test source.
+// for shell. A `*.test.*` file wears its tile with the corner notched for a
+// tick, the way IDEs badge a test source.
+//
+// Colour is an axis, `tone`, and the caller picks it (owner, 2026-09-06,
+// principles.md → "Identity colour"). `ink`, the default, is the glyph the
+// 2026-09-02 ruling left: it inherits the row's ink, so in a list where the
+// filename already carries a status tint (the Git changes list) that tint stays
+// the one colour in the row. `kind` inks the glyph in its kind's identity hue —
+// the `--sem-color-mark-*` tokens, blue for TypeScript, yellow for JavaScript
+// — the way IDEs colour their project views, so a
+// tree of forty files can be scanned by colour before it is read. The hue
+// identifies; it never grades. The drawing is the same in both tones.
 //
 // 16-grid stroke discipline (glyphs/component.md): frame 1.2, line work 1.3–1.4,
 // the letterforms a step heavier at 1.45 so they hold at 16px.
@@ -390,13 +396,60 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
   generic: () => <DocumentOutline />,
 }
 
+/**
+ * How the glyph is inked. `ink` takes the surrounding text colour (the default,
+ * and the rule for any list whose filenames carry a status tint). `kind` wears
+ * the kind's identity hue from the `--sem-color-mark-*` ramp — for the File
+ * Explorer, where nothing else in the row is coloured.
+ */
+export type FileTypeGlyphTone = 'ink' | 'kind'
+
+// Kind → identity hue. The pairings are the ones people already know from
+// their editors: TypeScript blue, JavaScript yellow, Python blue, HTML orange,
+// Rust orange, Go cyan, React cyan, YAML red, Java red, shell teal, CSS and
+// images violet, JSON and lockfiles yellow. Configuration, plain text and the
+// generic document stay in the row's ink: they name no language, and a gear or
+// a page in a colour would be colour saying nothing.
+//
+// Literal class strings, never interpolated: Tailwind generates an arbitrary
+// colour utility only from a variant it can see in the source text.
+const KIND_INK: Record<FileTypeKind, string | null> = {
+  typescript: 'text-[color:var(--sem-color-mark-blue)]',
+  'typescript-test': 'text-[color:var(--sem-color-mark-blue)]',
+  javascript: 'text-[color:var(--sem-color-mark-yellow)]',
+  'javascript-test': 'text-[color:var(--sem-color-mark-yellow)]',
+  react: 'text-[color:var(--sem-color-mark-cyan)]',
+  json: 'text-[color:var(--sem-color-mark-yellow)]',
+  markdown: 'text-[color:var(--sem-color-mark-blue)]',
+  yaml: 'text-[color:var(--sem-color-mark-red)]',
+  html: 'text-[color:var(--sem-color-mark-orange)]',
+  css: 'text-[color:var(--sem-color-mark-violet)]',
+  shell: 'text-[color:var(--sem-color-mark-teal)]',
+  python: 'text-[color:var(--sem-color-mark-blue)]',
+  rust: 'text-[color:var(--sem-color-mark-orange)]',
+  go: 'text-[color:var(--sem-color-mark-cyan)]',
+  java: 'text-[color:var(--sem-color-mark-red)]',
+  image: 'text-[color:var(--sem-color-mark-violet)]',
+  lock: 'text-[color:var(--sem-color-mark-yellow)]',
+  config: null,
+  text: null,
+  generic: null,
+}
+
+/** The identity-hue utility a kind wears under `tone="kind"`, or null when it keeps the row's ink. */
+export function fileTypeKindInk(kind: FileTypeKind): string | null {
+  return KIND_INK[kind]
+}
+
 type FileTypeGlyphProps = {
   /** The file's name or path; the kind is derived from its last segment. */
   name?: string
   /** An already-resolved kind, when the caller has one. Wins over `name`. */
   kind?: FileTypeKind
-  /** Sizing and ink stay with the caller; `icon-sm` is the row canon. */
+  /** Sizing stays with the caller; `icon-sm` is the row canon. Ink too, under `tone="ink"`. */
   className?: string
+  /** `ink` (default) inherits the surrounding text colour; `kind` wears the kind's identity hue. */
+  tone?: FileTypeGlyphTone
   /**
    * Announce the kind. Off by default — the filename beside the glyph carries
    * the meaning, so the mark is decorative (glyphs/component.md, Accessibility).
@@ -404,15 +457,23 @@ type FileTypeGlyphProps = {
   labelled?: boolean
 }
 
-export function FileTypeGlyph({ name, kind, className = 'icon-sm shrink-0', labelled = false }: FileTypeGlyphProps): JSX.Element {
+export function FileTypeGlyph({
+  name,
+  kind,
+  className = 'icon-sm shrink-0',
+  tone = 'ink',
+  labelled = false,
+}: FileTypeGlyphProps): JSX.Element {
   const resolved = kind ?? fileTypeKind(name ?? '')
   const Body = BODY[resolved]
   const label = FILE_TYPE_LABEL[resolved]
+  const kindInk = tone === 'kind' ? KIND_INK[resolved] : null
   return (
     <svg
       viewBox="0 0 16 16"
       fill="none"
-      className={className}
+      className={kindInk ? `${className} ${kindInk}` : className}
+      data-tone={kindInk ? 'kind' : undefined}
       {...(labelled ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     >
       {labelled ? <title>{label}</title> : null}

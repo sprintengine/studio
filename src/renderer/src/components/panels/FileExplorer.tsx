@@ -191,18 +191,23 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   return rows
 }
 
-// The file mark is the kit's `FileTypeGlyph` (owner 2026-09-05): one shape per kind, `currentColor`, in the 16px leading
-// slot every tree row reserves. It replaces the mono letter chip that lived
-// here — a 24×18 label box that sat off the icon ramp and read as a badge, not
-// an identity mark. The 2026-09-02 ruling that category colour is not a status
-// channel still holds: the glyph takes the row's ink — the same three-tier ink
-// the folder glyph below takes, so the two kinds of row read at one weight in
-// one column — and the status tint on the filename stays the one colour in the
-// row. The wrapper therefore declares no ink of its own.
+// The file mark is the kit's `FileTypeGlyph` (owner 2026-09-05): one shape per kind in the 16px leading slot every tree
+// row reserves. It replaces the mono letter chip that lived here — a 24×18
+// label box that sat off the icon ramp and read as a badge, not an identity
+// mark.
+//
+// Inked by KIND here (owner, 2026-09-06, principles.md → "Identity colour"):
+// the explorer is the one surface whose rows carry no other colour — no status
+// tint on the name, no tone on the row — so it is where a hue per language
+// lets the tree be scanned by colour before it is read. The Git changes list keeps the glyph
+// in ink, because there the filename's status tint is the row's one colour.
+// Kinds that name no language (config, text, the generic document) stay in the
+// row's ink, as does the folder glyph below; the wrapper declares no ink of its
+// own so those still take the row's three-tier ink.
 function FileIcon({ name }: { name: string }) {
   return (
     <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
-      <FileTypeGlyph name={name} />
+      <FileTypeGlyph name={name} tone="kind" />
     </span>
   )
 }

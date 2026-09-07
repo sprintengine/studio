@@ -42,6 +42,7 @@ import type { Workspace } from '../../types/workspace'
 // (AppIcons, mirrored in design-system/glyphs/git-branch.svg) — this chip and
 // the sidebar row's branch glyph sit on adjacent chrome and must agree.
 import { GitBranchGlyph, RemoteMachineGlyph } from '../AppIcons'
+import { IntelliJMark, VsCodeMark } from '../brand/EditorMarks'
 
 // Folder glyph for the project chip. Same stroke idiom as GitBranchGlyph
 // (1.3px round strokes on a 16px box) so the two identity chips read as a set.
@@ -58,32 +59,17 @@ function FolderGlyph({ className }: { className?: string }) {
   )
 }
 
-// Each editor's own mark, drawn as the single-path monochrome logo the vendor
-// publishes, so the control says which tool it opens the way every other app
-// does — a two-letter "VS"/"IJ" mono chip was ours, not theirs, and read as a
-// placeholder. They ride currentColor at one size beside the file manager's
-// folder glyph, so the three read as one set at one weight. Keyed by target
-// rather than chained ternaries, so adding a target to the shared id list fails
-// to compile here instead of silently drawing the wrong mark.
-function VsCodeGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z" />
-    </svg>
-  )
-}
-
-function IntelliJGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M0 0v24h24V0zm3.723 3.111h5v1.834h-1.39v6.277h1.39v1.834h-5v-1.834h1.444V4.945H3.723zm11.055 0H17v6.5c0 .612-.055 1.111-.222 1.556-.167.444-.39.777-.723 1.11-.277.279-.666.557-1.11.668a3.933 3.933 0 0 1-1.445.278c-.778 0-1.444-.167-1.944-.445a4.81 4.81 0 0 1-1.279-1.056l1.39-1.555c.277.334.555.555.833.722.277.167.611.278.945.278.389 0 .721-.111 1-.389.221-.278.333-.667.333-1.278zM2.222 19.5h9V21h-9z" />
-    </svg>
-  )
-}
-
+// Each editor's own mark in its vendor's colour (brand/EditorMarks; ruled
+// 2026-09-06, principles.md → "Identity colour"), so the control says which
+// tool it opens the way every other app does — a two-letter "VS"/"IJ" mono
+// chip was ours, not theirs, and the monochrome logos that replaced it still
+// read as placeholders beside the real marks in every other menu on the
+// machine. The file manager's folder is ours and rides currentColor. Keyed by
+// target rather than chained ternaries, so adding a target to the shared id
+// list fails to compile here instead of silently drawing the wrong mark.
 const TARGET_MARK: Record<FolderOpenTargetId, React.ReactNode> = {
-  vscode: <VsCodeGlyph className="size-icon-sm" />,
-  intellij: <IntelliJGlyph className="size-icon-sm" />,
+  vscode: <VsCodeMark className="size-icon-sm" />,
+  intellij: <IntelliJMark className="size-icon-sm" />,
   finder: <FolderGlyph className="size-icon-sm" />,
 }
 

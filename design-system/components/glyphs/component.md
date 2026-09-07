@@ -34,8 +34,11 @@ letterforms). Anything outside that band is drift, not a variant.
   and never carries its own palette. The whole list of self-coloring
   exceptions: `PriorityIcon` urgent/high (`--tone-error` / `--tone-warn`),
   `StatusIcon` done and the in-progress wedge family (`--tone-good` /
-  `--tool-switchboard`), the Claude Code brand mark in `CliIcon`, and the
-  role tone applied by `RoleGlyph` / `RoleAvatar` (see Variants).
+  `--tool-switchboard`), the role tone applied by `RoleGlyph` / `RoleAvatar`
+  (see Variants), and the two **identity-colour** families ruled 2026-09-06
+  (principles.md → "Identity colour"): vendor marks in their vendors' colours
+  (`CliIcon`, `brand/EditorMarks`), and `FileTypeGlyph` under `tone="kind"`,
+  which inks by language from the `--sem-color-mark-*` ramp.
 - **Drawn for 16 px.** Every glyph must read at `--sem-icon-size-sm`; detail
   that only resolves at 22 px is detail the glyph cannot afford.
 - **Named by grid.** 24-grid components end in `Icon`; 16-grid primitives end
@@ -170,12 +173,13 @@ discipline: 1.7 frame, 1.9 letterform.
 
 ### File type (16-grid — `ui/FileTypeGlyph.tsx`)
 
-*Which kind of file is this row about*, answered by shape alone. One drawing
-per kind, `currentColor`, in the 16 px leading slot every tree and list row
-reserves — the File Explorer and the Git changes list wear the same mark for
-the same file, so a `.ts` reads as a `.ts` on both (owner 2026-09-05, the
-IDE Project-view idiom). `fileTypeKind(name)` is the pure resolver;
-`FILE_TYPE_LABEL` names each kind for a tooltip or `aria-label`.
+*Which kind of file is this row about*, answered by shape first. One drawing
+per kind in the 16 px leading slot every tree and list row reserves — the File
+Explorer and the Git changes list wear the same mark for the same file, so a
+`.ts` reads as a `.ts` on both (owner 2026-09-05, the IDE Project-view
+idiom). `fileTypeKind(name)` is the pure resolver; `FILE_TYPE_LABEL` names each
+kind for a tooltip or `aria-label`; `fileTypeKindInk(kind)` is the identity hue
+a kind wears when coloured.
 
 | Kind | Shape |
 |---|---|
@@ -195,12 +199,30 @@ IDE Project-view idiom). `fileTypeKind(name)` is the pure resolver;
 | `text` | Document with lines — `.txt`, `.csv`, `LICENSE`, `README` |
 | `generic` | Plain document — anything unrecognised |
 
-The family is deliberately monochrome. The 2026-09-02 ruling that retired the
-explorer's sixteen hard-coded hues stands: category colour is not a status
-channel ("Restraint"), so the glyph takes the row's ink and the status tint on
-the filename stays the one colour in the row. `glyphs/file-typescript.svg` and
-`glyphs/file-generic.svg` are the framework-neutral samples of the tile and
-document idioms.
+Colour is the `tone` axis, and the surface picks it (ruled 2026-09-06,
+principles.md → "Identity colour"). `tone="ink"`, the default, is the
+monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is
+the rule wherever the filename already carries a status tint — the Git changes
+list — so that tint stays the row's one colour. `tone="kind"` inks the glyph
+in its language's identity hue from the `--sem-color-mark-*` ramp, the
+pairings people know from their editors:
+
+| Hue | Kinds |
+|---|---|
+| `mark.blue` | `typescript` · `typescript-test` · `python` · `markdown` |
+| `mark.yellow` | `javascript` · `javascript-test` · `json` · `lock` |
+| `mark.cyan` | `react` · `go` |
+| `mark.orange` | `html` · `rust` |
+| `mark.red` | `yaml` · `java` |
+| `mark.teal` | `shell` |
+| `mark.violet` | `css` · `image` |
+| *(row ink)* | `config` · `text` · `generic` — they name no language |
+
+The File Explorer is the surface that qualifies: nothing else in its rows is
+coloured. The hue identifies and never grades — it is not a status ramp, and a
+`.ts` row is not "more" than a `.md` row for being bluer. `glyphs/file-
+typescript.svg` and `glyphs/file-generic.svg` are the framework-neutral samples
+of the tile and document idioms, in `currentColor`.
 
 `FolderGlyph(open)` is the family's folder: the outlined folder in the same
 16 px slot, so a folder row's name starts at the same x as a file row's. The
