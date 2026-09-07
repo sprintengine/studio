@@ -21,7 +21,9 @@ import { getRendererHost } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
-import { type ActionResult, ActionResultMessage, Badge, EmptyState, GhostButton, InlineNotice, StatusDot, Switch } from '../ui'
+import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, Spinner, StatusDot, Switch, Tooltip } from '../ui'
+import { FolderPlusIcon } from '../AppIcons'
+import { SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
 // installs, validates, trust-classifies modules, and reports startup readiness;
@@ -135,7 +137,7 @@ type Message = ActionResult | null
 // color-only.
 export function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
-    return <span className="text-meta text-[color:var(--text-subtle)]">No special access requested.</span>
+    return <span className="text-meta text-[color:var(--text-subtle)]">No special access.</span>
   }
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -352,22 +354,22 @@ export function ThirdPartyModuleList({
 
   return (
     <div className="flex flex-col gap-3 border-t border-[color:var(--border-subtle)] pt-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-title font-semibold text-[color:var(--text-strong)]">Third-party modules</div>
-          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
-            Modules you install from disk. Review the access each one requests and trust the ones you
-            approve — requested access is install-time disclosure, not a runtime sandbox. A trusted
-            module&rsquo;s code runs in this app with the app&rsquo;s access and loads at app launch;
-            manifest-only modules contribute metadata without running code. The enable toggle applies
-            to renderer contributions immediately; main-process code and trust changes take effect on
-            the next app launch.
-          </p>
-        </div>
-        <GhostButton size="md" onClick={() => void installFromFolder()} disabled={installing} className="h-control-md">
-          {installing ? 'Installing' : 'Install from folder'}
-        </GhostButton>
-      </div>
+      <SettingsSectionTitle
+        count={modules.length || undefined}
+        action={
+          <Tooltip content={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}>
+            <IconButton
+              aria-label={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}
+              onClick={() => void installFromFolder()}
+              disabled={installing}
+            >
+              {installing ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
+            </IconButton>
+          </Tooltip>
+        }
+      >
+        Third-party modules
+      </SettingsSectionTitle>
 
       <ActionResultMessage message={message} />
 
@@ -375,7 +377,6 @@ export function ThirdPartyModuleList({
         <EmptyState
           density="list"
           title="No third-party modules installed."
-          body="Install a module folder (a manifest.json plus its files) to review and trust it."
         />
       ) : (
         <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">

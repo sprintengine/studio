@@ -1,6 +1,7 @@
 import React from 'react'
 
 import { TicketTrackerSection } from './TicketTrackerSection'
+import { SettingsPageHeader } from './SettingsAtoms'
 
 // Settings → Ticket trackers (MC-2363).
 //
@@ -21,6 +22,7 @@ export function TicketTrackersTab({ workspaceRoot }: { workspaceRoot: string | n
       aria-labelledby="settings-tab-trackers"
       className="space-y-6"
     >
+      <SettingsPageHeader title="Ticket trackers" />
       <TicketTrackerSection workspaceRoot={workspaceRoot} />
     </div>
   )

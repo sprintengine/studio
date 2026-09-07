@@ -372,13 +372,13 @@ export function CliInstallControl({
         >
           {methods === null ? (
             <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
-              <Spinner className="icon-sm" /> Loading install options…
+              <Spinner className="icon-sm" /> Loading…
             </div>
           ) : methods.length === 0 ? (
             <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              No automatic installer is available for {displayName} on this platform. Install{' '}
-              <span className="font-mono text-[color:var(--text-default)]">{binary}</span> manually, then
-              set its path {hostDriven ? 'in Settings → Agents.' : 'in the command field above.'}
+              No installer for this platform. Install{' '}
+              <span className="font-mono text-[color:var(--text-default)]">{binary}</span> yourself, then
+              set its path {hostDriven ? 'in Settings → Agents.' : 'above.'}
             </p>
           ) : (
             <>

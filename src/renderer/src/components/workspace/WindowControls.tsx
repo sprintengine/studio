@@ -7,6 +7,33 @@ import React from 'react'
 import { Tooltip } from '../ui/Tooltip'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 
+// The three caption buttons are `w-10` each, so this is the width of the strip
+// they occupy. They float at the window's absolute top-right corner over
+// whatever column owns that edge (WorkspaceManager), and there is no full-width
+// bar to give them a seat — so the column that is under them has to leave this
+// much of its own top row empty, or its right-hand controls sit under Close.
+// Keep in step with the `w-10` on the buttons below.
+export const WINDOW_CONTROLS_WIDTH = 120
+
+/**
+ * The room a top strip leaves for the floating caption buttons on win/linux.
+ * Zero on macOS, where the native traffic lights sit on the LEFT and the
+ * right corner is free. Pass the result to `WindowCaptionReserve`.
+ */
+export function windowCaptionReserve(isMac: boolean): number {
+  return isMac ? 0 : WINDOW_CONTROLS_WIDTH
+}
+
+/**
+ * The empty slot a top strip renders at its trailing end so its own controls
+ * stop short of the caption buttons. Renders nothing at width 0, so a strip can
+ * mount it unconditionally and let the platform decide.
+ */
+export function WindowCaptionReserve({ width }: { width: number }) {
+  if (width <= 0) return null
+  return <div aria-hidden="true" className="shrink-0" style={{ width }} />
+}
+
 export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
   const minimizeWindow = () => {
     void window.api.windowMinimize()

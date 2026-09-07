@@ -110,6 +110,12 @@ const PATH_EXEMPTIONS = [
     path: 'src/renderer/src/components/CliIcon.tsx',
     rules: ['no-inline-hex'],
   },
+  {
+    // (c) Brand SVG asset: the external editors' marks (VS Code, IntelliJ) in
+    // the colours their vendors publish, for the open-in-editor control.
+    path: 'src/renderer/src/components/brand/EditorMarks.tsx',
+    rules: ['no-inline-hex'],
+  },
 ]
 
 // Implementation-note guardrail: when the file-level allow-list exceeds this

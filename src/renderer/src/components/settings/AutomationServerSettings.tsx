@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { AutomationServerStatus } from '../../../../shared/automation'
 import { STUDIO_MCP_SERVER_NAME } from '../../../../shared/product-identity'
-import { InlineNotice } from '../ui'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { IconButton, InlineNotice, Tooltip } from '../ui'
+import { CopyIcon } from '../AppIcons'
+import { SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → MCPs: read-only diagnostics for the always-on SprintEngine Studio
 // MCP gateway. Studio agents receive it automatically; the bridge command is
@@ -27,30 +28,42 @@ export function AutomationServerSettings() {
 
   if (!status) return null
 
+  const bridgeCommand = status.bridgeScriptPath
+    ? `claude mcp add sprintengine-studio -- node "${status.bridgeScriptPath}"`
+    : null
+
+  // Two rows, no prose: the server and where it listens, and the one command
+  // an outside MCP client needs — behind a copy glyph, since a path nobody can
+  // retype is a thing to copy rather than to read.
   return (
-    <section className="space-y-2">
+    <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
       <SettingsSectionTitle>Automation</SettingsSectionTitle>
-      <div className="space-y-1 text-body leading-5 text-[color:var(--text-muted)]">
-        <div className="font-medium text-[color:var(--text-default)]">{STUDIO_MCP_SERVER_NAME}</div>
-        <div>
-          Always enabled for Studio-launched agents. It exposes app tools through an owner-only local socket; Sprint Engine's Python runtime still starts only when its module is enabled and a run needs it.
-        </div>
+      <div className="divide-y divide-[color:var(--border-subtle)]">
+        <SettingsRow
+          label={STUDIO_MCP_SERVER_NAME}
+          help={
+            status.running && status.socketPath ? (
+              <span className="break-all font-mono text-meta">{status.socketPath}</span>
+            ) : (
+              'Not running'
+            )
+          }
+        >
+          <span className="text-body text-[color:var(--text-muted)]">{status.running ? 'Always on' : 'Off'}</span>
+        </SettingsRow>
+        {bridgeCommand ? (
+          <SettingsRow label="Bridge command" help="For an MCP client outside Studio.">
+            <Tooltip content="Copy the bridge command">
+              <IconButton
+                aria-label="Copy the bridge command"
+                onClick={() => void window.api.clipboardWriteText(bridgeCommand)}
+              >
+                <CopyIcon className="icon-sm" />
+              </IconButton>
+            </Tooltip>
+          </SettingsRow>
+        ) : null}
       </div>
-      {status.running && status.socketPath ? (
-        <div className="space-y-1 text-body leading-5 text-[color:var(--text-muted)]">
-          <div>
-            Listening on <span className="font-mono text-[color:var(--text-default)]">{status.socketPath}</span>
-          </div>
-          {status.bridgeScriptPath ? (
-            <div>
-              Connect a stdio MCP client (Claude Code, Codex) through the bridge script:{' '}
-              <span className="break-all font-mono text-[color:var(--text-default)]">
-                claude mcp add sprintengine-studio -- node &quot;{status.bridgeScriptPath}&quot;
-              </span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
       {status.lastError ? (
         <InlineNotice tone="error">{status.lastError}</InlineNotice>
       ) : null}

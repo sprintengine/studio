@@ -24,7 +24,8 @@ has, so it is spent on almost nothing:
 
 If a surface needs a second accent, it is missing hierarchy, not color. Status
 hues (`status.*`) are not accents: never a button background, section border,
-chrome tint, or category code.
+chrome tint, or category code. (Identity hues on vendor marks and file-type
+glyphs are a different thing — see "Identity colour" below.)
 
 **The storefront exception** (2026-09-06). A grid of offers — cards in a
 catalogue, each with one identical action in the same place — takes the accent on
@@ -39,6 +40,29 @@ repeated** (a row of unlike accented controls is a category code, which the rule
 above forbids), and the surrounding chrome must stay neutral — the Extensions
 home accents its cards' buttons and deliberately leaves its tile glyphs in
 neutral ink for exactly this reason.
+
+**Identity colour** (ruled 2026-09-06, revising the 2026-09-02 monochrome
+ruling for two families). Two kinds of glyph carry a colour of their own, and
+the accent budget does not count them, because the colour is not ours: it
+names something.
+
+- **A vendor's mark wears the vendor's colour.** The VS Code and IntelliJ marks
+  on the open-in-editor control, the CLI badges, the product mark. A
+  monochrome logo is a drawing of a logo; every other app on the machine shows
+  the real one, and the neutral version read as a placeholder. These are brand
+  assets with hex of their own, exempted by file from the token guard.
+- **A file-type glyph may wear its language's hue** — the `color.mark.*`
+  tokens (blue for TypeScript, yellow for JavaScript, orange for HTML …), so a tree of forty files scans by colour before it is read. This
+  is opt-in per surface (`FileTypeGlyph tone="kind"`) and the condition is
+  load-bearing: **only where nothing else in the row is coloured.** The File
+  Explorer qualifies. The Git changes list does not — there the filename's
+  status tint is the row's one colour, and the glyph stays in ink.
+
+What does not change: the hue identifies, it never grades. `color.mark.*` is
+not a status ramp, not an accent, and never a category code on a control, a
+row, a section, or a background. A gear, a plain document, or a folder — glyphs
+that name no language — stay in the row's ink; colour that says nothing is
+still chrome.
 
 **Selection is neutral.** A selected row uses `bg.selected` — a neutral fill —
 and lifts its title to `text.primary`. It does not use the accent, and it does

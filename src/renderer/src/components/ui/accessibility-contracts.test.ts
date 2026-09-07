@@ -499,28 +499,10 @@ expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-tasks"
 
 expectIncludes(settingsPanel, 'role="tablist"', 'Settings categories expose tablist semantics')
 expectIncludes(settingsPanel, 'role="tabpanel"', 'Settings content exposes tabpanel semantics')
-expectIncludes(settingsPanel, 'id="settings-panel-roles"', 'Settings Roles tab has a stable panel id')
-expectIncludes(settingsPanel, 'aria-labelledby="settings-tab-roles"', 'Settings Roles panel is labelled by its tab')
 expectIncludes(settingsPanel, 'ArrowDown: (index + 1) % visibleSettingsTabs.length', 'Settings category tabs support ArrowDown focus movement')
 expectIncludes(settingsPanel, 'ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length', 'Settings category tabs support ArrowUp focus movement')
 expectIncludes(settingsPanel, 'Home: 0', 'Settings category tabs support Home focus movement')
 expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings category tabs support End focus movement')
-expectIncludes(settingsPanel, 'ariaLabelledBy={switchLabelId}', 'Settings role switches are labelled by visible role names')
-expectIncludes(settingsPanel, 'ariaDescribedBy={switchHelpId}', 'Settings role switches describe source and role id context')
-expectIncludes(settingsPanel, 'Warning: {warning.message}', 'Settings role warnings include text, not color alone')
-expectIncludes(settingsPanel, 'Registry warning: {warning.message}', 'Settings registry warnings include text, not color alone')
-expectIncludes(settingsPanel, "roleRegistryStatus === 'loading'", 'Settings Roles distinguishes loading state')
-expectIncludes(settingsPanel, "roleRegistryStatus === 'unavailable'", 'Settings Roles distinguishes unavailable state')
-expectIncludes(settingsPanel, "roleRegistryStatus === 'ready' && registryRoles.length === 0", 'Settings Roles distinguishes empty state')
-
-expectIncludes(settingsPanel, 'const roleEntries = await window.api.readdir(rolesPath)', 'Settings role install inspects selected registry roles contents')
-expectIncludes(settingsPanel, "entry.name.toLowerCase().endsWith('.json')", 'Settings role install filters role manifests to JSON files')
-expectIncludes(settingsPanel, 'sourcePath: joinLocalPath(rolesPath, entry.name)', 'Settings role install copies individual role JSON files')
-expectIncludes(settingsPanel, "destinationKind: 'roles' as const", 'Settings role install targets discovered manifests at .sprintengine/roles')
-expectIncludes(settingsPanel, 'const skillEntries = await window.api.readdir(skillsPath)', 'Settings role install inspects selected registry skills contents')
-expectIncludes(settingsPanel, 'sourcePath: joinLocalPath(skillsPath, entry.name)', 'Settings role install copies individual skill folders')
-expectIncludes(settingsPanel, "destinationKind: 'skills' as const", 'Settings role install targets discovered skills at .sprintengine/skills')
-expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })', 'Settings role install preserves resolved child names in registry discovery folders')
 
 // --- The focus indicator (WCAG 2.4.7 / 1.4.11) -------------------------------
 //

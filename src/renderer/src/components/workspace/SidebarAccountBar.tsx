@@ -315,8 +315,14 @@ export default function SidebarAccountBar({
   )
 
   return (
+    // `app-no-drag` on the cluster, not on each button: the cluster mounts at the
+    // foot of the app rail (app shell, 2026-09-05), and the rail is an
+    // `app-drag` region the way the title strip is. A drag region swallows the
+    // pointer before React sees it, so from the day the cluster moved there the
+    // account badge and the gear painted but did not click. Every control in
+    // this footer opts out here in one place, the popover trigger included.
     <div
-      className={`shrink-0 border-t border-[color:var(--border-subtle)] ${
+      className={`app-no-drag shrink-0 border-t border-[color:var(--border-subtle)] ${
         collapsed ? 'flex flex-col items-center gap-1.5 px-1.5 py-1.5' : 'flex items-center gap-1.5 px-2 py-1.5'
       }`}
     >

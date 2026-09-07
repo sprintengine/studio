@@ -836,6 +836,37 @@ export function CopyIcon({ className }: IconProps) {
   )
 }
 
+// A document with ruled lines: the release notes behind a version row.
+export function ReleaseNotesIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 4.5h8.5L19 9v10.5A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5v-14A1 1 0 0 1 6 4.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M14.5 4.5V9H19M8.5 13h7M8.5 16.5h7" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// A folder with a plus: install from a folder on disk. Distinct from PlusIcon
+// (create) — the thing being added already exists somewhere.
+export function FolderPlusIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path d="M12 10.5v5M9.5 13h5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// An anticlockwise arrow: return to the default.
+export function ResetIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 12a8 8 0 1 0 8-8 8.7 8.7 0 0 0-6 2.5L4 8.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 4v4.5h4.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function ArrowRightIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -903,17 +934,6 @@ export function ProvidersSettingsIcon({ className }: IconProps) {
       <path d="M8.5 3v3.5M15.5 3v3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
       <path d="M6.5 6.5h11V10a5.5 5.5 0 0 1-11 0Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
       <path d="M12 15.5V21" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-export function RolesSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="9" cy="11" r="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M6 16c0-1.7 1.3-2.6 3-2.6s3 .9 3 2.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M14.5 10h3.5M14.5 13.5h3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }

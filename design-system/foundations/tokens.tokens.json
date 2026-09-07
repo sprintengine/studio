@@ -170,6 +170,46 @@
         "$type": "color",
         "$value": "#6e7682",
         "$description": "Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes."
+      },
+      "blue-600": {
+        "$type": "color",
+        "$value": "#2b6cd4",
+        "$description": "Deep identity blue for light surfaces (4.9:1 on white). Source: light --sem-color-mark-blue."
+      },
+      "blue-400": {
+        "$type": "color",
+        "$value": "#5ea0f2",
+        "$description": "Luminous identity blue for dark surfaces. Source: dark --sem-color-mark-blue."
+      },
+      "orange-700": {
+        "$type": "color",
+        "$value": "#c2410c",
+        "$description": "Deep identity orange for light surfaces (4.6:1 on white). Source: light --sem-color-mark-orange."
+      },
+      "orange-400": {
+        "$type": "color",
+        "$value": "#fb923c",
+        "$description": "Luminous identity orange for dark surfaces. Source: dark --sem-color-mark-orange."
+      },
+      "teal-700": {
+        "$type": "color",
+        "$value": "#0f766e",
+        "$description": "Deep identity teal for light surfaces (5.3:1 on white). Kept apart from the success emerald by hue. Source: light --sem-color-mark-teal."
+      },
+      "teal-400": {
+        "$type": "color",
+        "$value": "#2dd4bf",
+        "$description": "Luminous identity teal for dark surfaces. Source: dark --sem-color-mark-teal."
+      },
+      "cyan-700": {
+        "$type": "color",
+        "$value": "#0e7490",
+        "$description": "Deep identity cyan for light surfaces (5.0:1 on white). Source: light --sem-color-mark-cyan."
+      },
+      "cyan-400": {
+        "$type": "color",
+        "$value": "#22d3ee",
+        "$description": "Luminous identity cyan for dark surfaces. Source: dark --sem-color-mark-cyan."
       }
     }
   },
@@ -725,6 +765,141 @@
               "modes": {
                 "light": "rgba(20, 24, 28, 0.42)",
                 "dark": "rgba(8, 8, 12, 0.7)"
+              }
+            }
+          }
+        }
+      },
+      "mark": {
+        "blue": {
+          "$type": "color",
+          "$value": "{ref.color.blue-600}",
+          "$description": "Identity blue. The mark colour of TypeScript, Python and Markdown file glyphs (ruled 2026-09-06).",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose language wears blue; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.blue-600}",
+                "dark": "{ref.color.blue-400}"
+              }
+            }
+          }
+        },
+        "yellow": {
+          "$type": "color",
+          "$value": "{ref.color.amber-800}",
+          "$description": "Identity yellow \u2014 the same value as status.warn, spent on identity rather than warning. JavaScript, JSON and lockfile glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears yellow; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.amber-800}",
+                "dark": "{ref.color.amber-400}"
+              }
+            }
+          }
+        },
+        "orange": {
+          "$type": "color",
+          "$value": "{ref.color.orange-700}",
+          "$description": "Identity orange. HTML and Rust file glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears orange; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.orange-700}",
+                "dark": "{ref.color.orange-400}"
+              }
+            }
+          }
+        },
+        "red": {
+          "$type": "color",
+          "$value": "{ref.color.red-600}",
+          "$description": "Identity red \u2014 the same value as status.danger, spent on identity rather than danger. YAML and Java file glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears red; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.red-600}",
+                "dark": "{ref.color.coral-400}"
+              }
+            }
+          }
+        },
+        "teal": {
+          "$type": "color",
+          "$value": "{ref.color.teal-700}",
+          "$description": "Identity teal. Shell-script glyphs. A hue of its own so a coloured glyph never borrows the success emerald.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears teal; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.teal-700}",
+                "dark": "{ref.color.teal-400}"
+              }
+            }
+          }
+        },
+        "cyan": {
+          "$type": "color",
+          "$value": "{ref.color.cyan-700}",
+          "$description": "Identity cyan. React and Go file glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears cyan; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.cyan-700}",
+                "dark": "{ref.color.cyan-400}"
+              }
+            }
+          }
+        },
+        "violet": {
+          "$type": "color",
+          "$value": "{ref.color.violet-500}",
+          "$description": "Identity violet \u2014 the same value as status.merged, spent on identity rather than a merge. Stylesheet and image file glyphs.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "identity",
+              "use": "Ink of a file-type glyph whose kind wears violet; nothing else.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.violet-500}",
+                "dark": "{ref.color.violet-500}"
               }
             }
           }

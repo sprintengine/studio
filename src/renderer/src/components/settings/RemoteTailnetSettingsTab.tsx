@@ -9,7 +9,7 @@ import {
 } from '../../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
 import { FOCUS_RING_CLASS, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
-import { MetaCell, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
+import { MetaCell, SettingsPageHeader, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
 import { deviceSummary, outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
 import { PeerPicker } from '../remote/PeerPicker'
 import { PairRequestCard } from '../remote/PairRequestCard'
@@ -209,15 +209,18 @@ export function RemoteTailnetSettingsTab() {
 
   return (
     <div role="tabpanel" id="settings-panel-remote" aria-labelledby="settings-tab-remote" className="space-y-5">
-      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-4">
-        <div className="flex items-center gap-1.5">
-          {/* No `label`: the dot sits beside text saying the same thing, which
-              is exactly when the primitive asks to stay decorative. */}
-          <StatusDot tone={readiness.tone} />
-          <span className="text-body font-medium text-[color:var(--text-strong)]">{readiness.label}</span>
-        </div>
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">{readiness.detail}</p>
-      </div>
+      {/* The listener's state is the page's fact, on the header band. No
+          `label` on the dot: it sits beside text saying the same thing, which
+          is exactly when the primitive asks to stay decorative. */}
+      <SettingsPageHeader
+        title="Remote"
+        meta={
+          <span className="inline-flex items-center gap-1.5">
+            <StatusDot tone={readiness.tone} />
+            {readiness.label}
+          </span>
+        }
+      />
 
       {action.tone === 'error' ? (
         <InlineNotice tone="error">{action.message}</InlineNotice>
@@ -232,8 +235,8 @@ export function RemoteTailnetSettingsTab() {
 
       <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingToggle
-          label="Allow this Studio to be driven over your tailnet"
-          description="Paired devices on your Tailscale network get the same tools a local agent has. The listener binds to your tailnet address only — never to a local network or the internet."
+          label="Remote control over your tailnet"
+          description="Paired devices get the same tools a local agent has."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           // Turning it OFF stays available whatever the state; only turning it
@@ -242,8 +245,8 @@ export function RemoteTailnetSettingsTab() {
           requirement={readiness.canTurnOn ? undefined : 'Needs Tailscale'}
         />
         <SettingToggle
-          label="Notify me about pairing and reachability"
-          description="A system notification when another machine asks to pair, when one answers a request this device made, or when a paired machine revokes it — only while no Studio window is focused."
+          label="Pairing notifications"
+          description="When a machine asks to pair, answers, or revokes."
           enabled={status?.notifications ?? true}
           onChange={(next) => void toggleNotifications(next)}
           disabled={busy || !status}
@@ -293,9 +296,7 @@ export function RemoteTailnetSettingsTab() {
           </p>
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            {readiness.canPair
-              ? 'Create a code, then scan it from the other machine. The code works once and lapses in 30 days, or when this app restarts.'
-              : 'A pairing code points at this listener, so it can only be created while the listener is running.'}
+            {readiness.canPair ? 'Scan the code from the other machine. It works once.' : 'Start the listener first.'}
           </p>
         )}
       </section>
@@ -363,15 +364,14 @@ export function RemoteTailnetSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            No devices are paired. Nothing can drive this Studio remotely.
-          </p>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">No devices paired.</p>
         )}
       </section>
 
       <section>
         <SettingsSectionTitle className="mb-1.5">Machines on your tailnet</SettingsSectionTitle>
         <PeerPicker
+          intro="Connect to another Studio."
           scan={scan}
           scanning={scanning}
           connections={presence.fleet}
@@ -388,7 +388,7 @@ export function RemoteTailnetSettingsTab() {
             cannot approve anything, which is the normal case for a server. */}
         <details className="mt-3 border-t border-[color:var(--border-subtle)] pt-2">
           <summary className={`cursor-pointer text-meta text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}>
-            Nobody at that machine? Paste a pairing link instead
+            Paste a pairing link instead
           </summary>
           <div className="mt-2 flex items-center gap-2">
             <Input
@@ -437,9 +437,7 @@ function PairingOffer({
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">
             {/* Explicit rather than a blank space where a square should be. */}
-            {url
-              ? 'This pairing code is too long to draw as a square. Copy the link instead.'
-              : 'The listener is not running, so there is nothing for a code to point at.'}
+            {url ? 'Too long to draw. Copy the link instead.' : 'The listener is not running.'}
           </p>
         )}
         <div className="min-w-0 flex-1 space-y-2">

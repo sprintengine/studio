@@ -138,7 +138,7 @@ import {
   subscribeNewSprintRequests,
 } from './globalSurface/sprints/sprintDoorRequests'
 import { noteSprintRunDeleted } from './globalSurface/sprints/sprintRunTombstones'
-import { WindowControls } from './WindowControls'
+import { WindowControls, windowCaptionReserve } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import {
@@ -652,6 +652,13 @@ export default function WorkspaceManager() {
       ? currentWorkspaceWindow.activeWorkspaceId
       : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+  // Whether the workspace pane column stands at the window's right edge. On
+  // win/linux the floating caption buttons sit over whichever top strip owns
+  // that corner, and that strip leaves them room (WindowCaptionReserve): the
+  // pane's own strip while it is open, the WorkspaceHeader otherwise.
+  const paneOwnsRightEdge = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
+  )
   // The workspace pane column (browser-pane epic) is open when the ACTIVE
   // workspace's pane record says so; the card rounds its right edge to match.
   // Render-time only — the command handler reads the store live instead.
@@ -4483,6 +4490,7 @@ export default function WorkspaceManager() {
       <WorkspaceHeader
         activeWorkspaceId={windowActiveWorkspaceId}
         isMac={window.api.platform === 'darwin'}
+        captionReserve={paneOwnsRightEdge ? 0 : windowCaptionReserve(window.api.platform === 'darwin')}
         isFullScreen={windowState.isFullScreen}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}

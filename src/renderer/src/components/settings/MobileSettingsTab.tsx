@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
 import { EmptyState, FOCUS_RING_CLASS, GhostButton, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
-import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
   | 'snapshot.request'
@@ -145,7 +145,7 @@ export default function MobileSettingsTab() {
   const [pairingChallenge, setPairingChallenge] = useState<MobileBridgePairingChallenge | null>(null)
   const [action, setAction] = useState<ActionState>({
     status: 'loading',
-    message: 'Loading mobile companion.',
+    message: '',
   })
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
@@ -167,7 +167,7 @@ export default function MobileSettingsTab() {
         if (cancelled) return
         setAction({
           status: 'error',
-          message: error instanceof Error ? error.message : 'Failed to load mobile companion.',
+          message: error instanceof Error ? error.message : 'Could not load the mobile companion.',
         })
       }
     }
@@ -202,10 +202,7 @@ export default function MobileSettingsTab() {
 
   const toggleEnabled = async (next: boolean) => {
     if (busy || enabled === next) return
-    setAction({
-      status: 'busy',
-      message: next ? 'Enabling mobile companion.' : 'Disabling mobile companion.',
-    })
+    setAction({ status: 'busy', message: next ? 'Turning on…' : 'Turning off…' })
     try {
       const result = await mobileBridgeApi.mobileBridgeUpdateSettings({ enabled: next })
       setState(result)
@@ -221,7 +218,7 @@ export default function MobileSettingsTab() {
 
   const saveRelayUrl = async () => {
     if (busy || !relayUrlDirty) return
-    setAction({ status: 'busy', message: 'Saving relay URL.' })
+    setAction({ status: 'busy', message: 'Saving…' })
     try {
       const next = await mobileBridgeApi.mobileBridgeUpdateSettings({
         relayUrl: relayUrlDraft.trim() || null,
@@ -240,13 +237,13 @@ export default function MobileSettingsTab() {
 
   const requestPairingCode = async () => {
     if (!enabled || busy) return
-    setAction({ status: 'busy', message: 'Creating pairing code.' })
+    setAction({ status: 'busy', message: 'Creating a code…' })
     try {
       const challenge = await mobileBridgeApi.mobileBridgeRequestPairingCode()
       const next = await mobileBridgeApi.mobileBridgeGetState()
       setPairingChallenge(challenge)
       setState(next)
-      setAction({ status: 'idle', message: `Pairing code expires ${formatDate(challenge.expiresAt)}.` })
+      setAction({ status: 'idle', message: '' })
     } catch (error) {
       setAction({
         status: 'error',
@@ -259,16 +256,16 @@ export default function MobileSettingsTab() {
     if (!pairingChallenge) return
     try {
       await window.api.clipboardWriteText(pairingChallenge.pairingCode)
-      setAction({ status: 'idle', message: 'Pairing code copied to clipboard.' })
+      setAction({ status: 'idle', message: 'Copied.' })
     } catch {
-      setAction({ status: 'error', message: 'Could not copy pairing code.' })
+      setAction({ status: 'error', message: 'Could not copy the code.' })
     }
   }
 
   const revokeDevice = async (device: MobileControlDevice) => {
     if (revokingDeviceId || !enabled) return
     setRevokingDeviceId(device.deviceId)
-    setAction({ status: 'busy', message: `Revoking ${device.displayName}.` })
+    setAction({ status: 'busy', message: `Revoking ${device.displayName}…` })
     try {
       await mobileBridgeApi.mobileBridgeRevokeDevice(
         device.deviceId,
@@ -307,42 +304,40 @@ export default function MobileSettingsTab() {
       aria-labelledby="settings-tab-mobile"
       className="space-y-5"
     >
-      {/* Relay status line: dot + text, not a tinted pill; the message below is
-          plain status copy, not an alert block. The dot is earned — it only
-          renders while the companion is on (live link, working, or failing). */}
-      <div className="space-y-1 border-b border-[color:var(--border-subtle)] pb-4">
-        <div className="flex items-center gap-1.5">
-          {enabled ? (
-            <StatusDot
-              tone={relayStatusDotTone(state?.relayStatus)}
-              label={relayStatusLabel(state?.relayStatus)}
-            />
-          ) : null}
-          <span className="text-body font-medium text-[color:var(--text-strong)]">
+      {/* The relay's state rides the page header as its fact: dot + word, not
+          a tinted pill. The dot is earned — it only renders while the
+          companion is on (live link, working, or failing). What the state
+          means is one line under the header, and an error is a notice. */}
+      <SettingsPageHeader
+        title="Mobile"
+        meta={
+          <span className="inline-flex items-center gap-1.5">
+            {enabled ? (
+              <StatusDot
+                tone={relayStatusDotTone(state?.relayStatus)}
+                label={relayStatusLabel(state?.relayStatus)}
+              />
+            ) : null}
             {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
           </span>
-        </div>
-        {action.status === 'error' ? (
-          <InlineNotice tone="error">{action.message || statusMessage(state)}</InlineNotice>
-        ) : (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">{action.message || statusMessage(state)}</p>
-        )}
-      </div>
+        }
+      />
+      {action.status === 'error' ? (
+        <InlineNotice tone="error">{action.message || statusMessage(state)}</InlineNotice>
+      ) : action.message || statusMessage(state) ? (
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">{action.message || statusMessage(state)}</p>
+      ) : null}
 
       <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingToggle
-          label="Enable mobile companion"
-          description="Let paired phones request snapshots, send follow-ups, and control sprints."
+          label="Mobile companion"
+          description="Paired phones can watch runs and send follow-ups."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
         />
 
-        <SettingsRow
-          label="Relay URL"
-          help="The relay your phone is configured to reach. The connection stays open while the companion is enabled."
-          htmlFor={relayUrlId}
-        >
+        <SettingsRow label="Relay URL" htmlFor={relayUrlId}>
           <Input
             id={relayUrlId}
             value={relayUrlDraft}
@@ -429,12 +424,13 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            No phones paired yet. Generate a pairing code to link one.
-          </p>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">No phones paired.</p>
         )}
       </section>
 
+      {/* The relay's internals are diagnostics: shown once someone has asked
+          for the diagnostics below, not on every visit. */}
+      {showDiagnostics ? (
       <section>
         <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
         <div className="grid gap-x-6 gap-y-3 text-body sm:grid-cols-2">
@@ -449,10 +445,11 @@ export default function MobileSettingsTab() {
           <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
         </div>
       </section>
+      ) : null}
 
       <section>
         <SettingsSectionTitle className="mb-1.5" count={recentCommands.length}>
-          Recent mobile messages
+          Recent messages
         </SettingsSectionTitle>
         {recentCommands.length > 0 ? (
           <div className="divide-y divide-[color:var(--bg-selected)]">
@@ -475,7 +472,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <EmptyState density="list" title="No mobile messages yet." />
+          <EmptyState density="list" title="No messages yet." />
         )}
       </section>
 
@@ -517,25 +514,25 @@ export default function MobileSettingsTab() {
   )
 }
 
+// One line under the header, and only when the state needs a word beyond its
+// name: nothing while connected or off, a reason while it is not.
 function statusMessage(state: MobileBridgeState | null): string {
-  if (!state) return 'Loading mobile companion.'
-  if (!state.enabled) return 'Turn the companion on, then generate a pairing code for a phone.'
-  if (state.relayStatus === 'connected') return 'Connected to the relay and ready for paired phones.'
-  if (state.relayStatus === 'unconfigured') return 'No relay URL is configured.'
-  if (state.relayStatus === 'idle') {
-    return 'No paired phone is listening, so the relay stays idle to save traffic. Generate a pairing code to link one.'
-  }
+  if (!state) return 'Loading…'
+  if (!state.enabled) return ''
+  if (state.relayStatus === 'connected') return ''
+  if (state.relayStatus === 'unconfigured') return 'No relay URL set.'
+  if (state.relayStatus === 'idle') return 'Idle until a phone is paired.'
   const diagnosticMessage = latestDiagnosticMessage(state)
   if (diagnosticMessage?.toLowerCase().includes('access token has expired')) {
-    return 'Desktop access token has expired. It refreshes automatically; sign in again if this persists.'
+    return 'Access token expired. Sign in again if this persists.'
   }
   if (state.relayStatus === 'connecting' || state.relayStatus === 'retrying') {
-    return 'Connecting to the relay.'
+    return 'Connecting…'
   }
   if (state.relayStatus === 'error') {
-    return diagnosticMessage ?? 'Relay reported an error.'
+    return diagnosticMessage ?? 'The relay reported an error.'
   }
-  return `Relay status: ${relayStatusLabel(state.relayStatus)}.`
+  return ''
 }
 
 function latestDiagnosticMessage(state: MobileBridgeState): string | null {

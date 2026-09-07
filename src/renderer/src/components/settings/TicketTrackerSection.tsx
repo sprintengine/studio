@@ -128,7 +128,6 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
   if (catalogLoad.status === 'error') {
     return (
       <section className="space-y-3">
-        <ConnectorSectionHeading label="Ticket trackers" />
         <InlineNotice
           tone="error"
           title="Could not read the connector catalog."
@@ -147,8 +146,7 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
   if (catalogLoad.status === 'loading') {
     return (
       <section className="space-y-3">
-        <ConnectorSectionHeading label="Ticket trackers" />
-        <p className="py-3 text-body text-[color:var(--text-subtle)]">Loading ticket trackers…</p>
+        <p className="py-3 text-body text-[color:var(--text-subtle)]">Loading…</p>
       </section>
     )
   }
@@ -164,11 +162,10 @@ export function TicketTrackerSection({ workspaceRoot }: { workspaceRoot: string 
   if (total === 0) {
     return (
       <section className="space-y-3">
-        <ConnectorSectionHeading label="Ticket trackers" />
         <EmptyState
           density="list"
-          title="Ticket trackers are plugins now."
-          body="Jira, Linear, GitHub and GitLab each ship as a plugin with the skills that drive it. Install one from the Anthropic tab and its MCP server is written for this workspace’s agents."
+          title="Trackers are plugins."
+          body="Jira, Linear, GitHub and GitLab install from the plugin catalogue."
           action={
             <GhostButton
               size="md"
