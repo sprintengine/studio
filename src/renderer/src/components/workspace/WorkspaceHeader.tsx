@@ -15,6 +15,7 @@ import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQu
 import { PanelSwitches } from './PanelSwitches'
 import { AppMenuButton } from './SidebarChrome'
 import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
+import { WindowCaptionReserve } from './WindowControls'
 import type { WorkspaceId } from '../../types/workspace'
 
 type WorkspaceHeaderProps<MenuItem extends string> = {
@@ -28,6 +29,11 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   isMac: boolean
   isFullScreen: boolean
   sidebarCollapsed: boolean
+  // Width (px) the strip leaves empty at its right end for the win/linux caption
+  // buttons, which float over the window's top-right corner. Non-zero only when
+  // THIS strip owns that corner — the host passes 0 on macOS and whenever the
+  // workspace pane column is open beside it and takes the corner instead.
+  captionReserve: number
   onToggleSidebar: () => void
   onOpenSearch: () => void
   onNewChat: () => void
@@ -117,6 +123,7 @@ export function WorkspaceHeader<MenuItem extends string>({
   isMac,
   isFullScreen,
   sidebarCollapsed,
+  captionReserve,
   onToggleSidebar,
   onOpenSearch,
   onNewChat,
@@ -200,6 +207,9 @@ export function WorkspaceHeader<MenuItem extends string>({
             <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
           )}
         </div>
+        {/* Win/linux: the caption buttons float over this corner, so the
+            toolbar stops short of them rather than sitting under Close. */}
+        <WindowCaptionReserve width={captionReserve} />
       </div>
     </div>
   )

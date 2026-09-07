@@ -17,6 +17,7 @@ import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
 import { WorkspacePaneBody } from './WorkspacePaneBody'
 import { WorkspacePaneLauncher } from './WorkspacePaneLauncher'
+import { WindowCaptionReserve, windowCaptionReserve } from '../WindowControls'
 
 // One workspace's pane: the 36px strip (tabs · + · maximise · close) over the
 // tab bodies. Mounted once per retained workspace by WorkspacePaneColumn so a
@@ -251,6 +252,11 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             </IconButton>
           </Tooltip>
         </div>
+        {/* The pane is the window's rightmost column whenever it is open (and
+            the whole row when maximised), so on win/linux the floating caption
+            buttons sit over THIS strip's corner: leave them their width, or
+            Close-pane hides under Close-window. */}
+        <WindowCaptionReserve width={windowCaptionReserve(window.api.platform === 'darwin')} />
       </div>
       <div className="relative min-h-0 flex-1">
         {tabs.length === 0 ? (

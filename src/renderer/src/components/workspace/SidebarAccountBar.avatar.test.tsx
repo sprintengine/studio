@@ -79,6 +79,27 @@ function reset(): void {
   dom.window.document.body.innerHTML = ''
 }
 
+// The cluster mounts at the foot of the app rail, which is an `app-drag`
+// window region. A drag region swallows the pointer before React sees it, so
+// the cluster has to opt out (`app-no-drag`) or its buttons paint and do not
+// click — which is what happened the day it moved there (2026-09-05).
+render(state({ id: 'u1', email: 'dev@example.com', displayName: 'Dev', photoUrl: null }), false)
+{
+  const settings = dom.window.document.querySelector('button[aria-label="Settings"]') as HTMLElement | null
+  assert.ok(settings, 'the Settings gear renders')
+  const optedOut = (element: HTMLElement | null): boolean => {
+    for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+      if ((node.getAttribute('class') ?? '').split(/\s+/).includes('app-no-drag')) return true
+    }
+    return false
+  }
+  assert.ok(optedOut(settings), 'the Settings gear sits inside an app-no-drag element, so the rail’s drag region does not eat its clicks')
+  const account = dom.window.document.querySelector('button[aria-label^="Account"]') as HTMLElement | null
+  assert.ok(account, 'the account badge renders')
+  assert.ok(optedOut(account), 'the account badge sits inside an app-no-drag element too')
+}
+reset()
+
 // A session with a photo: the footer badge and the popover header both show
 // it, as a decorative image, and neither prints the initials.
 render(state({ id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: PHOTO }))
