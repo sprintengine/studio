@@ -11,6 +11,7 @@ import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMa
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { startColumnResizeDrag } from './columnResizeDrag'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -70,6 +71,7 @@ import { shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
 import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
+import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
@@ -174,9 +176,11 @@ const NULL_FOLDER_KEY = '__no_folder__'
  * header — the person's project is one thing wherever its clones live — and
  * wears the machine mark on its own line, since the header no longer says
  * it. Everything else keeps `groupKeyOf`: local folders group by path
- * exactly as before (two local clones of one repository stay two folders —
- * a local worktree is deliberately its own header), and a remote row with no
- * local twin keeps its machine · project header.
+ * exactly as before (two local clones of one repository stay two folders),
+ * and a remote row with no local twin keeps its machine · project header.
+ * A worktree row is the one local row whose own path is not its key — it
+ * files under the project it was cut from and says it is a worktree on its
+ * own row, because branching a project did not open a second project.
  *
  * Returned as a map rather than a function of one workspace because the
  * answer depends on which OTHER folders are open.
@@ -211,8 +215,11 @@ export function resolveGroups(
     if (!identity?.canonicalKey) continue
     const candidate = {
       key,
-      folder: folderIdentityKey(folder),
-      worktree: Boolean(workspace.worktree) || /\/\.multicode-worktrees\//u.test(folderIdentityKey(folder)),
+      // The group's key, not the row's own folder: a worktree row already
+      // files under its parent, so that is the header a remote twin would
+      // be joining if this row were the pick.
+      folder: key,
+      worktree: Boolean(workspace.worktree) || ownFolderKeyOf(workspace) !== key,
     }
     const current = localByIdentity.get(identity.canonicalKey)
     const better =
@@ -227,11 +234,27 @@ export function resolveGroups(
     const local = localByIdentity.get(repository.canonicalKey)
     if (local) keys.set(workspace.id, local.key)
   }
+  // Two passes, because a header is a folder's own statement first. A row
+  // that IS the folder speaks for it — path and missing-ness both — so a
+  // plain workspace of the project always wins the header over a worktree
+  // filed under it.
   const headers = new Map<string, LocalGroupHeader>()
   for (const workspace of workspaces) {
     const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
-    if (workspace.remoteOrigin || !workspace.folderPath || headers.has(key)) continue
-    headers.set(key, { key, folderPath: workspace.folderPath, missing: workspace.folderMissing === true })
+    const folderPath = workspace.folderPath?.trim()
+    if (workspace.remoteOrigin || !folderPath || headers.has(key)) continue
+    if (ownFolderKeyOf(workspace) !== key) continue
+    headers.set(key, { key, folderPath, missing: workspace.folderMissing === true })
+  }
+  // Then the keys nobody spoke for: a worktree chat whose parent project is
+  // not itself open. The header is still the parent's — its name and its
+  // full path — and never missing, since no row here has looked at it.
+  for (const workspace of workspaces) {
+    const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
+    if (workspace.remoteOrigin || headers.has(key)) continue
+    const folderPath = workspaceProjectRoot(workspace)
+    if (!folderPath) continue
+    headers.set(key, { key, folderPath, missing: false })
   }
   return { keys, headers }
 }
@@ -244,13 +267,17 @@ function normalizeFolder(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+$/u, '')
 }
 
+// A folder of nothing but whitespace is no folder at all, and has to be no
+// folder to EVERY reader: `workspaceProjectRoot` already trims it away, so a
+// key that kept it would file the row under a header spelled "   " while the
+// project it hands to New chat is null.
 function folderKey(value: string | null): string {
-  if (!value) return NULL_FOLDER_KEY
+  if (!value?.trim()) return NULL_FOLDER_KEY
   return normalizeFolder(value).toLowerCase()
 }
 
 function folderDisplayName(value: string | null): string {
-  if (!value) return 'No folder'
+  if (!value?.trim()) return 'No folder'
   const normalized = normalizeFolder(value)
   const lastSlash = normalized.lastIndexOf('/')
   if (lastSlash === -1) return normalized
@@ -265,6 +292,11 @@ function folderDisplayName(value: string | null): string {
  * and the remote workspace, never under "No folder". A legacy remote row —
  * no `remoteOrigin`, no folder, but fleet panes in its layout — groups by
  * the machine its layout names.
+ *
+ * A worktree-backed row files under the project it was cut from, not under
+ * its own checkout: the person branched one project, they did not open a
+ * second one, and a header named after the slug says otherwise. The row says
+ * it is a worktree on its own line instead.
  */
 export function groupKeyOf(workspace: Workspace): string {
   const origin = workspace.remoteOrigin
@@ -273,7 +305,33 @@ export function groupKeyOf(workspace: Workspace): string {
     const [machine] = fleetMachineNamesOf(workspace)
     if (machine) return `remote:${machine.toLowerCase()}`
   }
+  return folderKey(workspaceProjectRoot(workspace))
+}
+
+/**
+ * The key this row's own folder makes, before regrouping — the answer to
+ * "did this row found its own group?", which `groupKeyOf` can no longer give
+ * now that a worktree row is deliberately filed elsewhere.
+ */
+function ownFolderKeyOf(workspace: Workspace): string {
   return folderKey(workspace.folderPath)
+}
+
+/**
+ * Where "New chat in project" lands from this row, and null when there is
+ * nowhere live to land it. The project is the header the row files under —
+ * for a worktree row, the checkout it was cut from — so a worktree pruned
+ * from under a chat does not take the action away: what went missing is the
+ * worktree, not the project. Only a row whose target IS its own folder is
+ * stopped by that folder being gone; a parent's own state is the header's to
+ * report, and a header synthesized from a worktree never reports missing.
+ */
+function newChatProjectTarget(workspace: Workspace): string | null {
+  const own = workspace.folderPath?.trim()
+  if (!own) return null
+  const target = workspaceProjectRoot(workspace) ?? own
+  if (folderKey(target) === ownFolderKeyOf(workspace)) return workspace.folderMissing ? null : target
+  return target
 }
 
 function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
@@ -307,12 +365,15 @@ function buildFolderGroups(
     const key = keyOf(workspace)
     if (!groups.has(key)) {
       groupOrder.push(key)
-      // A remote row filed under a local folder never founds the group with
-      // its own machine header: the header is the local folder's, read off
-      // the header map whatever row happens to come first in the list.
-      const merged = key !== groupKeyOf(workspace) ? headers.get(key) ?? null : null
+      // A row that is not itself the folder — a remote row filed under a
+      // local one, a worktree filed under its project — never founds the
+      // group with a header of its own: the header is the project's, read
+      // off the header map whatever row happens to come first in the list.
+      const merged = key !== ownFolderKeyOf(workspace) ? headers.get(key) ?? null : null
       const remote = merged ? null : remoteGroupOf(workspace)
-      const folderPath = merged ? merged.folderPath : workspace.folderPath
+      // Trimmed for the same reason `folderKey` trims: whatever the key
+      // called "no folder" must not reappear as a header path made of spaces.
+      const folderPath = merged ? merged.folderPath : workspace.folderPath?.trim() || null
       groups.set(key, {
         key,
         displayName: remote ? remoteGroupDisplayName(workspace) : folderDisplayName(folderPath),
@@ -326,7 +387,10 @@ function buildFolderGroups(
     }
     const group = groups.get(key)!
     group.workspaces.push(workspace)
-    if (workspace.folderMissing && !group.remote) group.missing = true
+    // Only a row that IS the folder may report it gone. A pruned worktree is
+    // its own folder's loss, not the project's, and painting the project
+    // missing would also take away the header's New chat and Reveal.
+    if (workspace.folderMissing && !group.remote && ownFolderKeyOf(workspace) === key) group.missing = true
   }
 
   return groupOrder.map((key) => groups.get(key)!)
@@ -860,6 +924,43 @@ export function WorkingElapsed({ since }: { since: number }) {
 }
 
 /**
+ * The branch a row or a line sits on: the glyph, the name, and the path on
+ * hover. Shared by a terminal's line and by a parked worktree row, so the two
+ * are the same chip and not two drawings of one idea that drift apart.
+ *
+ * A worktree reads at full strength — it is a checkout of its own, not one it
+ * shares — and says so in words too, since weight alone carries no meaning.
+ */
+function BranchChip({
+  branch,
+  worktree,
+  cwd,
+}: {
+  branch: string
+  worktree: boolean
+  cwd: string | null
+}) {
+  return (
+    <Tooltip
+      content={cwd ? (worktree ? `Worktree · ${cwd}` : cwd) : worktree ? 'A worktree of its own' : `On ${branch}`}
+      wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
+    >
+      <span
+        className={`flex min-w-0 items-center gap-1 font-mono text-micro ${
+          // A worktree of the terminal's own reads at full strength: it is
+          // this terminal's checkout, not a checkout it shares.
+          worktree ? 'text-[color:var(--text-default)]' : ''
+        }`}
+      >
+        <GitBranchGlyph className="icon-xs shrink-0" />
+        <TruncatedText as="span" text={branch} className="min-w-0" />
+        {worktree ? <span className="sr-only"> (worktree)</span> : null}
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
  * One terminal's line under a row's title (sidebar-lists-every-terminal):
  * mark · branch · ±lines · seat. The row shows one per live terminal in
  * place of the head pile and the single row-level branch it used to carry:
@@ -935,30 +1036,7 @@ export function TerminalLineView({
         </Tooltip>
       ) : null}
       {line.branch ? (
-        <Tooltip
-          content={
-            line.cwd
-              ? line.worktree
-                ? `Worktree · ${line.cwd}`
-                : line.cwd
-              : line.worktree
-                ? 'A worktree of its own'
-                : `On ${line.branch}`
-          }
-          wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
-        >
-          <span
-            className={`flex min-w-0 items-center gap-1 font-mono text-micro ${
-              // A worktree of the terminal's own reads at full strength: it is
-              // this terminal's checkout, not a checkout it shares.
-              line.worktree ? 'text-[color:var(--text-default)]' : ''
-            }`}
-          >
-            <GitBranchGlyph className="icon-xs shrink-0" />
-            <TruncatedText as="span" text={line.branch} className="min-w-0" />
-            {line.worktree ? <span className="sr-only"> (worktree)</span> : null}
-          </span>
-        </Tooltip>
+        <BranchChip branch={line.branch} worktree={line.worktree} cwd={line.cwd} />
       ) : line.removed ? (
         <Tooltip content={line.cwd ? `Directory removed — ${line.cwd}` : 'Directory removed'} wrapperClassName="flex shrink-0 items-center">
           <span className="shrink-0 text-micro text-[color:var(--tone-error)]">Removed</span>
@@ -1354,56 +1432,44 @@ export default function WorkspaceSidebar({
   const handleResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
-      event.preventDefault()
       const startX = event.clientX
       const startWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
       let collapsed = sidebarCollapsed
-      let frame: number | null = null
-      let pendingX = startX
       dragWidthRef.current = startWidth
-
-      const apply = () => {
-        frame = null
-        const outcome = resolveSidebarResize(startWidth + (pendingX - startX))
-        if (outcome.kind === 'collapse') {
-          if (!collapsed) {
-            collapsed = true
-            dragWidthRef.current = null
-            onSetSidebarCollapsed(true)
-          }
-          return
-        }
-        if (collapsed) {
-          collapsed = false
-          onSetSidebarCollapsed(false)
-        }
-        // Per-frame update stays in the DOM: no store mutation, so no registry
-        // re-serialization and no app-wide re-render while dragging.
-        dragWidthRef.current = outcome.width
-        if (sidebarRef.current) sidebarRef.current.style.width = `${outcome.width}px`
-      }
-      const onMove = (e: PointerEvent) => {
-        pendingX = e.clientX
-        if (frame === null) frame = window.requestAnimationFrame(apply)
-      }
-      const onUp = () => {
-        if (frame !== null) window.cancelAnimationFrame(frame)
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        // Commit the final width to the store exactly once (skipped if the drag
-        // ended in the collapsed state, which already updated the store).
-        const finalWidth = dragWidthRef.current
-        dragWidthRef.current = null
-        if (finalWidth !== null && !collapsed) onSetSidebarWidth(finalWidth)
-        setIsResizingSidebar(false)
-      }
       setIsResizingSidebar(true)
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      // The gesture is startColumnResizeDrag's, not this component's: a
+      // maximised workspace pane covers the row this drag crosses, and a
+      // browser tab in it is a `<webview>` guest that would swallow every
+      // pointer event from the moment the pointer entered it.
+      startColumnResizeDrag(event, {
+        onDrag: (clientX) => {
+          const outcome = resolveSidebarResize(startWidth + (clientX - startX))
+          if (outcome.kind === 'collapse') {
+            if (!collapsed) {
+              collapsed = true
+              dragWidthRef.current = null
+              onSetSidebarCollapsed(true)
+            }
+            return
+          }
+          if (collapsed) {
+            collapsed = false
+            onSetSidebarCollapsed(false)
+          }
+          // Per-frame update stays in the DOM: no store mutation, so no registry
+          // re-serialization and no app-wide re-render while dragging.
+          dragWidthRef.current = outcome.width
+          if (sidebarRef.current) sidebarRef.current.style.width = `${outcome.width}px`
+        },
+        onDragEnd: () => {
+          // Commit the final width to the store exactly once (skipped if the drag
+          // ended in the collapsed state, which already updated the store).
+          const finalWidth = dragWidthRef.current
+          dragWidthRef.current = null
+          if (finalWidth !== null && !collapsed) onSetSidebarWidth(finalWidth)
+          setIsResizingSidebar(false)
+        },
+      })
     },
     [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
   )
@@ -2010,7 +2076,16 @@ export default function WorkspaceSidebar({
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
     if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null
-    const metaHasSubstance = rowLines.lines.length > 0
+    // The one thing a parked row still gets to say (orchestrator ruling
+    // 2026-09-07). The gate above is about the checkout's live state, which a
+    // chat with nothing running has no claim on; a worktree workspace's branch
+    // is not that. The workspace IS the worktree, cut onto a branch the app
+    // minted for it, and it stays that whether or not a terminal is up — the
+    // same durable fact its header no longer says now that the row files under
+    // the project it came from. So: the branch chip, alone, and no ± diff,
+    // which would be live state again.
+    const parkedWorktreeBranch = rowIsLive ? null : workspace.worktree?.branch?.trim() || null
+    const metaHasSubstance = rowLines.lines.length > 0 || parkedWorktreeBranch !== null
 
     // The row's status seat: run glyph / working dots + elapsed / tone dot /
     // idle recency, with the hover-revealed row actions layered over it.
@@ -2277,8 +2352,14 @@ export default function WorkspaceSidebar({
         ) : null}
 
         {/* A sprint run's lifecycle is the ROW's state, not a terminal's, so
-            when the lines carry the seats it keeps line 1's trailing edge. */}
-        {metaHasSubstance && runGlyph && runGlyphLabel ? (
+            when the LINES carry the seats it keeps line 1's trailing edge —
+            a terminal's seat has no room for it. The parked worktree line
+            below carries the row's own `statusSeat`, which already draws this
+            glyph, so the condition is the lines and not `metaHasSubstance`:
+            the two diverged the moment a lineless row could have a line 2,
+            and asking the wrong one drew the glyph twice on any row whose
+            module hands it one. */}
+        {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
           <Tooltip content={runGlyphLabel}>
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
           </Tooltip>
@@ -2287,6 +2368,15 @@ export default function WorkspaceSidebar({
             here — the one-liner it always was. */}
         {metaHasSubstance ? null : statusSeat}
         </div>
+        {parkedWorktreeBranch ? (
+          // The same line container a terminal's line uses, so a parked
+          // worktree row is exactly as tall as a live one and its seat sits
+          // where every other seat sits.
+          <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
+            <BranchChip branch={parkedWorktreeBranch} worktree cwd={workspace.folderPath ?? null} />
+            {statusSeat}
+          </div>
+        ) : null}
         {rowLines.lines.map((line, index) => (
           <TerminalLineView
             key={line.key}
@@ -2875,8 +2965,13 @@ export default function WorkspaceSidebar({
               setContextMenu(null)
               return
             }
-            if (action === 'new-chat' && workspace.folderPath && !workspace.folderMissing) {
-              onNewChatInFolder(workspace.folderPath)
+            // The item says "New chat in project", and the project is the
+            // header this row files under — for a worktree row, the checkout
+            // it was cut from, not the worktree itself. One rule decides both
+            // whether the item is offered and where it goes.
+            const newChatTarget = newChatProjectTarget(workspace)
+            if (action === 'new-chat' && newChatTarget) {
+              onNewChatInFolder(newChatTarget)
               setContextMenu(null)
               return
             }
@@ -3177,7 +3272,11 @@ function WorkspaceContextMenu({
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
   const showCancelSprint = isCancelableSprintEngineWorkspace(workspace)
+  // Reveal is about THIS row's folder, so a missing one takes it away. New
+  // chat is about the project the row files under, which a pruned worktree
+  // does not touch — hence the two predicates rather than one.
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
+  const canNewChatInProject = newChatProjectTarget(workspace) !== null
   const starred = isStarred(workspace.highlight)
   const settled = isSettledWorkspace(workspace)
   const currentColor = workspace.highlight?.color ?? null
@@ -3194,7 +3293,7 @@ function WorkspaceContextMenu({
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>
-      {folderPathExists ? (
+      {canNewChatInProject ? (
         <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
       ) : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}

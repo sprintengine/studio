@@ -266,3 +266,57 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
   assert.deepEqual(provenanceMachinesOf(mounted), ['Mini'], 'but still says where the pane lives')
 })
 
+
+run('a worktree row groups under the project it was cut from, not under its own slug', () => {
+  const parent = { folderPath: '/home/dev/projects/multicode', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  const parentKey = groupKeyOf(parent)
+  assert.equal(parentKey, '/home/dev/projects/multicode')
+
+  // The row the Worktree manager writes today: it carries the project it came
+  // from explicitly, so no path convention has to be trusted.
+  const declared = {
+    folderPath: '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale',
+    worktree: { branch: 'wt/perf-review-wholesale', repoRoot: '/home/dev/projects/multicode' },
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(declared), parentKey, 'the recorded project is the header')
+
+  // A row written before that field existed: the container convention says
+  // where it came from — `<parent>/.multicode-worktrees/<repo>/<slug>`.
+  const legacyWorktree = {
+    folderPath: '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale',
+    worktree: { branch: 'wt/perf-review-wholesale' },
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(legacyWorktree), parentKey, 'derived from the container path when nothing was recorded')
+
+  // A sprint run's folderPath is ALREADY the parent project (the run keeps its
+  // worktree on sprintEngineState.vcs), so nothing about it moves.
+  const sprint = {
+    folderPath: '/home/dev/projects/multicode',
+    sprintEngineState: { vcs: { mode: 'worktree', repos: [{ repoId: 'app', worktreePath: '.multicode-worktrees/multicode/run', branch: 'run/x' }] } },
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(sprint), parentKey, 'a sprint run was always filed under its project')
+
+  // And the rows that were never worktrees keep exactly the keys they had.
+  const plain = { folderPath: '/Users/me/App/', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  assert.equal(groupKeyOf(plain), '/users/me/app')
+  const remote = {
+    folderPath: null,
+    remoteOrigin: { connectionId: 'c1', machineName: 'Air', workspaceId: 'rw1', workspaceName: 'app', workspaceRoot: '/Users/me/app' },
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(remote), 'remote:c1:rw1')
+  const fleet = {
+    folderPath: null,
+    layoutModel: { layout: { type: 'tabset', children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }] } },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(fleet), 'remote:mini')
+
+  // A folder of nothing but whitespace is no folder, and has to be no folder
+  // to every reader: the project resolver trims it away, so a key that kept it
+  // would file the row under a header spelled out of spaces.
+  const blank = { folderPath: '   ', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  assert.equal(groupKeyOf(blank), '__no_folder__')
+})

@@ -943,6 +943,15 @@ export type WorkspacePaneState = {
 export type WorkspaceWorktree = {
   branch?: string
   baseRef?: string
+  /**
+   * The project this worktree was cut from — the folder header the workspace
+   * files under in the sidebar, in the app's own spelling of that path rather
+   * than git's realpath (a symlinked root would otherwise not string-match the
+   * open parent workspace and would found a second header). Absent on rows
+   * written before this field existed, where it is instead derived from the
+   * container convention (`repoRootFromWorktreePath`).
+   */
+  repoRoot?: string
 }
 
 /**

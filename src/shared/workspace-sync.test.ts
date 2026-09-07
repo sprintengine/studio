@@ -239,6 +239,32 @@ assert.equal(createResult.state.workspaceWindows[0]?.activeWorkspaceId, 'ws-new'
 assert.equal(createResult.state.workspaceWindows[0]?.lastFocusedAt, 14)
 state = createResult.state
 
+// A worktree chat's folderPath is the worktree, but the block it joins is the
+// project it was cut from — otherwise it unshifts to the registry head and, on
+// the next restart, drags its parent's whole group to the top of the sidebar.
+const worktreeCreated: Workspace = {
+  ...workspace('ws-worktree', '/repo/.multicode-worktrees/b/chat-a1b2'),
+  worktree: { branch: 'agent/chat-a1b2', repoRoot: '/repo/b' },
+}
+const worktreeCreateResult = applyWorkspaceSyncEvent(
+  state,
+  event<Extract<WorkspaceSyncEvent, { type: 'workspace.created' }>>({
+    type: 'workspace.created',
+    sequence: 15,
+    payload: {
+      workspace: worktreeCreated,
+      windowId: 'primary',
+      insert: { kind: 'folder_head', folderPath: '/repo/.multicode-worktrees/b/chat-a1b2' },
+    },
+  })
+)
+assert.equal(worktreeCreateResult.status, 'applied')
+assert.deepEqual(
+  worktreeCreateResult.state.workspaces.map((candidate) => candidate.id),
+  ['ws-new', 'ws-two', 'ws-one', 'ws-worktree', 'ws-three'],
+  'a created worktree chat inserts at the head of the project it was cut from',
+)
+
 const activeScoped = applyWorkspaceSyncEvent(
   state,
   event<Extract<WorkspaceSyncEvent, { type: 'workspace_window.active_changed' }>>({

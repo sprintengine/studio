@@ -1,6 +1,7 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { startColumnResizeDrag } from './columnResizeDrag'
 import {
   WORKSPACE_ASIDE_DEFAULT_WIDTH,
   WORKSPACE_ASIDE_MIN_WIDTH,
@@ -49,44 +50,39 @@ export function WorkspaceAsideColumn({
   // re-render mid-drag re-reads this ref instead of snapping back to the stale
   // committed value. Same idiom as the workspace sidebar's resize.
   const dragWidthRef = useRef<number | null>(null)
+  // True for the length of a drag, so the handle's guideline sits at full
+  // strength — the side-pane's "Resizing" state. Two renders per drag (start
+  // and end), never one per frame.
+  const [isResizing, setIsResizing] = useState(false)
 
   // Drag the column's left edge to resize. The column is right-docked, so
   // moving the pointer LEFT widens it. rAF-coalesced: at most one pure DOM
   // width write per frame.
+  //
+  // The gesture itself lives in startColumnResizeDrag: this column's tenant is
+  // often a browser tab, whose `<webview>` guest would otherwise swallow every
+  // pointer event once the drag crossed into the page — which froze the width
+  // and left the drag armed with no pointer-up to end it.
   const handleResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
-      event.preventDefault()
       const startX = event.clientX
       const startWidth = dragWidthRef.current ?? width
-      let frame: number | null = null
-      let pendingX = startX
       dragWidthRef.current = startWidth
-
-      const apply = () => {
-        frame = null
-        const next = clampWorkspaceAsideWidth(startWidth + (startX - pendingX))
-        dragWidthRef.current = next
-        if (asideRef.current) asideRef.current.style.width = `${next}px`
-      }
-      const onMove = (e: PointerEvent) => {
-        pendingX = e.clientX
-        if (frame === null) frame = window.requestAnimationFrame(apply)
-      }
-      const onUp = () => {
-        if (frame !== null) window.cancelAnimationFrame(frame)
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        const finalWidth = dragWidthRef.current
-        dragWidthRef.current = null
-        if (finalWidth !== null) onWidthChange(finalWidth)
-      }
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      setIsResizing(true)
+      startColumnResizeDrag(event, {
+        onDrag: (clientX) => {
+          const next = clampWorkspaceAsideWidth(startWidth + (startX - clientX))
+          dragWidthRef.current = next
+          if (asideRef.current) asideRef.current.style.width = `${next}px`
+        },
+        onDragEnd: () => {
+          setIsResizing(false)
+          const finalWidth = dragWidthRef.current
+          dragWidthRef.current = null
+          if (finalWidth !== null) onWidthChange(finalWidth)
+        },
+      })
     },
     [width, onWidthChange],
   )
@@ -164,7 +160,9 @@ export function WorkspaceAsideColumn({
         >
           <span
             aria-hidden="true"
-            className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] opacity-0 transition-opacity group-hover:opacity-60"
+            className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+              isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+            }`}
           />
         </div>
       ) : null}

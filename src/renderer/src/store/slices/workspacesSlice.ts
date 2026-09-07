@@ -22,6 +22,7 @@ import {
   wakeWorkspacePatch,
 } from '../../utils/workspaceSettle'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import {
   guidedBriefLayoutModel,
@@ -917,18 +918,21 @@ export function createWorkspacesSlice(
       }),
 
     // Applies an accepted/broadcast workspace.created event without re-dispatching.
-    // Inserts the workspace at its folder head (deterministic by event sequence)
-    // and assigns it to the target window at the head. A renderer that already
+    // Inserts the workspace at its project's head (deterministic by event
+    // sequence) and assigns it to the target window at the head. A renderer that already
     // has the workspace (the source applying its own accepted event, or a
     // duplicate broadcast) keeps its local object and only re-confirms the
     // assignment, so application is idempotent. Only the renderer that owns the
     // target window claims the single global active id.
-    applyWorkspaceCreatedEvent: ({ workspace, windowId, folderPath, createdAt, isCurrentWindowTarget }) =>
+    applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget }) =>
       set((state) => {
         if (!state.workspaces.some((candidate) => candidate.id === workspace.id)) {
-          const insertFolderKey = workspaceFolderKey(folderPath)
+          // The event's `folderPath` is the workspace's own folder, which for a
+          // worktree chat is the worktree; the block it belongs in is the
+          // project it was cut from, which the workspace object itself carries.
+          const insertFolderKey = workspaceFolderKey(workspaceProjectRoot(workspace))
           const blockStart = state.workspaces.findIndex(
-            (candidate) => workspaceFolderKey(candidate.folderPath) === insertFolderKey
+            (candidate) => workspaceFolderKey(workspaceProjectRoot(candidate)) === insertFolderKey
           )
           if (blockStart === -1) {
             state.workspaces.unshift(workspace)
@@ -1094,8 +1098,14 @@ export function createWorkspacesSlice(
           value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
         const key = normalize(folderPath)
         state.workspaces = state.workspaces.filter((ws) => {
-          if (!ws.folderPath) return true
-          return normalize(ws.folderPath) !== key
+          // Matched on the project the workspace files under, not its own
+          // folder, so forgetting a project also takes its worktree chats with
+          // it. The forget dialog counts the group's rows and promises to close
+          // them; a surviving worktree row would re-found the header it just
+          // said goodbye to.
+          const projectRoot = workspaceProjectRoot(ws)
+          if (!projectRoot) return true
+          return normalize(projectRoot) !== key
         })
         if (
           state.activeWorkspaceId
@@ -1104,8 +1114,12 @@ export function createWorkspacesSlice(
           state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
         }
         normalizeWindowAssignments(state)
+        // Recents are bare paths with no marker to read, so a worktree path that
+        // predates the project rule is recognised by the container convention
+        // alone. Without this the forgotten project comes straight back in New
+        // chat's picker as a project named after the worktree slug.
         state.appSettings.recentWorkspaceFolders = state.appSettings.recentWorkspaceFolders.filter(
-          (folder) => normalize(folder) !== key
+          (folder) => normalize(workspaceProjectRootOf({ folderPath: folder }) ?? folder) !== key
         )
         if (state.workspaces.length === 0) {
           // forgetFolder is the second explicit removal path that can leave
@@ -1388,18 +1402,26 @@ export function createWorkspacesSlice(
         // first), matching the recency-ordered sidebar. A brand-new folder
         // lands at the head of the registry so its group renders first. Manual
         // drag-reorder still rewrites this order afterward.
-        const insertFolderKey = workspaceFolderKey(folderPath)
+        //
+        // The block is the workspace's PROJECT, so a worktree chat lands at the
+        // head of the project it was cut from rather than at the head of the
+        // whole registry, which would yank that project's group to the top.
+        const insertFolderKey = workspaceFolderKey(workspaceProjectRoot(newWorkspace))
         const blockStart = state.workspaces.findIndex(
-          (existing) => workspaceFolderKey(existing.folderPath) === insertFolderKey
+          (existing) => workspaceFolderKey(workspaceProjectRoot(existing)) === insertFolderKey
         )
         if (blockStart === -1) {
           state.workspaces.unshift(newWorkspace)
         } else {
           state.workspaces.splice(blockStart, 0, newWorkspace)
         }
-        if (folderPath) {
+        // Recents feed New chat's project picker, so a worktree chat contributes
+        // the PROJECT it was cut from — its own folder would show up there as a
+        // project named after the worktree slug.
+        const recentFolder = workspaceProjectRoot(newWorkspace) ?? folderPath
+        if (recentFolder) {
           state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-            [folderPath],
+            [recentFolder],
             state.appSettings.recentWorkspaceFolders
           )
         }
