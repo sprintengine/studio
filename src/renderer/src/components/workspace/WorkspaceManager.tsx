@@ -353,6 +353,12 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.highlight === right.highlight
     && left.createdAt === right.createdAt
     && left.lastTerminalActivityAt === right.lastTerminalActivityAt
+    && left.lastTurnEndedAt === right.lastTurnEndedAt
+    // Rest (settled-chats, 2026-09-07): a Settle or Un-settle changes only
+    // these, and the sidebar renders from this projection — without them the
+    // row stayed where it was until something unrelated moved.
+    && left.settledAt === right.settledAt
+    && left.settledOverride === right.settledOverride
 }
 
 function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] {
