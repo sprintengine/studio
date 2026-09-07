@@ -938,17 +938,6 @@ export function ProvidersSettingsIcon({ className }: IconProps) {
   )
 }
 
-export function RolesSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="9" cy="11" r="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M6 16c0-1.7 1.3-2.6 3-2.6s3 .9 3 2.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M14.5 10h3.5M14.5 13.5h3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 export function SpecialistPacksSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

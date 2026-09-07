@@ -8,28 +8,17 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
-import type {
-  SprintEngineRoleRegistry,
-  SprintEngineRoleRegistryMetadata,
-  SprintEngineRoleRegistryWarning,
-} from '../../types/workspace'
 import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { hostedFeedLine } from './hostedFeedLine'
-import {
-  buildSprintEngineRoleRegistry,
-  getSprintEngineRoleLabel,
-  sprintEngineRoleOrder,
-} from '../../utils/sprintengine'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
   type ActionResult,
   ActionResultMessage,
   CliProviderStateLine,
   EmptyState,
-  Field,
   GhostButton,
   IconButton,
   InlineNotice,
@@ -42,8 +31,6 @@ import {
   resolveCliProviderState,
   SegmentedControl,
   Spinner,
-  Switch,
-  Textarea,
   Tooltip,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -74,7 +61,6 @@ import {
   ShortcutsSettingsIcon,
   AgentsSettingsIcon,
   ProvidersSettingsIcon,
-  RolesSettingsIcon,
   GithubSettingsIcon,
   TrackersSettingsIcon,
   KnowledgeGraphSettingsIcon,
@@ -83,7 +69,6 @@ import {
   MobileSettingsIcon,
   RemoteSettingsIcon,
   LearnSettingsIcon,
-  PlusIcon,
   FolderPlusIcon,
   ReleaseNotesIcon,
 } from '../AppIcons'
@@ -93,19 +78,6 @@ import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShel
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
-import {
-  authoringFieldErrors,
-  authoringStatusReducer,
-  createRoleAuthoringDraft,
-  editRoleAuthoringDraft,
-  idleAuthoringStatus,
-  isAuthoringBusy,
-  mapIssuesToFieldErrors,
-  validateRoleAuthoringDraft,
-  type RoleAuthoringDraft,
-  type RoleAuthoringFieldErrors,
-  type RoleAuthoringMode,
-} from './userRoleAuthoring'
 
 interface Props {
   onClose: () => void
@@ -141,7 +113,6 @@ type SettingsTabId =
   | 'trackers'
   | 'agents'
   | 'providers'
-  | 'roles'
   | 'knowledge-graph'
   | 'design-system'
   | 'learn'
@@ -165,7 +136,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'shortcuts', label: 'Shortcuts', icon: ShortcutsSettingsIcon },
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
-  { id: 'roles', label: 'Roles', icon: RolesSettingsIcon },
   // Covers both groups on the page (the VCS itself, then the hosting provider),
   // so the label is the subject rather than one of the two rows. The tab *id*
   // stays 'github' — it is a persisted deep-link target (menus, module routes).
@@ -184,7 +154,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
-  { label: 'agents', ids: ['agents', 'providers', 'roles'] },
+  { label: 'agents', ids: ['agents', 'providers'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
   { label: 'companion', ids: ['mobile', 'remote', 'learn'] },
 ]
@@ -221,7 +191,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'trackers'
     || value === 'agents'
     || value === 'providers'
-    || value === 'roles'
     || value === 'knowledge-graph'
     || value === 'design-system'
     || value === 'learn'
@@ -241,6 +210,9 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
     return 'general'
   }
   if (initialTab === 'specialist-packs') return 'modules'
+  // Roles left Settings (owner, 2026-09-07 — they ship as a Claude-format plugin
+  // now); persisted menu/learn routes that still name the tab land on Agents.
+  if (initialTab === 'roles') return 'agents'
   // Voice dictation moved onto the module-contributed section path (MC-1861);
   // legacy deep-links (Learn center, persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
@@ -262,23 +234,14 @@ const MONO_FIELD = 'font-mono'
 // — 240px is the standard row measure. Passed with `fullWidth={false}` because
 // Tailwind resolves two width utilities by stylesheet order, not string order.
 const ROW_FIELD = 'w-60 max-w-full font-mono'
-// Instructions editor: the SKILL.md document the runtime parses, so it reads as a
-// structured document (mono) rather than prose. Tall by default since the author
-// is filling in a multi-section scaffold.
-const DOCUMENT_TEXTAREA = 'min-h-[260px] font-mono'
 
-type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
 // Was a local `MessageBlock` with its own four-tone `border-l-2` bar — the
 // reject-on-sight pattern, two tabs away from the `InlineNotice` this file
 // already imported (MC-2115). The kit's `ActionResultMessage` carries the
 // ruling now: a failure or a degraded state is a notice, everything else is
 // copy. `accent` and `neutral` folded into `info` on the way — there is no
 // success notice in this system.
-type RoleInstallMessage = ActionResult | null
-type SprintEngineRoleInstallTarget = {
-  sourcePath: string
-  destinationKind: 'roles' | 'skills'
-}
+type SettingsActionMessage = ActionResult | null
 
 // Per-plugin custom model ids. Multicode does not persist an app-level default
 // model (the CLI's own default is used when no per-surface override is set), so
@@ -475,81 +438,6 @@ function PluginModelSettings({
       </div>
     </div>
   )
-}
-
-function orderedSprintEngineRoles(registry: SprintEngineRoleRegistry | null): SprintEngineRoleRegistryMetadata[] {
-  const roles = Object.values(registry?.roles ?? {})
-  const bundledOrder = new Map<string, number>(sprintEngineRoleOrder.map((role, index) => [role, index]))
-  return roles.sort((a, b) => {
-    const aOrder = bundledOrder.get(a.id)
-    const bOrder = bundledOrder.get(b.id)
-    if (aOrder !== undefined || bOrder !== undefined) {
-      return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER)
-    }
-    return getSprintEngineRoleLabel(a.id, registry).localeCompare(getSprintEngineRoleLabel(b.id, registry))
-  })
-}
-
-function roleSourceLabel(role: SprintEngineRoleRegistryMetadata): string {
-  const shadowed = role.shadowedSources?.map((source) => source.layer).join(', ')
-  return shadowed ? `${role.source.layer} shadows ${shadowed}` : role.source.layer
-}
-
-function roleWarnings(role: SprintEngineRoleRegistryMetadata): SprintEngineRoleRegistryWarning[] {
-  return role.warnings ?? []
-}
-
-function joinLocalPath(parent: string, name: string): string {
-  const separator = parent.includes('\\') ? '\\' : '/'
-  return `${parent.replace(/[\\/]+$/u, '')}${separator}${name}`
-}
-
-async function resolveSprintEngineRoleInstallTargets(selectedFolder: string): Promise<SprintEngineRoleInstallTarget[]> {
-  const entries = await window.api.readdir(selectedFolder)
-  const rolesDir = entries.find((entry) => entry.isDir && entry.name === 'roles')
-  const skillsDir = entries.find((entry) => entry.isDir && entry.name === 'skills')
-
-  if (rolesDir || skillsDir) {
-    const targets: SprintEngineRoleInstallTarget[] = []
-    if (rolesDir) {
-      const rolesPath = joinLocalPath(selectedFolder, 'roles')
-      const roleEntries = await window.api.readdir(rolesPath)
-      targets.push(
-        ...roleEntries
-          .filter((entry) => !entry.isDir && entry.name.toLowerCase().endsWith('.json'))
-          .map((entry) => ({ sourcePath: joinLocalPath(rolesPath, entry.name), destinationKind: 'roles' as const }))
-      )
-    }
-    if (skillsDir) {
-      const skillsPath = joinLocalPath(selectedFolder, 'skills')
-      const skillEntries = await window.api.readdir(skillsPath)
-      targets.push(
-        ...skillEntries
-          .filter((entry) => entry.isDir)
-          .map((entry) => ({ sourcePath: joinLocalPath(skillsPath, entry.name), destinationKind: 'skills' as const }))
-      )
-    }
-    if (targets.length > 0) return targets
-  }
-
-  const roleManifests = entries.filter((entry) => !entry.isDir && entry.name.toLowerCase().endsWith('.json'))
-  const skillDocuments = entries.filter((entry) => entry.isDir && entry.name.toLowerCase() !== 'skills')
-
-  if (roleManifests.length > 0) {
-    return roleManifests.map((entry) => ({
-      sourcePath: joinLocalPath(selectedFolder, entry.name),
-      destinationKind: 'roles',
-    }))
-  }
-
-  if (skillDocuments.length > 0) {
-    return skillDocuments.map((entry) => ({
-      sourcePath: joinLocalPath(selectedFolder, entry.name),
-      destinationKind: 'skills',
-    }))
-  }
-
-  throw new Error('Select a role registry folder, a roles folder with JSON manifests, or a skills folder with SKILL.md directories.')
 }
 
 function RegistrySwitchRow({
@@ -920,112 +808,6 @@ function HostedFeedRow({ now }: { now: number }) {
   )
 }
 
-// Authoring form for a single custom Sprint Engine role. Pure presentation: the
-// draft, lifecycle, validation, and persistence live in the parent and the
-// userRoleAuthoring view-model. The id is locked while editing (it is the role's
-// durable identity); inline errors come from the view-model keyed by field.
-function UserRoleAuthoringForm({
-  mode,
-  draft,
-  errors,
-  busy,
-  onChange,
-  onSubmit,
-  onCancel,
-}: {
-  mode: RoleAuthoringMode
-  draft: RoleAuthoringDraft
-  errors: RoleAuthoringFieldErrors
-  busy: boolean
-  onChange: (patch: Partial<RoleAuthoringDraft>) => void
-  onSubmit: () => void
-  onCancel: () => void
-}) {
-  const editing = mode.kind === 'edit'
-  return (
-    <div className="space-y-4 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
-      <div className="text-body font-semibold text-[color:var(--text-strong)]">
-        {editing ? 'Edit custom role' : 'New custom role'}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Role id"
-          htmlFor="user-role-id"
-          required
-          error={errors.id}
-          help={editing ? 'Locked; the id is the role’s durable identity.' : 'Lowercase snake_case. Cannot change after creation.'}
-        >
-          <Input
-            value={draft.id}
-            onChange={(event) => onChange({ id: event.target.value })}
-            disabled={editing || busy}
-            placeholder="code_auditor"
-            spellCheck={false}
-            autoCapitalize="none"
-            autoCorrect="off"
-            size="md"
-            className={MONO_FIELD}
-          />
-        </Field>
-        <Field label="Display name" htmlFor="user-role-label" required error={errors.label}>
-          <Input
-            value={draft.label}
-            onChange={(event) => onChange({ label: event.target.value })}
-            disabled={busy}
-            placeholder="Code auditor"
-            size="md"
-          />
-        </Field>
-      </div>
-
-      <Field
-        label="Description"
-        htmlFor="user-role-description"
-        required
-        error={errors.description}
-        help="What this role does and when a sprint should staff it. The architect reads it when planning."
-      >
-        <Textarea
-          value={draft.description}
-          onChange={(event) => onChange({ description: event.target.value })}
-          disabled={busy}
-          rows={3}
-          placeholder="Audits diffs for regressions before release. Staff this role when the run touches release-critical paths."
-          size="md"
-        />
-      </Field>
-
-      <Field
-        label="Instructions"
-        htmlFor="user-role-body"
-        required
-        error={errors.body}
-        help="The role’s instructions, written as a skill document. Replace the seeded scaffold."
-      >
-        <Textarea
-          value={draft.body}
-          onChange={(event) => onChange({ body: event.target.value })}
-          disabled={busy}
-          spellCheck={false}
-          size="md"
-          className={DOCUMENT_TEXTAREA}
-        />
-      </Field>
-
-      {errors.form ? <InlineNotice tone="error">{errors.form}</InlineNotice> : null}
-
-      <div className="flex items-center justify-end gap-2">
-        <GhostButton size="md" onClick={onCancel} disabled={busy}>
-          Cancel
-        </GhostButton>
-        <PrimaryButton size="md" onClick={onSubmit} disabled={busy}>
-          {busy ? 'Saving' : editing ? 'Save changes' : 'Create role'}
-        </PrimaryButton>
-      </div>
-    </div>
-  )
-}
 
 export default function SettingsPanel({
   onClose,
@@ -1080,7 +862,6 @@ export default function SettingsPanel({
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const [profileMessage, setProfileMessage] = useState<string | null>(null)
   const [profilePending, setProfilePending] = useState(false)
-  const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   // The Mobile tab gates on the mobile-relay module; hide it when disabled.
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
@@ -1114,7 +895,6 @@ export default function SettingsPanel({
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
-  const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
     activeWorkspace?.folderPath,
     projectKnowledgeRoots,
@@ -1135,13 +915,8 @@ export default function SettingsPanel({
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
-  const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
-  const [roleRegistryStatus, setRoleRegistryStatus] = useState<RoleRegistryStatus>('idle')
-  const [roleRegistryMessage, setRoleRegistryMessage] = useState<string | null>(null)
-  const [roleInstallPending, setRoleInstallPending] = useState(false)
-  const [roleInstallMessage, setRoleInstallMessage] = useState<RoleInstallMessage>(null)
   const [cliInstallPending, setCliInstallPending] = useState(false)
-  const [cliInstallMessage, setCliInstallMessage] = useState<RoleInstallMessage>(null)
+  const [cliInstallMessage, setCliInstallMessage] = useState<SettingsActionMessage>(null)
   // Per-CLI Update runs (the version advisory's button). `running` while the
   // command is in flight; afterwards the notice says what happened when the
   // version did not move or the command failed. A clean success needs no
@@ -1181,17 +956,6 @@ export default function SettingsPanel({
   // into the install flow.
   const [selectedCliId, setSelectedCliId] = useState<string | null>(null)
   const [installIntentId, setInstallIntentId] = useState<string | null>(null)
-  const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; description?: string }>>([])
-  const [globalInstallPending, setGlobalInstallPending] = useState(false)
-  const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
-  // Custom-role authoring form. `null` = closed; otherwise create or edit a single
-  // user-authored role. The lifecycle reducer (idle/validating/saving/saved/error)
-  // is owned by the DOM-free view-model so it stays unit-testable.
-  const [roleAuthoring, setRoleAuthoring] = useState<{ mode: RoleAuthoringMode; draft: RoleAuthoringDraft } | null>(null)
-  const [roleAuthoringStatus, dispatchRoleAuthoring] = React.useReducer(authoringStatusReducer, idleAuthoringStatus)
-  const [roleEditLoadingId, setRoleEditLoadingId] = useState<string | null>(null)
-  const [userRoleDeletePendingId, setUserRoleDeletePendingId] = useState<string | null>(null)
-  const [userRoleMessage, setUserRoleMessage] = useState<RoleInstallMessage>(null)
   // Built-in tab ids plus `module-section:<id>` for contributed sections. An
   // initialTab may name either; unknown values fall back to the default tab.
   // (Deep-links to the folded MCPs / Skill packs / Extensions tabs are routed to
@@ -1484,7 +1248,6 @@ export default function SettingsPanel({
     githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
 
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
-  const registryRoles = orderedSprintEngineRoles(roleRegistry)
 
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
@@ -1492,92 +1255,6 @@ export default function SettingsPanel({
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
-
-  const loadSprintEngineRoles = useCallback(async () => {
-    if (!activeSprintEngineRoot) {
-      setRoleRegistry(null)
-      setRoleRegistryStatus('unavailable')
-      setRoleRegistryMessage('Open a workspace folder before managing Sprint Engine roles.')
-      return
-    }
-    if (typeof window.api.readSprintEngineRegistryRoles !== 'function') {
-      setRoleRegistry(null)
-      setRoleRegistryStatus('unavailable')
-      setRoleRegistryMessage('This build does not expose Sprint Engine role registry reads.')
-      return
-    }
-    setRoleRegistryStatus('loading')
-    setRoleRegistryMessage(null)
-    try {
-      const result = await window.api.readSprintEngineRegistryRoles({
-        workspaceRoot: activeSprintEngineRoot,
-        includeShadowed: true,
-      })
-      if (!result.ok) {
-        setRoleRegistry(null)
-        setRoleRegistryStatus('unavailable')
-        setRoleRegistryMessage(result.message || 'Sprint Engine role registry is unavailable.')
-        return
-      }
-      const nextRegistry = buildSprintEngineRoleRegistry(result.data)
-      setRoleRegistry(nextRegistry)
-      setRoleRegistryStatus('ready')
-      setRoleRegistryMessage(
-        nextRegistry.warnings.length
-          ? `${nextRegistry.warnings.length} registry warning${nextRegistry.warnings.length === 1 ? '' : 's'} found.`
-          : null,
-      )
-    } catch (error) {
-      setRoleRegistry(null)
-      setRoleRegistryStatus('unavailable')
-      setRoleRegistryMessage(error instanceof Error ? error.message : 'Sprint Engine role registry failed to load.')
-    }
-  }, [activeSprintEngineRoot])
-
-  useEffect(() => {
-    void loadSprintEngineRoles()
-  }, [loadSprintEngineRoles])
-
-  const installSprintEngineRoleFolder = useCallback(async () => {
-    if (!activeSprintEngineRoot) {
-      setRoleInstallMessage({
-        tone: 'warn',
-        text: 'Open a workspace folder before installing Sprint Engine roles.',
-      })
-      return
-    }
-    setRoleInstallPending(true)
-    setRoleInstallMessage(null)
-    try {
-      const selectedFolder = await window.api.openDir()
-      if (!selectedFolder) {
-        setRoleInstallMessage(null)
-        return
-      }
-      const sprintEngineDir = await window.api.ensureDir(activeSprintEngineRoot, '.sprintengine')
-      const rolesDir = await window.api.ensureDir(sprintEngineDir, 'roles')
-      const skillsDir = await window.api.ensureDir(sprintEngineDir, 'skills')
-      const targets = await resolveSprintEngineRoleInstallTargets(selectedFolder)
-      for (const target of targets) {
-        const destinationDir = target.destinationKind === 'roles'
-          ? rolesDir
-          : skillsDir
-        await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })
-      }
-      setRoleInstallMessage({
-        tone: 'info',
-        text: 'Role registry files installed into .sprintengine/roles and .sprintengine/skills with matching names. Reloaded registry from the workspace source.',
-      })
-      await loadSprintEngineRoles()
-    } catch (error) {
-      setRoleInstallMessage({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'Role folder install failed.',
-      })
-    } finally {
-      setRoleInstallPending(false)
-    }
-  }, [activeSprintEngineRoot, loadSprintEngineRoles])
 
   const installCliFromFolder = useCallback(async () => {
     if (typeof window.api.installPluginFolder !== 'function') {
@@ -1614,177 +1291,6 @@ export default function SettingsPanel({
       setCliInstallPending(false)
     }
   }, [refreshPluginCatalog])
-
-  const loadUserRoles = useCallback(async () => {
-    if (typeof window.api.listUserSprintEngineRoles !== 'function') return
-    try {
-      const result = await window.api.listUserSprintEngineRoles()
-      setUserRoles(result.roles)
-    } catch {
-      // Listing is best-effort; the install flow surfaces actionable errors.
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadUserRoles()
-  }, [loadUserRoles])
-
-  const installGlobalRoleFolder = useCallback(async () => {
-    if (typeof window.api.installUserSprintEngineRoleFolder !== 'function') return
-    setGlobalInstallPending(true)
-    setGlobalInstallMessage(null)
-    try {
-      const selectedFolder = await window.api.openDir()
-      if (!selectedFolder) return
-      const result = await window.api.installUserSprintEngineRoleFolder(selectedFolder)
-      const installed = result.installedRoles.length
-      const rejected = result.rejected.length
-      if (!result.ok && installed === 0) {
-        const reason = result.message
-          ?? (rejected > 0
-            ? `${rejected} manifest${rejected === 1 ? '' : 's'} rejected as invalid.`
-            : 'Nothing to install.')
-        setGlobalInstallMessage({ tone: 'error', text: reason })
-      } else {
-        const parts = [`${installed} role${installed === 1 ? '' : 's'} installed`]
-        if (result.installedSkills.length > 0) {
-          parts.push(`${result.installedSkills.length} skill${result.installedSkills.length === 1 ? '' : 's'}`)
-        }
-        if (rejected > 0) parts.push(`${rejected} rejected`)
-        setGlobalInstallMessage({
-          tone: rejected > 0 ? 'warn' : 'info',
-          text: `${parts.join(', ')}. Reload to pick up new roles in open workspaces.`,
-        })
-      }
-      await loadUserRoles()
-    } catch (error) {
-      setGlobalInstallMessage({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'Install failed.',
-      })
-    } finally {
-      setGlobalInstallPending(false)
-    }
-  }, [loadUserRoles])
-
-  // True only on builds whose preload exposes the T2 authoring bridge; gates the
-  // Create/Edit/Delete affordances so an older renderer degrades to read-only.
-  const userRoleAuthoringSupported = typeof window.api.saveUserSprintEngineRole === 'function'
-
-  // Every id and alias already registered (any layer) plus the user-authored ids,
-  // so create-mode collision detection rejects a new id that would shadow an
-  // existing role. Edit locks its own id, so self-collision never triggers.
-  const existingRoleKeys = useMemo(() => {
-    const keys = new Set<string>()
-    if (roleRegistry) {
-      for (const id of Object.keys(roleRegistry.roles)) keys.add(id)
-      for (const alias of Object.keys(roleRegistry.aliases)) keys.add(alias)
-    }
-    for (const role of userRoles) keys.add(role.id)
-    return keys
-  }, [roleRegistry, userRoles])
-
-  const openCreateRole = useCallback(() => {
-    setUserRoleMessage(null)
-    dispatchRoleAuthoring({ type: 'reset' })
-    setRoleAuthoring({ mode: { kind: 'create' }, draft: createRoleAuthoringDraft() })
-  }, [])
-
-  const openEditRole = useCallback(async (id: string) => {
-    if (typeof window.api.getUserSprintEngineRole !== 'function') return
-    setUserRoleMessage(null)
-    setRoleEditLoadingId(id)
-    try {
-      const result = await window.api.getUserSprintEngineRole(id)
-      if (result.ok) {
-        dispatchRoleAuthoring({ type: 'reset' })
-        setRoleAuthoring({ mode: { kind: 'edit', id }, draft: editRoleAuthoringDraft(result.manifest, result.body) })
-      } else {
-        setUserRoleMessage({ tone: 'error', text: `Could not open "${id}" for editing; its manifest may be invalid on disk.` })
-      }
-    } catch (error) {
-      setUserRoleMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not load the role for editing.' })
-    } finally {
-      setRoleEditLoadingId(null)
-    }
-  }, [])
-
-  const closeRoleAuthoring = useCallback(() => {
-    setRoleAuthoring(null)
-    dispatchRoleAuthoring({ type: 'reset' })
-  }, [])
-
-  // Mutating the open draft re-derives the form; the lifecycle drops back to idle
-  // so a prior error/saved banner clears as soon as the author edits.
-  const updateRoleDraft = useCallback((patch: Partial<RoleAuthoringDraft>) => {
-    setRoleAuthoring((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current))
-    dispatchRoleAuthoring({ type: 'reset' })
-  }, [])
-
-  const submitRoleAuthoring = useCallback(async () => {
-    if (!roleAuthoring || typeof window.api.saveUserSprintEngineRole !== 'function') return
-    dispatchRoleAuthoring({ type: 'submit' })
-    const validation = validateRoleAuthoringDraft(roleAuthoring.draft, {
-      mode: roleAuthoring.mode,
-      existingIdsAndAliases: existingRoleKeys,
-    })
-    if (!validation.ok) {
-      dispatchRoleAuthoring({ type: 'invalid', errors: validation.errors })
-      return
-    }
-    dispatchRoleAuthoring({ type: 'valid' })
-    try {
-      const result = await window.api.saveUserSprintEngineRole(validation.input)
-      if (!result.ok) {
-        dispatchRoleAuthoring({ type: 'failed', errors: mapIssuesToFieldErrors(result.issues ?? []) })
-        return
-      }
-      const savedId = result.id ?? validation.input.id
-      dispatchRoleAuthoring({ type: 'saved', id: savedId })
-      // Reflect the new/edited role everywhere without a restart: the user-roles
-      // list (Global section + roster wizard) and the live MCP registry.
-      await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
-      setRoleAuthoring(null)
-      setUserRoleMessage({
-        tone: 'info',
-        text: roleAuthoring.mode.kind === 'edit' ? `Saved changes to "${savedId}".` : `Created "${savedId}". Reload open workspaces to use it in a run.`,
-      })
-    } catch (error) {
-      dispatchRoleAuthoring({ type: 'failed', errors: { form: error instanceof Error ? error.message : 'Save failed.' } })
-    }
-  }, [roleAuthoring, existingRoleKeys, loadUserRoles, loadSprintEngineRoles])
-
-  const deleteUserRole = useCallback(async (id: string, label: string) => {
-    if (typeof window.api.deleteUserSprintEngineRole !== 'function') return
-    const confirmed = await dialog.confirm({
-      title: `Delete "${label}"?`,
-      body: (
-        <>
-          <div>This removes the custom role <span className="font-mono">{id}</span> and its soul document for every workspace.</div>
-          <div className="mt-2">Runs already using it keep their copy; new runs will no longer see it.</div>
-        </>
-      ),
-      confirmLabel: 'Delete role',
-      tone: 'danger',
-    })
-    if (!confirmed) return
-    setUserRoleDeletePendingId(id)
-    setUserRoleMessage(null)
-    try {
-      const result = await window.api.deleteUserSprintEngineRole(id)
-      if (result.ok) {
-        if (roleAuthoring?.mode.kind === 'edit' && roleAuthoring.mode.id === id) closeRoleAuthoring()
-        await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
-        setUserRoleMessage({ tone: 'info', text: `Deleted "${label}".` })
-      } else {
-        setUserRoleMessage({ tone: 'error', text: `Could not delete "${label}".` })
-      }
-    } catch (error) {
-      setUserRoleMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Delete failed.' })
-    } finally {
-      setUserRoleDeletePendingId(null)
-    }
-  }, [dialog, roleAuthoring, closeRoleAuthoring, loadUserRoles, loadSprintEngineRoles])
 
   const selectSettingsTab = useCallback((tabId: string) => {
     setActiveSettingsTab(tabId)
@@ -2411,221 +1917,6 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'providers' ? <ProviderSettingsTab /> : null}
-
-      {activeSettingsTab === 'roles' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-roles"
-          aria-labelledby="settings-tab-roles"
-          className="space-y-5"
-        >
-          <SettingsPageHeader title="Roles" />
-          <SettingsSectionTitle
-            count={roleRegistryStatus === 'ready' ? registryRoles.length : undefined}
-            action={
-              <Tooltip content={roleInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}>
-                <IconButton
-                  aria-label={roleInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}
-                  onClick={() => void installSprintEngineRoleFolder()}
-                  disabled={roleInstallPending || !activeSprintEngineRoot}
-                >
-                  {roleInstallPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-                </IconButton>
-              </Tooltip>
-            }
-          >
-            Workspace roles
-          </SettingsSectionTitle>
-
-          {roleRegistryStatus === 'loading' ? (
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
-          ) : null}
-
-          {roleRegistryStatus === 'unavailable' ? (
-            <InlineNotice tone="warn">
-              {roleRegistryMessage ?? 'The role registry is unavailable for this workspace.'}
-            </InlineNotice>
-          ) : null}
-
-          {roleRegistryStatus === 'ready' && registryRoles.length === 0 ? (
-            <EmptyState density="list" title="No roles in this workspace." />
-          ) : null}
-
-          {roleRegistryStatus === 'ready' && registryRoles.length > 0 ? (
-            <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-              {registryRoles.map((role) => {
-                const warnings = roleWarnings(role)
-                const manifestDisabled = role.enabled === false
-                const isArchitect = role.id === 'architect'
-                const userEnabled = sprintEngineRoleSettings.enabled[role.id] !== false
-                // Architect cannot be disabled: Sprint Engine planning depends
-                // on it. Manifest disabling still wins so a custom manifest can
-                // intentionally hide a role even when the user has not toggled
-                // it off.
-                const enabled = isArchitect ? !manifestDisabled : (!manifestDisabled && userEnabled)
-                const switchDisabled = manifestDisabled || isArchitect
-                const label = getSprintEngineRoleLabel(role.id, roleRegistry)
-                const switchLabelId = `settings-role-${role.id}-label`
-                const switchHelpId = `settings-role-${role.id}-help`
-                return (
-                  <div key={role.id} className="py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <span
-                          id={switchLabelId}
-                          className="block truncate text-body font-medium text-[color:var(--text-strong)]"
-                        >
-                          {label}
-                        </span>
-                        <div
-                          id={switchHelpId}
-                          className="mt-0.5 truncate font-mono text-meta leading-4 text-[color:var(--text-subtle)]"
-                        >
-                          {role.id} · {roleSourceLabel(role)}
-                        </div>
-                        {role.description ? (
-                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
-                            {role.description}
-                          </p>
-                        ) : null}
-                        {/* Why the switch is locked, in three words on the meta
-                            line rather than a sentence under the description. */}
-                        {manifestDisabled ? (
-                          <p className="mt-0.5 text-meta text-[color:var(--text-subtle)]">Disabled by manifest</p>
-                        ) : isArchitect ? (
-                          <p className="mt-0.5 text-meta text-[color:var(--text-subtle)]">Required for planning</p>
-                        ) : null}
-                        {warnings.map((warning) => (
-                          // Degraded, not failed: the role still runs. The glyph
-                          // and the role carry the tone; the copy stays readable.
-                          <InlineNotice key={`${role.id}:${warning.code}:${warning.message}`} tone="warn" className="mt-1">
-                            Warning: {warning.message}
-                          </InlineNotice>
-                        ))}
-                      </div>
-                      <Switch
-                        checked={enabled}
-                        disabled={switchDisabled}
-                        onChange={(next) => setSprintEngineRoleEnabled(role.id, next)}
-                        ariaLabelledBy={switchLabelId}
-                        ariaDescribedBy={switchHelpId}
-                        className="mt-0.5"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
-
-          {roleRegistry?.warnings.length ? (
-            <InlineNotice tone="warn">
-              <div className="space-y-1">
-                {roleRegistry.warnings.map((warning) => (
-                  <p key={`${warning.code}:${warning.message}`}>Registry warning: {warning.message}</p>
-                ))}
-              </div>
-            </InlineNotice>
-          ) : null}
-
-          <ActionResultMessage message={roleInstallMessage} />
-
-          <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-            <SettingsSectionTitle
-              count={userRoles.length || undefined}
-              action={
-                <div className="flex items-center gap-1.5">
-                  <Tooltip content={globalInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}>
-                    <IconButton
-                      aria-label={globalInstallPending ? 'Installing roles from a folder' : 'Install roles from a folder'}
-                      onClick={() => void installGlobalRoleFolder()}
-                      disabled={globalInstallPending}
-                    >
-                      {globalInstallPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-                    </IconButton>
-                  </Tooltip>
-                  {userRoleAuthoringSupported ? (
-                    <Tooltip content="New custom role">
-                      <IconButton aria-label="New custom role" onClick={openCreateRole} disabled={Boolean(roleAuthoring)}>
-                        <PlusIcon className="icon-sm" />
-                      </IconButton>
-                    </Tooltip>
-                  ) : null}
-                </div>
-              }
-            >
-              Global roles
-            </SettingsSectionTitle>
-
-            {roleAuthoring ? (
-              <UserRoleAuthoringForm
-                mode={roleAuthoring.mode}
-                draft={roleAuthoring.draft}
-                errors={authoringFieldErrors(roleAuthoringStatus)}
-                busy={isAuthoringBusy(roleAuthoringStatus)}
-                onChange={updateRoleDraft}
-                onSubmit={() => void submitRoleAuthoring()}
-                onCancel={closeRoleAuthoring}
-              />
-            ) : null}
-
-            <ActionResultMessage message={globalInstallMessage} />
-
-            <ActionResultMessage message={userRoleMessage} />
-
-            {userRoles.length === 0 ? (
-              <p className="text-body leading-5 text-[color:var(--text-muted)]">No global roles yet.</p>
-            ) : (
-              <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-                {userRoles.map((role) => {
-                  const editLoading = roleEditLoadingId === role.id
-                  const deletePending = userRoleDeletePendingId === role.id
-                  return (
-                    <div key={role.id} className="group flex items-baseline justify-between gap-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="text-body font-medium text-[color:var(--text-default)]">{role.label}</div>
-                        {role.description ? (
-                          <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
-                            {role.description}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        {userRoleAuthoringSupported ? (
-                          // The reveal lives on the wrapper, not the buttons: a
-                          // button's own `disabled:opacity-45` would otherwise
-                          // fight the `opacity-0` rest state and lift a dead
-                          // control into view on its own.
-                          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                            <GhostButton
-                              size="xs"
-                              onClick={() => void openEditRole(role.id)}
-                              disabled={editLoading || deletePending}
-                            >
-                              {editLoading ? 'Opening' : 'Edit'}
-                              <span className="sr-only"> {role.label}</span>
-                            </GhostButton>
-                            <GhostButton
-                              size="xs"
-                              tone="danger"
-                              onClick={() => void deleteUserRole(role.id, role.label)}
-                              disabled={editLoading || deletePending}
-                            >
-                              {deletePending ? 'Deleting' : 'Delete'}
-                              <span className="sr-only"> {role.label}</span>
-                            </GhostButton>
-                          </div>
-                        ) : null}
-                        <span className="font-mono text-meta text-[color:var(--text-subtle)]">{role.id}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
 
       {activeSettingsTab === 'knowledge-graph' ? (
         <div
