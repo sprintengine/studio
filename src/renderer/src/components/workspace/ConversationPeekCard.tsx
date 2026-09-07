@@ -36,31 +36,42 @@ import type {
  * on the tab, and the checkout repeated the branch already on the topbar. Model
  * and session id earned their place and stayed.
  */
-export type ConversationPeekIdentity = {
-  /** The chat's name — the tab's or the row's title. */
+/**
+ * One terminal the card can be moved to. The highlighted disc owns the WHOLE
+ * body — that terminal's first message, its messages since, its model and its
+ * session id. Nothing is merged.
+ */
+export type ConversationPeekAgent = {
+  /** What `readConversationPeek` is asked about. Already the unit of the contract. */
+  sessionId: string
+  /** The agent's name — the disc's accessible name, never its face. */
   name: string
-  /** Runtime id for the brand mark; null when unknown (a plain terminal). */
+  /** The disc's face: two letters. */
+  initials: string
+  /** Runtime id; null when unknown. */
   cli: AgentCli | null
   /** Launch model id; null → the CLI's own default. */
   model: string | null
-  /** The session the peek was read for; null when the chat has never started one. */
-  sessionId: string | null
+  /** This terminal's own state, docked on its disc. */
+  status: { tone: Tone; pulse: boolean; label: string } | null
+}
+
+export type ConversationPeekIdentity = {
+  /** The CHAT's name — the tab's or the row's title. Constant across the roster. */
+  name: string
   /** Sprint task the agent is claimed on, when applicable. */
   taskId: string | null
-  /** Live state, mirroring the dot the anchor already wears; null to omit. */
+  /** The chat's live state, mirroring the dot the anchor already wears; null to omit. */
   status: { tone: Tone; pulse: boolean; label: string } | null
   /**
-   * Set only when the chat holds MORE THAN ONE agent, and then it names the one
-   * this card is about and says how many there are.
+   * Every terminal this chat can be moved to, the one selected at rest first.
+   * Never empty — a chat with nothing to peek at is not offered a card at all.
    *
-   * The honesty floor for a multi-agent chat, and nothing more. A row's card
-   * shows one agent's model, one agent's session and one agent's messages under
-   * the CHAT's name — and with nothing saying so, a reader takes that for the
-   * whole conversation, which on a three-agent chat is two thirds wrong. The
-   * roster of agents and the merged, attributed thread (mockup frame 9) is a
-   * later pass; until then the card says which agent it is quoting.
+   * One entry is the ordinary case and draws no roster: the chat IS the
+   * terminal, and a selector over one thing is chrome. Two or more draws the
+   * discs, and then the selected disc owns the whole body.
    */
-  agentScope: { agentName: string; total: number } | null
+  roster: ConversationPeekAgent[]
 }
 
 /**
@@ -449,6 +460,186 @@ function Thread({ since, now }: { since: ConversationPeekMessage[]; now: number 
   )
 }
 
+/**
+ * Discs shown before the rest are counted. The strip must never wrap: a second
+ * line of discs is the card resizing, which is the one thing this surface may
+ * not do while a pointer is travelling across it. The earlier agent-stack
+ * mockup wrapped at seven and got tall.
+ */
+const MAX_ROSTER_DISCS = 6
+
+/**
+ * The roster — the card's SELECTOR, and why it is discs rather than tabs. This
+ * surface opens under a pointer that was on its way somewhere else, so its
+ * selector has to answer to a hover; a tab is a thing you click. The discs also
+ * cost one line instead of a row of chrome above the thread that is the point,
+ * and they are the same marks already sitting on the row you hovered.
+ *
+ * SEMANTICS. Not a tablist, whatever the mockup's sketch markup said: the body
+ * is not a panel a tab owns, and `aria-selected` on something that also moves
+ * on hover would lie. Not the kit's `SegmentedControl` either — that is a
+ * bordered strip of word labels, and this is a row of discs — but its CONTRACT
+ * is the exact fit and is taken wholesale from
+ * `design-system/components/segmented-control`: `role="radiogroup"` with real
+ * `<button role="radio">` children, one tab stop for the group, roving
+ * `tabindex`, arrows wrapping, and SELECTION FOLLOWS FOCUS. That last clause is
+ * the spec's own, and it is allowed here for the spec's own reason: the values
+ * are cheap and reversible — arrowing reads a conversation, it does not start
+ * one.
+ *
+ * Which makes the two input paths agree rather than diverge:
+ * - Pointer hover PREVIEWS. The body moves; nothing is committed; leaving the
+ *   strip returns it to the pinned agent. That is what lets the pointer travel
+ *   down to a file chip without the card changing underneath it.
+ * - A press PINS.
+ * - An arrow key moves focus and PINS, because a keyboard has no "leave without
+ *   clicking" — so focus moving the body and selection following focus are the
+ *   same act, and `aria-checked` never describes something the eye cannot see.
+ */
+function AgentRoster({
+  roster,
+  shownSessionId,
+  pinnedSessionId,
+  onPreview,
+  onEndPreview,
+  onPin,
+}: {
+  roster: ConversationPeekAgent[]
+  /** Whose conversation the body is showing right now — hover included. */
+  shownSessionId: string | null
+  /** The committed choice, which is what `aria-checked` reports. */
+  pinnedSessionId: string | null
+  onPreview: ((sessionId: string) => void) | undefined
+  onEndPreview: (() => void) | undefined
+  onPin: ((sessionId: string) => void) | undefined
+}) {
+  const shown = roster.slice(0, MAX_ROSTER_DISCS)
+  const remainder = roster.length - shown.length
+  const pinnedIndex = Math.max(
+    0,
+    shown.findIndex((agent) => agent.sessionId === pinnedSessionId),
+  )
+
+  const onKeyDown = (event: React.KeyboardEvent, index: number): void => {
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+    const back = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+    if (!forward && !back) return
+    event.preventDefault()
+    const next = (index + (forward ? 1 : -1) + shown.length) % shown.length
+    const target = shown[next]
+    if (!target) return
+    onPin?.(target.sessionId)
+    // Focus follows the selection, per the radiogroup contract. The roving
+    // tabindex has already moved with `pinnedIndex`, so this is what carries
+    // the caret with it.
+    const strip = event.currentTarget.parentElement
+    const button = strip?.querySelectorAll<HTMLElement>('[role="radio"]')[next]
+    button?.focus()
+  }
+
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      role="radiogroup"
+      aria-label="Terminals in this chat"
+      // One `mouseleave` for the whole strip, not one per disc: moving between
+      // two discs must not flick the body back to the pinned agent on the way.
+      onMouseLeave={onEndPreview}
+    >
+      {shown.map((agent, index) => {
+        const showing = agent.sessionId === shownSessionId
+        return (
+          <button
+            key={agent.sessionId}
+            type="button"
+            role="radio"
+            aria-checked={agent.sessionId === pinnedSessionId}
+            // The name, never the initials: "DS" tells a screen reader nothing,
+            // and the state has to travel in words because colour may not carry
+            // it alone.
+            aria-label={agent.status ? `${agent.name} — ${agent.status.label}` : agent.name}
+            tabIndex={index === pinnedIndex ? 0 : -1}
+            onMouseEnter={() => onPreview?.(agent.sessionId)}
+            onFocus={() => onPreview?.(agent.sessionId)}
+            onClick={() => onPin?.(agent.sessionId)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            className={`relative grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full border text-micro font-medium ${FOCUS_RING_CLASS} ${
+              // Selection is NEUTRAL, per design-system/components/segmented-control:
+              // "an accent-filled segment would spend the one solid accent on a
+              // state display". The mockup draws the live disc in accent-soft;
+              // the system's own ruling on what selection looks like wins, and
+              // the conformance lint enforces it.
+              showing
+                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+            }`}
+          >
+            <span aria-hidden="true">{agent.initials}</span>
+            {agent.status ? (
+              // Docked bottom-right with a ring in the surface behind it, so it
+              // reads as sitting ON the disc — the agent-stack idiom, and the
+              // same trick Badge's corner mode uses.
+              <span className="absolute -bottom-px -right-px rounded-full ring-2 ring-[color:var(--bg-surface-raised)]">
+                <StatusDot tone={agent.status.tone} pulse={agent.status.pulse} />
+              </span>
+            ) : null}
+          </button>
+        )
+      })}
+      {remainder > 0 ? (
+        <span
+          role="img"
+          aria-label={`${remainder} more ${remainder === 1 ? 'terminal' : 'terminals'}`}
+          className="shrink-0 font-mono text-micro text-[color:var(--text-subtle)]"
+        >
+          +{remainder}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Who the body belongs to, and the two facts that used to be badge chips. One
+ * line, and it MUST stay one line: `flex-nowrap` with the model truncating,
+ * because a wrapped model name is the card growing a row while the pointer is
+ * on a disc — the same resize the body's reserve exists to prevent.
+ */
+function AgentIdentityLine({
+  agent,
+  taskId,
+  copied,
+  onCopySession,
+}: {
+  agent: ConversationPeekAgent
+  taskId: string | null
+  copied: boolean
+  onCopySession: () => void
+}) {
+  return (
+    <div className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
+      <span className="shrink-0 font-medium text-[color:var(--text-strong)]">{agent.name}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[color:var(--text-subtle)]">
+        {agent.model ?? 'CLI default'}
+      </span>
+      {taskId ? (
+        <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">{taskId}</span>
+      ) : null}
+      <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
+        {elideSessionId(agent.sessionId)}
+      </span>
+      <IconButton
+        size="sm"
+        aria-label={copied ? 'Session id copied' : `Copy session id for ${agent.name}`}
+        onClick={onCopySession}
+        className="shrink-0"
+      >
+        <CopyGlyph done={copied} />
+      </IconButton>
+    </div>
+  )
+}
+
 function SectionLabel({ children, trailing }: { children: React.ReactNode; trailing?: React.ReactNode }) {
   return (
     <p className="m-0 mb-1 flex items-baseline justify-between gap-2 text-micro text-[color:var(--text-subtle)]">
@@ -472,6 +663,11 @@ export function ConversationPeekCard({
   copied,
   onCopySession,
   onOpenAttachment,
+  selectedSessionId,
+  pinnedSessionId,
+  onPreviewAgent,
+  onEndPreview,
+  onPinAgent,
 }: {
   identity: ConversationPeekIdentity
   peek: ConversationPeek | null
@@ -481,14 +677,31 @@ export function ConversationPeekCard({
   onCopySession: () => void
   /** Absent when the preload has no opener — the chips then render inert rather than lying. */
   onOpenAttachment?: (attachmentId: string) => void
+  /**
+   * Which terminal the body is showing. The shell owns this because it also
+   * owns the hover/pin state and the read that follows it; the card only says
+   * what it was handed.
+   */
+  selectedSessionId?: string | null
+  /** The PINNED terminal, which is what `aria-checked` follows. */
+  pinnedSessionId?: string | null
+  /** Pointer or focus landed on a disc: move the body, commit nothing. */
+  onPreviewAgent?: (sessionId: string) => void
+  /** The pointer left the roster: fall back to the pinned selection. */
+  onEndPreview?: () => void
+  /** A press, or an arrow key: commit. */
+  onPinAgent?: (sessionId: string) => void
 }) {
   const labels = labelsFor(peek?.source ?? 'none')
   const since = peek?.since ?? []
+  const roster = identity.roster
+  const multi = roster.length > 1
+  const selected = roster.find((agent) => agent.sessionId === selectedSessionId) ?? roster[0] ?? null
   return (
     <>
       <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2.5">
-        {identity.cli ? (
-          <CliIcon cli={identity.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
+        {selected?.cli ? (
+          <CliIcon cli={selected.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
         ) : null}
         {/* The name in full is what the row's own truncation tooltip used to
             show; this header takes that job, which is how the row keeps to one
@@ -500,7 +713,17 @@ export function ConversationPeekCard({
           text={identity.name}
           className="min-w-0 flex-1 text-heading font-semibold text-[color:var(--text-strong)]"
         />
-        {identity.status ? (
+        {/* A chat with a roster counts its terminals here instead of naming one
+            state: each terminal's own state is on its own disc, and the header
+            is about the chat. */}
+        {multi ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+            {identity.status ? (
+              <StatusDot tone={identity.status.tone} pulse={identity.status.pulse} />
+            ) : null}
+            {roster.length} agents
+          </span>
+        ) : identity.status ? (
           <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
             <StatusDot tone={identity.status.tone} pulse={identity.status.pulse} />
             {identity.status.label}
@@ -508,48 +731,71 @@ export function ConversationPeekCard({
         ) : null}
       </div>
 
-      {identity.agentScope ? (
-        // The honesty floor for a chat with more than one agent: everything
-        // below is ONE of them, and a card that did not say so read as the
-        // whole conversation. The roster and the merged thread come later.
-        <p className="m-0 border-b border-[color:var(--border-subtle)] px-3 py-1.5 text-micro text-[color:var(--text-subtle)]">
-          Showing <span className="text-[color:var(--text-default)]">{identity.agentScope.agentName}</span>
-          {' — one of '}
-          {identity.agentScope.total} agents in this chat
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
-        <Badge className="max-w-full">
-          <span className="truncate font-mono">{identity.model ?? 'CLI default'}</span>
-        </Badge>
-        {identity.taskId ? (
-          <Badge>
-            <span className="font-mono tabular-nums">{identity.taskId}</span>
+      {multi ? (
+        <div className="px-3 pb-1 pt-2.5">
+          <AgentRoster
+            roster={roster}
+            shownSessionId={selected?.sessionId ?? null}
+            pinnedSessionId={pinnedSessionId ?? null}
+            onPreview={onPreviewAgent}
+            onEndPreview={onEndPreview}
+            onPin={onPinAgent}
+          />
+          {selected ? (
+            <AgentIdentityLine
+              agent={selected}
+              taskId={identity.taskId}
+              copied={copied}
+              onCopySession={onCopySession}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
+          <Badge className="max-w-full">
+            <span className="truncate font-mono">{selected?.model ?? 'CLI default'}</span>
           </Badge>
-        ) : null}
-        {identity.sessionId ? (
-          // The copy control sits BESIDE the chip, not inside it: a badge is
-          // display-only by spec (design-system/components/badge — "never
-          // interactive"), and the one thing on this card you press to take a
-          // value away with you should be a real button with a real focus ring.
-          <span className="inline-flex min-w-0 max-w-full items-center gap-0.5">
-            <Badge ariaLabel={`Session ${identity.sessionId}`}>
-              <span className="font-mono tabular-nums">{elideSessionId(identity.sessionId)}</span>
+          {identity.taskId ? (
+            <Badge>
+              <span className="font-mono tabular-nums">{identity.taskId}</span>
             </Badge>
-            <IconButton
-              size="sm"
-              aria-label={copied ? 'Session id copied' : 'Copy session id'}
-              onClick={onCopySession}
-              className="shrink-0"
-            >
-              <CopyGlyph done={copied} />
-            </IconButton>
-          </span>
-        ) : null}
-      </div>
+          ) : null}
+          {selected ? (
+            // The copy control sits BESIDE the chip, not inside it: a badge is
+            // display-only by spec (design-system/components/badge — "never
+            // interactive"), and the one thing on this card you press to take a
+            // value away with you should be a real button with a real focus ring.
+            <span className="inline-flex min-w-0 max-w-full items-center gap-0.5">
+              <Badge ariaLabel={`Session ${selected.sessionId}`}>
+                <span className="font-mono tabular-nums">{elideSessionId(selected.sessionId)}</span>
+              </Badge>
+              <IconButton
+                size="sm"
+                aria-label={copied ? 'Session id copied' : 'Copy session id'}
+                onClick={onCopySession}
+                className="shrink-0"
+              >
+                <CopyGlyph done={copied} />
+              </IconButton>
+            </span>
+          ) : null}
+        </div>
+      )}
 
-      <div className="px-3 pb-2.5 pt-2">
+      {/* THE BODY IS THE SELECTED TERMINAL'S, whole. It reserves a fixed height
+          whenever there is a roster, so sweeping the discs never resizes the
+          card — the 2026-09-02 agent-stack ruling, and not a cosmetic one: a
+          card that grows under the pointer moves the disc out from under it,
+          which un-hovers what you were pointing at and can flip between two
+          states forever. A short conversation ends in space instead.
+
+          Named for whoever it belongs to, so a reader arriving here is never
+          left guessing which of the three they landed in. */}
+      <div
+        className={`px-3 pb-2.5 pt-2 ${multi ? 'min-h-[196px]' : ''}`}
+        role={multi ? 'group' : undefined}
+        aria-label={multi && selected ? `Conversation with ${selected.name}` : undefined}
+      >
         {loading && !peek ? (
           <div className="flex flex-col gap-1.5" aria-label="Reading the conversation" role="status">
             <Skeleton className="h-2.5 w-full rounded-sm bg-[color:var(--bg-hover)]" />

@@ -48,8 +48,12 @@ export function AgentTabIdentityPopover({
   const tabButtonRef = useRef<HTMLElement | null>(null)
 
   const [point, setPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const hover = useConversationPeek(identity.sessionId)
-  const { copied, copy } = useCopyValue(identity.sessionId)
+  // A tab opens the card ON ITS OWN AGENT, whichever position that agent takes
+  // in the chat's roster: you hovered this tab, so this is the conversation you
+  // asked about. The roster still lists the chat's other terminals, so the card
+  // can be moved to them without leaving the tab.
+  const hover = useConversationPeek(identity.roster[0]?.sessionId ?? null)
+  const { copied, copy } = useCopyValue(hover.selectedSessionId)
   // The ages on the card have to keep moving while it is open — a `Date.now()`
   // read inline froze them at the moment the card mounted, so a card left up
   // still said "2m" ten minutes later. Gated on `open`, so a tab that is not
@@ -128,6 +132,11 @@ export function AgentTabIdentityPopover({
               copied={copied}
               onCopySession={copy}
               onOpenAttachment={hover.openAttachment}
+              selectedSessionId={hover.selectedSessionId}
+              pinnedSessionId={hover.pinnedSessionId}
+              onPreviewAgent={hover.previewAgent}
+              onEndPreview={hover.endPreview}
+              onPinAgent={hover.pinAgent}
             />
           </div>
         </PointerPopover>

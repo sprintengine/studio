@@ -60,10 +60,20 @@ let openPeek: (() => void) | null = null
 export type ConversationPeekHover = {
   /** Whether the card should be mounted. */
   open: boolean
-  /** The answer, or null while it is in flight (or when there is no reader). */
+  /** Whose conversation the body shows — a hovered disc, else the pinned one, else the default. */
+  selectedSessionId: string | null
+  /** The committed choice, which is what the roster reports as checked. */
+  pinnedSessionId: string | null
+  /** The answer FOR THE SELECTED SESSION, or null while it is in flight. */
   peek: ConversationPeek | null
   /** A read is outstanding. The card shows identity plus a skeleton, never a blank. */
   loading: boolean
+  /** A disc was hovered or focused: move the body, commit nothing. */
+  previewAgent: (sessionId: string) => void
+  /** The pointer left the roster: back to the pinned agent. */
+  endPreview: () => void
+  /** A press, or an arrow key: commit. */
+  pinAgent: (sessionId: string) => void
   /** Pointer entered the anchor: open after the dwell. */
   openSoon: () => void
   /** Focus landed on the anchor: open now, no dwell. */
@@ -79,22 +89,32 @@ export type ConversationPeekHover = {
 }
 
 /**
- * Hover intent for one chat's peek. `sessionId` null means there is nothing to
+ * Hover intent, selection and reads for one chat's peek.
+ *
+ * `defaultSessionId` is the terminal the card opens on — the row's most
+ * recently active one, or the tab's own agent. Null means there is nothing to
  * ask about (a chat that never started a session, a row mid-rename) and the
- * hook stays shut — the caller can wire the handlers unconditionally.
+ * hook stays shut; the caller can wire the handlers unconditionally.
+ *
+ * A chat may hold several terminals and the card shows ONE at a time, so
+ * selection lives here rather than in either shell: it is what the read
+ * follows, and both anchors need the same rules.
  */
-export function useConversationPeek(sessionId: string | null): ConversationPeekHover {
+export function useConversationPeek(defaultSessionId: string | null): ConversationPeekHover {
   const [open, setOpen] = useState(false)
-  const [peek, setPeek] = useState<ConversationPeek | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Answers keyed by session, so switching back to an agent already viewed is
+  // instant and never re-streams a transcript. A key present with a `null`
+  // value is a read that finished with no answer — which is how `loading` can
+  // be derived rather than raced (an effect runs after paint, so a card whose
+  // loading flag waited for one painted its "not readable" arm for a frame).
+  const [answers, setAnswers] = useState<Map<string, ConversationPeek | null>>(() => new Map())
+  const [pinned, setPinned] = useState<string | null>(null)
+  const [previewed, setPreviewed] = useState<string | null>(null)
   const openTimer = useRef<number | null>(null)
   const closeTimer = useRef<number | null>(null)
   // This instance's own closer, with a stable identity, so the latch above can
   // tell "someone else opened" from "I opened again".
   const selfClose = useRef<() => void>(() => {})
-  // Which read is current. A slow answer for a session the pointer has already
-  // left must not land on the card that is open now.
-  const requestSeq = useRef(0)
 
   const clearOpenTimer = useCallback(() => {
     if (openTimer.current !== null) {
@@ -110,44 +130,39 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     }
   }, [])
 
-  // `loading` is raised in the SAME update as `open`, not in the effect that
-  // does the read: an effect runs after paint, so a card whose loading flag
-  // waited for one rendered its "not readable" arm for a frame and then
-  // replaced it with the skeleton. The first painted frame has to be honest.
-  //
-  // It is raised on EVERY open, including a re-open of a chat we have already
-  // read, and the previous answer is dropped with it. A card that showed the
-  // last visit's messages while quietly re-reading is telling you about a
-  // conversation that has moved on since.
+  // Opening drops every answer from the previous visit and every selection with
+  // them. A card that showed the last visit's messages while quietly re-reading
+  // is telling you about a conversation that has moved on since; and a pin from
+  // a previous open is not a choice the person is still making.
   const reveal = useCallback(() => {
     if (openPeek && openPeek !== selfClose.current) openPeek()
     openPeek = selfClose.current
-    setPeek(null)
-    setLoading(hasReader())
+    setAnswers(new Map())
+    setPinned(null)
+    setPreviewed(null)
     setOpen(true)
   }, [])
 
   const openNow = useCallback(() => {
-    if (!sessionId) return
+    if (!defaultSessionId) return
     clearOpenTimer()
     clearCloseTimer()
     reveal()
-  }, [clearCloseTimer, clearOpenTimer, reveal, sessionId])
+  }, [clearCloseTimer, clearOpenTimer, defaultSessionId, reveal])
 
   const openSoon = useCallback(() => {
-    if (!sessionId) return
+    if (!defaultSessionId) return
     clearCloseTimer()
     if (openTimer.current !== null) return
     openTimer.current = window.setTimeout(() => {
       openTimer.current = null
       reveal()
     }, PEEK_DWELL_MS)
-  }, [clearCloseTimer, reveal, sessionId])
+  }, [clearCloseTimer, defaultSessionId, reveal])
 
   const dismiss = useCallback(() => {
     if (openPeek === selfClose.current) openPeek = null
     setOpen(false)
-    setLoading(false)
   }, [])
 
   const closeNow = useCallback(() => {
@@ -174,74 +189,85 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     clearCloseTimer()
   }, [clearCloseTimer])
 
-  // A different chat is a different answer: drop the last one rather than
-  // showing one session's messages under another's name for a frame.
-  useEffect(() => {
-    setPeek(null)
-    setLoading(false)
-    requestSeq.current += 1
-  }, [sessionId])
+  // Hover moves the body and commits nothing; a press commits. Pinning also
+  // clears the preview, so the disc you just pressed is the one that stays when
+  // the pointer walks off the strip — rather than the body snapping back to
+  // wherever it was a moment ago.
+  const previewAgent = useCallback((next: string) => setPreviewed(next), [])
+  const endPreview = useCallback(() => setPreviewed(null), [])
+  const pinAgent = useCallback((next: string) => {
+    setPinned(next)
+    setPreviewed(null)
+  }, [])
 
-  // One read per opening. Re-reading on a tick would make a card the pointer is
-  // resting on flicker between answers; the conversation it describes is not
-  // moving fast enough for that to buy anything.
+  // A hovered disc wins over a pinned one, which wins over the terminal the
+  // card opened on. Everything else — the read, the body, the identity line —
+  // follows this one value.
+  const selectedSessionId = previewed ?? pinned ?? defaultSessionId
+
+  // A different chat is a different set of answers.
   useEffect(() => {
-    if (!open || !sessionId) return
+    setAnswers(new Map())
+    setPinned(null)
+    setPreviewed(null)
+  }, [defaultSessionId])
+
+  const peek = selectedSessionId ? (answers.get(selectedSessionId) ?? null) : null
+  // Derived, never raced: a session with no entry in `answers` is one nobody
+  // has finished reading. The `has` check and not the value, so a read that
+  // came back empty settles instead of spinning forever.
+  const loading =
+    open && selectedSessionId !== null && !answers.has(selectedSessionId) && hasReader()
+
+  // One read per session per opening. Re-reading on a tick would make a card
+  // the pointer is resting on flicker between answers; the conversation it
+  // describes is not moving fast enough for that to buy anything.
+  useEffect(() => {
+    if (!open || !selectedSessionId || answers.has(selectedSessionId)) return
     const read = peekApi().readConversationPeek
-    if (typeof read !== 'function') {
-      setLoading(false)
-      return
-    }
-    const seq = (requestSeq.current += 1)
+    if (typeof read !== 'function') return
     let cancelled = false
-    read(sessionId)
-      .then((answer) => {
-        if (cancelled || seq !== requestSeq.current) return
-        setPeek(answer)
+    const settle = (answer: ConversationPeek | null): void => {
+      if (cancelled) return
+      setAnswers((previous) => {
+        if (previous.has(selectedSessionId)) return previous
+        return new Map(previous).set(selectedSessionId, answer)
       })
-      .catch(() => {
-        // Main could not answer. The card keeps its identity half and says the
-        // conversation is not readable — never a spinner that never resolves.
-        if (cancelled || seq !== requestSeq.current) return
-        setPeek(null)
-      })
-      .finally(() => {
-        if (cancelled || seq !== requestSeq.current) return
-        setLoading(false)
-      })
+    }
+    read(selectedSessionId)
+      .then(settle)
+      // Main could not answer. The card keeps its identity half and says the
+      // conversation is not readable — never a spinner that never resolves.
+      .catch(() => settle(null))
     return () => {
       cancelled = true
     }
-  }, [open, sessionId])
-
-  useEffect(
-    () => () => {
-      clearOpenTimer()
-      clearCloseTimer()
-      // An anchor that unmounts while its card is up (a row scrolled out of a
-      // virtualised list, a tab closed) must not leave the latch holding a
-      // closer nothing will ever call.
-      if (openPeek === selfClose.current) openPeek = null
-    },
-    [clearCloseTimer, clearOpenTimer],
-  )
+  }, [answers, open, selectedSessionId])
 
   const opener = peekApi().openConversationPeekAttachment
+  // Attachments belong to the message that carried them, so they are opened
+  // against the SELECTED session — main armed them under that id, and asking
+  // under a sibling's would find nothing.
   const openAttachment = useCallback(
     (attachmentId: string) => {
-      if (!sessionId || typeof opener !== 'function') return
-      void opener(sessionId, attachmentId).catch(() => {
+      if (!selectedSessionId || typeof opener !== 'function') return
+      void opener(selectedSessionId, attachmentId).catch(() => {
         // The file moved, or the viewer refused it. Nothing to say on a hover
         // surface that is about to close; the chip stays where it is.
       })
     },
-    [opener, sessionId],
+    [opener, selectedSessionId],
   )
 
   return {
-    open: open && sessionId !== null,
+    open: open && defaultSessionId !== null,
+    selectedSessionId,
+    pinnedSessionId: pinned,
     peek,
     loading,
+    previewAgent,
+    endPreview,
+    pinAgent,
     openSoon,
     openNow,
     closeSoon,

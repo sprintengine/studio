@@ -1007,7 +1007,17 @@ export function TerminalLineView({
   const hasDiff = line.additions > 0 || line.deletions > 0
   const idleText = line.idleSince !== null ? formatRelativeMs(line.idleSince, now) : ''
   return (
-    <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
+    <div
+      // Which terminal this line is, for the row's conversation peek: hovering
+      // one of the row's own heads moves the open card to that terminal
+      // (mockup frame 9). An attribute rather than a callback threaded down
+      // through every line, because the peek reads it from one delegated
+      // listener on the row — the line itself stays a presentational thing that
+      // knows nothing about a hover surface. Agent lines only: a shell has no
+      // conversation, and a remote pane's key is a tab id, not a session.
+      {...(line.kind === 'agent' ? { 'data-peek-session': line.key } : {})}
+      className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]"
+    >
       <Tooltip content={markLabel} placement="bottom" wrapperClassName="flex shrink-0 items-center">
         <span
           role="img"
