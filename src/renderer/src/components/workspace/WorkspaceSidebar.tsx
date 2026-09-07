@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
+import { FolderGlyphIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -1404,6 +1404,10 @@ export default function WorkspaceSidebar({
   // Which folders have their Settled shelf open. Session-only and closed by
   // default: the shelf is where rows go to stop asking for attention.
   const [expandedSettledFolders, setExpandedSettledFolders] = useState<Record<string, boolean>>({})
+  // Whether the Resting band at the foot of the tree is open. Session-only and
+  // closed by default, like the shelves it holds: a project with nothing going
+  // on has left the tree, and opening the band is a deliberate look back.
+  const [restingExpanded, setRestingExpanded] = useState(false)
   const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [remoteCollapsed, setRemoteCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
@@ -1641,6 +1645,32 @@ export default function WorkspaceSidebar({
     [localRailWorkspaces, keyOf, resolvedGroups]
   )
 
+  // The row you are in always has a row: a settled chat you selected (or
+  // settled from its own menu) keeps its place in the active list until you
+  // leave it, and drops into the shelf then. Reading it never wakes it.
+  const isShelved = useCallback(
+    (workspace: Workspace) => isSettledWorkspace(workspace) && workspace.id !== activeWorkspaceId,
+    [activeWorkspaceId]
+  )
+
+  // A project whose every chat has come to rest leaves the tree (settled-chats
+  // follow-up, 2026-09-07). Its header was a line that said nothing was
+  // happening, which is what the tree should not spend a row on. It is not archived and not
+  // forgotten: the Resting band at the foot of the tree holds those projects,
+  // closed by default — the same "one glance away, never gone" bargain the
+  // Settled shelf makes for a chat. A folder returns to the tree the moment
+  // anything in it wakes, is un-settled, or is selected — the active chat is
+  // never shelved, so opening a resting chat brings its project back with it.
+  const { activeGroups, restingGroups } = useMemo(() => {
+    const active: FolderGroup[] = []
+    const resting: FolderGroup[] = []
+    for (const group of groups) {
+      if (group.workspaces.length > 0 && group.workspaces.every(isShelved)) resting.push(group)
+      else active.push(group)
+    }
+    return { activeGroups: active, restingGroups: resting }
+  }, [groups, isShelved])
+
   // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
   // paired machine's sessions, read only while the band is open and this rail
   // is the one showing; a machine that is asleep is drawn from its last read.
@@ -1703,6 +1733,7 @@ export default function WorkspaceSidebar({
     starredWorkspaces,
     collapsedFolders,
     expandedSettledFolders,
+    restingExpanded,
     starredCollapsed,
     activeWorkspaceId,
     globalSurfaceActive,
@@ -2643,17 +2674,26 @@ export default function WorkspaceSidebar({
     group: FolderGroup,
     visibleWorkspaces: Workspace[],
     folderCollapsed: boolean,
-    folderBodyId: string
+    folderBodyId: string,
+    // A folder in the Resting band has nothing but resting rows, and the band
+    // it sits in already says so: it shows them straight, with no shelf row to
+    // fold a group away from a group that is not there.
+    resting = false
   ) => {
     // Keep the body element mounted (empty + hidden) while collapsed so the
     // header's aria-controls always resolves to a real node.
     if (folderCollapsed) return <div id={folderBodyId} hidden />
 
-    // The row you are in always has a row: a settled chat you selected (or
-    // settled from its own menu) keeps its place in the active list until you
-    // leave it, and drops into the shelf then. Reading it never wakes it.
-    const isShelved = (workspace: Workspace) =>
-      isSettledWorkspace(workspace) && workspace.id !== activeWorkspaceId
+    if (resting) {
+      return (
+        <div id={folderBodyId}>
+          {sortWorkspacesByActivity(visibleWorkspaces, now).map((workspace) =>
+            renderWorkspaceRow(workspace, group.key, { settled: true })
+          )}
+        </div>
+      )
+    }
+
     const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace))
     const settledRows = sortWorkspacesByActivity(visibleWorkspaces.filter(isShelved), now)
 
@@ -2690,6 +2730,159 @@ export default function WorkspaceSidebar({
             : null}
         </div>
       </div>
+    )
+  }
+
+  // One folder's section: the header (drag, context menu, disclosure) over the
+  // body. Both lists that draw folders use it — the tree, and the Resting band
+  // at the foot — so a project that has come to rest is the same section it was,
+  // in a quieter place, rather than a second rendering of a folder.
+  const renderFolderSection = (group: FolderGroup, resting = false) => {
+    const collapsed = collapsedFolders[group.key] === true
+    // Each folder's rows band by what wants you — blocked on input, then
+    // finished-while-you-were-away, then running, then at rest — and
+    // inside each band by how recently each was worked on, same as the
+    // Starred section. The selected row holds the band it was in when you
+    // picked it, so nothing reflows under the cursor. The stale-fold below
+    // still partitions by the 2-day threshold; this only sets the order
+    // within the recent and folded groups.
+    const visibleWorkspaces = sortWorkspacesByAttention(group.workspaces, attentionTierOf)
+    const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+    const dropMark =
+      dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
+        ? dropIndicator.position
+        : null
+    const isFolderTabDropTarget =
+      tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
+    return (
+      <section key={group.key} className="relative pt-1">
+        {/* The header container carries drag + context-menu; the disclosure
+            itself is a real button (aria-expanded / aria-controls) so the
+            folder is keyboard-operable, with the overflow control as a
+            sibling rather than a nested interactive element. */}
+        <header
+          draggable
+          onDragStart={(event) => handleFolderDragStart(event, group.key)}
+          onDragOver={(event) => {
+            if (dataTransferHasTabDrag(event.dataTransfer)) {
+              handleTabDragOverFolder(event, group)
+              return
+            }
+            handleFolderDragOver(event, group.key)
+          }}
+          onDragLeave={() => handleTabDragLeaveFolder(group.key)}
+          onDrop={(event) => {
+            if (dataTransferHasTabDrag(event.dataTransfer)) {
+              handleTabDropOnFolder(event, group)
+              return
+            }
+            handleFolderDrop(event, group.key)
+          }}
+          onDragEnd={handleDragEnd}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
+          }}
+          className={`group/folder relative flex h-control-xs select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
+            group.missing ? 'text-[color:var(--tone-warn)]' : ''
+          }`}
+        >
+          {dropMark === 'before' ? (
+            <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+          ) : null}
+          {dropMark === 'after' ? (
+            <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+          ) : null}
+          {isFolderTabDropTarget ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-md ring-2 ring-[color:var(--accent-primary)]"
+            />
+          ) : null}
+          <Tooltip
+            content={
+              group.remote
+                ? `${group.remote.machineName} · ${group.remote.workspaceRoot ?? 'remote workspace'}`
+                : group.fullPath ?? 'Workspaces with no folder'
+            }
+            placement="bottom"
+            wrapperClassName="flex h-full min-w-0 flex-1"
+          >
+          <button
+            type="button"
+            onClick={() =>
+              setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))
+            }
+            aria-expanded={!collapsed}
+            aria-controls={folderBodyId}
+            className={`flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pl-4 text-left transition-colors hover:text-[color:var(--text-default)] ${
+              group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
+            } ${FOCUS_RING_CLASS}`}
+          >
+            {/* One icon slot, Cursor-style: the folder's identity at
+                rest — the project's own logo when its repo has one, the
+                folder glyph when it does not (MC-2135, re-sited here by
+                the owner on 2026-09-02) — and the collapse chevron
+                swapped in on hover. */}
+            <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+              {/* A remote group's root lives on another machine: looking
+                  it up on THIS disk would present an unrelated local
+                  folder's logo (or stat a path that does not exist), so
+                  the header wears the neutral mark until the gateway
+                  serves project identity. */}
+              <FolderIdentityIcon
+                folderPath={group.remote ? null : group.fullPath}
+                className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
+              />
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+                className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                  collapsed ? '-rotate-90' : ''
+                }`}
+              >
+                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            {group.remote ? (
+              <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+              {group.displayName}
+            </span>
+          </button>
+          </Tooltip>
+          {group.missing ? (
+            <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
+              <StatusDot tone="warn" label="Folder missing" />
+              Missing
+            </span>
+          ) : null}
+          <Tooltip content="Folder actions">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setFolderMenu({
+                  folderKey: group.key,
+                  x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                  y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                })
+              }}
+              className={`ml-1 inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+              aria-label={`Folder actions: ${group.displayName}`}
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+                <circle cx="3.5" cy="8" r="1.2" />
+                <circle cx="8" cy="8" r="1.2" />
+                <circle cx="12.5" cy="8" r="1.2" />
+              </svg>
+            </button>
+          </Tooltip>
+        </header>
+        {renderFolderBody(group, visibleWorkspaces, collapsed, folderBodyId, resting)}
+      </section>
     )
   }
 
@@ -2975,154 +3168,50 @@ export default function WorkspaceSidebar({
             </div>
           </section>
         ) : null}
-        {groups.map((group) => {
-          const collapsed = collapsedFolders[group.key] === true
-          // Each folder's rows band by what wants you — blocked on input, then
-          // finished-while-you-were-away, then running, then at rest — and
-          // inside each band by how recently each was worked on, same as the
-          // Starred section. The selected row holds the band it was in when you
-          // picked it, so nothing reflows under the cursor. The stale-fold below
-          // still partitions by the 2-day threshold; this only sets the order
-          // within the recent and folded groups.
-          const visibleWorkspaces = sortWorkspacesByAttention(group.workspaces, attentionTierOf)
-          const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
-          const dropMark =
-            dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
-              ? dropIndicator.position
-              : null
-          const isFolderTabDropTarget =
-            tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
-          return (
-            <section key={group.key} className="relative pt-1">
-              {/* The header container carries drag + context-menu; the disclosure
-                  itself is a real button (aria-expanded / aria-controls) so the
-                  folder is keyboard-operable, with the overflow control as a
-                  sibling rather than a nested interactive element. */}
-              <header
-                draggable
-                onDragStart={(event) => handleFolderDragStart(event, group.key)}
-                onDragOver={(event) => {
-                  if (dataTransferHasTabDrag(event.dataTransfer)) {
-                    handleTabDragOverFolder(event, group)
-                    return
-                  }
-                  handleFolderDragOver(event, group.key)
-                }}
-                onDragLeave={() => handleTabDragLeaveFolder(group.key)}
-                onDrop={(event) => {
-                  if (dataTransferHasTabDrag(event.dataTransfer)) {
-                    handleTabDropOnFolder(event, group)
-                    return
-                  }
-                  handleFolderDrop(event, group.key)
-                }}
-                onDragEnd={handleDragEnd}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
-                }}
-                className={`group/folder relative flex h-control-xs select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
-                  group.missing ? 'text-[color:var(--tone-warn)]' : ''
-                }`}
-              >
-                {dropMark === 'before' ? (
-                  <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
-                ) : null}
-                {dropMark === 'after' ? (
-                  <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
-                ) : null}
-                {isFolderTabDropTarget ? (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-md ring-2 ring-[color:var(--accent-primary)]"
-                  />
-                ) : null}
-                <Tooltip
-                  content={
-                    group.remote
-                      ? `${group.remote.machineName} · ${group.remote.workspaceRoot ?? 'remote workspace'}`
-                      : group.fullPath ?? 'Workspaces with no folder'
-                  }
-                  placement="bottom"
-                  wrapperClassName="flex h-full min-w-0 flex-1"
+        {activeGroups.map((group) => renderFolderSection(group))}
+        {/* The Resting band (settled-chats follow-up, 2026-09-07): the
+            projects whose every chat has settled, folded away as one line at
+            the foot of the tree. Closed by default and drawn only when there is something in
+            it — the section rule again (design-system/components/section): a
+            heading earns its place by separating one group from another. Open
+            it and each project is its own header over its resting chats, with
+            no second Settled fold inside: the band already said that. */}
+        {restingGroups.length > 0 ? (
+          <section className="relative pt-1" aria-label="Projects at rest">
+            <button
+              type="button"
+              onClick={() => setRestingExpanded((prev) => !prev)}
+              aria-expanded={restingExpanded}
+              aria-controls="ws-resting-body"
+              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+            >
+              {/* Starred's one-slot idiom: the folder glyph at rest, the
+                  collapse chevron swapped in on hover. */}
+              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+                <FolderGlyphIcon className="icon-sm shrink-0 text-[color:var(--text-disabled)] transition-opacity group-hover/folder:opacity-0" />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                    restingExpanded ? '' : '-rotate-90'
+                  }`}
                 >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))
-                  }
-                  aria-expanded={!collapsed}
-                  aria-controls={folderBodyId}
-                  className={`flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pl-4 text-left transition-colors hover:text-[color:var(--text-default)] ${
-                    group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
-                  } ${FOCUS_RING_CLASS}`}
-                >
-                  {/* One icon slot, Cursor-style: the folder's identity at
-                      rest — the project's own logo when its repo has one, the
-                      folder glyph when it does not (MC-2135, re-sited here by
-                      the owner on 2026-09-02) — and the collapse chevron
-                      swapped in on hover. */}
-                  <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
-                    {/* A remote group's root lives on another machine: looking
-                        it up on THIS disk would present an unrelated local
-                        folder's logo (or stat a path that does not exist), so
-                        the header wears the neutral mark until the gateway
-                        serves project identity. */}
-                    <FolderIdentityIcon
-                      folderPath={group.remote ? null : group.fullPath}
-                      className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
-                    />
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      aria-hidden="true"
-                      className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
-                        collapsed ? '-rotate-90' : ''
-                      }`}
-                    >
-                      <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  {group.remote ? (
-                    <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-                  ) : null}
-                  <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
-                    {group.displayName}
-                  </span>
-                </button>
-                </Tooltip>
-                {group.missing ? (
-                  <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
-                    <StatusDot tone="warn" label="Folder missing" />
-                    Missing
-                  </span>
-                ) : null}
-                <Tooltip content="Folder actions">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setFolderMenu({
-                        folderKey: group.key,
-                        x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                        y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                      })
-                    }}
-                    className={`ml-1 inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
-                    aria-label={`Folder actions: ${group.displayName}`}
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
-                      <circle cx="3.5" cy="8" r="1.2" />
-                      <circle cx="8" cy="8" r="1.2" />
-                      <circle cx="12.5" cy="8" r="1.2" />
-                    </svg>
-                  </button>
-                </Tooltip>
-              </header>
-              {renderFolderBody(group, visibleWorkspaces, collapsed, folderBodyId)}
-            </section>
-          )
-        })}
+                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+                Resting
+              </span>
+              <span className="tabular-nums text-meta text-[color:var(--text-subtle)]">
+                {restingGroups.length}
+              </span>
+            </button>
+            <div id="ws-resting-body" hidden={!restingExpanded}>
+              {restingExpanded ? restingGroups.map((group) => renderFolderSection(group, true)) : null}
+            </div>
+          </section>
+        ) : null}
       </nav>
       {/* The account + Settings cluster that used to pin to this column's foot
           lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever
