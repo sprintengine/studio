@@ -50,6 +50,7 @@ import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, Workspa
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
+import { agentInitials, rowConversationPeekRoster } from './conversationPeekRow'
 import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
@@ -297,6 +298,14 @@ function renderTerminalRecencyIndicator(
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
+  // The chat's own name, for the conversation peek's header. A tab card that
+  // holds a roster names the CHAT there and each agent on the roster's identity
+  // line; with one agent the two are the same question and the agent's name
+  // still wins, exactly as the tab itself is labelled.
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? '')
+  const workspaceRemoteOrigin = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.remoteOrigin ?? null,
+  )
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const workspaceAgents = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
@@ -1435,17 +1444,45 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                   label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
                 }
               : { tone: 'neutral', pulse: false, label: 'Idle' }
+      // The chat's roster, with THIS tab's agent moved to the front so the card
+      // opens on the conversation you actually hovered (mockup frame 9). The
+      // rest of the chat's terminals stay on the roster, so the card can be
+      // moved to them without leaving the tab.
+      const chatRoster = rowConversationPeekRoster({
+        workspace: { agents: workspaceAgents, remoteOrigin: workspaceRemoteOrigin },
+        sessions: terminalSessions.filter((session) => session.workspaceId === workspaceId),
+      })
+      const tabRoster = agentSessionId
+        ? [
+            ...chatRoster.filter((entry) => entry.sessionId === agentSessionId),
+            ...chatRoster.filter((entry) => entry.sessionId !== agentSessionId),
+          ]
+        : chatRoster
+      // A tab whose agent main has no session or record for still gets a card
+      // for itself, built from what the tab already knows.
+      const roster: AgentTabIdentity['roster'] =
+        tabRoster.length > 0 || !agentSessionId
+          ? tabRoster
+          : [
+              {
+                sessionId: agentSessionId,
+                name: agent?.name ?? node.getName(),
+                initials: agentInitials(agent?.name ?? node.getName()),
+                cli: agent?.cli ?? null,
+                model: agent?.cliModel ?? null,
+                status: identityStatus,
+              },
+            ]
       const agentIdentity: AgentTabIdentity = {
-        name: agent?.name ?? node.getName(),
-        model: agent?.cliModel ?? null,
-        cli: agent?.cli ?? null,
-        sessionId: agentSessionId ?? null,
+        // One agent: the tab's card is about that agent, and it is named the
+        // way the tab is. Several: the header names the chat and the roster's
+        // identity line names whichever agent the body is currently showing,
+        // because that half changes as the discs are swept and the header
+        // must not.
+        name: roster.length > 1 ? workspaceName || node.getName() : (agent?.name ?? node.getName()),
         taskId: currentTaskId ?? null,
         status: identityStatus,
-        // A tab IS one agent, so there is no other agent for its card to be
-        // quietly standing in for. Only a sidebar row, which is a whole chat,
-        // has to say which of several it is showing.
-        agentScope: null,
+        roster,
       }
 
       // The identity card IS the conversation peek, so the agent tab takes the
@@ -1461,7 +1498,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, workspaceName, workspaceRemoteOrigin, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
