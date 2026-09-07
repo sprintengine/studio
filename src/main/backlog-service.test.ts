@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
@@ -1211,12 +1211,56 @@ async function testNewItemsAreFiledUnderTheirEpic(): Promise<void> {
   }
 }
 
+// listBacklogItems named three directories (`backlog/`, `epics/`, `roadmaps/`)
+// and listed each one flat. Once items moved into their epic's folder that saw
+// only the epics and roadmaps, and the MCP `backlog_list` tool answered with a
+// backlog that had no items in it — while the renderer's own scan, which always
+// walked the tree, showed all of them. The fixtures here are nested for exactly
+// that reason: a flat one cannot fail this way, which is why nothing caught it.
+async function testListingWalksNestedEpicFolders(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-nested-'))
+  try {
+    const write = async (relativePath: string, front: string): Promise<void> => {
+      await mkdir(join(root, dirname(relativePath)), { recursive: true })
+      await writeFile(join(root, relativePath), `---\n${front}\n---\n\n# ${basename(relativePath, '.md')}\n`, 'utf-8')
+    }
+    await write('backlog/epics/auth-revamp.md', 'type: epic\nstatus: in_progress\nid: 1')
+    await write('backlog/auth-revamp/2026-09-01-token-rotation.md', 'type: bug\nstatus: ready\nepic: auth-revamp\nid: 2')
+    await write('backlog/auth-revamp/2026-09-02-session-expiry.md', 'type: feature\nstatus: idea\nepic: auth-revamp\nid: 3')
+    await write('backlog/unfiled/2026-09-03-loose-thought.md', 'type: spike\nstatus: idea\nid: 4')
+    await write('backlog/roadmaps/2026-09-04-a-plan.md', 'status: idea\nid: 5')
+    // Archived stays excluded, wherever it lives.
+    await write('backlog/archived/2026-08-01-done-with.md', 'status: archived\nid: 6')
+
+    const listed = await listBacklogItems(root)
+    assert.equal(listed.ok, true)
+    const paths = listed.ok ? listed.items.map((item) => item.relativePath).sort() : []
+    assert.deepEqual(paths, [
+      'backlog/auth-revamp/2026-09-01-token-rotation.md',
+      'backlog/auth-revamp/2026-09-02-session-expiry.md',
+      'backlog/epics/auth-revamp.md',
+      'backlog/roadmaps/2026-09-04-a-plan.md',
+      'backlog/unfiled/2026-09-03-loose-thought.md',
+    ], 'items inside epic folders are listed, and archived is not')
+
+    const nested = listed.ok ? listed.items.find((item) => item.relativePath.endsWith('token-rotation.md')) : undefined
+    assert.equal(nested?.epic, 'auth-revamp', 'a nested item keeps its epic membership')
+    assert.equal(nested?.id, 2)
+    assert.equal(nested?.isEpic, false, 'an item in an epic folder is not itself an epic')
+    const epic = listed.ok ? listed.items.find((item) => item.relativePath === 'backlog/epics/auth-revamp.md') : undefined
+    assert.equal(epic?.isEpic, true)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
   .then(() => testConfirmingRewritesLeaveTheSidecarAlone())
   .then(() => testLegacySidecarMigration())
   .then(() => testNewItemsAreFiledUnderTheirEpic())
+  .then(() => testListingWalksNestedEpicFolders())
   .catch((error) => {
     console.error(error)
     process.exit(1)

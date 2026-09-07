@@ -287,17 +287,32 @@ export function assertBacklogRelativePath(value: string): string {
   return normalized
 }
 
+// Walks the tree. Items live one folder deep — under the epic they belong to, or
+// `unfiled/` — so listing only the files directly under `backlog/` showed the
+// phone an empty backlog. Same skip rules as the desktop walk and the renderer's
+// scan, so all three agree on what exists.
 async function scanBacklogMarkdownPaths(root: string): Promise<string[]> {
-  const backlogRoot = join(root, BACKLOG_FOLDER)
-  let entries
-  try {
-    entries = await readdir(backlogRoot, { withFileTypes: true })
-  } catch {
-    return []
+  const paths: string[] = []
+  await walk(join(root, BACKLOG_FOLDER), BACKLOG_FOLDER)
+  return paths.sort((left, right) => left.localeCompare(right))
+
+  async function walk(directory: string, prefix: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.multicode-worktrees') {
+          await walk(join(directory, entry.name), `${prefix}/${entry.name}`)
+        }
+        continue
+      }
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) paths.push(`${prefix}/${entry.name}`)
+    }
   }
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
-    .map((entry) => `${BACKLOG_FOLDER}/${entry.name}`)
 }
 
 async function toBacklogItemSnapshot(

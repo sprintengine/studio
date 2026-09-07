@@ -1,5 +1,4 @@
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import type { Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
@@ -93,7 +92,6 @@ const EPICS_PREFIX = 'backlog/epics/'
 export function isBacklogEpicRelativePath(relativePath: string): boolean {
   return relativePath.replace(/\\/g, '/').toLowerCase().startsWith(EPICS_PREFIX)
 }
-const ROADMAPS_PREFIX = 'backlog/roadmaps/'
 
 type ValidWorkspace = {
   root: string
@@ -515,11 +513,14 @@ export type BacklogListItemsResult =
 export async function listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
-    const paths = [
-      ...(await listMarkdownFiles(join(workspace.root, 'backlog'), BACKLOG_PREFIX)),
-      ...(await listMarkdownFiles(join(workspace.root, 'backlog', 'epics'), EPICS_PREFIX)),
-      ...(await listMarkdownFiles(join(workspace.root, 'backlog', 'roadmaps'), ROADMAPS_PREFIX)),
-    ]
+    // Walks the tree rather than naming directories. Items live one folder deep
+    // now — under the epic they belong to, or `unfiled/` — so the three fixed
+    // listings this used to do (`backlog/`, `epics/`, `roadmaps/`) saw only the
+    // epics and roadmaps and reported a backlog with no items in it. Same walker
+    // and same skip rules as the renderer's scan, so the two agree on what exists.
+    const paths = (await listAllBacklogSourcePaths(workspace)).filter((candidate) =>
+      candidate.toLowerCase().endsWith('.md'),
+    )
     const items: BacklogListedItem[] = []
     for (const relativePath of paths) {
       let raw: string
@@ -598,18 +599,6 @@ export async function readBacklogItem(workspaceRoot: string, relativePath: strin
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
-}
-
-async function listMarkdownFiles(dir: string, prefix: string): Promise<string[]> {
-  let entries
-  try {
-    entries = await readdir(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
-    .map((entry) => `${prefix}${entry.name}`)
 }
 
 async function listAllBacklogSourcePaths(workspace: ValidWorkspace): Promise<string[]> {
@@ -1431,27 +1420,15 @@ async function uniqueBacklogFilePathFromBase(
   return validateBacklogRelativePath(`${prefix}${stem}.md`)
 }
 
-// Every backlog markdown stem already on disk, lowercased. Walks the tree because
-// items now live one folder deep (under their epic) and a stem must be unique
-// across all of them, not just within one directory.
+// Every backlog markdown stem already on disk, lowercased. Reuses the shared walk
+// because items now live one folder deep and a stem must be unique across all of
+// them, not just within one directory.
 async function backlogFileStems(workspace: ValidWorkspace): Promise<Set<string>> {
   const stems = new Set<string>()
-  const walk = async (directory: string): Promise<void> => {
-    let entries: Dirent[]
-    try {
-      entries = await readdir(directory, { withFileTypes: true, encoding: 'utf-8' })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        await walk(join(directory, entry.name))
-        continue
-      }
-      if (entry.name.toLowerCase().endsWith('.md')) stems.add(entry.name.slice(0, -3).toLowerCase())
-    }
+  for (const relativePath of await listAllBacklogSourcePaths(workspace)) {
+    if (!relativePath.toLowerCase().endsWith('.md')) continue
+    stems.add(basename(relativePath).slice(0, -3).toLowerCase())
   }
-  await walk(join(workspace.root, 'backlog'))
   return stems
 }
 

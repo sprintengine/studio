@@ -29,6 +29,7 @@ function bySource(items: MobileControlBacklogItemSnapshot[], relativePath: strin
   return found
 }
 
+
 const tests: Array<{ name: string; body: () => Promise<void> }> = []
 function run(name: string, body: () => Promise<void>): void {
   tests.push({ name, body })
@@ -209,6 +210,33 @@ run('a leaf item start is not an epic launch', async () => {
     assert.deepEqual(context.children, [])
     assert.equal(context.title, 'Leaf')
     assert.equal(context.absolutePath, join(root, 'backlog/leaf.md'))
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+
+run('items nested in epic folders reach the phone', async () => {
+  // The desktop walk and the renderer scan both recurse; this one listed only the
+  // files directly under `backlog/`. Once items moved into their epic's folder
+  // that showed the phone an empty backlog, so the fixture is nested on purpose —
+  // a flat one cannot fail this way.
+  const root = await setupWorkspace({
+    'backlog/epics/auth-revamp.md': '---\ntype: epic\nstatus: in_progress\nid: 1\n---\n\n# Auth revamp\n',
+    'backlog/auth-revamp/2026-09-01-token-rotation.md':
+      '---\ntype: bug\nstatus: ready\nepic: auth-revamp\nid: 2\n---\n\n# Token rotation\n',
+    'backlog/unfiled/2026-09-03-loose-thought.md':
+      '---\ntype: spike\nstatus: idea\nid: 3\n---\n\n# Loose thought\n',
+  })
+  try {
+    const snapshot = await readMobileBacklogWorkspaceSnapshot(root, { generatedAt })
+    const paths = snapshot.items.map((item) => item.relativePath).sort()
+    assert.ok(
+      paths.includes('backlog/auth-revamp/2026-09-01-token-rotation.md'),
+      `an item inside its epic folder reaches the phone (got ${JSON.stringify(paths)})`,
+    )
+    assert.ok(paths.includes('backlog/unfiled/2026-09-03-loose-thought.md'), 'and so does an unfiled one')
+    assert.equal(bySource(snapshot.items, 'backlog/auth-revamp/2026-09-01-token-rotation.md').status, 'ready')
   } finally {
     await rm(root, { force: true, recursive: true })
   }
