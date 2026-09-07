@@ -826,8 +826,24 @@ export type EditorState = {
   activeFilePath: string | null
 }
 
+// What a folder IS, as declared through "Mark Directory As". Canonically defined here, beside the state that
+// persists it, for the same reason BacklogView is: the node tsconfig project
+// sees this module, and the renderer-only util that owns the behaviour
+// (utils/folderRoles.ts, which re-exports this as FolderRole) it does not.
+export type WorkspaceFolderRole =
+  | 'sources'
+  | 'test-sources'
+  | 'resources'
+  | 'test-resources'
+  | 'generated'
+  | 'excluded'
+
 export type WorkspaceFileExplorerState = {
   expandedPaths: string[]
+  // Absolute folder path -> the role declared ON it. Descendants inherit and
+  // are never stored, so this stays as small as the number of folders actually
+  // marked — a handful, against a tree of thousands.
+  folderRoles?: Record<string, WorkspaceFolderRole>
   // The file the user last clicked in the tree, restored as the highlighted row
   // after a reload/restart. Only the focused/lead path is persisted, never the
   // whole multi-select set. Best-effort: it highlights only when the row is

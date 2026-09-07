@@ -156,7 +156,7 @@ import {
   isLegacyV44WorkspaceEnvelope,
   splitLegacyV44Envelope,
 } from './repositories/workspaceRegistry'
-import type { WorkspaceRegistryEmptyState, WorkspaceWorktree } from '../types/workspace'
+import type { WorkspaceFolderRole, WorkspaceRegistryEmptyState, WorkspaceWorktree } from '../types/workspace'
 import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomationLifecycle'
 
 migrateLegacyWorkspaceStorageKey()
@@ -353,6 +353,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
+  setFileExplorerFolderRole: (id: WorkspaceId, folderPath: string, role: WorkspaceFolderRole | null) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void

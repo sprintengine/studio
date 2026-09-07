@@ -59,10 +59,48 @@ names something.
   status tint is the row's one colour, and the glyph stays in ink.
 
 What does not change: the hue identifies, it never grades. `color.mark.*` is
-not a status ramp, not an accent, and never a category code on a control, a
-row, a section, or a background. A gear, a plain document, or a folder — glyphs
-that name no language — stay in the row's ink; colour that says nothing is
-still chrome.
+not a status ramp and not an accent. A gear or a plain document — glyphs that
+name no language — stay in the row's ink; colour that says nothing is still
+chrome.
+
+**The file tree answers "what IS this?" on the row** (ruled 2026-09-07,
+narrowing the "never a background" half of the clause above). A tree of a
+thousand files is the one surface where the question a person arrives with is
+not "what is the state of this?" but "which of these is mine to read?" — and
+the answer is a property of the file, not of anything they have done. Three
+cues carry it, and each owns a channel nothing else in the row uses:
+
+- **Test material takes a teal row wash**, and its glyph takes the notched tile
+  with the tick. Teal keeps tests distinct: this product's accent IS green and
+  `status.good` is the emerald beside it, so a third green on a row reads as
+  "selected" or "passing" rather than "test".
+- **Machine-written trees take an orange row wash** — build output, generated
+  sources, anything marked Excluded.
+- **Ignored files lose contrast rather than gain colour.** `text.disabled` ink,
+  and the file glyph drops out of its identity hue back to the row's. This is
+  the one cue that is deliberately NOT a hue: a build tree is not something you
+  are looking for, and dimming is cheaper to read past than a colour that has to
+  be decoded. Giving both "excluded" and "ignored by VCS" the same orange
+  would erase the distinction between them.
+
+Three conditions, all load-bearing:
+
+1. **The wash is DECLARED, never sniffed.** A role comes from "Mark directory
+   as" — the person said so — or from a test-naming convention that is a
+   convention, not a guess. No heuristic gets a row a colour, because a heuristic
+   that is wrong 5% of the time makes the whole channel unreadable.
+2. **Only two washes exist.** Marking the sources root paints nothing: a wash
+   that covers most of the tree has said nothing. If a third wash is proposed,
+   the domain wants modelling again, not another hue.
+3. **Interaction state outranks the wash, always.** A wash is a property of the
+   file; hover and selection are states of the pointer and the keyboard, and
+   they paint over it while they last. A row a person has picked is never tinted
+   by what it happens to be.
+
+Everything the earlier clause forbade elsewhere still stands: no category code
+on a control, a section, or a chrome surface, and the folder mark takes a role
+hue only on the folder the role was declared ON, never down the subtree that
+inherits it.
 
 **Selection is neutral.** A selected row uses `bg.selected` — a neutral fill —
 and lifts its title to `text.primary`. It does not use the accent, and it does

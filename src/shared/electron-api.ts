@@ -3888,6 +3888,16 @@ export type ElectronApi = {
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
+  /**
+   * Which of `relativePaths` the ignore rules cover — one `check-ignore` per
+   * call, batched by the caller. Paths are relative to `repoRoot` with forward
+   * slashes, and the reply echoes the same strings back.
+   *
+   * The answer depends on the path EXISTING: a rule written `out/` matches only
+   * a directory, and directory-ness is read off the disk. Ask about entries you
+   * have listed, never about speculative ones.
+   */
+  checkIgnored: (repoRoot: string, relativePaths: string[]) => Promise<string[]>
   getGitRowSummary: (repoRoot: string) => Promise<GitRowSummary>
   /**
    * The branch reading for one checkout — the worktree the workspace's agents

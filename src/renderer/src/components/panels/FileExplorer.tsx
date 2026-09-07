@@ -3,6 +3,17 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, normalizePathKey, useGitStatus } from '../../hooks/useGitStatus'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
+import {
+  FOLDER_ROLE_LABEL,
+  FOLDER_ROLE_ORDER,
+  folderRoleInk,
+  resolveFolderRole,
+  resolveRowWash,
+  rowWashClass,
+  type FolderRole,
+  type FolderRoleMap,
+} from '../../utils/folderRoles'
+import { useIgnoredPaths } from '../../hooks/useIgnoredPaths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
@@ -14,7 +25,7 @@ import { setFileDropData } from '../../utils/terminalDrop'
 import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
 import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
 import { IconButton, OutlineButton, PrimaryButton } from '../ui/Buttons'
-import { FileTypeGlyph, FolderGlyph } from '../ui/FileTypeGlyph'
+import { FileTypeGlyph, FolderGlyph, isTestPath } from '../ui/FileTypeGlyph'
 import { EmptyState } from '../ui/EmptyState'
 import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -204,10 +215,15 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
 // Kinds that name no language (config, text, the generic document) stay in the
 // row's ink, as does the folder glyph below; the wrapper declares no ink of its
 // own so those still take the row's three-tier ink.
-function FileIcon({ name }: { name: string }) {
+//
+// An IGNORED row is the exception: it drops back to `ink` and takes the row's
+// dimmed colour with everything else on it. A full-strength identity hue on a
+// row whose whole point is "you are not looking for this" would be the
+// brightest thing in a tree of build output.
+function FileIcon({ name, dimmed = false }: { name: string; dimmed?: boolean }) {
   return (
     <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
-      <FileTypeGlyph name={name} tone="kind" />
+      <FileTypeGlyph name={name} tone={dimmed ? 'ink' : 'kind'} />
     </span>
   )
 }
@@ -247,10 +263,17 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
 // `text-*` here would pin the glyph to one tier and the row's three-tier ink
 // would never reach it. The chevron carries expanded state, so the folder reads
 // the same open or closed, the way IDEs draw it.
-function FolderIcon() {
+//
+// A folder carrying a declared ROLE is the one case where the mark leaves the
+// row's ink: blue, teal and orange distinguish the roles the person declared. Only the folder
+// the role was declared ON wears it — a whole marked subtree in orange would be
+// a category code on every row rather than a mark on the one that was chosen.
+function FolderIcon({ role }: { role?: FolderRole | null }) {
+  const ink = role ? folderRoleInk(role) : null
+  const badge = role === 'generated' ? 'generated' : role === 'resources' || role === 'test-resources' ? 'resources' : undefined
   return (
-    <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
-      <FolderGlyph />
+    <span className={`inline-flex size-icon-sm shrink-0 items-center justify-center ${ink ?? ''}`}>
+      <FolderGlyph badge={badge} />
     </span>
   )
 }
@@ -631,6 +654,10 @@ type ExplorerMenuState = {
   canStartFuturePlanBundle: boolean
   hasSourceBundleOutsideBacklog: boolean
   directoryToggle: 'expand' | 'collapse' | null
+  // Present only for a single directory: the role declared ON it (not one
+  // inherited from an ancestor), so the menu can check the row it is open over
+  // and offer "None" only when there is a mark to clear.
+  folderRoleTarget: { path: string; role: FolderRole | null } | null
   canUseSinglePathCommands: boolean
   canPaste: boolean
   canDeletePath: boolean
@@ -676,6 +703,12 @@ function ExplorerTree({
   const removeOpenFilesForPath = useWorkspaceStore((s) => s.removeOpenFilesForPath)
   const setFileExplorerExpandedPaths = useWorkspaceStore((s) => s.setFileExplorerExpandedPaths)
   const setFileExplorerSelectedPath = useWorkspaceStore((s) => s.setFileExplorerSelectedPath)
+  const setFileExplorerFolderRole = useWorkspaceStore((s) => s.setFileExplorerFolderRole)
+  // Subscribed rather than read from a ref: marking a folder has to repaint
+  // the tree beneath it on the same tick.
+  const folderRoles = useWorkspaceStore(
+    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.folderRoles
+  ) as FolderRoleMap | undefined
   const dialog = useConfirmDialog()
   const readPersistedExpandedPaths = useCallback(() => (
     useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.expandedPaths
@@ -863,9 +896,19 @@ function ExplorerTree({
     }, 0)
   }, [renamingPath])
 
+  const { isIgnored, checkDirectory: checkIgnoredDirectory } = useIgnoredPaths(
+    gitStatus?.repoRoot ?? null,
+    refreshToken
+  )
+
   const loadDirectory = useCallback(async (dirPath: string) => {
     const raw = await window.api.readdir(dirPath)
     const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, latestGitStatusRef.current)
+
+    // One `check-ignore` per directory, here rather than per row: the whole
+    // listing is in hand exactly once, which is what keeps this to a single
+    // spawn per folder the person actually opens.
+    checkIgnoredDirectory(dirPath, entries.map((entry) => entry.path))
 
     if (dirPath === rootPath) {
       setRootEntries(entries)
@@ -874,7 +917,7 @@ function ExplorerTree({
     }
 
     return entries
-  }, [rootPath])
+  }, [rootPath, checkIgnoredDirectory])
 
   const ensureDirectoryLoaded = async (dirPath: string) => {
     if (dirPath === rootPath || childrenByPath[dirPath]) return
@@ -1605,6 +1648,10 @@ function ExplorerTree({
             ? 'collapse'
             : 'expand'
           : null,
+      folderRoleTarget:
+        isSingleSelection && entry?.isDir && canUsePathCommands
+          ? { path: entry.path, role: (folderRoles ?? {})[entry.path] ?? null }
+          : null,
       canUseSinglePathCommands: Boolean(isSingleSelection && entry && canUsePathCommands),
       canPaste: Boolean(clipboard) && !isSearching,
       canDeletePath,
@@ -2128,6 +2175,21 @@ function ExplorerTree({
           const gitAppearance = getGitStatusAppearance(gitStatusKind)
           const nameClassName = gitAppearance.textClass
 
+          // The three cues, each on its own channel so none can overwrite
+          // another: the declared role inks the FOLDER MARK, the wash paints the
+          // ROW, and being ignored dims the ROW'S INK.
+          const declaredRole = folderRoles ? resolveFolderRole(folderRoles, entry.path, rootPath) : null
+          // isTestPath wants a path relative to the root — an absolute one drags
+          // in the machine's own directory names, and a checkout living under
+          // ~/testing would answer yes for every file in it.
+          const isTestRow = !entry.isDir && isTestPath(entry.path.slice(rootPath.length))
+          const wash = resolveRowWash(declaredRole, isTestRow)
+          // A wash is a property of the file; selection is a state of the
+          // keyboard. Selection wins, so the class comes off entirely — leaving
+          // it on would tint the one row the person has actually picked.
+          const washClassName = isSelected || isDropTarget ? '' : rowWashClass(wash)
+          const ignored = isIgnored(entry.path)
+
           return (
             <div
               key={entry.path}
@@ -2136,6 +2198,11 @@ function ExplorerTree({
               }}
               role="treeitem"
               data-file-explorer-row="true"
+              // Read by scripts/testing/file-tree-cues-pass.mjs. The cues are
+              // colour and a screenshot cannot assert on colour, so the row
+              // states what it decided.
+              data-row-wash={wash ?? undefined}
+              data-row-ignored={ignored ? 'true' : undefined}
               aria-selected={isSelected}
               aria-expanded={entry.isDir ? isExpanded : undefined}
               draggable={!entry.gitDeleted && !isRenaming}
@@ -2177,7 +2244,7 @@ function ExplorerTree({
                   ? isFocused
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                  : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
               }`}
               // One level in from the root row above.
               style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
@@ -2192,7 +2259,7 @@ function ExplorerTree({
                       if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
                     }}
                   />
-                  <FolderIcon />
+                  <FolderIcon role={folderRoles?.[entry.path] ?? null} />
                   {isRenaming ? (
                     renderRenameInput('font-medium')
                   ) : (
@@ -2205,7 +2272,7 @@ function ExplorerTree({
               ) : (
                 <>
                   <span className="w-3 shrink-0" />
-                  <FileIcon name={entry.name} />
+                  <FileIcon name={entry.name} dimmed={ignored} />
                   {isRenaming ? (
                     renderRenameInput('')
                   ) : (
@@ -2245,6 +2312,36 @@ function ExplorerTree({
             <MenuItem onClick={() => void runContextMenuCommand('view-git-diff', contextMenu)}>
               View Git diff
             </MenuItem>
+          ) : null}
+          {contextMenu.folderRoleTarget ? (
+            <MenuFlyoutItem label="Mark directory as" ariaLabel="Mark directory as" surfaceClassName="min-w-[196px]">
+              {FOLDER_ROLE_ORDER.map((role) => (
+                <MenuItem
+                  key={role}
+                  onClick={() => {
+                    const target = contextMenu.folderRoleTarget
+                    if (target) setFileExplorerFolderRole(workspaceId, target.path, role)
+                    setContextMenu(null)
+                  }}
+                >
+                  {FOLDER_ROLE_LABEL[role]}
+                </MenuItem>
+              ))}
+              {contextMenu.folderRoleTarget.role ? (
+                <>
+                  <MenuDivider />
+                  <MenuItem
+                    onClick={() => {
+                      const target = contextMenu.folderRoleTarget
+                      if (target) setFileExplorerFolderRole(workspaceId, target.path, null)
+                      setContextMenu(null)
+                    }}
+                  >
+                    Unmark
+                  </MenuItem>
+                </>
+              ) : null}
+            </MenuFlyoutItem>
           ) : null}
           {contextMenu.canStartFuturePlan ? (
             <MenuFlyoutItem label="Run a sprint from" ariaLabel="Run a sprint from" surfaceClassName="min-w-[196px]">

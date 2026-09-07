@@ -30,6 +30,7 @@ export type FileTypeKind =
   | 'javascript'
   | 'javascript-test'
   | 'react'
+  | 'react-test'
   | 'json'
   | 'markdown'
   | 'yaml'
@@ -37,8 +38,11 @@ export type FileTypeKind =
   | 'css'
   | 'shell'
   | 'python'
+  | 'python-test'
   | 'rust'
+  | 'rust-test'
   | 'go'
+  | 'go-test'
   | 'java'
   | 'image'
   | 'lock'
@@ -53,6 +57,7 @@ export const FILE_TYPE_LABEL: Record<FileTypeKind, string> = {
   javascript: 'JavaScript',
   'javascript-test': 'JavaScript test',
   react: 'React component',
+  'react-test': 'React component test',
   json: 'JSON',
   markdown: 'Markdown',
   yaml: 'YAML',
@@ -60,8 +65,11 @@ export const FILE_TYPE_LABEL: Record<FileTypeKind, string> = {
   css: 'Stylesheet',
   shell: 'Shell script',
   python: 'Python',
+  'python-test': 'Python test',
   rust: 'Rust',
+  'rust-test': 'Rust test',
   go: 'Go',
+  'go-test': 'Go test',
   java: 'Java',
   image: 'Image',
   lock: 'Lockfile',
@@ -110,7 +118,76 @@ const TEXT_EXTENSIONS = new Set(['txt', 'log', 'csv', 'tsv', 'rtf', 'pdf', 'doc'
 
 const SHELL_EXTENSIONS = new Set(['sh', 'bash', 'zsh', 'fish', 'ksh', 'bat', 'cmd', 'ps1'])
 
-const TEST_SEGMENT = /\.(test|spec)$/
+// The test-naming conventions the tree recognises, by language family. Each is
+// gated on the extension it belongs to rather than tried against every name,
+// because the forms genuinely collide across languages.
+//
+// `.test.` / `.spec.` is the JS/TS infix. `test_` and `_test` are the Python /
+// Go / Rust convention. `FooTest` / `FooTests` / `FooIT` is JUnit's, and it is
+// matched on the ORIGINAL case on purpose: lowercased, a bare `test` suffix
+// also swallows `latest`, `fastest` and `manifest`, and every one of them would
+// wear the tick.
+const TEST_INFIX = /\.(test|spec)$/
+const TEST_PREFIX = /^test_/
+const TEST_SUFFIX = /_test$/
+const JAVA_TEST_SUFFIX = /(?:Test|Tests|IT)$/
+
+// Directory names that make everything beneath them a test, whatever the file
+// is called — `tests/foo.py` carries no marker of its own.
+const TEST_DIRECTORIES = new Set(['test', 'tests', '__tests__', 'spec', 'specs', 'testing'])
+
+
+/**
+ * Does this file name follow a test-naming convention? Basename only, and
+ * gated on the extension — a file that is a test purely because of the folder
+ * it sits in is answered by `isTestPath` instead. Pure, so a 500-row tree may
+ * call it per row per render.
+ */
+export function isTestBasename(name: string): boolean {
+  const base = name.split(/[\\/]/).pop() ?? name
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0) return false
+  const ext = base.slice(dot + 1).toLowerCase()
+  const stem = base.slice(0, dot)
+  const lowerStem = stem.toLowerCase()
+
+  switch (ext) {
+    case 'ts':
+    case 'mts':
+    case 'cts':
+    case 'js':
+    case 'mjs':
+    case 'cjs':
+    case 'tsx':
+    case 'jsx':
+      return TEST_INFIX.test(lowerStem)
+    case 'py':
+    case 'pyi':
+      return TEST_INFIX.test(lowerStem) || TEST_PREFIX.test(lowerStem) || TEST_SUFFIX.test(lowerStem)
+    case 'go':
+    case 'rs':
+      return TEST_SUFFIX.test(lowerStem)
+    case 'java':
+    case 'kt':
+      return JAVA_TEST_SUFFIX.test(stem)
+    default:
+      return false
+  }
+}
+
+/**
+ * Is this path a test — by its own name, or by sitting under a `tests/`-family
+ * directory? Pass a path RELATIVE to the tree's root: an absolute one drags in
+ * the machine's own directory names, and a checkout living under `~/testing`
+ * would answer yes for every file in it.
+ */
+export function isTestPath(path: string): boolean {
+  const segments = path.split(/[\\/]+/).filter(Boolean)
+  const base = segments.pop()
+  if (!base) return false
+  if (isTestBasename(base)) return true
+  return segments.some((segment) => TEST_DIRECTORIES.has(segment.toLowerCase()))
+}
 
 /**
  * Resolve a file name (or path — only the last segment is read) to its kind.
@@ -135,7 +212,7 @@ export function fileTypeKind(name: string): FileTypeKind {
   if (TEXT_BASENAMES.has(stem) && (ext === 'md' || ext === 'txt')) {
     return ext === 'md' ? 'markdown' : 'text'
   }
-  const isTest = TEST_SEGMENT.test(stem)
+  const isTest = isTestBasename(base)
 
   switch (ext) {
     case 'ts':
@@ -148,7 +225,7 @@ export function fileTypeKind(name: string): FileTypeKind {
       return isTest ? 'javascript-test' : 'javascript'
     case 'tsx':
     case 'jsx':
-      return 'react'
+      return isTest ? 'react-test' : 'react'
     case 'json':
     case 'jsonc':
     case 'json5':
@@ -172,11 +249,11 @@ export function fileTypeKind(name: string): FileTypeKind {
       return 'css'
     case 'py':
     case 'pyi':
-      return 'python'
+      return isTest ? 'python-test' : 'python'
     case 'rs':
-      return 'rust'
+      return isTest ? 'rust-test' : 'rust'
     case 'go':
-      return 'go'
+      return isTest ? 'go-test' : 'go'
     case 'java':
     case 'kt':
     case 'kts':
@@ -234,6 +311,51 @@ const LetterJ = () => (
   <path d="M7 4.9v4.45c0 1.15-.75 1.9-1.8 1.9-.9 0-1.55-.45-1.85-1.15" stroke="currentColor" strokeWidth={LETTER} strokeLinecap="round" />
 )
 
+const LettersPy = () => (
+  <path
+    d="M3.4 11.25V4.9h2.2c1.15 0 1.85.65 1.85 1.65S6.75 8.2 5.6 8.2H3.4M8.7 4.9l2 3.25 2-3.25M10.7 8.15v3.1"
+    stroke="currentColor"
+    strokeWidth={LETTER}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  />
+)
+
+const LettersRs = () => (
+  <>
+    <path
+      d="M3.2 11.25V4.9h2.2c1.1 0 1.8.65 1.8 1.6S6.5 8.1 5.4 8.1H3.2M5.5 8.1l1.9 3.15"
+      stroke="currentColor"
+      strokeWidth={LETTER}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <LetterS dx={0.3} />
+  </>
+)
+
+const LettersGo = () => (
+  <>
+    <path
+      d="M7 5.85c-.55-.6-1.2-.95-2-.95C3.7 4.9 2.8 6.2 2.8 8.05s.9 3.15 2.2 3.15c1.15 0 2-.85 2-2.1v-.75H5.5"
+      stroke="currentColor"
+      strokeWidth={LETTER}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <ellipse cx="10.9" cy="8.05" rx="2.3" ry="3.15" stroke="currentColor" strokeWidth={LETTER} />
+  </>
+)
+
+const ReactAtom = ({ strokeWidth = '1.1' }: { strokeWidth?: string }) => (
+  <>
+    <ellipse cx="8" cy="8" rx="6.25" ry="2.45" stroke="currentColor" strokeWidth={strokeWidth} />
+    <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(60 8 8)" stroke="currentColor" strokeWidth={strokeWidth} />
+    <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(120 8 8)" stroke="currentColor" strokeWidth={strokeWidth} />
+    <circle cx="8" cy="8" r="1.15" fill="currentColor" />
+  </>
+)
+
 const DocumentOutline = () => (
   <>
     <path
@@ -277,12 +399,17 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
       <TestTick />
     </>
   ),
-  react: () => (
+  react: () => <ReactAtom />,
+  // The atom has no frame to notch, so the test twin shrinks it up and left and
+  // drops the tick into the corner the shrink just cleared. The stroke is set a
+  // step heavy because the group scale thins it back to the 1.1 the plain atom
+  // draws at.
+  'react-test': () => (
     <>
-      <ellipse cx="8" cy="8" rx="6.25" ry="2.45" stroke="currentColor" strokeWidth="1.1" />
-      <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(60 8 8)" stroke="currentColor" strokeWidth="1.1" />
-      <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(120 8 8)" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="8" cy="8" r="1.15" fill="currentColor" />
+      <g transform="translate(0.36 0.36) scale(0.78)">
+        <ReactAtom strokeWidth="1.41" />
+      </g>
+      <TestTick />
     </>
   ),
   json: () => (
@@ -318,39 +445,46 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
   python: () => (
     <>
       <Tile />
-      <path
-        d="M3.4 11.25V4.9h2.2c1.15 0 1.85.65 1.85 1.65S6.75 8.2 5.6 8.2H3.4M8.7 4.9l2 3.25 2-3.25M10.7 8.15v3.1"
-        stroke="currentColor"
-        strokeWidth={LETTER}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <LettersPy />
+    </>
+  ),
+  'python-test': () => (
+    <>
+      <NotchedTile />
+      <LettersPy />
+      <TestTick />
     </>
   ),
   rust: () => (
     <>
       <Tile />
-      <path
-        d="M3.2 11.25V4.9h2.2c1.1 0 1.8.65 1.8 1.6S6.5 8.1 5.4 8.1H3.2M5.5 8.1l1.9 3.15"
-        stroke="currentColor"
-        strokeWidth={LETTER}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <LetterS dx={0.3} />
+      <LettersRs />
+    </>
+  ),
+  'rust-test': () => (
+    <>
+      <NotchedTile />
+      <LettersRs />
+      <TestTick />
     </>
   ),
   go: () => (
     <>
       <Tile />
-      <path
-        d="M7 5.85c-.55-.6-1.2-.95-2-.95C3.7 4.9 2.8 6.2 2.8 8.05s.9 3.15 2.2 3.15c1.15 0 2-.85 2-2.1v-.75H5.5"
-        stroke="currentColor"
-        strokeWidth={LETTER}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <ellipse cx="10.9" cy="8.05" rx="2.3" ry="3.15" stroke="currentColor" strokeWidth={LETTER} />
+      <LettersGo />
+    </>
+  ),
+  // GO is the one pair whose letters reach into the notch: the O is a closed
+  // ellipse out at x13.2/y11.2, and drawn at full size it and the tick merge
+  // into a smudge at 16px. TS/JS/PY/RS all end in thin strokes there and need
+  // no such nudge. Lifted up and left just far enough to clear the tick.
+  'go-test': () => (
+    <>
+      <NotchedTile />
+      <g transform="translate(-0.9 -1.1) scale(0.92)">
+        <LettersGo />
+      </g>
+      <TestTick />
     </>
   ),
   java: () => (
@@ -419,6 +553,7 @@ const KIND_INK: Record<FileTypeKind, string | null> = {
   javascript: 'text-[color:var(--sem-color-mark-yellow)]',
   'javascript-test': 'text-[color:var(--sem-color-mark-yellow)]',
   react: 'text-[color:var(--sem-color-mark-cyan)]',
+  'react-test': 'text-[color:var(--sem-color-mark-cyan)]',
   json: 'text-[color:var(--sem-color-mark-yellow)]',
   markdown: 'text-[color:var(--sem-color-mark-blue)]',
   yaml: 'text-[color:var(--sem-color-mark-red)]',
@@ -426,8 +561,11 @@ const KIND_INK: Record<FileTypeKind, string | null> = {
   css: 'text-[color:var(--sem-color-mark-violet)]',
   shell: 'text-[color:var(--sem-color-mark-teal)]',
   python: 'text-[color:var(--sem-color-mark-blue)]',
+  'python-test': 'text-[color:var(--sem-color-mark-blue)]',
   rust: 'text-[color:var(--sem-color-mark-orange)]',
+  'rust-test': 'text-[color:var(--sem-color-mark-orange)]',
   go: 'text-[color:var(--sem-color-mark-cyan)]',
+  'go-test': 'text-[color:var(--sem-color-mark-cyan)]',
   java: 'text-[color:var(--sem-color-mark-red)]',
   image: 'text-[color:var(--sem-color-mark-violet)]',
   lock: 'text-[color:var(--sem-color-mark-yellow)]',
@@ -483,11 +621,43 @@ export function FileTypeGlyph({
 }
 
 /**
+ * The overlay that separates two roles wearing the same ink. `generated` takes
+ * an asterisk (machine-written); `resources` takes its stacked bars.
+ * The plain roles — sources, test sources, excluded — carry no badge, because
+ * their ink already tells them apart from each other.
+ *
+ * Both are drawn in the bottom-right corner and the folder path is unchanged
+ * beneath them: one drawing, differenced by a mark, so a folder still reads as
+ * a folder at 16px.
+ */
+export type FolderBadge = 'generated' | 'resources'
+
+const FolderBadgeMark = ({ badge }: { badge: FolderBadge }) =>
+  badge === 'generated' ? (
+    <path
+      d="M11.9 8.6v4.2M10 9.65l3.8 2.1M13.8 9.65l-3.8 2.1"
+      stroke="currentColor"
+      strokeWidth="1.15"
+      strokeLinecap="round"
+    />
+  ) : (
+    <path d="M10.2 9.4h3.9M10.2 11.1h3.9M10.2 12.8h3.9" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+  )
+
+/**
  * The folder mark for tree rows is outlined, in `currentColor` so it takes the row's ink. `open` swaps in the
  * lifted-flap drawing; the chevron beside it is what carries expanded state,
  * so a tree may leave `open` off and let the folder read the same either way.
  */
-export function FolderGlyph({ open = false, className = 'icon-sm shrink-0' }: { open?: boolean; className?: string }): JSX.Element {
+export function FolderGlyph({
+  open = false,
+  className = 'icon-sm shrink-0',
+  badge,
+}: {
+  open?: boolean
+  className?: string
+  badge?: FolderBadge
+}): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
       {open ? (
@@ -513,6 +683,7 @@ export function FolderGlyph({ open = false, className = 'icon-sm shrink-0' }: { 
           strokeLinejoin="round"
         />
       )}
+      {badge ? <FolderBadgeMark badge={badge} /> : null}
     </svg>
   )
 }
