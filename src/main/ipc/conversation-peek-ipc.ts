@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron'
 
 import type { ConversationPeek } from '../../shared/conversation-peek'
-import { emptyConversationPeek } from '../../shared/conversation-peek'
 
 /**
  * The two channels behind the conversation peek. Read-only plus one open action,
@@ -26,7 +25,10 @@ export function registerConversationPeekIpc(
   deps: ConversationPeekIpcDependencies,
 ): void {
   ipcMain.handle('conversation-peek:read', (_event, sessionId: unknown): Promise<ConversationPeek> => {
-    if (!isId(sessionId)) return Promise.resolve(emptyConversationPeek(''))
+    // A malformed payload is our bug or a hostile caller — never a statement
+    // about the runtime, so `unknown` rather than the `none` that would tell
+    // the person their CLI cannot report messages.
+    if (!isId(sessionId)) return Promise.resolve({ sessionId: '', source: 'unknown' as const, first: null, since: [] })
     return deps.readConversationPeek(sessionId)
   })
 

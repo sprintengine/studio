@@ -161,9 +161,15 @@ export function createConversationPeekService(
 
   return {
     async readConversationPeek(sessionId: string): Promise<ConversationPeek> {
-      if (typeof sessionId !== 'string' || !sessionId) return emptyConversationPeek('')
+      // An unusable id is a caller bug, not a runtime that cannot report — the
+      // same reason the missing-state case below is `unknown`.
+      if (typeof sessionId !== 'string' || !sessionId) return { sessionId: '', source: 'unknown', first: null, since: [] }
       const state = deps.readSessionState(sessionId)
-      if (!state) return emptyConversationPeek(sessionId)
+      // No state for this id — killed rather than quit (no sidecar written), or
+      // parked past the sidecar TTL. `unknown`, never `none`: we know nothing
+      // about this chat's messages, which is not the same as knowing its
+      // runtime cannot report them.
+      if (!state) return { sessionId, source: 'unknown', first: null, since: [] }
 
       // The hook's own path first; only then the derived one, and only for a
       // runtime that actually writes Claude-shaped transcripts.
