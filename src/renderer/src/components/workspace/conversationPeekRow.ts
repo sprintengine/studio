@@ -26,9 +26,12 @@ function activityAt(session: TerminalSessionSnapshot): number {
  * conversation — living ones ahead of exited ones, then most recently active
  * first, then by id so two sessions that tie never swap between renders.
  *
+ * The live-before-exited arm is load-bearing now that the caller hands over
+ * every session main knows about rather than only the running ones: a chat with
+ * a finished agent and a running one shows the running one's conversation.
+ *
  * A row whose only terminals are shells, or that has none at all, returns null
- * and gets no peek: there is nothing to ask main about, and a card offering
- * only a title the row already shows is the noise this surface exists to avoid.
+ * and falls through to {@link parkedPeekAgentOf}.
  */
 export function peekSessionOf(
   sessions: ReadonlyArray<TerminalSessionSnapshot>,
@@ -42,6 +45,45 @@ export function peekSessionOf(
     const at = activityAt(b) - activityAt(a)
     if (at !== 0) return at
     return a.sessionId.localeCompare(b.sessionId)
+  })[0]
+}
+
+/**
+ * A PARKED chat's agent — the case the peek exists for, and the one it could
+ * not answer until now.
+ *
+ * Main only lists a session while a process or a suspended placeholder holds
+ * it, and it rehydrates a sidecar lazily, when a terminal is actually opened.
+ * So after a restart the sidebar is mostly rows main's session list has never
+ * heard of — and those are exactly the chats a person hovers to ask "what was
+ * this one about?". The durable id is the agent record's own `cliSessionId`:
+ * the terminal-tracking key, persisted in the workspace registry, and the same
+ * id `terminalStatus` is already asked about. Main keys the snapshot sidecar on
+ * it, so handing it over is enough for a parked chat to answer from its
+ * transcript.
+ *
+ * Two gates, and both are about not opening a card that can only say nothing:
+ *
+ * - `cliSessionId` — no id, nothing to ask about.
+ * - `cliHasLaunched` — a chat whose agent has never started has no transcript
+ *   and no sidecar, by construction. Main would answer `none` for it, and the
+ *   card would then say this runtime does not report its messages about a
+ *   Claude Code chat that simply has not run yet.
+ *
+ * Ordered by when each agent's CLI last exited, newest first, then by id: the
+ * agent you were last working with is the one a parked chat is about.
+ */
+export function parkedPeekAgentOf(
+  agents: Record<string, AgentState> | undefined,
+): AgentState | null {
+  const eligible = Object.values(agents ?? {}).filter(
+    (agent) => Boolean(agent.cliSessionId) && agent.cliHasLaunched === true,
+  )
+  if (eligible.length === 0) return null
+  return [...eligible].sort((a, b) => {
+    const at = (b.cliLastExitedAt ?? 0) - (a.cliLastExitedAt ?? 0)
+    if (at !== 0) return at
+    return (a.cliSessionId ?? '').localeCompare(b.cliSessionId ?? '')
   })[0]
 }
 
@@ -80,26 +122,57 @@ export function peekStatusOf(
  * picked above, and under the chat's own name that reads as the whole
  * conversation. Naming the agent and the count is the least that stops it
  * lying; the roster and the merged thread are a later pass.
+ *
+ * `sessions` is every session main knows about for this row, NOT only the ones
+ * with a living process. A running agent still wins; a suspended or exited one
+ * is next; and a chat main has never heard of falls through to its own agent
+ * records, which is most of the sidebar after a restart.
  */
 export function rowConversationPeekIdentity(input: {
-  workspace: Pick<Workspace, 'name'> & { agents?: Record<string, AgentState> }
+  workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
   sessions: ReadonlyArray<TerminalSessionSnapshot>
   status: ConversationPeekIdentity['status']
 }): ConversationPeekIdentity | null {
+  const agents = input.workspace.agents
   const session = peekSessionOf(input.sessions)
-  if (!session) return null
-  const agent = session.agentId ? input.workspace.agents?.[session.agentId] : undefined
-  const agentCount = input.sessions.filter((candidate) => candidate.kind === 'agent').length
+  // A chat that belongs to a paired machine keeps ITS session ids, and this
+  // main has no session and no sidecar under any of them — it would answer
+  // "this runtime doesn't report its messages" about a perfectly ordinary
+  // Claude chat on the other end. Reading a remote conversation is a different
+  // feature; until it exists, a remote row's card is not offered rather than
+  // wrong. A live session here is always local, so only the parked fallback
+  // needs the guard.
+  const parked = session || input.workspace.remoteOrigin ? null : parkedPeekAgentOf(agents)
+  const agent = session
+    ? session.agentId
+      ? agents?.[session.agentId]
+      : undefined
+    : (parked ?? undefined)
+  const sessionId = session?.sessionId ?? parked?.cliSessionId ?? null
+  if (!sessionId) return null
+
+  // How many agents this CHAT holds, counted once each across both sources: a
+  // parked agent whose session main is still tracking is one agent, not two.
+  const chatSessionIds = new Set<string>()
+  for (const candidate of input.sessions) {
+    if (candidate.kind === 'agent') chatSessionIds.add(candidate.sessionId)
+  }
+  if (!input.workspace.remoteOrigin) {
+    for (const record of Object.values(agents ?? {})) {
+      if (record.cliSessionId && record.cliHasLaunched === true) chatSessionIds.add(record.cliSessionId)
+    }
+  }
+
   return {
     name: input.workspace.name,
-    cli: agent?.cli ?? session.cli ?? null,
+    cli: agent?.cli ?? session?.cli ?? null,
     model: agent?.cliModel ?? null,
-    sessionId: session.sessionId,
+    sessionId,
     taskId: null,
     status: input.status,
     agentScope:
-      agentCount > 1
-        ? { agentName: agent?.name ?? session.agentName ?? 'this agent', total: agentCount }
+      chatSessionIds.size > 1
+        ? { agentName: agent?.name ?? session?.agentName ?? 'this agent', total: chatSessionIds.size }
         : null,
   }
 }
