@@ -59,6 +59,34 @@ export type PluginPromptInjection = {
   readiness?: PluginReadinessSignal
 }
 
+// How the host's out-of-band context document reaches this CLI (design-door /
+// MC-2016). `promptInjection` above answers "how does the USER's request get in";
+// this answers "how does everything the HOST wants to say get in, without
+// pretending to be the user".
+//
+// - `argv`  — the CLI takes a system-prompt flag. `args` are substituted
+//   templates spread into launch AND resume argv as `contextArgs`, so a resumed
+//   session is re-told (e.g. Claude Code:
+//   ["--append-system-prompt-file", "{{contextFile}}"]).
+// - `env`   — the CLI reads its instructions out of an environment variable
+//   (e.g. OpenCode's OPENCODE_CONFIG_CONTENT). `env` is merged into the
+//   launch env.
+// - `prompt` — the CLI has no out-of-band channel at all, so the document is
+//   wrapped in `<host-context>` tags and placed BEFORE the user's prompt.
+//
+// Absent ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path of
+// the written document), `{{contextText}}` (the document itself) and
+// `{{contextToml}}` (the document as a TOML basic-string literal, for a CLI that
+// takes it through a config override). Nothing renders when the host had nothing
+// to say, so an ordinary repo's launch is unchanged.
+export type PluginContextInjectionMode = 'argv' | 'env' | 'prompt'
+
+export type PluginContextInjection = {
+  mode: PluginContextInjectionMode
+  args?: string[]
+  env?: Record<string, string>
+}
+
 export type PluginCompletionMode =
   | 'process-exit'
   | 'output-sentinel'
@@ -329,6 +357,8 @@ export type PluginManifest = {
   launch: PluginLaunchSpec
   resume?: PluginResumeSpec
   promptInjection: PluginPromptInjection
+  // How the host-context document reaches this CLI. Absent ⇒ `prompt`.
+  contextInjection?: PluginContextInjection
   completion: PluginCompletionSpec
   mcpConfig?: PluginMcpConfigSpec
   capabilities: PluginCapabilities
@@ -472,6 +502,13 @@ export type PluginRenderContext = {
   binary?: string
   sessionId?: string
   prompt?: string
+  // The host-context document for this launch, when there is one. `contextFile`
+  // is where main wrote it (already normalized for the target path style);
+  // `contextText` is the document itself. Both absent ⇒ no `contextArgs` and no
+  // context env, whatever the manifest declares — a CLI never sees an empty
+  // flag.
+  contextFile?: string
+  contextText?: string
   cwd?: string
   workspaceRoot?: string
   permissionPreset?: string

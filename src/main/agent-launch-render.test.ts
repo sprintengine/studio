@@ -71,6 +71,13 @@ async function main(): Promise<void> {
     testCodexLegacyWindowsDebugInjection()
     testLaunchPreviewMatchesTheLaunchItPreviews()
     testLaunchPreviewCarriesEveryControlOnTheRow()
+    testNoHostContextRendersNothingAnywhere()
+    testClaudeCodeTakesTheContextFileOnLaunchAndResume()
+    testCodexTakesTheContextAsAnEscapedTomlOverride()
+    testGrokTakesTheContextTextOnLaunchAndResume()
+    testOpenCodeTakesTheContextThroughItsConfigEnv()
+    testPromptFallbackCliRendersNoContextFlag()
+    testLaunchPreviewNeverShowsHostContext()
   })
 
   console.log('agent-launch-render tests passed')
@@ -1053,6 +1060,153 @@ function testLaunchPreviewCarriesEveryControlOnTheRow(): void {
     cliRuntime: { command: '/opt/homebrew/bin/claude', useWsl: false },
   })
   assert.equal(overridden.binary, '/opt/homebrew/bin/claude', 'the receipt names the binary that will run')
+}
+
+// ── Host context ────────────────────────────────────────────────────────────
+//
+// One document, delivered per the manifest's `contextInjection`. These run
+// against the BUNDLED manifests through the same renderer every spawn uses, so a
+// manifest edit that broke a channel fails here rather than in a real session.
+
+const HOST_CONTEXT_FILE = '/ctx/sid.md'
+const HOST_CONTEXT_TEXT = 'Host context.\nA design system is attached at `design-system/`.'
+
+// A launch with nothing to say renders no flag and no env, on every CLI. This is
+// the invariant that keeps an ordinary repo's spawn byte-identical.
+function testNoHostContextRendersNothingAnywhere(): void {
+  for (const cli of ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const) {
+    const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_none' })
+    assert.ok(!out.argv.includes('--append-system-prompt-file'), cli)
+    assert.ok(!out.argv.includes('--append-system-prompt'), cli)
+    assert.ok(!out.argv.some((arg) => arg.startsWith('developer_instructions=')), cli)
+    assert.equal('OPENCODE_CONFIG_CONTENT' in out.env, false, cli)
+  }
+}
+
+function testClaudeCodeTakesTheContextFileOnLaunchAndResume(): void {
+  const launch = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_ctx',
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  assert.deepEqual(launch.argv, [
+    'claude',
+    '--append-system-prompt-file',
+    HOST_CONTEXT_FILE,
+    '--session-id',
+    'sid_ctx',
+  ])
+  // Being re-told on resume is the whole reason this moved off the first user
+  // message: the old prompt append was skipped entirely when resuming.
+  const resume = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_ctx',
+    resume: true,
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  assert.deepEqual(resume.argv, [
+    'claude',
+    '--append-system-prompt-file',
+    HOST_CONTEXT_FILE,
+    '--resume',
+    'sid_ctx',
+  ])
+  // The two hosted-model runtimes run the same binary and take the same flag.
+  for (const cli of ['kimi-claude', 'zai'] as const) {
+    const hosted = renderAgentLaunchArgv({
+      cli,
+      sessionId: 'sid_ctx',
+      contextFile: HOST_CONTEXT_FILE,
+      contextText: HOST_CONTEXT_TEXT,
+    })
+    assert.ok(hosted.argv.includes('--append-system-prompt-file'), cli)
+  }
+}
+
+function testCodexTakesTheContextAsAnEscapedTomlOverride(): void {
+  const launch = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: 'sid_ctx',
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  const override = launch.argv[launch.argv.indexOf('-c') + 1]
+  // `-c` parses its value as TOML: a raw newline would be a parse error, and a
+  // raw quote would silently truncate the document.
+  assert.equal(
+    override,
+    'developer_instructions="Host context.\\nA design system is attached at `design-system/`."',
+  )
+  assert.ok(!override.includes('\n'), 'no literal newline reaches codex’s TOML parser')
+
+  // Codex persists its own per-session config, so re-passing the override on
+  // resume would clobber whatever the session already has — the same rule the
+  // reasoning-effort override follows there.
+  const resume = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: 'sid_ctx',
+    resume: true,
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  assert.ok(!resume.argv.some((arg) => arg.startsWith('developer_instructions=')))
+}
+
+function testGrokTakesTheContextTextOnLaunchAndResume(): void {
+  for (const resume of [false, true]) {
+    const out = renderAgentLaunchArgv({
+      cli: 'grok',
+      sessionId: 'sid_ctx',
+      resume,
+      contextFile: HOST_CONTEXT_FILE,
+      contextText: HOST_CONTEXT_TEXT,
+    })
+    const flagAt = out.argv.indexOf('--append-system-prompt')
+    assert.ok(flagAt >= 0, `grok should carry the flag (resume: ${resume})`)
+    // Text, not a path: grok documents no file-taking variant.
+    assert.equal(out.argv[flagAt + 1], HOST_CONTEXT_TEXT)
+  }
+}
+
+function testOpenCodeTakesTheContextThroughItsConfigEnv(): void {
+  for (const resume of [false, true]) {
+    const out = renderAgentLaunchArgv({
+      cli: 'opencode',
+      sessionId: 'sid_ctx',
+      resume,
+      contextFile: HOST_CONTEXT_FILE,
+      contextText: HOST_CONTEXT_TEXT,
+    })
+    assert.equal(out.env.OPENCODE_CONFIG_CONTENT, `{"instructions":["${HOST_CONTEXT_FILE}"]}`)
+    // The env is the channel; nothing goes on the command line.
+    assert.ok(!out.argv.some((arg) => arg.includes('instructions')), 'no argv leakage')
+  }
+}
+
+// A CLI with no out-of-band channel declares `prompt`: main wraps the document
+// into the prompt instead, and the manifest renders no flag and no env.
+function testPromptFallbackCliRendersNoContextFlag(): void {
+  for (const cli of ['cursor', 'kimi-code', 'muse'] as const) {
+    const out = renderAgentLaunchArgv({
+      cli,
+      sessionId: 'sid_ctx',
+      contextFile: HOST_CONTEXT_FILE,
+      contextText: HOST_CONTEXT_TEXT,
+    })
+    assert.ok(!out.argv.includes(HOST_CONTEXT_FILE), cli)
+    assert.ok(!out.argv.includes(HOST_CONTEXT_TEXT), cli)
+    assert.deepEqual(out.env, {}, cli)
+  }
+}
+
+// The receipt line previews the flags a launch would carry. Host context is not
+// one of them: it is not a control on the row, and a whole markdown document (or
+// a userData path) rendered into a one-line receipt tells the reader nothing.
+function testLaunchPreviewNeverShowsHostContext(): void {
+  const preview = renderAgentLaunchPreview({ cli: 'claude-code' })
+  assert.ok(!preview.args.includes('--append-system-prompt-file'))
 }
 
 main().catch((err) => {

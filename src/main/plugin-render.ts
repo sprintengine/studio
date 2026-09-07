@@ -1,3 +1,4 @@
+import { toTomlBasicString } from '../shared/host-context/document'
 import type {
   PluginArgvToken,
   PluginManifest,
@@ -73,8 +74,36 @@ function renderArgvSpec(
   const variables = buildVariableScope(manifest, context)
   const argv = expandArgv(argvSpec, variables)
   const cwd = launchSpec.cwd ? substituteString(launchSpec.cwd, variables) : undefined
-  const env = renderEnv(launchSpec.env, variables)
+  // The context env rides the SAME record as `launch.env` because both are
+  // "environment this manifest asks for at spawn time", and the caller injects
+  // that record once. It is rendered only when a host-context document exists,
+  // so a manifest declaring `contextInjection.env` adds nothing to a launch with
+  // nothing to say. Resume renders it too: env is not argv, and a resumed
+  // session has to be re-told.
+  const env = {
+    ...renderEnv(launchSpec.env, variables),
+    ...renderEnv(contextEnvSpec(manifest, context), variables),
+  }
   return { argv, cwd, env }
+}
+
+/** True when main resolved a host-context document for this launch. */
+function hasHostContext(context: PluginRenderContext): boolean {
+  return Boolean(context.contextFile?.trim() || context.contextText?.trim())
+}
+
+/**
+ * The manifest's `contextInjection.env`, or undefined when it must not render:
+ * no document to deliver, or a manifest whose declared mode is not `env`.
+ */
+function contextEnvSpec(
+  manifest: PluginManifest,
+  context: PluginRenderContext
+): Record<string, string> | undefined {
+  const injection = manifest.contextInjection
+  if (!injection || injection.mode !== 'env') return undefined
+  if (!hasHostContext(context)) return undefined
+  return injection.env
 }
 
 // The ordered presets the app can ask for, least → most permissive. A manifest
@@ -162,6 +191,16 @@ function buildVariableScope(
   scope.set('binary', context.binary ?? manifest.binary)
   if (context.sessionId !== undefined) scope.set('sessionId', context.sessionId)
   if (context.prompt !== undefined) scope.set('prompt', context.prompt)
+  // The host-context document, in the three shapes a manifest can spend it: the
+  // file main wrote, the raw text, and the text as a TOML basic-string literal
+  // (codex's `-c developer_instructions=<value>` parses its value as TOML, so
+  // an unescaped newline there is a parse error). Escaping lives here rather
+  // than in the manifest, because a manifest is data and cannot escape anything.
+  if (context.contextFile !== undefined) scope.set('contextFile', context.contextFile)
+  if (context.contextText !== undefined) {
+    scope.set('contextText', context.contextText)
+    scope.set('contextToml', toTomlBasicString(context.contextText))
+  }
   if (context.cwd !== undefined) scope.set('cwd', context.cwd)
   if (context.workspaceRoot !== undefined) scope.set('workspaceRoot', context.workspaceRoot)
   if (context.files !== undefined) scope.set('files', context.files)
@@ -193,6 +232,21 @@ function buildVariableScope(
   // scope only when the level actually renders, so an unset, default, or
   // undeclared level leaves `{{reasoning}}` unresolved as before.
   scope.set('reasoningArgs', renderReasoningArgs(manifest, context.reasoning, scope))
+
+  // `contextArgs` mirrors `modelArgs`: a spreadable token list manifests opt
+  // into via { spreadIf: "contextArgs" }, in LAUNCH and RESUME argv alike —
+  // being re-told on resume is the whole point of moving host context off the
+  // first user message. Rendered only when main resolved a document AND the
+  // manifest declares `mode: "argv"`, so a CLI with no out-of-band channel (or
+  // a launch with nothing to say) passes no flag.
+  const contextInjection = manifest.contextInjection
+  const contextArgTemplates = contextInjection?.mode === 'argv' ? contextInjection.args : undefined
+  scope.set(
+    'contextArgs',
+    contextArgTemplates && contextArgTemplates.length > 0 && hasHostContext(context)
+      ? contextArgTemplates.map((template) => substituteString(template, scope))
+      : []
+  )
 
   // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
   // Rendered only when the host reported a color scheme AND the manifest declares

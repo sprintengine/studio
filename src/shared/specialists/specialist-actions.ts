@@ -12,8 +12,6 @@
  */
 import type { DesignSystemSeedSource, SpecialistActionId } from '../../renderer/src/types/workspace'
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../design-system/attach'
-import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../design-system/bundle-scaffold'
-import { pathJoin } from '../paths'
 
 export type SpecialistIcon =
   | 'architecture'
@@ -176,24 +174,6 @@ export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, 
     '',
     directive.trim(),
   ].join('\n')
-}
-
-/**
- * Launch-time injection predicate for the attached-design-system prompt line:
- * the line is emitted when and only when `design-system/` exists in the
- * agent's execution root. Resolved once per launch, mirroring how the
- * knowledge suffix resolves its root (TerminalView appends the returned line
- * to the launch prompt; the guided designer spawn passes the boolean through
- * its session input). KG-independent by design.
- */
-export async function resolveDesignSystemAttachedPromptLine(
-  executionRoot: string | null | undefined,
-  pathExists: (path: string) => Promise<boolean>,
-): Promise<string | null> {
-  const root = executionRoot?.trim()
-  if (!root) return null
-  const attached = await pathExists(pathJoin(root, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)).catch(() => false)
-  return attached ? DESIGN_SYSTEM_ATTACHED_PROMPT_LINE : null
 }
 
 export type GuidedBriefSpecialistKind = 'strategist' | 'architect' | 'designer'

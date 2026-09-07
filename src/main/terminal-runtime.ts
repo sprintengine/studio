@@ -26,6 +26,7 @@ import { resolveCheckoutForCwd, type ObservedCheckoutResolver, type ResolvedChec
 import { parseObservedCheckout, sameObservedCheckout, unresolvedObservedCheckout, type ObservedCheckout } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
+  cleanupHostContextFile,
   cleanupTerminalStartupScript,
   applyAgentIdentityEnv,
   getPlainShellLaunchConfig,
@@ -1205,6 +1206,7 @@ function disposeTerminal(sessionId: string): void {
   void sampleSprintSessionTokenUsage(session, 'teardown')
   void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
+  cleanupHostContextFile(session.hostContextPath)
   terminalOutput.flush(sessionId, 'dispose')
   // Say so rather than leaving remote viewers on a stream that will never speak
   // again: dispose means gone, and a resume respawns under this same id, which
@@ -1799,6 +1801,7 @@ async function disposeAllTerminals(): Promise<void> {
     // pruned and the only one an OpenCode-style server-backed source gets.
     teardownPromises.push(sampleSprintSessionTokenUsage(session, 'teardown'))
     cleanupTerminalStartupScript(session.startupScriptPath)
+    cleanupHostContextFile(session.hostContextPath)
     terminalOutput.flush(session.sessionId, 'dispose')
     endRemoteTerminalViewers(session.sessionId, 'SprintEngine Studio is shutting down on this machine.')
     terminalDiagnostics.clear(session.sessionId)
@@ -2760,6 +2763,7 @@ function attachTerminalSession(
     }
     void queueSprintEngineTerminalTeardown(terminalSession, `terminal exited with code ${event.exitCode}`)
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
+    cleanupHostContextFile(terminalSession.hostContextPath)
     terminalOutput.flush(sessionId, 'exit')
     // Durable freeze-the-view, self-exit path: an agent whose pty ends on its own
     // (an automation run finishing, a CLI crashing) was never suspended and never
@@ -3150,7 +3154,7 @@ async function spawnMobileAgentTerminal(input: {
       secretConfigured: mobileAuthSecret.ok,
     })
     if (mobileBlock) return { ok: false, message: mobileBlock.message }
-    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = getShellLaunchConfig(
+    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
       false,
@@ -3213,6 +3217,7 @@ async function spawnMobileAgentTerminal(input: {
       lastInputAt: null,
       lastVisibleAt: null,
       startupScriptPath,
+      hostContextPath,
     }
 
     attachTerminalSession(input.sessionId, terminalSession, initialInput)
@@ -3631,7 +3636,7 @@ async function spawnTerminalFromIpc(
         })
         if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
       }
-      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath } = shellOnly
+      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
@@ -3715,6 +3720,7 @@ async function spawnTerminalFromIpc(
         lastInputAt: null,
         lastVisibleAt: visible ? startedAt : null,
         startupScriptPath,
+        hostContextPath,
       }
 
       attachTerminalSession(sessionId, terminalSession, initialInput)

@@ -54,6 +54,7 @@
       { "spreadIf": "modelArgs" },
       { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
+      { "spreadIf": "contextArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -65,6 +66,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "themeArgs" },
+      { "spreadIf": "contextArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -72,6 +74,11 @@
   },
   "promptInjection": {
     "mode": "positional-arg"
+  },
+  "contextInjection": {
+    "$comment": "claude --append-system-prompt-file <path>, verified against the installed CLI 2.1.263: the options list documents --append-system-prompt, and --bare's own text names the file variant as --append-system-prompt[-file]. A FILE rather than the text because the host-context document is multi-line markdown, and argv is not where a document belongs. Spread into launch AND resume argv, so a resumed session is re-told what the host said.",
+    "mode": "argv",
+    "args": ["--append-system-prompt-file", "{{contextFile}}"]
   },
   "completion": {
     "mode": "process-exit"

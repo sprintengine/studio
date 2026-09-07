@@ -142,6 +142,35 @@ export type CliThemeSelectionSpec = {
   schemes?: { light: string; dark: string }
 }
 
+/**
+ * How the host's out-of-band context document reaches this CLI.
+ *
+ * `promptInjection` says how the USER's request gets in; this says how
+ * everything the HOST wants the agent to know gets in without pretending to be
+ * the user (an attached design system, the project's knowledge graph).
+ *
+ * - `argv` — the CLI takes a system-prompt flag. `args` are substituted
+ *   templates spread into LAUNCH and RESUME argv as `contextArgs`, so a resumed
+ *   session is re-told (e.g. ["--append-system-prompt-file", "{{contextFile}}"]).
+ * - `env` — the CLI reads instructions out of an environment variable; `env` is
+ *   merged into the launch env.
+ * - `prompt` — the CLI has no out-of-band channel, so the host wraps the
+ *   document in `<host-context>` tags and places it BEFORE the user's prompt.
+ *
+ * Omitted ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path
+ * of the document the host wrote), `{{contextText}}` (the document itself) and
+ * `{{contextToml}}` (the document as a TOML basic-string literal, quoted and
+ * escaped, for a CLI that takes it through a config override). Nothing renders
+ * when the host has nothing to say.
+ */
+export type CliContextInjectionMode = 'argv' | 'env' | 'prompt'
+
+export type CliContextInjection = {
+  mode: CliContextInjectionMode
+  args?: string[]
+  env?: Record<string, string>
+}
+
 export type CliSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
 export type CliSkillInstallScope = 'workspace' | 'user'
 export type CliSkillFormat = 'agent-skills-v1' | 'claude-code' | 'codex' | 'opencode' | 'generic'
@@ -278,6 +307,8 @@ export type CliPluginManifest = {
   launch: CliLaunchSpec
   resume?: CliResumeSpec
   promptInjection: CliPromptInjection
+  /** How the host-context document reaches this CLI. Omitted ⇒ `prompt`. */
+  contextInjection?: CliContextInjection
   completion: CliCompletionSpec
   mcpConfig?: CliMcpConfigSpec
   capabilities: CliCapabilities
@@ -300,6 +331,9 @@ export type CliManifestResult =
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/
 const INJECTION_MODES: CliPromptInjectionMode[] = ['positional-arg', 'stdin-pipe', 'send-after-ready', 'file']
+const CONTEXT_INJECTION_MODES: CliContextInjectionMode[] = ['argv', 'env', 'prompt']
+/** The variables a `contextInjection` template may spend the document through. */
+const CONTEXT_TEMPLATE_VARIABLES = ['contextFile', 'contextText', 'contextToml'] as const
 const COMPLETION_MODES: CliCompletionMode[] = ['process-exit', 'output-sentinel', 'mcp-signal', 'idle-at-prompt']
 const MCP_FORMATS: CliMcpConfigFormat[] = ['claude-code', 'codex', 'opencode', 'generic']
 const VARIABLE_TYPES: CliVariableType[] = ['string', 'enum', 'boolean', 'number']
@@ -354,6 +388,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   validateLaunch(value.launch, issues)
   if (value.resume !== undefined) validateResume(value.resume, issues)
   validatePromptInjection(value.promptInjection, issues)
+  if (value.contextInjection !== undefined) validateContextInjection(value.contextInjection, issues)
   validateCompletion(value.completion, 'completion', issues)
   if (value.mcpConfig !== undefined) validateMcpConfig(value.mcpConfig, issues)
   validateCapabilities(value.capabilities, issues)
@@ -481,6 +516,65 @@ function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): vo
         issues.push({ path: 'promptInjection.readiness.timeoutMs', message: 'readiness.timeoutMs must be a positive number.' })
       }
     }
+  }
+}
+
+function validateContextInjection(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'contextInjection', message: 'contextInjection must be an object when present.' })
+    return
+  }
+  if (typeof value.mode !== 'string' || !CONTEXT_INJECTION_MODES.includes(value.mode as CliContextInjectionMode)) {
+    issues.push({
+      path: 'contextInjection.mode',
+      message: `mode must be one of: ${CONTEXT_INJECTION_MODES.join(', ')}.`,
+    })
+    return
+  }
+
+  const hasArgs = Array.isArray(value.args) && value.args.length > 0
+  if (value.args !== undefined) {
+    if (!Array.isArray(value.args) || value.args.some((arg) => typeof arg !== 'string')) {
+      issues.push({ path: 'contextInjection.args', message: 'contextInjection.args must be an array of string templates.' })
+    } else {
+      value.args.forEach((template, index) => {
+        validateTemplateVariables(
+          template as string,
+          `contextInjection.args[${index}]`,
+          CONTEXT_TEMPLATE_VARIABLES,
+          issues,
+        )
+      })
+    }
+  }
+
+  const hasEnv = isObject(value.env) && Object.keys(value.env).length > 0
+  if (value.env !== undefined) {
+    if (!isObject(value.env) || Object.values(value.env).some((entry) => typeof entry !== 'string')) {
+      issues.push({ path: 'contextInjection.env', message: 'contextInjection.env must be an object of string templates.' })
+    } else {
+      for (const [name, template] of Object.entries(value.env)) {
+        validateTemplateVariables(template as string, `contextInjection.env.${name}`, CONTEXT_TEMPLATE_VARIABLES, issues)
+      }
+    }
+  }
+
+  // A declared channel with nothing to send down it is the failure that would
+  // otherwise be silent: the manifest reads as "this CLI takes a system prompt"
+  // and the CLI is told nothing.
+  if (value.mode === 'argv' && !hasArgs) {
+    issues.push({ path: 'contextInjection.args', message: 'argv context injection requires a non-empty args array.' })
+  }
+  if (value.mode === 'env' && !hasEnv) {
+    issues.push({ path: 'contextInjection.env', message: 'env context injection requires a non-empty env object.' })
+  }
+  // And the reverse: args/env on a `prompt` manifest would never render, so the
+  // author is saying one thing and getting another.
+  if (value.mode === 'prompt' && (hasArgs || hasEnv)) {
+    issues.push({
+      path: 'contextInjection',
+      message: 'prompt context injection renders no args and no env; remove them or declare argv/env.',
+    })
   }
 }
 

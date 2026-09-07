@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import type { TerminalSpawnMetadata } from '../../../../../shared/electron-api'
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../../../shared/design-system/attach'
-import {
-  buildGuidedBriefSpecialistStartupPrompt,
-  resolveDesignSystemAttachedPromptLine,
-} from '../../../specialists/specialistActions'
+import { buildGuidedBriefSpecialistStartupPrompt } from '../../../specialists/specialistActions'
 import {
   containsGuidedBriefMarker,
   createGuidedBriefSessionId,
@@ -174,22 +171,11 @@ assert.ok(
   'the design-system authoring prompt never carries the consumer conform line',
 )
 
-// The launch-time predicate resolves once per launch: line when and only when
-// design-system/ exists under the execution root; failures resolve to absent.
-assert.equal(await resolveDesignSystemAttachedPromptLine(null, async () => true), null)
-assert.equal(await resolveDesignSystemAttachedPromptLine('  ', async () => true), null)
-assert.equal(await resolveDesignSystemAttachedPromptLine('/repo', async () => false), null)
-assert.equal(
-  await resolveDesignSystemAttachedPromptLine('/repo', async (path) => path.endsWith('design-system')),
-  DESIGN_SYSTEM_ATTACHED_PROMPT_LINE,
-)
-assert.equal(
-  await resolveDesignSystemAttachedPromptLine('/repo', async () => {
-    throw new Error('fs unavailable')
-  }),
-  null,
-  'a failed existence check resolves to no line, never a crash',
-)
+// The launch-time predicate that used to live beside this one is gone: agent
+// launches learn about an attached design system through the host-context
+// document main builds (src/shared/host-context), not through a line pasted onto
+// the user's prompt. The guided brief keeps the constant, because it composes a
+// whole session prompt of its own rather than launching an agent.
 
 const seededDemoPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'designer',

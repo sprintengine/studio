@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { applyAgentIdentityEnv, mergeProviderLaunchEnv } from './terminal-launch'
+import { buildHostContextDocument } from '../shared/host-context/document'
+import {
+  applyAgentIdentityEnv,
+  applyHostContextToPrompt,
+  hostContextRenderInputs,
+  mergeProviderLaunchEnv,
+  type HostContextDelivery,
+} from './terminal-launch'
 
 async function main(): Promise<void> {
   testNoOpWithoutProviderEnv()
@@ -11,6 +18,12 @@ async function main(): Promise<void> {
   testNeverOverridesProtectedKeys()
   testStripsInheritedAgentStateSocket()
   testSocketNeverClobberedByProviderEnv()
+  testJsonEnvValuesMergeInsteadOfClobbering()
+  testNothingIsDeliveredWhenTheHostHasNothingToSay()
+  testArgvModeCarriesTheFileAndTheText()
+  testPromptModeWritesNoFileAndWrapsTheRequest()
+  testPromptModeLeavesAnEmptyComposerAlone()
+  testWslAndWindowsNormalizeTheContextPaths()
   console.log('terminal-launch tests passed')
 }
 
@@ -107,6 +120,106 @@ function testSocketNeverClobberedByProviderEnv(): void {
     { MULTICODE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' }
   )
   assert.equal(out.MULTICODE_AGENT_STATE_SOCKET, '/tmp/ours.sock', 'socket address is protected')
+}
+
+// ── Host context ────────────────────────────────────────────────────────────
+//
+// The delivery decision and the path normalisation over it are what this file
+// owns. Which flags each CLI actually ends up with is proved against the bundled
+// manifests in agent-launch-render.test.ts, through the same renderer the spawn
+// uses.
+
+const DESIGN_SYSTEM_DOCUMENT = buildHostContextDocument({
+  designSystem: { bundlePath: 'C:/repo/design-system' },
+}) as string
+
+function delivery(overrides: Partial<HostContextDelivery> = {}): HostContextDelivery {
+  return {
+    mode: 'argv',
+    document: DESIGN_SYSTEM_DOCUMENT,
+    filePath: 'C:/Users/me/AppData/Roaming/Studio/host-context/s1.md',
+    ...overrides,
+  }
+}
+
+// The host-context env channel carries a whole JSON config document (OpenCode's
+// OPENCODE_CONFIG_CONTENT). A user who exports their own must not lose it
+// because we wanted to add one instructions entry — and must not lose ours.
+function testJsonEnvValuesMergeInsteadOfClobbering(): void {
+  const out = mergeProviderLaunchEnv(
+    { OPENCODE_CONFIG_CONTENT: '{"theme":"tokyonight","instructions":["AGENTS.md"]}' },
+    { OPENCODE_CONFIG_CONTENT: '{"instructions":["/ctx/s1.md"]}' }
+  )
+  const merged = JSON.parse(out.OPENCODE_CONFIG_CONTENT) as { theme: string; instructions: string[] }
+  assert.equal(merged.theme, 'tokyonight', "the user's own keys survive")
+  assert.deepEqual(merged.instructions, ['AGENTS.md', '/ctx/s1.md'], 'lists concatenate')
+
+  // Everything that is not a JSON object still takes the plain replacement path,
+  // so no other manifest's env changes behaviour.
+  const plain = mergeProviderLaunchEnv({ ANTHROPIC_BASE_URL: 'https://a' }, { ANTHROPIC_BASE_URL: 'https://b' })
+  assert.equal(plain.ANTHROPIC_BASE_URL, 'https://b')
+}
+
+// A plain repo — no design system, no knowledge graph — launches exactly as it
+// did: no flag, no env, no wrapping.
+function testNothingIsDeliveredWhenTheHostHasNothingToSay(): void {
+  assert.equal(buildHostContextDocument({}), null)
+  const empty = delivery({ document: null, filePath: null })
+  assert.deepEqual(hostContextRenderInputs(empty, null, []), {})
+  assert.equal(applyHostContextToPrompt(empty, 'Build it.'), 'Build it.')
+}
+
+function testArgvModeCarriesTheFileAndTheText(): void {
+  const inputs = hostContextRenderInputs(delivery(), null, [])
+  assert.equal(inputs.contextFile, 'C:/Users/me/AppData/Roaming/Studio/host-context/s1.md')
+  assert.ok(inputs.contextText?.includes('design system is attached'))
+  // The user's prompt is untouched: that is the whole point of the channel.
+  assert.equal(applyHostContextToPrompt(delivery(), 'Build it.'), 'Build it.')
+
+  // A write that failed withholds BOTH, so a manifest spending {{contextFile}}
+  // renders no flag rather than a flag with an empty value.
+  assert.deepEqual(hostContextRenderInputs(delivery({ filePath: null }), null, []), {})
+}
+
+function testPromptModeWritesNoFileAndWrapsTheRequest(): void {
+  const prompt = delivery({ mode: 'prompt', filePath: null })
+  assert.deepEqual(hostContextRenderInputs(prompt, null, []), {}, 'no flag, no env')
+  const wrapped = applyHostContextToPrompt(prompt, 'Build the settings page.')
+  assert.ok(wrapped?.startsWith('<host-context>'))
+  assert.ok(
+    (wrapped ?? '').indexOf('</host-context>') < (wrapped ?? '').indexOf('Build the settings page.'),
+    'the request is the last thing the model reads',
+  )
+}
+
+// A CLI launched with nothing typed is meant to sit at its prompt. Handing it a
+// host-context block as its first message would start it working on our words.
+function testPromptModeLeavesAnEmptyComposerAlone(): void {
+  const prompt = delivery({ mode: 'prompt', filePath: null })
+  assert.equal(applyHostContextToPrompt(prompt, undefined), undefined)
+  assert.equal(applyHostContextToPrompt(prompt, '   '), '   ')
+}
+
+// The document names the design-system folder absolutely and the file itself is
+// under the app's own userData. A Windows path handed to a CLI running under WSL
+// points at nothing, so both are rewritten for the shell that will read them.
+function testWslAndWindowsNormalizeTheContextPaths(): void {
+  const wsl = hostContextRenderInputs(delivery(), 'wsl', ['C:/repo'])
+  assert.equal(wsl.contextFile, '/mnt/c/Users/me/AppData/Roaming/Studio/host-context/s1.md')
+  assert.ok(wsl.contextText?.includes('/mnt/c/repo/design-system'), wsl.contextText)
+  assert.ok(!wsl.contextText?.includes('C:/repo'), 'no Windows path survives into a WSL document')
+
+  const windows = hostContextRenderInputs(
+    { mode: 'argv', document: buildHostContextDocument({ designSystem: { bundlePath: '/mnt/c/repo/design-system' } }), filePath: '/mnt/c/ctx/s1.md' },
+    'windows',
+    ['/mnt/c/repo'],
+  )
+  assert.equal(windows.contextFile, 'C:\\ctx\\s1.md')
+  // Prefix rewriting, not a full re-separation: the known roots become Windows
+  // paths and whatever hangs off them keeps its slashes, which is exactly what
+  // the initial prompt has always done here (and what Windows accepts).
+  assert.ok(windows.contextText?.includes('C:\\repo/design-system'), windows.contextText)
+  assert.ok(!windows.contextText?.includes('/mnt/c/'), 'no WSL path survives into a native-Windows document')
 }
 
 main().catch((err) => {
