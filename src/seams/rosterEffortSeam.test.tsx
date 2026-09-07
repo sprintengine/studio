@@ -575,10 +575,44 @@ async function main(): Promise<void> {
     const { WORKSPACE_STORE_VERSION } = await import(
       '../renderer/src/store/slices/persistenceSlice'
     )
-    // The wizard's level is session state. If this number moved, a third
-    // migration entered a run whose numbers were pinned to MC-1865 (69) and
-    // MC-1870 (70) — the exact ordering hazard the ruling exists to avoid.
-    assert.equal(WORKSPACE_STORE_VERSION, 70, 'the store version is untouched by the effort producer')
+    const { readFileSync } = await import('node:fs')
+    // The wizard's level is session state: the effort producer (MC-1870) took
+    // exactly one rung, v70, and nothing after it may quietly become a second.
+    //
+    // 2026-09-06: this asserted `WORKSPACE_STORE_VERSION === 70` and now reads
+    // the ladder instead. The counter moved to 74 on four rungs that have
+    // nothing to do with effort — v71 the module-owned workspace-state bag
+    // (MC-1573, bb0e992ae), v72 the retired title-bar specialist default
+    // (MC-2222, 60fbc1f15), v73 and v74 the rail → pane layout heals
+    // (48cc7ce5d, 023c9fa76) — so the pin was failing on other people's work
+    // while saying nothing about this producer, and it sat unread for days
+    // because verify:app halts long before this step. Pinning a GLOBAL counter
+    // to state a LOCAL invariant is the defect; the invariant is which rungs
+    // carry effort, so ask the ladder that directly and it stops rotting.
+    assert.ok(
+      WORKSPACE_STORE_VERSION >= 70,
+      `the effort rung is still in the ladder (store version ${WORKSPACE_STORE_VERSION})`,
+    )
+    // [pre, "69", body69, "70", body70, …] — the capture makes split() hand
+    // back each rung's number beside the text that belongs to it.
+    const parts = readFileSync(
+      join(process.cwd(), 'src/renderer/src/store/slices/persistenceSlice.ts'),
+      'utf8',
+    ).split(/\n {2}if \(version < (\d+)\) \{/)
+    const rungs = new Map<number, string>()
+    for (let i = 1; i < parts.length; i += 2) rungs.set(Number(parts[i]), parts[i + 1] ?? '')
+    // Anchor first: a scan that matched nothing would pass this check vacuously
+    // and hide the very rung it exists to watch.
+    assert.match(
+      rungs.get(70) ?? '',
+      /reasoning/i,
+      'v70 is still the one rung the effort producer added',
+    )
+    assert.deepEqual(
+      [...rungs].filter(([at, body]) => at > 70 && /reasoning|effort/i.test(body)).map(([at]) => `v${at}`),
+      [],
+      'a second effort migration entered the ladder above v70 — the ordering hazard the ruling exists to avoid',
+    )
   })
 
   // The creation surface's launch call site cannot be observed from a mounted

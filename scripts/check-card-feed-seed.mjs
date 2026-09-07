@@ -44,6 +44,18 @@
 // to a dialog in front of somebody who pressed a button on a poster. A card
 // that wants a hooked plugin's skills should name the skills.
 //
+// **What this gate does NOT check, said here so nobody inherits the wrong
+// comfort:** it reads `resources/cards-feed.json` and only that. The hosted
+// feed — the `cards-feed.json` in sprintengine/studio-releases that every
+// running studio actually fetches — is never opened by any script in this
+// repository, and no workflow under .github/ mentions it. So every rule below
+// (ids resolve, artwork exists, no hooked plugin) is a rule about the artefact
+// that ships in the installer, and a card published to the hosted file is
+// bounded only by what the shipped parser refuses on the person's machine. The
+// That is the reason `clone.repo` is owner-restricted in the shared parser
+// rather than only here (`CARD_CLONE_OWNERS`): a rule this gate enforces
+// protects the installer, and a rule the parser enforces protects the machine.
+//
 // Both lists are the real ones, built out of the renderer's own modules with
 // esbuild rather than re-typed here: the parser from src/shared/hosted-card-feed
 // .ts, and the artwork names from the registry's cardArtNames.ts. A second copy
@@ -65,10 +77,23 @@ const errors = []
 const STUDIO_SOURCE_ID = 'github:sprintengine/studio-releases'
 // Where resources/studio-plugin mirrors that repository's root.
 const STUDIO_MIRROR = join(root, 'resources', 'studio-plugin')
-const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis'])
-// The only owner a bundled card may clone from. A card can name any public
-// repository once the feed is hosted; the seed we ship is vouched for by us.
-const CLONE_OWNER = 'sprintengine'
+const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis', 'workflows', 'sprints'])
+
+// The hero's dek is CLAMPED to two lines, because the hero plate's floor is
+// derived from the tallest stack the overlay can legally draw
+// (`HERO_PLATE_MIN_HEIGHT_PX`, cardSplash.tsx) and a floor needs a ceiling. A
+// longer dek is therefore not a dek that wraps — it is a sentence the card
+// silently eats, which is what the shipped hero did until 2026-09-06: it lost
+// "while you watch the board" mid-word at 1440px, on the first card of the
+// first screen. The measure is 62ch and the clamp is two lines, so this is the
+// budget with room for a wide glyph. An ordinary card's dek is not clamped and
+// is not checked here.
+// Lowered 150 -> 120 on 2026-09-06, when the button stopped saying "Go". The
+// hero's dek and its control share one row, so a longer label — "Open Workflows"
+// against "Go" — narrows the column the dek wraps in, and 127 characters that
+// fitted two lines beside a 30px pill spilled to three beside a 140px one. The
+// budget is the column the dek ACTUALLY gets, not the plate's full width.
+const HERO_DEK_MAX = 120
 
 // Bundle a renderer/shared module and import it, so this gate reads the real
 // thing rather than a copy of it.
@@ -85,7 +110,7 @@ async function shipped(relative, name) {
   return import(pathToFileURL(outfile).href)
 }
 
-const { parseHostedCardFeed } = await shipped(['src', 'shared', 'hosted-card-feed.ts'], 'parser')
+const { parseHostedCardFeed, CARD_CLONE_OWNERS } = await shipped(['src', 'shared', 'hosted-card-feed.ts'], 'parser')
 // The artwork the renderer ships, from the registry's own list. It is a plain
 // .ts holding nothing but names precisely so this script can read it — the
 // plates themselves are JSX and could not be bundled for node.
@@ -198,6 +223,11 @@ function studioSkillDir(id) {
 }
 
 for (const card of cards) {
+  if (card.hero && card.dek.length > HERO_DEK_MAX) {
+    errors.push(
+      `"${card.slug}" is the hero and its dek is ${card.dek.length} characters; the hero clamps to two lines, so anything over ${HERO_DEK_MAX} is a sentence nobody reads`,
+    )
+  }
   const where = `"${card.slug}"`
   if (!artNames.has(card.art)) {
     errors.push(`${where}: art "${card.art}" is not artwork this build ships; the card would not render at all (one of: ${[...artNames].join(', ')})`)
@@ -266,11 +296,32 @@ for (const card of cards) {
       case 'open.surface':
         if (!SURFACE_VIEWS.has(action.view)) errors.push(`${at}: "${action.view}" is not an Extensions view`)
         break
-      case 'clone.repo':
-        if (!action.repo.startsWith(`${CLONE_OWNER}/`)) {
-          errors.push(`${at}: "${action.repo}" is not under ${CLONE_OWNER}/, and a bundled card may only clone a repository we publish`)
+      case 'clone.repo': {
+        // A backstop that the parser now reaches first, kept deliberately.
+        //
+        // Until 2026-09-06 this was the ONLY clone-owner rule anywhere: the
+        // shared parser accepted any `owner/name`, so the seed was held to a
+        // standard the hosted feed was not, and CI is not a gate on the hosted
+        // feed at all (this file reads resources/cards-feed.json and nothing
+        // else — see the head of this file). The rule moved into
+        // `CARD_CLONE_OWNERS` in src/shared/hosted-card-feed.ts, where it ships
+        // inside the app and therefore holds for both feeds; a seed card
+        // cloning anybody else is now dropped by `parseHostedCardFeed` above
+        // and reported as a dropped row.
+        //
+        // This arm survives because a dropped row says the card was unreadable
+        // and this says which line was wrong, and because reading the shared
+        // constant is how the seed gate and the parser are kept from drifting —
+        // the same reason the parser, the artwork names and `parseHooks` are
+        // all bundled from the real modules rather than re-typed here.
+        const owner = action.repo.slice(0, action.repo.indexOf('/')).toLowerCase()
+        if (!CARD_CLONE_OWNERS.some((allowed) => allowed.toLowerCase() === owner)) {
+          errors.push(
+            `${at}: "${action.repo}" is not under ${CARD_CLONE_OWNERS.map((one) => `${one}/`).join(' or ')}, and a card may only clone a repository we publish`,
+          )
         }
         break
+      }
       default:
         errors.push(`${at}: this gate does not know how to resolve ${action.verb}; teach it before seeding one`)
     }

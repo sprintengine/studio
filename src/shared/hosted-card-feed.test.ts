@@ -204,6 +204,17 @@ const rejects = (go: unknown, match: RegExp) => {
   })
   rejects({ verb: 'clone.repo', repo: 'https://evil.example/x/y' }, /clone\.repo needs a repo as owner\/name/)
   rejects({ verb: 'clone.repo', repo: 'owner/name/extra' }, /clone\.repo needs a repo as owner\/name/)
+  // The owner rule, which is a trust rule and not a shape rule: a
+  // well-formed repository belonging to anybody else is refused, and the
+  // message says which mistake it was. See CARD_CLONE_OWNERS.
+  rejects({ verb: 'clone.repo', repo: 'someone-else/starter' }, /may only clone a repository we publish/)
+  rejects({ verb: 'clone.repo', repo: 'sprintengine-evil/starter' }, /may only clone a repository we publish/)
+  // GitHub owners are case-insensitive, so the allowlist is too — otherwise
+  // one capital letter walks straight past it.
+  assert.deepEqual(one({ verb: 'clone.repo', repo: 'SprintEngine/studio-releases' }), {
+    verb: 'clone.repo',
+    repo: 'SprintEngine/studio-releases',
+  })
   rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '../elsewhere' }, /folderName must be a single folder name/)
   rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '..' }, /folderName must be a single folder name/)
 
@@ -228,10 +239,13 @@ const rejects = (go: unknown, match: RegExp) => {
   for (const repo of ['../..', './x', 'x/..', '../name', '.././..']) {
     rejects({ verb: 'clone.repo', repo }, /clone\.repo needs a repo as owner\/name/)
   }
-  // A dot inside a segment is still a legal repository name.
-  assert.deepEqual(one({ verb: 'clone.repo', repo: 'sprint.engine/studio.releases' }), {
+  // A dot inside a segment is still a legal repository name. Asserted on the
+  // NAME half only: the owner half now has to be one of CARD_CLONE_OWNERS, so
+  // `sprint.engine/...` is refused by the owner rule rather than by the shape
+  // rule and would test the wrong thing.
+  assert.deepEqual(one({ verb: 'clone.repo', repo: 'sprintengine/studio.releases' }), {
     verb: 'clone.repo',
-    repo: 'sprint.engine/studio.releases',
+    repo: 'sprintengine/studio.releases',
   })
 }
 

@@ -88,6 +88,31 @@ const api: Record<string, unknown> = {
       : { ok: false, message: 'This run’s projection could not be read.' },
 }
 
+// The tailnet/fleet presence bridge is ABSENT here, deliberately, rather than
+// stubbed. `hasTailnetPresenceBridge` (useTailnetPresence.ts) requires all six
+// of these to be functions and otherwise leaves the sidebar's Remote band empty
+// — the path every other WorkspaceSidebar harness takes, because none of them
+// hand `window.api` a fleet at all. This is the only one with a catch-all
+// Proxy, so it alone answered `fleetListConnections()` with the Proxy's
+// `{ ok: false, message: 'not stubbed' }`; `buildRemoteBand` called `.map` on
+// that object and the sidebar threw at mount with "connections.map is not a
+// function" (added by the remote-band sidebar work, 2026-09-05, which landed
+// after this harness and was never seen because the verify chain halted
+// earlier). Naming them undefined keeps `prop in target` true, so the Proxy
+// hands back undefined and the guard reads the bridge as missing — which it
+// is. This test says nothing about the Remote band; stubbing a fleet here
+// would be inventing a shape no assertion reads.
+for (const absent of [
+  'onTailnetEvent',
+  'onFleetEvent',
+  'tailnetGetStatus',
+  'tailnetGetLiveState',
+  'fleetListConnections',
+  'fleetGetLiveState',
+]) {
+  api[absent] = undefined
+}
+
 // The board mounts inside the canvas and reaches a wide slice of the preload API.
 // Unstubbed members answer inertly rather than throwing: subscriptions hand back
 // an unsubscribe, calls resolve to a refusal — never a fake success.

@@ -28,26 +28,43 @@ export interface HostedCardFeedSliceActions {
   // First paint: what is on disk, no network. Never throws; a missing api is a
   // no-op, which is what a test renderer and a detached tool window are.
   loadCards: () => Promise<void>
-  // A deliberate re-read. The main process pushes `hosted-card-feed:changed`
-  // when the feed differs, but the result is applied here too so the caller's
-  // own copy is current at once.
-  refreshCards: (options?: { force?: boolean }) => Promise<HostedCardFeedReadResult | null>
   // The push handler. Also what tests drive directly.
   applyHostedCardFeedResult: (result: HostedCardFeedReadResult) => void
 }
+
+// **There is deliberately no `refreshCards` here** (decided 2026-09-06,
+// backlog/2026-09-06-the-seams-that-lead-nowhere.md §1). This slice carried one
+// — `refreshCards({ force })`, the twin of the model feed's
+// `refreshHostedModelFeed` — and unlike that twin it had no caller anywhere in
+// the app. The model feed's action is pressed by Settings → "Check now"
+// (SettingsPanel.tsx); the card feed has no such button, so what shipped was a
+// store action that LOOKED like the way to refresh the home page and was wired
+// to nothing, which is worse than its absence: the next reader adds a second
+// fetch path beside it rather than asking why the first one never ran.
+//
+// The read/fetch split above is the design, not an accident of wiring. The only
+// thing that fetches this feed is the hourly poller leg in app-lifecycle.ts,
+// which calls `readHostedCardFeed` in main and pushes what changed back as
+// `hosted-card-feed:changed`; the renderer reads at first paint and applies the
+// push. The `hosted-card-feed:refresh` channel and its preload binding stay
+// where they are — `ElectronApi` declares them and card-feed-service.test.ts
+// covers the handler — so a manual refresh, if the browse question ever lands
+// it a button, is one action restored here and nothing below it rebuilt.
 
 export type HostedCardFeedSlice = HostedCardFeedSliceState & HostedCardFeedSliceActions
 
 type HostedCardFeedSliceSet = (mutator: (state: HostedCardFeedSliceState) => void) => void
 
-type HostedCardFeedApi = Pick<Window['api'], 'hostedCardFeedGet' | 'hostedCardFeedRefresh'>
+type HostedCardFeedApi = Pick<Window['api'], 'hostedCardFeedGet'>
 
 function getHostedCardFeedApi(): HostedCardFeedApi | null {
   if (typeof window === 'undefined') return null
   const api = window.api
-  return api && typeof api.hostedCardFeedGet === 'function' && typeof api.hostedCardFeedRefresh === 'function'
-    ? api
-    : null
+  // Narrowed to the one call this slice makes. It used to require
+  // `hostedCardFeedRefresh` as well, which meant a host exposing only the read
+  // half read as "no api at all" and drew an empty page — a guard for a call
+  // that is no longer made.
+  return api && typeof api.hostedCardFeedGet === 'function' ? api : null
 }
 
 export function createHostedCardFeedSlice(
@@ -92,20 +109,6 @@ export function createHostedCardFeedSlice(
         apply(await api.hostedCardFeedGet())
       } catch (error) {
         apply(failure(error))
-      }
-    },
-    refreshCards: async (options = {}) => {
-      const api = getApi()
-      if (!api) return null
-      begin()
-      try {
-        const result = await api.hostedCardFeedRefresh(options.force ? { forceRefresh: true } : undefined)
-        apply(result)
-        return result
-      } catch (error) {
-        const result = failure(error)
-        apply(result)
-        return result
       }
     },
   }

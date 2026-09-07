@@ -224,7 +224,22 @@ async function main(): Promise<void> {
   // ── Seam 1: MC-1865 (store v69) × MC-1870 (store v70) ──────────────────────
 
   await check('SEAM: a store written by the previous build hydrates with its catalog AND its level intact', () => {
-    assert.equal(WORKSPACE_STORE_VERSION, 70, 'the run took exactly two rungs: 69 then 70')
+    // 2026-09-06: this asserted `WORKSPACE_STORE_VERSION === 70` — the ladder's
+    // height when run D shipped, when "two rungs, 69 then 70" and "the current
+    // version" happened to be the same statement. They stopped being the same
+    // when the counter reached 74 on four unrelated rungs (v71 MC-1573's module
+    // state bag, v72 MC-2222's specialist default, v73/v74 the rail → pane
+    // layout heals), and the pin then failed for a reason this seam has no
+    // opinion about. What the seam is actually for is BELOW: a store written at
+    // v69 by the previous build arrives with its catalog and its levels intact
+    // no matter how many rungs it climbs on the way. Verified at v74 on
+    // 2026-09-06 — all three deepEquals pass — so the floor is the assertion
+    // and the hydration is the proof. `the load after that re-runs neither
+    // rung` exercises the 69 and 70 rungs themselves.
+    assert.ok(
+      WORKSPACE_STORE_VERSION >= 70,
+      `the 69 → 70 rungs are still in the ladder this store hydrates through (at ${WORKSPACE_STORE_VERSION})`,
+    )
 
     const settings = useWorkspaceStore.getState().appSettings
     assert.deepEqual(

@@ -6,6 +6,14 @@
 // on the row that was clicked. There is no second confirm and there is nothing
 // here to agree to.
 //
+// **It opens for a card that SPAWNS, and for no other.** `cardRunsAModel`
+// below is the gate, and it reads the card's actions: a `go` with no
+// `open.chat` in it launches no agent, so there is no model to pick and `Go` is
+// a plain button that runs the card. Everything the rest of this header argues
+// is an argument about how to spawn, and it is only an argument at all where
+// something is spawned — see that function's own note for the case that forced
+// it (item `2026-09-06-go-asks-which-model-only-when-a-model-runs`).
+//
 // **This is not the consent screen R4 removed.** That screen asked *may I
 // install these three things*, in engineering vocabulary, about a decision the
 // card had already explained in a sentence. This asks *which model, and how
@@ -65,7 +73,11 @@ import {
   useAgentComposer,
   type AgentComposerSelection,
 } from '../../../agentComposer/useAgentComposer'
-import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../../store/slices/settingsSlice'
+import {
+  DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  normalizeSelectedCli,
+} from '../../../../../store/slices/settingsSlice'
+import { GENERAL_AGENT_ENGINE_KEY } from '../../../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../../../types/workspace'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
@@ -101,6 +113,72 @@ const CARD_SELECTION: AgentComposerSelection = { kind: 'general' }
 export function cardRequiredCli(card: HostedCard): AgentCli | null {
   const action = card.go.find((entry) => entry.verb === 'require.cli')
   return action && action.verb === 'require.cli' ? action.cli : null
+}
+
+/**
+ * Does pressing this card's `Go` start an agent? — and therefore, is there
+ * anything for the picker above to ask about?
+ *
+ * Everything this file argues is about cards that SPAWN. "The model picker is
+ * the spawner" (2026-08-04) and "asking how to run is not the consent screen R4
+ * removed" (R4b, 2026-09-06) are both true, and both presuppose that a model is
+ * what runs. A card whose actions contain no `open.chat` spawns nothing: the
+ * question has no referent, every one of the four axes the person just chose is
+ * discarded, and the popover is worse than the consent screen R4 deleted —
+ * that at least described what was about to happen.
+ *
+ * The shipped hero was the whole case for the fix. Its `go` is one
+ * `open.surface`, and pressing it presented a model search field, six Claude
+ * models, a reasoning selector and a permission chip reading **Bypass** before
+ * opening a tab. On a machine with no agent CLI it was worse than pointless:
+ * `noAgentCliInstalled` is the picker's first branch, so a card that installs
+ * nothing and launches nothing could not be pressed at all on the fresh install
+ * this page was built for.
+ *
+ * **Derived from the ACTIONS, never from `kind`.** `kind` is the word on the
+ * stamp — what the card is about — and the schema lets a showcase card open a
+ * chat exactly as it lets a workflow card open a surface. Keying off it would
+ * be this same bug with a different key, and the card that broke it would be a
+ * card that spawns an agent behind a plain button.
+ *
+ * Pure, and tested without a renderer: it is a question about a card, and a
+ * question about a card should not need a DOM to answer.
+ */
+export function cardRunsAModel(card: HostedCard): boolean {
+  return card.go.some((action) => action.verb === 'open.chat')
+}
+
+/**
+ * The launch a card that runs no model still has to describe.
+ *
+ * `CardLaunchChoice` stays REQUIRED on the wire and there is no second shape
+ * for a card that skipped the picker: `cards:run` treats the three launch axes
+ * as optional-and-checked and `run-card.ts` reads none of them, and on the way
+ * back `runCardGo` touches `launch` only inside its `result.chat` branch — the
+ * branch a card with no `open.chat` never reaches. So the honest thing to send
+ * is not a hole in the type; it is the app's own defaults, which is exactly
+ * what the picker would have resolved for a row nobody had touched.
+ *
+ * Read as two primitive selectors rather than one object selector, because a
+ * selector that builds an object returns a new identity on every store change
+ * and would re-render every card on the page for a setting none of them show.
+ */
+export function useCardLaunchDefaults(): CardLaunchChoice {
+  const cli = useWorkspaceStore((state) =>
+    normalizeSelectedCli(
+      state.appSettings.specialistCliDefaults?.[GENERAL_AGENT_ENGINE_KEY] ??
+        state.appSettings.lastSelectedCli,
+    ),
+  )
+  const permissionFallback = useWorkspaceStore(
+    (state) => state.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  )
+  return {
+    cli,
+    model: null,
+    reasoning: null,
+    permissionPreset: resolveModelPermissionPreset(cli, null, permissionFallback),
+  }
 }
 
 /**

@@ -135,6 +135,24 @@ type TabMenuState = {
 }
 
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
+/**
+ * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Six tab
+ * roles wear it — remote machine, switchboard/watchtower, sprint panel,
+ * specialist, sprint role, CLI brand — and they have to stay the same object,
+ * because they sit next to each other in one strip and any difference reads as
+ * a difference in kind.
+ *
+ * Spelled once rather than six times because the geometry is OFF the icon ramp:
+ * 14px falls between `icon-xs` (13px) and `icon-sm` (16px), so it cannot be
+ * expressed in tokens today and is carried as debt by the `icon` ratchet in
+ * `components/ui/designSystemAxes.test.ts`. 2026-09-06: the remote-machine chip
+ * (8866d95e6, 2026-09-05) copied the shape a sixth time and pushed that ratchet
+ * to 31 against a baseline of 30 — unseen for a day because verify:app halts
+ * long before that step. Six copies is also six edits the day the ramp grows a
+ * step that fits; one constant is one.
+ */
+const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-xs'
+const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
 const EMPTY_SPRINTENGINE_AGENTS: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'] = {}
@@ -1181,11 +1199,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
           renderValues.leading = (
             <span
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
+              className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
               title={machineLabel}
               aria-label={machineLabel}
             >
-              <RemoteMachineGlyph className="h-3.5 w-3.5" />
+              <RemoteMachineGlyph className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
         } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
@@ -1194,21 +1212,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           // module is disabled, matching the workspace tab/row contract (AC4).
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-xs ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
+              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
               title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
               aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
             >
-              <WorkspaceTypeIcon mode="switchboard" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode="switchboard" moduleOverrides={moduleOverrides} className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
         } else if (componentId?.startsWith('sprintengine')) {
           renderValues.leading = (
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-xs ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
+              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
               title='Sprint panel'
               aria-label='Sprint panel'
             >
-              <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
+              <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={moduleOverrides} className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
         }
@@ -1252,21 +1270,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       if (specialist) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
+            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
             title={`${specialist.shortLabel} specialist`}
             aria-label={`${specialist.shortLabel} specialist`}
           >
-            <SpecialistActionIcon icon={specialist.icon} className="h-3.5 w-3.5" />
+            <SpecialistActionIcon icon={specialist.icon} className={TAB_CHIP_GLYPH_CLASS} />
           </span>
         )
       } else if (sprintEngineRole) {
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs"
+            className={TAB_CHIP_CLASS}
             title={`${sprintEngineRole} sprint agent`}
             aria-label={`${sprintEngineRole} sprint agent`}
           >
-            <SprintEngineRoleIcon role={sprintEngineRole} className="h-3.5 w-3.5" />
+            <SprintEngineRoleIcon role={sprintEngineRole} className={TAB_CHIP_GLYPH_CLASS} />
           </span>
         )
       } else if (agent?.cli) {
@@ -1277,11 +1295,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         const runtimeLabel = `${labelForCliRuntime(agent.cli)} runtime`
         renderValues.leading = (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-[color:var(--text-muted)]"
+            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
             title={runtimeLabel}
             aria-label={runtimeLabel}
           >
-            <CliIcon cli={agent.cli} className="h-3.5 w-3.5" />
+            <CliIcon cli={agent.cli} className={TAB_CHIP_GLYPH_CLASS} />
           </span>
         )
       } else {

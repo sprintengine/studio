@@ -47,7 +47,6 @@ import type {
   AppNotification,
   FuturePlanWorkspaceSource,
   SpecialistActionId,
-  SprintEngineCliPermissionPreset,
   Workspace,
   WorkspaceId,
   WorkspaceWindowId,
@@ -2618,12 +2617,14 @@ export default function WorkspaceManager() {
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
     // The rest of a model row the caller just picked, for the same reason the
-    // model is passed in: a caller that wrote the row back as a default and read
-    // it out again in the same event would read the value from before the write.
-    // A card's `Go` is the one caller that has all of it (item 2473); every
-    // other spawn omits this and the remembered defaults answer, exactly as
-    // before.
-    picked?: { reasoning?: string | null; permissionPreset?: SprintEngineCliPermissionPreset },
+    // model is passed in: the row it chose was never written to the defaults, so
+    // reading the defaults back here would answer with a different row. A card's
+    // `Go` is the one caller with a row to hand over (item 2473); every other
+    // spawn omits this and the remembered defaults answer, exactly as before.
+    //
+    // Model and EFFORT only. The preset is not an axis a caller may hand over —
+    // see the `cliPermissionPreset` note below.
+    picked?: { reasoning?: string | null },
   ) => {
     if (!windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -2675,10 +2676,17 @@ export default function WorkspaceManager() {
           : resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
       // The preset is a property of the model ROW (2026-09-05), so it is read
-      // from the row that launches — or taken from the caller that just read it
-      // off that same row.
-      cliPermissionPreset:
-        row?.permissionPreset ?? resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
+      // HERE, from the (cli, model) this spawn is actually launching — never
+      // taken from the caller, not even one that swears it read the preset off
+      // this very row. The model and the effort above have to be passed in
+      // because nothing on this side can recover them; the preset is the axis
+      // where that reason does not hold, and accepting it anyway is how a spawn
+      // seeds a preset belonging to a row other than the one it launches: the
+      // caller resolved against its own fallback, at its own moment, against
+      // the cli it asked for rather than the one the clamp above answered with.
+      // Today those agree, which is exactly why the drift would ship unnoticed.
+      // `createNewChat` reads it the same way, for the same reason.
+      cliPermissionPreset: resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
@@ -3127,8 +3135,22 @@ export default function WorkspaceManager() {
     if (result.surface) {
       // `home` is the app's own surface and the other three are views of the
       // Extensions door, which is exactly the split `CardSurfaceView` states.
+      // Three shapes, not two, since the run doors joined the vocabulary
+      // (`CardSurfaceView`): this page, a door of its own, or a view of the
+      // Extensions door. Only the last needs the latch.
       if (result.surface.view === 'home') {
         openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID)
+      } else if (result.surface.view === 'workflows' || result.surface.view === 'sprints') {
+        // A global surface, opened directly. Deliberately NOT routed through
+        // `dispatchExtensionsSurfaceTarget`: that latch is read by the Extensions
+        // door on its next open, so latching a run door into it would leave a
+        // target nothing consumes and steer the door somewhere nobody asked for.
+        //
+        // A module that is off registers no surface, and `openGlobalSurface`
+        // resolves an unregistered id to the workspace rather than to a blank
+        // page (WorkspaceManager's mount guard) — which is the same thing the
+        // drawer does with a row whose module is off.
+        openGlobalSurface(result.surface.view)
       } else {
         // Latch first, open second — the order every deep-link opener in this
         // file uses, so an already-open door and a cold one both land on the
@@ -3180,20 +3202,22 @@ export default function WorkspaceManager() {
       // R4, kept: a general agent with the skills attached and the prompt as its
       // startup prompt, which is the launch path that SENDS.
       //
-      // THE CHOSEN ROW WINS OUTRIGHT (R4b, item 2473). Its cli, its model, its
-      // effort and its preset are one answer and are handed over as one: nothing
-      // here takes the runtime from one source and the model from another. The
-      // hand-off's own `cli` — the one a card's `require.cli` named — is not
-      // consulted, because it is not a second opinion about the launch: a card's
-      // skills are installed into every skills-capable harness on the machine
+      // THE CHOSEN ROW WINS OUTRIGHT (R4b, item 2473). Its cli, its model and
+      // its effort are one answer and are handed over as one: nothing here takes
+      // the runtime from one source and the model from another. The hand-off's
+      // own `cli` — the one a card's `require.cli` named — is not consulted,
+      // because it is not a second opinion about the launch: a card's skills are
+      // installed into every skills-capable harness on the machine
       // (`resolveInstalledSkillHarnesses`), so `require.cli`'s job is to fail a
       // card whose CLI is missing, not to overrule the person's pick. Splitting
       // the two is how a Codex model id used to ride a Claude Code launch.
       //
-      // All four are passed rather than read back out of the remembered
+      // Those three are passed rather than read back out of the remembered
       // defaults, because the picker deliberately writes none of them: choosing
       // how to run one card must not move the engine of the person's next New
-      // chat.
+      // chat. The row's fourth axis, its preset, is NOT passed — it is stored
+      // against (cli, model) and the spawn re-reads it from the pair it is
+      // handed here, so it arrives without being carried.
       closeGlobalSurface()
       closeModalSurface()
       void addNewCliAgent(
@@ -3202,7 +3226,7 @@ export default function WorkspaceManager() {
         undefined,
         launch.model,
         { prompt: chat.prompt },
-        { reasoning: launch.reasoning, permissionPreset: launch.permissionPreset },
+        { reasoning: launch.reasoning },
       )
       if (switchedAway) {
         // Not silently, and not by dragging them back: the agent is running in

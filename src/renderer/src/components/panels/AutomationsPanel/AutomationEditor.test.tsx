@@ -504,7 +504,13 @@ const starterMarkup = renderEditor(starterDefinition)
 
 assert.match(starterMarkup, /Dead code sweep/, 'the head carries the automation name, edited in place')
 assert.match(starterMarkup, /Multicode Labs/, 'the head names the publisher beneath it')
-assert.match(starterMarkup, /Extensions shelf/, 'the aside names where it came from')
+// "Plugins shelf", not "Extensions shelf". The catalogue an installed automation
+// comes from is a VIEW of the Extensions door, and it is called Plugins — the
+// editor has said so since the door took its views (AutomationEditor.tsx, the
+// `description` beside `sourceCatalogueId`). This assertion kept the retired
+// noun, and nobody saw it, because verify:app is one `&&` chain that had been
+// halting at step 278 since the Popover rename and never reached step 401.
+assert.match(starterMarkup, /Plugins shelf/, 'the aside names where it came from')
 assert.match(starterMarkup, /Find code in this repository that nothing reaches\./, 'the starter’s prompt is loaded')
 assert.match(starterMarkup, /Daily/, 'the cadence is the real one the definition carries')
 assert.match(starterMarkup, /02:00/, 'including its time')

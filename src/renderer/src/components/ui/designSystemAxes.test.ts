@@ -148,8 +148,17 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // 42 → 40: the launch panel's MenuRow and MenuValueRow gave up their
     // inset `rounded` fills for the full-bleed menu item classes
     // (remote-sessions-ux / selector-menus-premium).
-    'components/workspace': 40,
-    'components/panels': 35,
+    // 40 → 37, re-measured 2026-09-06: NewAgentPanel dropped two bare
+    // `rounded`s — the scope line's dropdown took `rounded-sm`, the ramp
+    // spelling (7a5ee9ef8), and the Backlog hand-off chip went with the row it
+    // replaced (7823de27a) — and `newWorkspace/KnowledgeStep.tsx` left the tree
+    // with the retired New workspace hub (8535af0c9). Nothing was swept for
+    // this axis; these are three deletions the ratchet is now banking, because
+    // headroom left unspent is where the next regression hides.
+    'components/workspace': 37,
+    // 35 → 34, 2026-09-06: `roadmapBoard/HorizonPlanColumn.tsx` was deleted
+    // when Horizon retired (a70ba0931).
+    'components/panels': 34,
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
     // aside could draw the same mark as the Extensions door. Its one
@@ -187,7 +196,9 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/workspace': 6,
     // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
     // app's one toast region (remote-sessions-ux / toast-host-region).
-    'components/panels': 9,
+    // 9 → 8, 2026-09-06: `roadmapBoard/HorizonBacklogSource.tsx` was deleted
+    // when Horizon retired (a70ba0931).
+    'components/panels': 8,
     'components/ui': 1,
     'components/memory': 1,
     'components/auxWindows': 1,
@@ -203,8 +214,21 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // above: the deleted composer popover spelled its own icon boxes, and
   // `SpawnPicker` takes the ramp classes the picker surface already uses.
   icon: {
-    'components/workspace': 30,
-    'components/panels': 24,
+    // 30 → 21, 2026-09-06. This one is a repair, not a sweep. The ratchet had
+    // actually GROWN to 31: the remote-machine tab chip (8866d95e6,
+    // 2026-09-05) was a sixth copy of the same `h-4 w-4` plate + `h-3.5 w-3.5`
+    // glyph that WorkspaceLayout already spelled five times, and
+    // `newWorkspace/CreationRail.tsx` leaving with the retired hub (8535af0c9)
+    // masked one of its two. Nobody saw the growth because verify:app has been
+    // halting at an earlier step for days. Rather than raise the number for a
+    // copy, WorkspaceLayout now spells that chip once — TAB_CHIP_CLASS and
+    // TAB_CHIP_GLYPH_CLASS — so all six roles share it: 12 hand-spelled boxes
+    // become 2, rendered output byte-identical. The geometry is still off the
+    // ramp (14px falls between icon-xs 13 and icon-sm 16) and still owed; it is
+    // now owed in one place instead of six. FileExplorer's tree glyphs account
+    // for panels 24 → 23 (2158cff0a).
+    'components/workspace': 21,
+    'components/panels': 23,
     'components/ui': 16,
     'components/backlog': 3,
     'components/settings': 1,

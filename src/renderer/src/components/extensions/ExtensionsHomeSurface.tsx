@@ -3,12 +3,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { Badge } from '../ui/Badge'
-import { EmptyState } from '../ui/EmptyState'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { ExtensionsGlyph } from '../workspace/AppRail'
 import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
@@ -45,13 +42,13 @@ import { homeCardCount, homeCardGrid } from './homeCards'
 //
 // **The body is the card feed, and the tiles are the foot of the page**
 // (2026-09-06, epic "Extensions opens on a home page", item 2468). The page's
-// first body was the drawer said again as five tiles, and that answered *what
+// first body was the drawer said again as tiles, and that answered *what
 // is the studio made of* — which is a question nobody arrives with. The cards
 // answer *what could I do*, which is the one they do. So the cards are the
 // reason to be here and the tiles are the way off: a search field on the chrome
-// row, the grid, then the five tiles under a quiet heading.
+// row, the grid, then the tiles under a quiet heading.
 //
-// The tiles themselves are untouched by that move. Same five destinations, same
+// The tiles themselves are untouched by that move. Same destinations, same
 // order, same click — the tiles and the drawer rows are still resolved by ONE
 // function (`extensionsDrawerRows.ts`), so a tile cannot open something its row
 // does not, and each still carries the sentence saying what that part is for
@@ -67,18 +64,21 @@ import { homeCardCount, homeCardGrid } from './homeCards'
 // something from something else and with no cards there is nothing to separate
 // them from.
 //
-// **The Community "coming soon" block stays.** Item 2468 removed it as a side
-// effect, on the reading that "the card feed is that promise kept", and it is
-// restored here because that reading does not survive the copy: the block
-// promises a browse of modules OTHER PEOPLE have published, with search and
-// one-click install, once the registry scan lands. What ships above it is two
-// hand-authored first-party cards — no registry, no scan, no third-party
-// publisher — so the two say different things and only one of them has been
-// delivered. Retiring it is an owner call (it is an owner ruling of 2026-09-05
-// that put it here, and a later commit kept it deliberately, with a test on its
-// copy word for word); this epic did not make that call and item 2468 does not
-// authorise it. It sits under the tiles now rather than under the drawer's
-// five, which is the only thing the new page changes about it.
+// **The Community "coming soon" block is gone** (owner, 2026-09-06). It promised
+// a browse of modules other people have published, with search and one-click
+// install, "once the registry scan lands" — and nothing has scheduled that scan.
+// A storefront that gives the last third of its page to an empty state
+// describing a feature with no owner and no date is worse than one that is
+// simply shorter.
+//
+// This overturns the ruling of 2026-09-05 that put the block here, and it is
+// recorded as an overturning because that is what it is: item 2468 removed the
+// block as a side effect and was reverted for exactly the reason that retiring
+// it was not that item's call to make. It is this one's, and the owner made it.
+//
+// **Building the browse is not refused — it is unscheduled.** If the registry
+// scan lands, the browse returns as its own work rather than as a promise kept
+// late (backlog/2026-09-06-the-home-pages-bottom-half.md).
 //
 // What this page deliberately does NOT carry is the module list: module
 // switches live in Settings → Modules, and having them here too put the same
@@ -112,24 +112,24 @@ function ExtensionsHomeTile({
     <button
       type="button"
       onClick={onClick}
-      // One object, five times: the same edges, the same padding, the glyph in
+      // One object, repeated: the same edges, the same padding, the glyph in
       // the same corner, so the row of them reads as one control repeated
-      // rather than five cards that happen to be adjacent. A hairline and the
+      // rather than a handful of cards that happen to be adjacent. A hairline and the
       // raised surface do the containing — no shadow, because nothing in the
       // document flow takes one (principles, "Hairlines carry the structure").
       //
-      // Full height with the count pushed to the foot, so the five count lines
-      // sit on one line however many lines each summary takes. A tile whose
-      // number floated up under a one-line summary while its neighbour's sat
-      // lower would read as five different objects.
+      // Full height with the count pushed to the foot, so the count lines sit on
+      // one line however many lines each summary takes. A tile whose number
+      // floated up under a one-line summary while its neighbour's sat lower
+      // would read as separate objects.
       //
       // The name is the accessible name and it is real text, so the tile needs
       // no aria-label; the glyph and the chevron are decorative and say so.
       className={`flex h-full flex-col rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 pb-2.5 pt-3 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
     >
       <span aria-hidden="true" className="mb-1.5 flex items-start justify-between">
-        {/* Neutral ink, not the accent: five accented glyphs on one page would
-            be a category code in the strongest colour the system has
+        {/* Neutral ink, not the accent: a row of accented glyphs would be a
+            category code in the strongest colour the system has
             (principles, "The accent budget"). */}
         <span className="flex text-[color:var(--text-muted)]">
           <Icon className="icon-md" />
@@ -260,12 +260,21 @@ function useDesignSystemLibraryCount(): { ready: boolean; count: number } {
   return state
 }
 
+/**
+ * The count, as a word. English up to ten and digits past it, because the studio
+ * is not going to have eleven parts and a sentence reading "the 6 things" is a
+ * sentence nobody wrote on purpose.
+ */
+function tileCountWord(count: number): string {
+  const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+  return WORDS[count] ?? String(count)
+}
+
 /** The id the search field says it filters, and the grid it filters. */
 const CARD_GRID_ID = 'extensions-home-cards'
 
-/** The two named regions under the cards, each labelled by its own heading. */
+/** The region under the cards, labelled by its own heading. */
 const PARTS_HEADING_ID = 'extensions-home-parts-heading'
-const COMMUNITY_HEADING_ID = 'extensions-community-heading'
 
 /**
  * The grid, in one shape for every state that has cards in it.
@@ -348,6 +357,10 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   // against the host's own enablement-filtered list. A row whose module is off
   // is absent here exactly as it is in the drawer.
   const rows = useExtensionsDrawerRows()
+  // The rows that actually draw a tile — a row needs both a label and a glyph,
+  // which is the same test the list below applies. Counted once so the sentence
+  // over the row and the row itself cannot disagree.
+  const tiles = useMemo(() => rows.filter((row) => row.label && row.Icon), [rows])
   const counts = useExtensionsHomeCounts()
   // The feed is read, never fetched, here. WorkspaceManager loads it once at
   // boot and subscribes to the main process's push, so a page that fetched on
@@ -502,8 +515,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             door's own name said twice (principles, Composition).
 
             A `<section>` either way, and one the heading names when there is a
-            heading to name it: the tiles and the Community block are two regions
-            of one page, and a reader that can jump between them is the whole
+            heading to name it: a reader that can jump to the tiles is the whole
             point of sectioning them. */}
         <section
           aria-labelledby={hasCardRegion ? PARTS_HEADING_ID : undefined}
@@ -524,16 +536,39 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                 Or go straight to the parts
               </h2>
               <p className="m-0 text-meta text-[color:var(--text-muted)]">
-                The five things the studio is made of.
+                {/* Counted, never typed. It said "five" from 2026-09-05 until
+                    2026-09-06, and item 2470 made it six by splitting the run
+                    doors — the sentence then sat directly above six tiles
+                    miscounting them. A module being off makes it four or five
+                    again, so the only number that can stay true is the one the
+                    rows themselves give. */}
+                The {tileCountWord(tiles.length)} things the studio is made of.
               </p>
             </div>
           ) : null}
-          {/* `auto-fit` rather than a fixed five columns, because the card region
-            is whatever the sidebar and the window leave it: five across at
-            workbench width, fewer as it narrows, and never a tile squeezed
-            below its own copy. */}
-          <ul className="grid list-none grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-2.5">
-            {rows.map((row) =>
+          {/* Column counts that DIVIDE the row, named at container breakpoints —
+            the same idiom `CardGrid` above uses, and for the same reason: the
+            card region is whatever the sidebar and the window leave it, so the
+            breakpoint is the region and never the viewport.
+
+            `auto-fit` was here until 2026-09-06 and cannot be told to stop at a
+            count. With five tiles it happened to resolve to five; item 2470 made
+            it six, and five-across left Agent CLIs alone on a second row against
+            four columns of whitespace. The tile's own note asks the row to read
+            "as one control repeated rather than five cards that happen to be
+            adjacent", and an orphan is exactly what that forbids. 1 / 2 / 3 / 6
+            all divide six, and none of them squeezes a tile below its 176px
+            copy width. */}
+          {/* The container is the WRAPPER and the query variants are on the
+            child, which is the one way round that works: `@container` makes an
+            element a query context for its DESCENDANTS, so an `@[400px]:`
+            utility written on the same element resolves against the nearest
+            ancestor container instead — an ancestor this page does not have, and
+            the grid silently stays at one column. `CardGrid` above is the
+            precedent; this is the same two-element shape. */}
+          <div className="@container">
+          <ul className="grid list-none grid-cols-1 gap-2.5 @[400px]:grid-cols-2 @[620px]:grid-cols-3 @[1160px]:grid-cols-6">
+            {tiles.map((row) =>
               row.label && row.Icon ? (
                 <li key={row.key} className="flex flex-col">
                   <ExtensionsHomeTile
@@ -547,27 +582,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
               ) : null,
             )}
           </ul>
-        </section>
-        {/* Removed by item 2468 and restored here. See the note at the top of
-            this file: the copy promises a browse of what OTHER PEOPLE have
-            published, once the registry scan lands, and none of that has
-            shipped — so retiring it is an owner call this epic did not make. */}
-        <section aria-labelledby={COMMUNITY_HEADING_ID} className="space-y-2">
-          <div className="flex items-baseline gap-2.5">
-            <h2
-              id={COMMUNITY_HEADING_ID}
-              className="text-heading font-semibold text-[color:var(--text-strong)]"
-            >
-              Community
-            </h2>
-            <Badge tone="neutral">Coming soon</Badge>
           </div>
-          <EmptyState
-            density="list"
-            glyph={<ExtensionsGlyph className="icon-lg" />}
-            title="Extensions built by the community"
-            body="A browse of modules other people have published, with search and one-click install, will be listed here once the registry scan lands."
-          />
         </section>
       </div>
     </GlobalSurfaceShell>

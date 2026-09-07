@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import type { HostedCard, HostedCardKind } from '../../../../shared/hosted-card-feed'
 import { CARD_ART_NAMES } from '../workspace/globalSurface/extensions/home/cardArtNames'
 import {
+  cardActionLabel,
   CARD_KIND_STAMPS,
   cardStampLabel,
   homeCardCount,
@@ -210,3 +211,49 @@ run('every kind the schema knows has a word on its stamp', () => {
 })
 
 console.log('homeCards.test.ts: ok')
+
+// ── The word on the button ───────────────────────────────────────────────────
+// Derived, never carried: a `cta` string on the schema would be a field in which
+// a card could lie about what it is about to do, and no parser could check it.
+{
+  const card = (kind: HostedCardKind, go: HostedCard['go']): HostedCard => ({
+    slug: 'x', kind, title: 't', dek: 'd', art: 'board', publishedAt: '2026-09-06', go,
+  })
+  const CHAT = { verb: 'open.chat' as const, prompt: 'p', send: true }
+
+  // Every kind has a word, and the table is keyed on the union so a kind added
+  // to the schema is a typecheck failure rather than a button with nothing in it.
+  for (const kind of ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase'] as const) {
+    const label = cardActionLabel(card(kind, [CHAT]))
+    assert.ok(label.length > 0, `${kind}: has a word`)
+    assert.notEqual(label, 'Go', `${kind}: and it is not "Go"`)
+  }
+  assert.equal(cardActionLabel(card('plugin', [CHAT])), 'Install', 'a plugin card offers an install')
+  assert.equal(cardActionLabel(card('automation', [CHAT])), 'Create', 'an automation card creates one')
+
+  // The ACTIONS outrank the kind. The shipped hero is why: its kind is
+  // `workflow`, so the kind alone would say "Start" — and it starts nothing.
+  assert.equal(
+    cardActionLabel(card('workflow', [{ verb: 'open.surface', view: 'workflows' }])),
+    'Open Workflows',
+    'a card that only navigates names the door, whatever its stamp claims',
+  )
+  // `require.cli` is a check, not a change, so it does not make a card an installer.
+  assert.equal(
+    cardActionLabel(card('mcp', [
+      { verb: 'require.cli', cli: 'claude-code' },
+      { verb: 'open.surface', view: 'agent-clis' },
+    ])),
+    'Open Agent CLIs',
+    'a runtime check does not turn a navigation into an install',
+  )
+  // But anything that actually changes the machine does.
+  assert.equal(
+    cardActionLabel(card('mcp', [
+      { verb: 'install.mcp', id: 'x' },
+      { verb: 'open.surface', view: 'plugins' },
+    ])),
+    'Install',
+    'a card that installs and then navigates is an install',
+  )
+}

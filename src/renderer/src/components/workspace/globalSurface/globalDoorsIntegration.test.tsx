@@ -757,9 +757,24 @@ async function main(): Promise<void> {
         ],
       },
     })
-    // Two sources: the app's own catalogue (always present, non-removable —
-    // its plugins are the registry's, not a scan's) and one repository. A tab
-    // each, the app's leading.
+    // Two sources: the app's own catalogue (always present, non-removable) and
+    // one repository. A tab each, the app's leading.
+    //
+    // That catalogue used to be a `builtin`-kind source whose id was literally
+    // `builtin` and whose record called itself "Multicode"; `catalogueTabLabel`
+    // recognised that id and drew the product's name over it. The
+    // studio-marketplace ruling (2026-09-06, commit 34f5f67ac) replaced it with
+    // the repository we publish — a `github` source at
+    // `sprintengine/studio-releases`, read by the same scanner as any other —
+    // and this fixture kept the retired record. The label rule now keys on
+    // STUDIO_SKILL_SOURCE_ID, so an id of `builtin` fell through to the
+    // record's own name and the tab read "Multicode": the assertion below was
+    // right and the fixture beneath it was two days stale. The constants are
+    // imported rather than typed out so the next rename moves this fixture with
+    // the product instead of leaving it behind again.
+    const { STUDIO_SKILL_SOURCE_ID, STUDIO_SKILL_SOURCE_NAME, STUDIO_SKILL_SOURCE_REPO } = await import(
+      '../../../../../shared/skills'
+    )
     const acmeSource = {
       id: 'github:acme/skills',
       kind: 'github' as const,
@@ -770,17 +785,17 @@ async function main(): Promise<void> {
       commitSha: 'abc1234',
       scannedAt: '2026-07-28T10:00:00.000Z',
     }
-    const builtinSource = {
-      id: 'builtin',
-      kind: 'builtin' as const,
-      name: 'Multicode',
-      repo: '',
-      monogram: 'MC',
-      blurb: 'The skills Multicode ships.',
+    const studioSource = {
+      id: STUDIO_SKILL_SOURCE_ID,
+      kind: 'github' as const,
+      name: STUDIO_SKILL_SOURCE_NAME,
+      repo: STUDIO_SKILL_SOURCE_REPO,
+      monogram: 'SS',
+      blurb: 'The plugin and the skills SprintEngine Studio ships.',
       commitSha: '',
       scannedAt: '',
     }
-    api.skillsListSources = async () => ({ ok: true, sources: [builtinSource, acmeSource] })
+    api.skillsListSources = async () => ({ ok: true, sources: [studioSource, acmeSource] })
     const acmeScan = {
       skills: [
         {
@@ -799,10 +814,10 @@ async function main(): Promise<void> {
       commitSha: 'abc1234',
     }
     api.skillsGetScan = async ({ sourceId }: { sourceId: string }) =>
-      sourceId === 'builtin'
+      sourceId === STUDIO_SKILL_SOURCE_ID
         ? {
             ok: true as const,
-            source: builtinSource,
+            source: studioSource,
             scan: { skills: [], groups: [], groupingSignal: 'none' as const, fileCount: 0, commitSha: '' },
           }
         : { ok: true as const, source: acmeSource, scan: acmeScan }

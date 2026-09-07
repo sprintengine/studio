@@ -30,7 +30,7 @@
 //   that is nowhere on it reads as a bug, and a card missed because the match
 //   was hiding in its install plan reads as a worse one.
 
-import type { HostedCard, HostedCardKind } from '../../../../shared/hosted-card-feed'
+import type { CardSurfaceView, HostedCard, HostedCardKind } from '../../../../shared/hosted-card-feed'
 import { renderableCards } from '../workspace/globalSurface/extensions/home/renderableCards'
 
 /**
@@ -57,6 +57,81 @@ export const CARD_KIND_STAMPS: Readonly<Record<HostedCardKind, string>> = {
 /** The stamp for a card, by its kind. */
 export function cardStampLabel(kind: HostedCardKind): string {
   return CARD_KIND_STAMPS[kind]
+}
+
+/**
+ * The word on a card's button, by what the card offers.
+ *
+ * Every card said **Go** until 2026-09-06, and that was a misreading of ruling
+ * R4. "Go goes" is about CEREMONY — no consent screen, no plan, no progress
+ * modal, no "are you sure" — and it was taken as the button's name, so twelve
+ * different offers wore one label.
+ *
+ * The button matters more here than on an ordinary surface, because the card is
+ * an advert (R2): a claim in one line, no step list, and deliberately no summary
+ * of the actions. So the button is the ENTIRE disclosure. "Go" on a card about to
+ * clone a repository, install a plugin and start an agent says nothing; "Install"
+ * says most of it in one word without becoming the recipe R2 forbids.
+ *
+ * Derived, never carried. A `cta` string on the schema would be a field in which
+ * a card could lie about what it is about to do, and no parser could check it.
+ */
+export const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
+  mcp: 'Install',
+  skill: 'Install',
+  plugin: 'Install',
+  workflow: 'Start',
+  sprint: 'Start',
+  automation: 'Create',
+  showcase: 'See it',
+}
+
+/** A door's name, as a person reads it — the noun that follows "Open". */
+const CARD_SURFACE_NAMES: Readonly<Record<CardSurfaceView, string>> = {
+  home: 'Extensions',
+  plugins: 'Plugins',
+  skills: 'Skills',
+  'agent-clis': 'Agent CLIs',
+  workflows: 'Workflows',
+  sprints: 'Sprints',
+}
+
+/**
+ * Does this card CHANGE anything, or does it only move you somewhere?
+ *
+ * `require.cli` is a check rather than a change, so a card that verifies a
+ * runtime and then opens a door still only navigates. Everything else in the
+ * vocabulary installs, clones or starts an agent.
+ */
+function navigatesOnly(card: HostedCard): CardSurfaceView | null {
+  let view: CardSurfaceView | null = null
+  for (const action of card.go) {
+    if (action.verb === 'open.surface') {
+      view ??= action.view
+      continue
+    }
+    if (action.verb === 'require.cli') continue
+    return null
+  }
+  return view
+}
+
+/**
+ * The label for this card's one control.
+ *
+ * The card's ACTIONS outrank its `kind`, and the shipped hero is why. Its kind is
+ * `workflow`, so the kind alone would label it "Start" — and it starts nothing;
+ * it opens a door. A card whose actions only navigate has to say so whatever its
+ * stamp claims, which is also what stops the button and the stamp saying the same
+ * noun twice.
+ *
+ * Keyed on the union, so a kind added to the schema is a typecheck failure here
+ * rather than a button with no word in it — the same discipline `CARD_KIND_STAMPS`
+ * already keeps.
+ */
+export function cardActionLabel(card: HostedCard): string {
+  const view = navigatesOnly(card)
+  return view ? `Open ${CARD_SURFACE_NAMES[view]}` : CARD_KIND_ACTIONS[card.kind]
 }
 
 /**

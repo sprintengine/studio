@@ -267,8 +267,16 @@ export function useFolderOpenTargets(workspaceId: string | null, openPath: strin
  * target that resolved and re-points the primary (item 1990). Renders nothing
  * until the probe has answered — it does not guess a primary and then correct
  * itself.
+ *
+ * Exported for `seams/premiumFeelSeam.test.tsx`, which mounts this control over
+ * the real launcher probe to prove seam 3 — probe-HIDE, not probe-disable. It
+ * lost its export on 2026-09-04 (bc02a70db) when the probe state moved out to
+ * `useFolderOpenTargets` so the folded overflow menu could share one instance;
+ * the seam then resolved `undefined` and rendered nothing, which no one saw
+ * because verify:app halts long before that step. Keep the export with the
+ * hook: the two together are what the seam mounts.
  */
-function OpenWorkspaceFolderButton({ targets }: { targets: FolderOpenTargets }) {
+export function OpenWorkspaceFolderButton({ targets }: { targets: FolderOpenTargets }) {
   const { available, primaryTarget, openTarget, reprobe, isMac, primaryRef } = targets
 
   const items = React.useMemo<SplitButtonItem[]>(

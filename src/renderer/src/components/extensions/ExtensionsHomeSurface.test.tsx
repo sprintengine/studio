@@ -70,7 +70,10 @@ import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { consumePendingExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
-import type { CardLaunchChoice } from '../workspace/globalSurface/extensions/home/CardGoPicker'
+import {
+  cardRunsAModel,
+  type CardLaunchChoice,
+} from '../workspace/globalSurface/extensions/home/CardGoPicker'
 import {
   __resetModelPermissionPresetsForTest,
   setModelPermissionPreset,
@@ -170,30 +173,24 @@ for (const apology of ['offline', 'Offline', 'could not', 'Could not', 'unavaila
     `the page never reports on its own network (R6), and it does not say “${apology}”`,
   )
 }
-// The Community "coming soon" block STAYS. Item 2468 deleted it on the reading
-// that the card feed was the promise kept; the copy says otherwise — a browse of
-// what OTHER PEOPLE have published, with search and one-click install, once the
-// registry scan lands — and none of that has shipped. It is an owner ruling of
-// 2026-09-05 and retiring it is an owner call this epic did not make, so the
-// assertion on its copy is here word for word, exactly as it was before.
+// The Community "coming soon" block is GONE (owner, 2026-09-06), and this
+// assertion is inverted rather than deleted so the page cannot quietly grow the
+// promise back.
+//
+// It pinned the block's copy word for word, on the reading that retiring it was
+// an owner call no item had made. The owner made it: the block promised a browse
+// of what other people have published "once the registry scan lands", and
+// nothing has scheduled that scan. Building the browse is not refused, it is
+// unscheduled — so if it returns it returns as a rendered browse, never as this
+// empty state.
 assert.ok(
-  home.host.textContent?.includes('Community') && home.host.textContent.includes('Coming soon'),
-  'the Community section keeps its heading and its tag',
+  !home.host.textContent?.includes('Coming soon'),
+  'the page promises nothing that has no owner and no date',
 )
-assert.ok(
-  home.host.textContent?.includes(
-    'A browse of modules other people have published, with search and one-click install, will be listed here once the registry scan lands.',
-  ),
-  'and the ruling’s copy, word for word',
-)
-const communitySection = home.host.querySelector(
-  'section[aria-labelledby="extensions-community-heading"]',
-)
-assert.ok(communitySection, 'it is a named region, not a run of divs')
 assert.equal(
-  communitySection?.querySelector('#extensions-community-heading')?.tagName,
-  'H2',
-  'and the heading that names it is a heading',
+  home.host.querySelector('section[aria-labelledby="extensions-community-heading"]'),
+  null,
+  'and the region it lived in is gone with it, not left empty',
 )
 assert.equal(
   [...home.host.querySelectorAll('input[type="checkbox"], [role="switch"]')].length,
@@ -293,6 +290,16 @@ assert.deepEqual(
 // Driven through the store, which is where the page reads the feed from: the
 // main process owns the fetch and WorkspaceManager owns the subscription, so a
 // page that fetched for itself would be a second reader of one file.
+//
+// Every card here SPAWNS — its `go` ends in an `open.chat` — and that is load
+// bearing rather than incidental. `Go` opens the model picker only on a card
+// that runs a model (item
+// `2026-09-06-go-asks-which-model-only-when-a-model-runs`), so a fixture of
+// empty `go` lists would be asserting the picker's whole contract against three
+// cards that are not entitled to one. The other shape — a card that spawns
+// nothing, and the poster with no button at all — gets its own feed further
+// down, which is also the only honest way to hold both against each other.
+const CHAT = { verb: 'open.chat' as const, prompt: 'Do the thing this card is about.', send: true }
 const FEED: HostedCard[] = [
   {
     slug: 'workflows',
@@ -303,7 +310,7 @@ const FEED: HostedCard[] = [
     art: 'board',
     publishedAt: '2026-09-01T00:00:00.000Z',
     hero: true,
-    go: [],
+    go: [CHAT],
   },
   {
     slug: 'browser',
@@ -313,7 +320,7 @@ const FEED: HostedCard[] = [
     credit: 'Playwright',
     art: 'browser',
     publishedAt: '2026-09-05T00:00:00.000Z',
-    go: [],
+    go: [CHAT],
   },
   {
     slug: 'street',
@@ -323,7 +330,7 @@ const FEED: HostedCard[] = [
     credit: 'Unreal Engine',
     art: 'city',
     publishedAt: '2026-09-03T00:00:00.000Z',
-    go: [],
+    go: [CHAT],
   },
   {
     slug: 'from-a-later-release',
@@ -332,7 +339,7 @@ const FEED: HostedCard[] = [
     dek: 'It names artwork that ships in a release this one has never seen.',
     art: 'artwork-from-a-later-release',
     publishedAt: '2026-09-06T00:00:00.000Z',
-    go: [],
+    go: [CHAT],
   },
 ]
 
@@ -377,6 +384,29 @@ assert.equal(
   'the two columns are 16:9',
 )
 
+// The hero's plate keeps a floor under it, and its dek keeps a ceiling over it
+// (item `2026-09-06-the-hero-keeps-its-words-on-its-plate`).
+//
+// The arithmetic joining those two numbers lives in `cardSplash.test.tsx`,
+// which is where it belongs; what this asserts is that the composition the page
+// actually mounts still carries both. The failure it stands against is a hero
+// whose plate shrank with the card region while its stack of words did not —
+// first the title over open artwork, then the title clipped — and the dek is
+// the one part of that stack with no clamp of its own to bound it, so a floor
+// derived from a stack the dek can outgrow is not a floor at all.
+const heroPlate = cardsIn(home.host)[0]?.querySelector('[class*="aspect-[2.7/1]"]')
+assert.ok(
+  heroPlate?.className.includes('min-h-'),
+  'the hero plate has a floor, so its words always have plate to sit on',
+)
+const heroDek = [...(cardsIn(home.host)[0]?.querySelectorAll('p') ?? [])].find((paragraph) =>
+  paragraph.textContent?.includes('Hand it something too big for one sitting'),
+)
+assert.ok(
+  heroDek?.className.includes('line-clamp-2'),
+  'and the hero dek is clamped, which is what gives that floor a height to be derived from',
+)
+
 // The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
 for (const [title, stamp, credit] of [
   ['Big task? No problem.', 'Workflow', 'Sprint engine'],
@@ -394,34 +424,48 @@ assert.equal(
   'a card is an advert, never a list of steps (ruling R2)',
 )
 
-// ── One Go per card, and one accent in the whole view ────────────────────────
-const goButtons = () =>
-  [...home.host.querySelectorAll('button')].filter((button) =>
-    button.textContent?.trim() === 'Go',
-  ) as HTMLElement[]
-assert.equal(goButtons().length, 3, 'one Go per card, and nothing else to press on it')
-for (const go of goButtons()) {
-  assert.equal(go.getAttribute('type'), 'button')
-  const name = go.getAttribute('aria-label') ?? ''
+// ── One control per card, named for what it does, and all of them accented ───
+//
+// Both halves of this changed on 2026-09-06 and neither was a bug being fixed:
+//
+//   The LABEL is no longer "Go" on every card. R4's "Go goes" is a ruling about
+//   ceremony — no consent screen, no plan, no progress modal — and it had been
+//   read as the button's name, so twelve different offers wore one word. The
+//   button is now derived (`cardActionLabel`): the card's actions first, its
+//   kind second. The hero here only opens a door, so it says so.
+//
+//   The ACCENT is no longer spent once. This block asserted the opposite, on a
+//   correct reading of the budget and a wrong reading of the page: the budget is
+//   a rule about a WORKING surface, and a grid of posters each with one identical
+//   action is not one. `principles.md` now carries the storefront exception, with
+//   its two conditions — the same action repeated, and neutral chrome around it,
+//   which is why the tiles below still take neutral ink.
+const cardButtons = () =>
+  cardsIn(home.host).flatMap((poster) => [...poster.querySelectorAll('button')]) as HTMLElement[]
+assert.equal(cardButtons().length, 3, 'one control per card, and nothing else to press on it')
+for (const button of cardButtons()) {
+  assert.equal(button.getAttribute('type'), 'button')
+  const label = button.textContent?.trim() ?? ''
+  const name = button.getAttribute('aria-label') ?? ''
+  assert.ok(label.length > 0, 'the control carries a visible word')
+  assert.notEqual(label, 'Go', 'and the word is what the card offers, not "Go" on everything')
   assert.ok(
-    name.startsWith('Go — '),
+    name.startsWith(`${label} — `),
     'the accessible name leads with the visible label and then says which card it belongs to',
   )
 }
-// principles, "The accent budget": a solid accent fill is the primary action
-// and nothing else, one per view. Seven accented buttons over five tiles whose
-// glyphs are deliberately neutral ink is exactly the breach that comment warns
-// about, so the hero — the card the FEED promoted, the only one this page ranks
-// — takes the fill and every other card takes the outline.
-const accented = [...home.host.querySelectorAll('button')].filter((button) =>
+// This hero is a `workflow` card that opens a chat, so its kind names the offer.
+// The other direction — a card whose actions only navigate, which must say so
+// whatever its stamp claims — is the pure function's own business and is
+// asserted in homeCards.test.ts, where it needs no DOM.
+const heroButton = cardButtons().find((button) =>
+  (button.getAttribute('aria-label') ?? '').endsWith('Big task? No problem.'),
+)
+assert.equal(heroButton?.textContent?.trim(), 'Start', 'the word is the offer the card makes')
+const accented = cardButtons().filter((button) =>
   (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
 )
-assert.equal(accented.length, 1, 'the accent is spent once in the whole view')
-assert.equal(
-  accented[0]?.getAttribute('aria-label'),
-  'Go — Big task? No problem.',
-  'and it is spent on the hero’s Go',
-)
+assert.equal(accented.length, 3, 'every card\u2019s action carries the accent, not the hero\u2019s alone')
 
 // The task-card family contract: hover is a background change, never a lift.
 for (const poster of cardsIn(home.host)) {
@@ -536,7 +580,7 @@ async function main(): Promise<void> {
   // and choosing from it is a no-op that must not throw: the same guard every
   // reader on this page already has.
   act(() => {
-    goButtons()[0]?.click()
+    cardButtons()[0]?.click()
   })
   assert.ok(picker(), 'Go opens the picker rather than running the card')
   act(() => {
@@ -564,12 +608,12 @@ async function main(): Promise<void> {
     // screen: it is the control every other agent in this product is spawned
     // from (the ruling of 2026-08-04, "the model picker is the spawner").
     act(() => {
-      goButtons()[0]?.click()
-      goButtons()[1]?.click()
+      cardButtons()[0]?.click()
+      cardButtons()[1]?.click()
     })
     assert.equal(ran.length, 0, 'pressing Go installs nothing and runs nothing on its own (R4b)')
     assert.equal(
-      goButtons()[0]?.getAttribute('aria-expanded'),
+      cardButtons()[0]?.getAttribute('aria-expanded'),
       'true',
       'the button says it opened something, because it is now a popover trigger',
     )
@@ -589,7 +633,7 @@ async function main(): Promise<void> {
     // with it: the cli, the model, the effort the CLI declares, and the
     // permission preset remembered against `<cli>:<model>` since 2026-09-05.
     act(() => {
-      goButtons()[0]?.click()
+      cardButtons()[0]?.click()
     })
     const row = rowNamed(MODEL)
     assert.ok(row, 'the picker lists the model this machine has, on the shipped surface’s own rows')
@@ -612,17 +656,17 @@ async function main(): Promise<void> {
     // pressable and does nothing is worse than one that says it cannot be
     // pressed — and a disabled trigger opens no popover, which is what keeps the
     // non-re-entrancy guard true for the picker as well as for the run.
-    for (const go of goButtons()) {
-      assert.equal((go as HTMLButtonElement).disabled, true, 'every Go is disabled while a run is in flight')
+    for (const go of cardButtons()) {
+      assert.equal((go as HTMLButtonElement).disabled, true, 'every card\u2019s control is disabled while a run is in flight')
     }
     act(() => {
-      goButtons()[1]?.click()
+      cardButtons()[1]?.click()
       cardsIn(home.host)[1]?.click()
     })
     assert.equal(picker(), null, 'a card cannot open its picker while a run is in flight — nor through its glass')
     assert.equal(ran.length, 1, 'and nothing else started')
     assert.equal(
-      goButtons()[0]?.getAttribute('aria-busy'),
+      cardButtons()[0]?.getAttribute('aria-busy'),
       'true',
       'and the card that is actually working says so, without a spinner on a poster',
     )
@@ -635,16 +679,16 @@ async function main(): Promise<void> {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    for (const go of goButtons()) {
-      assert.equal((go as HTMLButtonElement).disabled, false, 'and every Go is pressable again once the run settles')
+    for (const go of cardButtons()) {
+      assert.equal((go as HTMLButtonElement).disabled, false, 'and every one is pressable again once the run settles')
     }
-    assert.equal(goButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
+    assert.equal(cardButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
 
     // A row nobody has set falls back to the APP-WIDE default in Settings, not
     // to something invented here: the CLI's own default-model row has no stored
     // preset, so it launches on `lastAgentSpawnPermissionPreset`.
     act(() => {
-      goButtons()[0]?.click()
+      cardButtons()[0]?.click()
     })
     const defaultRow = rowNamed('Claude Code')
     assert.ok(defaultRow, 'the runtime’s own default-model row is there too')
@@ -681,7 +725,7 @@ async function main(): Promise<void> {
           dek: 'It names the harness its skill is copied into.',
           art: 'tokens',
           publishedAt: '2026-09-06T00:00:00.000Z',
-          go: [{ verb: 'require.cli' as const, cli: 'claude-code' }],
+          go: [{ verb: 'require.cli' as const, cli: 'claude-code' }, CHAT],
         },
         {
           slug: 'asks-for-a-runtime-you-do-not-have',
@@ -690,7 +734,7 @@ async function main(): Promise<void> {
           dek: 'It names a harness this machine has never installed.',
           art: 'browser',
           publishedAt: '2026-09-05T00:00:00.000Z',
-          go: [{ verb: 'require.cli' as const, cli: 'a-cli-nobody-installed' }],
+          go: [{ verb: 'require.cli' as const, cli: 'a-cli-nobody-installed' }, CHAT],
         },
       ] satisfies HostedCard[],
       cardFeedStatus: 'ready' as const,
@@ -703,7 +747,7 @@ async function main(): Promise<void> {
   // has not earned yet, and it must not say it: a cold press on a card that
   // requires one of the other nine would otherwise be told a lie it acts on.
   act(() => {
-    goButtons()[1]?.click()
+    cardButtons()[1]?.click()
   })
   assert.ok(picker(), 'a card whose runtime the catalogue has not answered for yet still opens a picker')
   assert.ok(
@@ -752,7 +796,7 @@ async function main(): Promise<void> {
     })
 
     act(() => {
-      goButtons()[0]?.click()
+      cardButtons()[0]?.click()
     })
     const note = [...(picker()?.querySelectorAll('p') ?? [])].find((element) =>
       element.textContent?.includes('the card asks for this one'),
@@ -789,7 +833,7 @@ async function main(): Promise<void> {
     // The EFFORT the person set here rides the launch — and, like the row
     // itself, it is never written to the engine the next New chat opens on.
     act(() => {
-      goButtons()[0]?.click()
+      cardButtons()[0]?.click()
     })
     const effortTrigger = picker()?.querySelector('[data-reasoning-trigger="true"]') as HTMLElement | null
     assert.ok(effortTrigger, 'the CLI declares an effort axis, so the picker offers it')
@@ -837,7 +881,7 @@ async function main(): Promise<void> {
   // A card naming a CLI this machine does not have says which one, with the way
   // to install it — now that the catalogue has actually answered.
   act(() => {
-    goButtons()[1]?.click()
+    cardButtons()[1]?.click()
   })
   assert.ok(
     picker()?.textContent?.includes('a-cli-nobody-installed'),
@@ -851,6 +895,307 @@ async function main(): Promise<void> {
   closePicker()
   act(() => {
     useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+  })
+
+  // ── The predicate, on its own ─────────────────────────────────────────────
+  // `cardRunsAModel` is a question about a card and needs no DOM to answer, so
+  // it is answered here without one. It lives in this file rather than in
+  // `renderableCards.test.ts` beside it only because that suite is bundled with
+  // no browser globals at all and this predicate's module reaches the store.
+  //
+  // The case worth writing down is the LAST one: `kind` is the word on the
+  // stamp, and the schema lets a showcase card open a chat exactly as it lets a
+  // workflow card open a surface. A gate keyed on `kind` would pass every
+  // assertion above and put a plain button in front of an agent launch.
+  const asCard = (kind: HostedCard['kind'], go: HostedCard['go']): HostedCard => ({
+    slug: 'probe',
+    kind,
+    title: 'Probe',
+    dek: 'Probe.',
+    art: 'board',
+    publishedAt: '2026-09-06T00:00:00.000Z',
+    go,
+  })
+  assert.equal(cardRunsAModel(asCard('workflow', [])), false, 'no actions at all runs no model')
+  assert.equal(
+    cardRunsAModel(asCard('workflow', [{ verb: 'open.surface', view: 'agent-clis' }])),
+    false,
+    'opening a door runs no model — this is the shipped hero',
+  )
+  assert.equal(
+    cardRunsAModel(asCard('mcp', [{ verb: 'install.mcp', id: 'playwright' }])),
+    false,
+    'and installing a server runs no model either',
+  )
+  assert.equal(
+    cardRunsAModel(asCard('workflow', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
+    true,
+    'a card that ends in a chat runs one',
+  )
+  assert.equal(
+    cardRunsAModel(asCard('showcase', [CHAT])),
+    true,
+    'including a SHOWCASE card that ends in a chat — the gate reads the actions, never the stamp',
+  )
+
+  // ── A card that runs no model is not asked which one ──────────────────────
+  // Item `2026-09-06-go-asks-which-model-only-when-a-model-runs`. The picker
+  // asks HOW TO RUN, which is a question only a card that SPAWNS has an answer
+  // to. The shipped hero's whole `go` is one `open.surface`, and pressing it
+  // used to present a model search field, six models, a reasoning selector and
+  // a permission chip reading Bypass before opening a tab — four axes chosen
+  // and four axes discarded. Worse on a fresh install: `noAgentCliInstalled` is
+  // the picker's first branch, so a card that installs nothing and launches
+  // nothing could not be pressed at all.
+  //
+  // Both shapes are put on one page here, deliberately. Asserting the direct
+  // card alone would pass just as well against a build that had lost the picker
+  // altogether, and the two cards differ in exactly one thing: their actions.
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      cards: [
+        {
+          slug: 'opens-a-door',
+          kind: 'workflow' as const,
+          title: 'Big task? No problem.',
+          dek: 'Its whole go is one open.surface, exactly as the shipped hero’s is.',
+          art: 'board',
+          publishedAt: '2026-09-01T00:00:00.000Z',
+          hero: true,
+          go: [{ verb: 'open.surface' as const, view: 'agent-clis' as const }],
+        },
+        {
+          slug: 'spawns-an-agent',
+          kind: 'skill' as const,
+          title: 'A card that starts an agent',
+          dek: 'The same page, the same button, and a model to choose.',
+          art: 'tokens',
+          publishedAt: '2026-09-05T00:00:00.000Z',
+          go: [CHAT],
+        },
+      ] satisfies HostedCard[],
+      cardFeedStatus: 'ready' as const,
+    }))
+  })
+
+  {
+    const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
+    setExtensionsSurfaceHost({
+      onLaunchConnector: () => {},
+      onUseInAutomation: () => {},
+      onUseSkillInNewAgent: () => {},
+      onRunCard: (card, launch) => {
+        ran.push({ slug: card.slug, launch })
+        return Promise.resolve()
+      },
+    })
+
+    // The button says which it is before anybody presses it. A popover trigger
+    // announces the thing it controls; a plain button has nothing to announce,
+    // and a reader is entitled to know whether Enter opens a menu or does the
+    // work.
+    const [direct, spawner] = cardButtons()
+    assert.equal(direct?.getAttribute('aria-haspopup'), null, 'a card that runs no model has a plain control')
+    assert.equal(direct?.getAttribute('aria-expanded'), null, 'and it controls nothing, because there is nothing to control')
+    assert.equal(spawner?.getAttribute('aria-haspopup'), 'dialog', 'and the card beside it that DOES spawn is unchanged')
+    // This card's whole `go` is one `open.surface`, so its label names the door
+    // rather than its kind — the two hosts still draw ONE button, they just no
+    // longer draw one WORD (2026-09-06: the label is derived per card, and "Go"
+    // on everything was a misreading of R4's ceremony ruling).
+    assert.equal(
+      direct?.getAttribute('aria-label'),
+      'Open Agent CLIs — Big task? No problem.',
+      'both hosts draw the same button: same label, same name, same card in it',
+    )
+    assert.equal(
+      spawner?.textContent?.trim(),
+      'Install',
+      'and the card that spawns names its own offer, from its kind',
+    )
+
+    // One press runs it. No popover appears at any point — not before the run
+    // and not after it.
+    act(() => {
+      direct?.click()
+    })
+    assert.equal(picker(), null, 'pressing it opens nothing to choose from')
+    assert.equal(ran.length, 1, 'it just runs')
+    assert.equal(ran[0]?.slug, 'opens-a-door')
+    assert.deepEqual(
+      ran[0]?.launch,
+      { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
+      'on the app’s own defaults — the wire shape is unchanged, so nothing downstream learns a second kind of press',
+    )
+
+    // "One run at a time, and never two" is the page's REF, not the disabled
+    // attribute: two clicks in one tick both read the same render. The direct
+    // path goes through the same `onLaunch`, so it inherits the same guard —
+    // and this is the assertion that catches a direct press wired around it.
+    act(() => {
+      cardButtons()[0]?.click()
+      cardButtons()[1]?.click()
+    })
+    assert.equal(ran.length, 1, 'a second press in the same tick starts nothing, on either card')
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The glass still does exactly what the button does — which is now two
+    // different things. `openAtPress` belongs to the popover half; a card with
+    // no popover has no state to reopen, and its whole area has to run it or
+    // the poster is inert everywhere but on a 30px pill.
+    pressCard(0)
+    assert.equal(picker(), null, 'the card’s own area opens nothing either')
+    assert.equal(ran.length, 2, 'and pressing the card runs it, exactly as pressing the button does')
+    assert.equal(ran[1]?.slug, 'opens-a-door')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // On a machine with NO agent CLI at all — the fresh install this page was
+    // built for. The picker's first branch answers "No agent CLI is installed"
+    // and offers a route to Settings, which is right for a card that spawns and
+    // was a locked door on one that does not.
+    act(() => {
+      useWorkspaceStore.setState((state) => ({
+        pluginCatalogEntries: [] as never,
+        pluginCatalogStatus: 'ready' as never,
+        appSettings: { ...state.appSettings, cliRuntimes: {} },
+      }))
+    })
+    act(() => {
+      cardButtons()[1]?.click()
+    })
+    assert.ok(
+      picker()?.textContent?.includes('No agent CLI is installed'),
+      'the card that spawns says so, and offers the way to fix it',
+    )
+    closePicker()
+    act(() => {
+      cardButtons()[0]?.click()
+    })
+    assert.equal(ran.length, 3, 'and the card that launches no agent runs anyway, because it needs none')
+    assert.equal(ran[2]?.slug, 'opens-a-door')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    setExtensionsSurfaceHost(null)
+  }
+
+  // ── A card with nothing to run does not offer to run it ───────────────────
+  // Item `2026-09-06-a-card-with-nothing-to-run-has-no-go`. An empty `go` is
+  // legal — `hosted-card-feed.ts` blesses it in as many words, "a showcase card
+  // can be pure marketing" — and nothing downstream used to agree: the card drew
+  // a `Go`, the executor looped over nothing and returned `ok`, and the press
+  // produced no toast, no navigation and no error. A button that does nothing at
+  // all is the one state the executor's own header says it exists to prevent.
+  //
+  // The answer taken is option 1: the card draws no button and is a poster. The
+  // assertion is at the SURFACE rather than in the parser because the parser is
+  // not where the sentence was broken — the row is still a card, and still
+  // renders.
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      cards: [
+        {
+          slug: 'pure-marketing',
+          kind: 'showcase' as const,
+          title: 'Look what somebody built',
+          dek: 'It is a picture and a claim, and there is nothing here to install.',
+          credit: 'Unreal Engine',
+          art: 'city',
+          publishedAt: '2026-09-06T00:00:00.000Z',
+          hero: true,
+          go: [],
+        },
+        {
+          slug: 'has-something-to-do',
+          kind: 'skill' as const,
+          title: 'A card with something to run',
+          dek: 'The same page, so the difference is the actions and nothing else.',
+          art: 'tokens',
+          publishedAt: '2026-09-05T00:00:00.000Z',
+          go: [CHAT],
+        },
+      ] satisfies HostedCard[],
+      cardFeedStatus: 'ready' as const,
+    }))
+  })
+
+  {
+    const ran: string[] = []
+    setExtensionsSurfaceHost({
+      onLaunchConnector: () => {},
+      onUseInAutomation: () => {},
+      onUseSkillInNewAgent: () => {},
+      onRunCard: (card) => {
+        ran.push(card.slug)
+        return Promise.resolve()
+      },
+    })
+
+    const poster = cardsIn(home.host).find((candidate) => titleOf(candidate) === 'Look what somebody built')
+    assert.ok(poster, 'the card is still rendered — an empty `go` is not a reason to drop the row')
+    assert.equal(cardButtons().length, 1, 'and the only control on the page belongs to the card that has something to run')
+    assert.equal(
+      poster?.querySelectorAll('button, a[href], input, [tabindex]').length,
+      0,
+      'a card that cannot act offers nothing to press',
+    )
+    // Deliberate, and the review focus asked for it in these words: `Go` is the
+    // card's only tab stop and the card's ring is keyed to it, so a poster has
+    // neither. There is nothing for Enter to do here, and a tab stop that
+    // answers no key is worse than no tab stop at all.
+    const posterClasses = poster?.getAttribute('class') ?? ''
+    assert.ok(!posterClasses.includes('has-[button:focus-visible]'), 'so it wears no ring keyed to a button it does not have')
+    assert.ok(!posterClasses.includes('cursor-pointer'), 'and no pointer cursor, because there is nothing to point at')
+    assert.ok(!posterClasses.includes('hover:bg-'), 'and no hover tint, because hover is how this card family says “target”')
+    assert.equal(
+      [...(poster?.children ?? [])].filter((child) =>
+        (child.getAttribute('class') ?? '').includes('absolute inset-0'),
+      ).length,
+      0,
+      'and no glass over it: an overlay that swallows the pointer and answers nothing is the dead button again',
+    )
+    // It is still a card and still readable — the picture, the heading, the
+    // stamp and the credit are all there. "No button" is not "no content".
+    assert.ok(poster?.querySelector('h3'), 'the poster still names itself in a heading')
+    assert.ok(poster?.textContent?.includes('Showcase'), 'and keeps its stamp')
+    assert.ok(poster?.textContent?.includes('Unreal Engine'), 'and its credit')
+
+    // Nothing can start a run from it, by pointer or otherwise, so the no-op
+    // press is not merely hidden.
+    act(() => {
+      poster?.click()
+    })
+    assert.deepEqual(ran, [], 'and pressing the card itself starts nothing, because there is nothing to start')
+
+    // The card beside it is untouched, which is what makes the assertions above
+    // about THIS card rather than about a page that had lost its buttons.
+    act(() => {
+      cardButtons()[0]?.click()
+    })
+    assert.ok(picker(), 'the card with actions still opens its picker')
+    closePicker()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    setExtensionsSurfaceHost(null)
+  }
+
+  // Put the machine and the feed back the way the rest of this file found them.
+  act(() => {
+    useWorkspaceStore.setState((state) => ({
+      pluginCatalogEntries: [] as never,
+      pluginCatalogStatus: 'idle' as never,
+      appSettings: {
+        ...state.appSettings,
+        cliRuntimes: { 'claude-code': { command: 'claude', useWsl: false, models: [MODEL] } },
+      },
+      cards: FEED,
+      cardFeedStatus: 'ready' as const,
+    }))
   })
 
   // ── The tiles are still there, and they are underneath ───────────────────────

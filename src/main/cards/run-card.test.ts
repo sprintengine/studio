@@ -542,8 +542,8 @@ async function main(): Promise<void> {
     assert.equal(result.ok, false)
     assert.match(
       result.message ?? '',
-      /Agent CLIs/,
-      'Go says which CLI is missing and where to install it — it never runs an installer nobody has seen',
+      /Settings → Agents/,
+      'Go says which CLI is missing and where to install it — one destination, the app\'s (MC-2093), never a second door of the card path\'s own',
     )
     assert.deepEqual(calls, ['detectCli claude-code'], 'and it stops there')
   }

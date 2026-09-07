@@ -6,12 +6,15 @@
       "slug": "big-task-no-problem",
       "kind": "workflow",
       "title": "Big task? No problem.",
-      "dek": "Hand it something too big for one sitting. An architect reads your repository, decides what the work actually is, and a roster of agents runs the pieces in parallel while you watch the board.",
+      "dek": "Too big for one sitting? An architect works out what the work is, and a roster of agents runs it in parallel.",
       "art": "board",
       "publishedAt": "2026-09-06",
       "hero": true,
       "go": [
-        { "verb": "open.surface", "view": "agent-clis" }
+        {
+          "verb": "open.surface",
+          "view": "workflows"
+        }
       ]
     },
     {
@@ -23,7 +26,10 @@
       "art": "tokens",
       "publishedAt": "2026-09-03",
       "go": [
-        { "verb": "require.cli", "cli": "claude-code" },
+        {
+          "verb": "require.cli",
+          "cli": "claude-code"
+        },
         {
           "verb": "install.skill",
           "source": "github:sprintengine/studio-releases",
@@ -32,7 +38,9 @@
         {
           "verb": "open.chat",
           "prompt": "Read the UI this repository already has, pull out the colours and spacing it repeats by hand, and write them down as a design-system bundle the build can check.",
-          "skills": ["frontend-design"],
+          "skills": [
+            "frontend-design"
+          ],
           "send": true
         }
       ]

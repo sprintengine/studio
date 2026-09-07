@@ -97,7 +97,13 @@ expectIncludes(
   'Popover stacks on the token tier, not on a number that happens to equal it',
 )
 expectIncludes(popover, 'OVERLAY_SURFACE_CLASS', 'Popover uses the canonical popover shell')
-expectIncludes(popover, "window.addEventListener('scroll', reposition, true)", 'Popover tracks its trigger on scroll')
+// The handler was named `reposition` until af6585509 renamed it `onScroll`, and
+// this assertion kept naming the old one — so it failed, and because verify:app
+// is one long `&&` chain it took the 224 steps after it down with it, including
+// every card-feed suite. A source-literal assertion is only as good as the
+// literal: match the capture, not the handler's name.
+expectIncludes(popover, "addEventListener('scroll'", 'Popover tracks its trigger on scroll')
+expectIncludes(popover, "removeEventListener('scroll'", 'Popover releases the scroll listener')
 expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
 
 // ContextMenu — pointer-positioned menu primitive (right-click / kebab-corner

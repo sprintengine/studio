@@ -26,6 +26,20 @@ If a surface needs a second accent, it is missing hierarchy, not color. Status
 hues (`status.*`) are not accents: never a button background, section border,
 chrome tint, or category code.
 
+**The storefront exception** (2026-09-06). A grid of offers — cards in a
+catalogue, each with one identical action in the same place — takes the accent on
+*every* card's action, not on one. The budget above is a rule about a **working**
+surface, where a second accent means the hierarchy is missing; in a storefront
+the picture and the title do the ranking and the button is furniture that has to
+be findable. Spending the accent once there leaves every card but one with its
+call to action as the quietest thing on it.
+
+Two conditions, and both are load-bearing: the actions must be **the same action
+repeated** (a row of unlike accented controls is a category code, which the rule
+above forbids), and the surrounding chrome must stay neutral — the Extensions
+home accents its cards' buttons and deliberately leaves its tile glyphs in
+neutral ink for exactly this reason.
+
 **Selection is neutral.** A selected row uses `bg.selected` — a neutral fill —
 and lifts its title to `text.primary`. It does not use the accent, and it does
 not carry a left bar, a border box, or a glow. A row that is merely *chosen*

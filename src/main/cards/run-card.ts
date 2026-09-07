@@ -172,7 +172,17 @@ export type CardRunDeps = {
 /** `owner/name` and nothing else, re-checked here rather than taken on the parser's word. */
 const REPO_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 
-const SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
+const SURFACE_VIEWS: readonly CardSurfaceView[] = [
+  'home',
+  'plugins',
+  'skills',
+  'agent-clis',
+  // The two run doors (item 2470). They are global surfaces rather than views of
+  // the Extensions door, which is why the renderer opens them without a latch —
+  // see `CardSurfaceView` for the rule that now covers both kinds.
+  'workflows',
+  'sprints',
+]
 
 export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<CardRunResult> {
   const actions = [...input.actions]
@@ -297,9 +307,22 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // module states in its own contract, and picking an install method on
     // somebody's behalf from a hosted feed is exactly the thing that gate is
     // there to stop. So Go says which CLI is missing and where to get it.
+    //
+    // And where it names is **Settings → Agents**, not the Agent CLIs view in
+    // the Extensions door, even though the door is the surface the person
+    // pressing Go is standing in (decided 2026-09-06,
+    // backlog/2026-09-06-the-seams-that-lead-nowhere.md §3). MC-2093's rule is
+    // that every "there is no agent CLI here" state ends in one place, and
+    // `cliInstallRoute.tsx` is that place — the empty launcher, the agent
+    // pickers, and `CliInstallRosterRow` in the card's own Go picker all open
+    // Settings → Agents. This message is the backstop behind that same picker,
+    // so naming a second door would mean the row a person just clicked and the
+    // sentence they get if they press on anyway disagree about where CLIs come
+    // from. The Extensions → Agent CLIs view is a catalogue you browse; it is
+    // not the answer to "you have none".
     return {
       status: 'failed',
-      message: `${action.cli} is not installed. Install it from Extensions → Agent CLIs, then press Go again.`,
+      message: `${action.cli} is not installed. Install it from Settings → Agents, then press Go again.`,
     }
   }
 

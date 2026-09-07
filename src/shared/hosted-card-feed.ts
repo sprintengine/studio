@@ -9,9 +9,17 @@
 // artwork this build already ships, and an ordered list of actions drawn from a
 // closed vocabulary of verbs the studio already implements. A card may name an
 // action; it may not bring one. That is why there is no exec verb, no verb that
-// writes a file, and no field anywhere below that holds a URL: a hostile copy of
-// this feed can at worst propose a bad plugin, which is the blast radius the
-// plugin catalogue already has.
+// writes a file, and no field anywhere below that holds a URL.
+//
+// **What a press of `Go` can actually cause is written down**, because the
+// composition is larger than any one verb and because nothing but our own CI
+// and our own authorship stands in front of it (R4a, owner, 2026-09-06):
+// `CARD_CLONE_OWNERS` below. Read its note before you widen
+// anything below — it also carries the list of conditions under which R4a must
+// be revisited rather than inherited. This file used to say the blast radius of
+// a hostile feed was "the one the plugin catalogue already has"; that is true
+// about the ARTEFACT and false about the ceremony, since the plugin catalogue
+// has a person choosing to install and a card deliberately does not.
 //
 // Node-free on purpose: `src/shared` cannot import `src/main` (TS6307). The
 // fetcher, cache, and seed live in src/main/hosted-feed/card-feed-client.ts.
@@ -34,14 +42,45 @@ export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'workflow' | 'sprint' 
 
 const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase']
 
-// The Extensions views a card may open. The last three are exactly
-// `EXTENSIONS_DRAWER_VIEWS` in the renderer's extensionsSurfaceTarget.ts, and
-// `home` is the card feed's own tab beside them. Restated here rather than
-// imported because src/shared may not reach into the renderer; if a fourth view
-// is ever added to the door, it is added here too, never renamed.
-export type CardSurfaceView = 'home' | 'plugins' | 'skills' | 'agent-clis'
+// The doors a card may open. Two kinds, and the distinction matters to whoever
+// adds the next one:
+//
+//   - `plugins`, `skills` and `agent-clis` are VIEWS OF THE EXTENSIONS DOOR —
+//     exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
+//     extensionsSurfaceTarget.ts — and `home` is the card feed's own page beside
+//     them. The renderer latches the view and then opens the door.
+//   - `workflows` and `sprints` are GLOBAL SURFACES of their own, opened
+//     directly with no latch.
+//
+// That second group is why the rule this comment used to state was not enough.
+// It said "if a fourth view is ever added to the door, it is added here too" —
+// a rule about the Extensions door, which could not catch a door added OUTSIDE
+// it. Item 2470 split the run kinds into Workflows and Sprints in the same epic
+// that built this file, and the vocabulary was never told: the shipped hero card
+// is `kind: workflow`, its dek is about an architect and a roster, and the only
+// destinations it could name were three catalogues and this page. So the rule is
+// now the wider one — **every door the app has, whether or not it lives under
+// Extensions** — and adding one here is additive and safe, because a build that
+// does not know a view drops the card and counts it rather than opening nothing.
+//
+// Restated here rather than imported because src/shared may not reach into the
+// renderer. Added to, never renamed: this union is a permanent contract.
+export type CardSurfaceView =
+  | 'home'
+  | 'plugins'
+  | 'skills'
+  | 'agent-clis'
+  | 'workflows'
+  | 'sprints'
 
-const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
+const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = [
+  'home',
+  'plugins',
+  'skills',
+  'agent-clis',
+  'workflows',
+  'sprints',
+]
 
 // The closed verb set, and it is closed against the call sites rather than
 // against an imagination of them. The first cut of this union carried thirteen
@@ -67,11 +106,13 @@ export type CardAction =
   // installing it. Installing a CLI runs a shell command on the person's
   // machine, and `CliInstallMethodInfo` exists so that command is shown before
   // anybody consents to it; a card may not answer that disclosure on somebody's
-  // behalf, so the executor refuses and points at Extensions → Agent CLIs. This
-  // comment said "and install it if not" until 2026-09-06, which described
-  // behaviour the executor deliberately does not have. `cli` is a plugin id
-  // under `resources/plugins/` (`claude-code`, `codex`), never a vendor name or
-  // a binary path.
+  // behalf, so the executor refuses and points at Settings → Agents — the app's
+  // one install route (MC-2093, and see `openChat`'s neighbour in
+  // src/main/cards/run-card.ts for why a card's refusal names it rather than the
+  // Agent CLIs view the card is standing in). This comment said "and install it
+  // if not" until 2026-09-06, which described behaviour the executor
+  // deliberately does not have. `cli` is a plugin id under `resources/plugins/`
+  // (`claude-code`, `codex`), never a vendor name or a binary path.
   | { verb: 'require.cli'; cli: string }
   // A server from the bundled MCP catalogue, by its catalogue id — reverse-DNS,
   // as `resources/mcps/catalog.json` writes them
@@ -102,6 +143,25 @@ export type CardAction =
   // catalogue ids. `send` is required rather than optional: R4 is "Go goes", and
   // an unstated `send` leaves the reader guessing whether the card meant to park
   // its prompt in the composer for somebody to approve.
+  //
+  // **`mcpServers` is an assertion, not an attachment** — read this before you
+  // write one (2026-09-06,
+  // backlog/2026-09-06-the-seams-that-lead-nowhere.md §2). Listing a server here
+  // does not put it on the chat: the executor's `openChat`
+  // (src/main/cards/run-card.ts) deliberately carries nothing across, because
+  // the card's servers reach the chat by already being in the workspace's
+  // `.mcp.json`, which the `install.mcp` earlier in the same card wrote on the
+  // way past. What the field does is bound what the card may CLAIM —
+  // `refuseCardActions` below refuses a card whose chat names a server the card
+  // does not install itself — so it is the place a card states its own
+  // dependency and is held to it, not a way to reach a server it never
+  // installed. `skills` is the opposite shape and that asymmetry is real: the
+  // renderer attaches skills by name because a chip in the composer is the only
+  // way a skill shows up, while an MCP server is already there in the file.
+  //
+  // Kept rather than deleted for the reason at the head of this file: the schema
+  // is a permanent contract, and a field years-old builds parse cannot be
+  // withdrawn just because the executor stopped forwarding it.
   | { verb: 'open.chat'; prompt: string; skills?: string[]; mcpServers?: string[]; send: boolean }
   // A door, on one of the Extensions views. Mirrors `ExtensionsSurfaceTarget`
   // exactly: a view, and optionally its Installed tab. The pair it replaces
@@ -109,14 +169,65 @@ export type CardAction =
   | { verb: 'open.surface'; view: CardSurfaceView; installed?: boolean }
   // Clone a public GitHub repository and open it. `repo` is `owner/name`: a card
   // names a repository, never a URL, so no card can point git at a host of its
-  // choosing. `folderName` is the single directory name to clone into, and the
-  // executor supplies `parentDir` — where this app keeps projects is the app's
-  // business, not a card's. There is no `ref`, because `cloneGitHubRepo` takes
+  // choosing, and the owner must be one of `CARD_CLONE_OWNERS` below.
+  // `folderName` is the single directory name to clone into, and the executor
+  // supplies `parentDir` — where this app keeps projects is the app's business,
+  // not a card's. There is no `ref`, because `cloneGitHubRepo` takes
   // `{ url, parentDir, folderName }` and has no branch or tag support: a `ref`
   // field would be a promise the installer cannot keep.
   | { verb: 'clone.repo'; repo: string; folderName?: string }
 
 export type CardActionVerb = CardAction['verb']
+
+/**
+ * The GitHub owners a card may clone from — the one rule in this file that
+ * names us rather than the schema, and the one defence a card feed has that
+ * does not run in CI.
+ *
+ * `clone.repo` is the outlier among the verbs. Every other id a card carries is
+ * resolved against something this build already holds: a CLI against the
+ * registered agent-CLI plugin ids, a server against the bundled MCP catalogue,
+ * a skill or a plugin against that source's own scan, a view against the four
+ * `CARD_SURFACE_VIEWS`. A repository was resolved against nothing. The only
+ * test applied to it was its SHAPE, and `owner/name` is a shape every public
+ * repository on GitHub has — so `run-card.ts`'s claim that "every id is
+ * resolved against something this app already holds" had two exceptions, not
+ * one: that file already qualifies itself for `open.chat`'s prompt, and this
+ * was the other.
+ *
+ * What that bought a card is the largest step in the chain a single press can
+ * execute. A clone becomes the workspace every later action installs into AND
+ * the workspace the chat opens in, and that chat launches on the person's
+ * remembered permission preset, whose app-wide default is `bypass`
+ * (`DEFAULT_AGENT_SPAWN_PERMISSION_PRESET`, owner, 2026-07-26). A repository we
+ * did not publish carries `CLAUDE.md`, `.claude/`, `.mcp.json` and agent
+ * definitions that the harness reads when it starts — so an unbounded
+ * `clone.repo` was a way to put somebody else's instructions in front of an
+ * agent running without permission checks, from one press of a button and with
+ * no dialog anywhere on the path, which is exactly what R4a rules there must
+ * not be.
+ *
+ * `scripts/check-card-feed-seed.mjs` has refused a non-`sprintengine` clone in
+ * the bundled seed since it was written, and said in its own comment that "a
+ * card can name any public repository once the feed is hosted". That asymmetry
+ * is closed here rather than merely stated (2026-09-06,
+ * backlog/2026-09-06-the-only-gate-is-our-own-ci.md), because the seed gate is
+ * CI and CI never reads the hosted file: `check-card-feed-seed.mjs` opens
+ * `resources/cards-feed.json` and nothing else, so every rule it enforces stops
+ * at the artefact that ships in the installer. This rule ships INSIDE the app,
+ * which is what makes it hold for the hosted feed too — at both boundaries
+ * `parseCardAction` is called from, the feed parse in main and the `cards:run`
+ * re-parse in `src/main/ipc/cards-ipc.ts`.
+ *
+ * The cost, stated so the next person does not discover it: widening this list
+ * is an app release, and until every build in the field has it, a card cloning
+ * the new owner is dropped — silently, because R6 says the page never
+ * apologises for its own network. That is the same operational shape as adding
+ * a verb, which this schema already lives with, and it is the reason the list is
+ * an array rather than a single constant. GitHub owners are case-insensitive,
+ * so the comparison is too.
+ */
+export const CARD_CLONE_OWNERS: readonly string[] = ['sprintengine']
 
 export type HostedCard = {
   // Stable for the life of the card: the directory name in the cards repo, and
@@ -326,6 +437,16 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
     case 'clone.repo': {
       const repo = repoName(raw.repo)
       if (!repo) return { ok: false, message: 'clone.repo needs a repo as owner/name.' }
+      // The trust rule, applied after the shape rule so the two failures read
+      // differently: "that is not a repository name" and "that is not a
+      // repository we publish" are different mistakes by an author. See
+      // `CARD_CLONE_OWNERS` for why a card may not clone anything else.
+      if (!isCardCloneOwner(repo)) {
+        return {
+          ok: false,
+          message: `clone.repo may only clone a repository we publish, and "${repo}" is not under ${CARD_CLONE_OWNERS.map((owner) => `${owner}/`).join(' or ')}.`,
+        }
+      }
       const folderName = text(raw.folderName)
       // One segment, and never a relative directory: the executor joins this
       // onto the app's projects directory, which is the same gate
@@ -410,6 +531,15 @@ function repoName(value: unknown): string {
   // owner/name by that rule alone — and `clone.repo` hands the pair to a path
   // join. Neither segment may be a relative directory.
   return repo.split('/').some((segment) => segment === '.' || segment === '..') ? '' : repo
+}
+
+// Whether an already-shape-checked `owner/name` is one a card may clone.
+// Case-folded on both sides: GitHub treats `SprintEngine` and `sprintengine` as
+// the same owner and a rule that did not would be one lowercase letter away
+// from being no rule at all.
+function isCardCloneOwner(repo: string): boolean {
+  const owner = repo.slice(0, repo.indexOf('/')).toLowerCase()
+  return CARD_CLONE_OWNERS.some((allowed) => allowed.toLowerCase() === owner)
 }
 
 // A fresh array of trimmed strings, or null when the field was absent or held

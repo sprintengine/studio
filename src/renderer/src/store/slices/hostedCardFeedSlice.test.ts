@@ -49,10 +49,6 @@ async function main(): Promise<void> {
         calls.push('get')
         return okResult(['browser'], 'seed', false)
       },
-      hostedCardFeedRefresh: async (input) => {
-        calls.push(`refresh:${input?.forceRefresh ? 'force' : 'ttl'}`)
-        return okResult(['browser', 'design-system'], 'network', true)
-      },
     }),
   })
 
@@ -63,10 +59,11 @@ async function main(): Promise<void> {
   assert.equal(carrier.cardFeedStatus, 'ready')
   assert.equal(carrier.cardFeedError, null)
 
-  // A refresh forces when asked, and is applied here without waiting for the push.
-  const refreshed = await slice.refreshCards({ force: true })
-  assert.equal(refreshed?.ok, true)
-  assert.deepEqual(calls, ['get', 'refresh:force'])
+  // The push is the only other way rows arrive: there is no refresh action on
+  // this slice, and a test that invented one would be the whole of its
+  // audience (the seam this file's sibling comment records).
+  slice.applyHostedCardFeedResult(okResult(['browser', 'design-system'], 'network', true))
+  assert.deepEqual(calls, ['get'], 'the slice never fetches; main does')
   assert.deepEqual(slugsOf(carrier), ['browser', 'design-system'])
 
   // A failed read keeps the last good feed and records why. The page never
@@ -87,16 +84,12 @@ async function main(): Promise<void> {
       hostedCardFeedGet: async () => {
         throw new Error('no bridge')
       },
-      hostedCardFeedRefresh: async () => {
-        throw new Error('no bridge')
-      },
     }),
   })
   await throwing.loadCards()
   assert.deepEqual(slugsOf(carrier), ['browser'])
   assert.equal(carrier.cardFeedStatus, 'error')
   assert.equal(carrier.cardFeedError, 'no bridge')
-  assert.equal((await throwing.refreshCards())?.ok, false)
 
   // Nothing on screen yet means loading; cards already showing means no spinner.
   const empty: HostedCardFeedSliceState = { cards: [], cardFeedStatus: 'idle', cardFeedError: null }
@@ -107,7 +100,6 @@ async function main(): Promise<void> {
         new Promise<HostedCardFeedReadResult>((resolve) => {
           release = () => resolve(okResult(['browser'], 'seed', false))
         }),
-      hostedCardFeedRefresh: async () => okResult(['browser'], 'network', true),
     }),
   })
   const inFlight = pending.loadCards()
@@ -115,7 +107,11 @@ async function main(): Promise<void> {
   release!()
   await inFlight
   assert.equal(empty.cardFeedStatus, 'ready')
-  void pending.refreshCards()
+  // A re-read behind cards that are already on screen is not a spinner.
+  const behind = pending.loadCards()
+  assert.equal(empty.cardFeedStatus, 'ready')
+  release!()
+  await behind
   assert.equal(empty.cardFeedStatus, 'ready')
 
   // The push subscription applies whatever main sends, and detaches.
@@ -137,7 +133,6 @@ async function main(): Promise<void> {
   // No api (a test renderer, a detached tool window) is a quiet no-op.
   const bare = createHostedCardFeedSlice((mutator) => mutator(carrier), { getApi: () => null })
   await bare.loadCards()
-  assert.equal(await bare.refreshCards(), null)
   assert.deepEqual(slugsOf(carrier), ['only-this'])
   assert.equal(subscribeHostedCardFeedChanges(() => {}, null)(), undefined)
 

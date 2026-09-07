@@ -490,6 +490,25 @@ async function main(): Promise<void> {
     // refused: an empty machine is a real state, and a refusal here would test
     // the sidebar's degraded path rather than the rail swap.
     listSprintRuns: async () => [],
+    // The tailnet/fleet presence bridge is ABSENT here, deliberately, rather
+    // than stubbed — the same ruling `sprintRowsLeaveProjects.test.tsx` records.
+    // `hasTailnetPresenceBridge` (topbar/useTailnetPresence.ts) needs all six to
+    // be functions and otherwise leaves the sidebar's Remote band empty. Without
+    // this, the inert fallback answered `fleetListConnections()` with its
+    // `{ ok: false, … }` refusal, `buildRemoteBand` called `.map` on that object
+    // and WorkspaceSidebar threw "connections.map is not a function" at mount,
+    // taking the rail-swap check below with it. (The band landed 2026-09-05,
+    // after this seam, and was never seen because verify:app halts earlier.)
+    // Naming them undefined keeps `prop in target` true, so the Proxy hands back
+    // undefined and the guard reads the bridge as missing — which it is. This
+    // seam says nothing about the Remote band; stubbing a fleet here would be
+    // inventing a shape no assertion reads.
+    onTailnetEvent: undefined,
+    onFleetEvent: undefined,
+    tailnetGetStatus: undefined,
+    tailnetGetLiveState: undefined,
+    fleetListConnections: undefined,
+    fleetGetLiveState: undefined,
   })
 
   /**
@@ -646,7 +665,17 @@ async function main(): Promise<void> {
     '../main/ipc/folder-open-ipc'
   )
   const { FOLDER_OPEN_TARGET_IDS } = await import('../shared/folder-open-targets')
-  const { OpenWorkspaceFolderButton } = await import(
+  // 2026-09-04 (bc02a70db) split this control in two: `useFolderOpenTargets`
+  // owns the probe, the launch and the remembered primary, and the button is a
+  // renderer over one hook instance — so the folded overflow menu and the
+  // inline SplitButton cannot each register `Primary+O`. This seam mounted the
+  // pre-split `<OpenWorkspaceFolderButton workspaceId openPath />`, which after
+  // the split resolved to `undefined` and threw "Element type is invalid" on
+  // every render, taking both checks below down with it. Rewired 2026-09-06 to
+  // the shipped pair, called exactly the way `WorkspaceIdentity` calls it —
+  // one hook instance, handed to the button — so the seam still runs the real
+  // probe into the real menu rather than a copy of either.
+  const { OpenWorkspaceFolderButton, useFolderOpenTargets } = await import(
     '../renderer/src/components/workspace/WorkspaceIdentity'
   )
   const { useWorkspaceStore } = await import('../renderer/src/store/workspaceStore')
@@ -681,6 +710,24 @@ async function main(): Promise<void> {
 
   const OPEN_PATH = '/Users/fixture/projects/app'
 
+  /**
+   * `WorkspaceIdentity`'s own wiring: one hook instance, handed to the button,
+   * with `failureNode` rendered beside it. Both halves are needed — since
+   * bc02a70db the failure popover belongs to the HOOK, not the button (the
+   * folded overflow menu has to raise the same one), so a host that renders
+   * only the button swallows every launch failure and the "a launch that
+   * failed is surfaced" check below fails against working product code.
+   */
+  const OpenButtonHost = () => {
+    const targets = useFolderOpenTargets('w1', OPEN_PATH)
+    return (
+      <>
+        <OpenWorkspaceFolderButton targets={targets} />
+        {targets.failureNode}
+      </>
+    )
+  }
+
   async function mountOpenButton(): Promise<{
     container: HTMLElement
     unmount: () => Promise<void>
@@ -689,7 +736,7 @@ async function main(): Promise<void> {
     dom.window.document.body.appendChild(container)
     const root = createRoot(container)
     await act(async () => {
-      root.render(<OpenWorkspaceFolderButton workspaceId="w1" openPath={OPEN_PATH} />)
+      root.render(<OpenButtonHost />)
     })
     // The control renders nothing until its probe answers.
     for (let attempt = 0; attempt < 50; attempt += 1) {
