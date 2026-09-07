@@ -53,7 +53,15 @@ export const TAILNET_UPLOAD_PATH = `${TAILNET_ROUTE_PREFIX}/upload`
 /** Bumped when the wire changes in a way a client must know about. 2 (2026-09-06): the change feed, sliced replay frames, git only for running sessions. */
 export const TAILNET_TRANSPORT_VERSION = 2
 
-/** Additive features a client may rely on; a purely additive feature ships here without a version bump. */
-export const TAILNET_CAPABILITIES = ['events', 'sliced-frames'] as const
+/**
+ * Additive features a client may rely on; a purely additive feature ships here
+ * without a version bump.
+ *
+ * `upload` was served from 2026-09-05 and advertised from 2026-09-07. Until it
+ * was named here the route was undiscoverable, and a phone's only way to find
+ * out was to send the file and read the 404 at the end of the transfer — the
+ * one failure a 25MB upload must not have.
+ */
+export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload'] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

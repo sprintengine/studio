@@ -22,7 +22,7 @@ import {
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
-import { TAILNET_EVENTS_PATH } from './tailnet/tailnet-routes'
+import { TAILNET_EVENTS_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
 import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
 import {
   isAllowedTailnetBindAddress,
@@ -105,13 +105,15 @@ async function startHarness(
     tools?: McpToolRegistration[]
     /** The change feed's push floor; the feed test shortens it. */
     changePushIntervalMs?: number
+    /** The working directory the stub's sessions report — where an upload lands. */
+    terminalCwd?: string
   } = {}
 ): Promise<Harness> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-'))
   const calls: string[] = []
   const devices = createTailnetDeviceStore({ resolveUserDataDir: () => userDataDir })
   const audit = createGatewayAuditStore({ resolveUserDataDir: () => userDataDir })
-  const terminals = createStubTerminalHost()
+  const terminals = createStubTerminalHost(options.terminalCwd)
   const server = createTailnetGatewayServer({
     bindAddress: '127.0.0.1',
     port: 0,
@@ -202,6 +204,76 @@ function call(
   })
 }
 
+/**
+ * A raw-body POST, which the upload route needs and `call` cannot express:
+ * `call` JSON-encodes whatever it is given, and the upload's whole point is
+ * that the body is the file's own bytes.
+ */
+function callRaw(
+  port: number,
+  path: string,
+  options: { token?: string; body: Buffer; chunked?: boolean; headers?: Record<string, string> }
+): Promise<HttpAnswer> {
+  return new Promise((resolve, reject) => {
+    let answered = false
+    const request = httpRequest(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'POST',
+        path,
+        agent: false,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          // Chunked is the case that matters for the ceiling: a client controls
+          // `content-length` and can simply omit it, so the server counts.
+          ...(options.chunked ? { 'Transfer-Encoding': 'chunked' } : { 'Content-Length': options.body.length }),
+          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+          ...options.headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = []
+        answered = true
+        const settle = () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          let body: unknown = text
+          try {
+            body = text ? JSON.parse(text) : null
+          } catch {
+            // Left as text; a test asserting on shape will fail loudly.
+          }
+          resolve({ status: response.statusCode ?? 0, headers: response.headers, body })
+        }
+        response.on('data', (chunk: Buffer) => chunks.push(chunk))
+        response.on('end', settle)
+        // The refusal hangs up, which can close the socket before `end`. The
+        // answer is already whole by then, so this settles rather than hangs.
+        response.on('close', settle)
+        response.on('aborted', settle)
+      }
+    )
+    // The server answers an oversized body before reading all of it and then
+    // hangs up, so the write legitimately fails under us. A reset AFTER the
+    // answer arrived is the refusal working; a reset BEFORE it must fail loudly
+    // rather than hang.
+    request.on('error', (error: NodeJS.ErrnoException) => {
+      if (answered) return
+      if (error.code === 'ECONNRESET' || error.code === 'EPIPE') {
+        reject(new Error(`the connection was cut before any answer arrived: ${error.code}`))
+        return
+      }
+      reject(error)
+    })
+    request.write(options.body)
+    request.end()
+  })
+}
+
+function uploadPath(sessionId: string, name: string): string {
+  return `${TAILNET_UPLOAD_PATH}?sessionId=${encodeURIComponent(sessionId)}&name=${encodeURIComponent(name)}`
+}
+
 async function pairDevice(
   harness: Harness,
   options: { scopes?: TailnetScope[]; name?: string } = {}
@@ -238,7 +310,7 @@ type StubTerminalHost = TerminalRemoteHost & {
   attachedCount(): number
 }
 
-function createStubTerminalHost(): StubTerminalHost {
+function createStubTerminalHost(cwd = '/tmp/project'): StubTerminalHost {
   const replay = new Map<string, string>([['session_one', 'scrollback so far\r\n']])
   const attached = new Map<string, { sessionId: string; transport: TerminalAttachTransport }>()
   const writes: Array<{ sessionId: string; data: string }> = []
@@ -251,7 +323,7 @@ function createStubTerminalHost(): StubTerminalHost {
       kind: 'agent',
       agentName: 'Scout',
       cli: 'claude-code',
-      cwd: '/tmp/project',
+      cwd,
       visible: true,
       suspended: false,
       reapExempt: false,
@@ -835,7 +907,7 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     // long ago and is asking again on a Studio that may since have moved on.
     const identityBody = identity.body as Record<string, unknown>
     assert.equal(identityBody.transportVersion, TAILNET_TRANSPORT_VERSION)
-    assert.deepEqual(identityBody.capabilities, ['events', 'sliced-frames'])
+    assert.deepEqual(identityBody.capabilities, ['events', 'sliced-frames', 'upload'])
 
     // The pairing code is one-time: replaying it does not mint a second device.
     const replayed = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -914,7 +986,7 @@ export async function testHealthEndpointLeaksNothingBeyondProductAndProtocol(): 
     // it outright, so a phone need not probe for the change feed.
     assert.equal(body.transportVersion, 2)
     assert.equal(TAILNET_TRANSPORT_VERSION, 2)
-    assert.deepEqual(body.capabilities, ['events', 'sliced-frames'])
+    assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload'])
     assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
     // Nothing about this machine, its user, its workspaces, or its devices.
     assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)
@@ -2045,6 +2117,184 @@ export async function testTheBridgeRefusesIncompleteOrConflictingRemoteInvocatio
   }
 }
 
+// ── The upload route ─────────────────────────────────────────────────────────
+//
+// The pure guard has its own tests above. These drive the ROUTE, which until
+// 2026-09-07 had none — which is how `taken: new Set()` survived: the collision
+// helper was correct and tested, and its only caller could never reach it.
+
+export async function testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack(): Promise<void> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+  const harness = await startHarness({ terminalCwd: projectDir })
+  try {
+    const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
+    const bytes = Buffer.from('a screenshot, near enough', 'utf8')
+    const answer = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
+      token: device.deviceToken,
+      body: bytes,
+    })
+
+    assert.equal(answer.status, 200)
+    const body = answer.body as { path: string; bytes: number }
+    assert.equal(body.bytes, bytes.length)
+    assert.equal(body.path, join(projectDir, '.multi-code', 'uploads', 'session_one', 'shot.png'))
+    assert.deepEqual(readFileSync(body.path), bytes, 'the bytes on disk are the bytes that were sent')
+
+    // The folder ignores itself, so a phone never adds untracked files to
+    // someone's `git status`.
+    const ignore = join(projectDir, '.multi-code', 'uploads', 'session_one', '.gitignore')
+    assert.equal(readFileSync(ignore, 'utf8'), '*\n')
+  } finally {
+    await harness.close()
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+}
+
+export async function testASecondFileOfTheSameNameIsSuffixedRatherThanRefused(): Promise<void> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+  const harness = await startHarness({ terminalCwd: projectDir })
+  try {
+    const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
+    const send = (payload: string) =>
+      callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
+        token: device.deviceToken,
+        body: Buffer.from(payload, 'utf8'),
+      })
+
+    const first = await send('one')
+    assert.equal(first.status, 200)
+    // Two photos from a camera roll carry the same name far more often than
+    // not. Before the fix this met the sink's exclusive create and came back
+    // as an unexplained 500.
+    const second = await send('two')
+    assert.equal(second.status, 200, JSON.stringify(second.body))
+    const secondPath = (second.body as { path: string }).path
+    assert.equal(secondPath, join(projectDir, '.multi-code', 'uploads', 'session_one', 'shot (2).png'))
+    assert.equal(readFileSync((first.body as { path: string }).path, 'utf8'), 'one', 'the first upload survives')
+    assert.equal(readFileSync(secondPath, 'utf8'), 'two')
+
+    const third = await send('three')
+    assert.equal((third.body as { path: string }).path.endsWith('shot (3).png'), true)
+  } finally {
+    await harness.close()
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+}
+
+export async function testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire(): Promise<void> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+  const harness = await startHarness({ terminalCwd: projectDir })
+  try {
+    const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
+    for (const name of ['../../escaped.txt', '..\\..\\escaped.txt', '/etc/passwd', '..']) {
+      const answer = await callRaw(harness.port, uploadPath('session_one', name), {
+        token: device.deviceToken,
+        body: Buffer.from('nope', 'utf8'),
+      })
+      assert.equal(answer.status, 200, `${name} was not handled`)
+      const written = (answer.body as { path: string }).path
+      const inside = join(projectDir, '.multi-code', 'uploads', 'session_one')
+      assert.ok(written.startsWith(`${inside}/`), `${name} landed at ${written}`)
+    }
+    assert.equal(existsSync(join(projectDir, 'escaped.txt')), false)
+
+    // A forged session id is a path segment like any other, and is sanitised
+    // the same way rather than trusted because it came from an authenticated
+    // device.
+    const forged = await callRaw(harness.port, uploadPath('../../..', 'shot.png'), {
+      token: device.deviceToken,
+      body: Buffer.from('nope', 'utf8'),
+    })
+    assert.equal(forged.status, 404, 'no session has that id, so there is nowhere to put it')
+  } finally {
+    await harness.close()
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+}
+
+export async function testUploadsSitBehindTheControlScopeAndAKnownSession(): Promise<void> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+  const harness = await startHarness({ terminalCwd: projectDir })
+  try {
+    const watcher = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'watcher' })
+    const refused = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
+      token: watcher.deviceToken,
+      body: Buffer.from('nope', 'utf8'),
+    })
+    assert.equal(refused.status, 403)
+    assert.equal((refused.body as { error: { code: string } }).error.code, 'tailnet_scope_required')
+
+    const stranger = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
+      body: Buffer.from('nope', 'utf8'),
+    })
+    assert.equal(stranger.status, 401, 'an unpaired client never reaches the route')
+
+    const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
+    const unknown = await callRaw(harness.port, uploadPath('session_missing', 'shot.png'), {
+      token: device.deviceToken,
+      body: Buffer.from('nope', 'utf8'),
+    })
+    assert.equal(unknown.status, 404)
+    assert.equal((unknown.body as { error: { code: string } }).error.code, 'unknown_terminal')
+
+    const nameless = await callRaw(harness.port, `${TAILNET_UPLOAD_PATH}?sessionId=session_one`, {
+      token: device.deviceToken,
+      body: Buffer.from('nope', 'utf8'),
+    })
+    assert.equal(nameless.status, 400)
+    assert.equal((nameless.body as { error: { code: string } }).error.code, 'invalid_arguments')
+
+    // A browser must not be able to reach this from a page on a tailnet machine.
+    const fromBrowser = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
+      token: device.deviceToken,
+      body: Buffer.from('nope', 'utf8'),
+      headers: { Origin: 'http://evil.example' },
+    })
+    assert.equal(fromBrowser.status, 403)
+    assert.equal((fromBrowser.body as { error: { code: string } }).error.code, 'origin_not_allowed')
+  } finally {
+    await harness.close()
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+}
+
+export async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Promise<void> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+  const harness = await startHarness({ terminalCwd: projectDir })
+  try {
+    const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
+
+    // Declared over the cap: refused before a byte is read.
+    const declared = await callRaw(harness.port, uploadPath('session_one', 'big.bin'), {
+      token: device.deviceToken,
+      body: Buffer.alloc(26 * 1024 * 1024),
+    })
+    assert.equal(declared.status, 413)
+    const declaredError = (declared.body as { error: { code: string; message: string } }).error
+    assert.equal(declaredError.code, 'too_large')
+    assert.match(declaredError.message, /25MB/u, 'the phone can only say the real reason if the server names it')
+
+    // Chunked, so `content-length` says nothing: the ceiling is counted as the
+    // bytes arrive, and the part-written file is removed — a truncated
+    // screenshot in a folder an agent reads is worse than no screenshot.
+    const counted = await callRaw(harness.port, uploadPath('session_one', 'sneaky.bin'), {
+      token: device.deviceToken,
+      body: Buffer.alloc(26 * 1024 * 1024),
+      chunked: true,
+    })
+    assert.equal(counted.status, 413)
+    assert.equal((counted.body as { error: { code: string } }).error.code, 'too_large')
+    assert.equal(
+      existsSync(join(projectDir, '.multi-code', 'uploads', 'session_one', 'sneaky.bin')),
+      false,
+      'nothing partial is left where an agent would read it'
+    )
+  } finally {
+    await harness.close()
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+}
+
 const tests = [
   testBindAddressAllowsOnlyTailnetOrLoopback,
   testDisabledMeansNoListeningTcpSocket,
@@ -2073,6 +2323,11 @@ const tests = [
   testTerminalStreamsAreRefusedWithoutAGrantASessionOrARuntime,
   testRevocationClosesAnAttachedTerminalImmediately,
   testTerminalToolsSitBehindTheTerminalScope,
+  testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack,
+  testASecondFileOfTheSameNameIsSuffixedRatherThanRefused,
+  testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire,
+  testUploadsSitBehindTheControlScopeAndAKnownSession,
+  testAnOversizedUploadIsCutOffAndLeavesNothingBehind,
   testARemoteClientOpensATerminalHereAttachesAndDrivesIt,
   testEndpointAndPairingUrlFormatting,
   testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine,

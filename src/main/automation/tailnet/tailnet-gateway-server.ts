@@ -434,7 +434,16 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       })
       return
     }
-    const destination = resolveUploadDestination({ cwd: session.cwd, sessionId, name, taken: new Set() })
+    // Resolved twice on purpose. The first pass is the only way to learn which
+    // directory the guard chose; the second is the one that counts, and it is
+    // the pass that can answer `shot (2).png`. Handing `uniqueName` an empty
+    // set — as this did until 2026-09-07 — meant it never fired, and a second
+    // photo of the same name met the sink's exclusive `wx` create and came
+    // back as an unexplained 500 instead of a new file.
+    const probe = resolveUploadDestination({ cwd: session.cwd, sessionId, name })
+    const destination = probe.ok
+      ? resolveUploadDestination({ cwd: session.cwd, sessionId, name, taken: await namesTakenIn(probe.directory) })
+      : probe
     if (!destination.ok) {
       writeJson(response, destination.code === 'path_escape' ? 400 : 409, {
         error: { code: destination.code, message: destination.message },
@@ -447,6 +456,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       writeJson(response, 413, {
         error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
       })
+      drainRefusedBody(request)
       return
     }
     try {
@@ -458,6 +468,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         writeJson(response, 413, {
           error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
         })
+        drainRefusedBody(request)
         return
       }
       options.log?.(`tailnet upload failed: ${message(error)}`)
@@ -1162,6 +1173,44 @@ function queryOf(url: string | undefined): URLSearchParams {
   return parseUrl(url).searchParams
 }
 
+/**
+ * The names already in a thread's upload directory, so a new file never
+ * collides with one.
+ *
+ * A directory that does not exist yet holds nothing, which is the common case
+ * — the first upload creates it. Any other read failure is also answered as
+ * "nothing taken": the exclusive `wx` create downstream is the real guard, and
+ * refusing an upload because a directory listing failed would trade a rare
+ * duplicate name for a dead feature.
+ */
+async function namesTakenIn(directory: string): Promise<ReadonlySet<string>> {
+  const { readdir } = await import('node:fs/promises')
+  try {
+    return new Set(await readdir(directory))
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Discard the rest of a body that has already been refused.
+ *
+ * The tempting move is to hang up — the answer is written, the sink is gone,
+ * and the remaining megabytes have nowhere to land. But destroying the socket
+ * races the response's own flush: the client's next write fails with EPIPE and
+ * it never reads the 413, so "That file is over the 25MB limit." is replaced by
+ * a connection reset and the phone can only say something went wrong. Losing
+ * the sentence is worse than reading bytes we intend to throw away, because the
+ * sentence is the entire reason the limit is stated on the wire.
+ *
+ * So the body is drained instead. In practice almost nothing is read: the phone
+ * checks the size before it starts, and a declared length over the ceiling is
+ * refused before the first chunk arrives.
+ */
+function drainRefusedBody(request: IncomingMessage): void {
+  request.resume()
+}
+
 /** Thrown when a body runs past the ceiling mid-flight. */
 class UploadTooLarge extends Error {}
 
@@ -1178,9 +1227,16 @@ async function streamUploadToDisk(
   request: IncomingMessage,
   destination: { directory: string; path: string }
 ): Promise<number> {
-  const { mkdir, rm } = await import('node:fs/promises')
-  const { createWriteStream } = await import('node:fs')
+  const { mkdir, rm, writeFile } = await import('node:fs/promises')
+  const { createWriteStream, existsSync } = await import('node:fs')
+  const { join } = await import('node:path')
   await mkdir(destination.directory, { recursive: true })
+  // The folder ignores itself, the way the browser's screenshot folder does
+  // (browser-manager.ts). A project cannot be expected to list a directory it
+  // has never heard of in its own .gitignore, and a phone quietly adding
+  // untracked files to someone's `git status` is a bad surprise.
+  const ignore = join(destination.directory, '.gitignore')
+  if (!existsSync(ignore)) await writeFile(ignore, '*\n', 'utf8').catch(() => {})
   const sink = createWriteStream(destination.path, { flags: 'wx' })
   let written = 0
   try {

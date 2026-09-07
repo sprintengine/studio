@@ -198,7 +198,7 @@ check('a device pairs from the square and can then drive the gateway', async () 
     // A scanned client has made exactly one call at this point. It should not
     // have to make a second one to learn which wire it just joined.
     assert.equal(device.transportVersion, 2)
-    assert.deepEqual(device.capabilities, ['events', 'sliced-frames'])
+    assert.deepEqual(device.capabilities, ['events', 'sliced-frames', 'upload'])
 
     // The pairing is real only if the token it produced actually drives tools.
     const called = await call(scanned.port, 'POST', '/tailnet/v1/mcp', {
@@ -336,7 +336,7 @@ check('the listener a peer probe would find is the one that pairs', async () => 
     assert.deepEqual(Object.keys(body).sort(), ['capabilities', 'product', 'protocolVersions', 'transportVersion'])
     assert.deepEqual(body.protocolVersions, [...SUPPORTED_MCP_PROTOCOL_VERSIONS])
     assert.equal(body.transportVersion, 2)
-    assert.deepEqual(body.capabilities, ['events', 'sliced-frames'])
+    assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload'])
 
     const scanned = parsePairingUrl(harness.service.offerPairing().pairingUrl ?? '')
     assert.equal(scanned.port, harness.port, 'the probed port and the pairing port are one port')
