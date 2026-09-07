@@ -13,10 +13,49 @@ app-owned and never edited by hand.
 
 Prefer the `backlog_*` tools over editing files: they keep timestamps and
 working-agent links app-owned, and the Backlog panel's watcher sees their
-writes. Field names and their valid values come from the tool schemas — read
-them there rather than from this skill. Without the tools, edit frontmatter
-directly and drop the `updated:` line so nothing claims a timestamp it did not
-earn.
+writes. Without the tools, edit frontmatter directly and drop the `updated:`
+line so nothing claims a timestamp it did not earn.
+
+## The file
+
+Frontmatter is a flat block of `key: value` scalars — no nested YAML, no lists,
+no quotes needed. Unknown keys are preserved, so nothing added by hand is lost.
+
+```yaml
+---
+type: feature        # epic | feature | bug | mockup | spike
+status: idea         # idea | ready | in_progress | needs_input | completed | archived
+difficulty: m        # xs | s | m | l | xl              effort to build
+criticality: high    # low | normal | high | critical   impact if it is missing
+risk: normal         # low | normal | high              likelihood it breaks something
+epic: auth-revamp    # optional; the epic file's name stem
+dependsOn: token-rotation, session-expiry   # optional; comma-separated sibling slugs
+mockups: backlog/mockups/2026-07-06-x.html  # optional; comma-separated project-relative paths
+---
+
+# Title as a single H1
+
+What, why, user impact, and anything needed to understand the request.
+```
+
+`type` is the only field OKF requires; fill the rest only where you can do so
+honestly — an unsized, untriaged capture is a calm state, not a defect, and a
+guessed `criticality` is worse than none. `risk` is a separate axis from
+`difficulty`: how likely the change is to break something, not how big it is.
+
+Three groups are the app's to write, never yours. **`id:`** is a workspace-global
+integer allocated once and never changed — omit it and the scan assigns one; the
+`KEY-<id>` shown in the panel is composed from it at render time. **`updated:`**
+is a precise UTC instant stamped on every real mutation. And `sprints`, `pr`,
+`starred` and `highlight` are written when a sprint runs, a pull request opens,
+or somebody stars the row.
+
+On an epic file, `dependenciesPlanned: true` is the one extra field.
+
+Creating one by hand: put it in its epic's folder, or `backlog/unfiled/` if it
+has none, named `<YYYY-MM-DD>-<slug>.md`. Pick a slug unused anywhere in
+`backlog/` — `dependsOn:` and `epic:` address an item by filename stem alone, so
+two items sharing one collide on every pointer aimed at either.
 
 Paths are project-relative and must be under `backlog/`. An item that is
 `completed` or lives under `backlog/archived/` is refused as unworkable, and a
