@@ -36,7 +36,11 @@ resources/runtime/
 # electron-vite temp config
 electron.vite.config.*.mjs
 
-# Local tool settings
+# Local tool settings. `.claude/settings.json` is written by the Claude Code
+# harness on whichever machine is running it — `enabledPlugins` records the
+# plugins that machine happens to have installed — so it is local state, not
+# project config.
+.claude/settings.json
 .claude/settings.local.json
 .claude/*.lock
 .grok/settings.json
@@ -94,3 +98,13 @@ electron.vite.config.*.mjs
 .agents/skills/workos/
 .agents/skills/workos-widgets/
 .agents/skills/wrangler/
+
+# SprintEngine Studio's own plugin, and the skill packs its installer copies into
+# each harness's skill dir. Both are install output: every copied skill carries an
+# `installedAt` stamp in its .multicode-skill.json, and the source they are built
+# from is `resources/studio-plugin/`, which IS tracked.
+.multicode/studio-plugin/
+.agents/skills/studio-*/
+.claude/skills/studio-*/
+.grok/skills/studio-*/
+.opencode/skills/studio-*/
