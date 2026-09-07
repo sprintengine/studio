@@ -1032,9 +1032,62 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
   }
 }
 
+// The sidecar is tracked and ~550KB in a real project, so a scan or a link
+// re-resolve that confirms what is already stored must not touch it. Two guards
+// hold that line: the record keeps its prior `updatedAt` when nothing else moved,
+// and saveStore skips a write whose bytes match the file. Asserted on mtime AND
+// content, because only the pair proves no write happened at all.
+async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-nochurn-'))
+  const storePath = join(tempRoot, '.multi-code', 'backlog', 'items.json')
+  try {
+    const created = await createBacklogItem({ workspaceRoot: tempRoot, title: 'Churn guard' })
+    assert.equal(created.ok, true)
+    const relativePath = created.ok ? created.relativePath : ''
+
+    const link = {
+      id: 'sprint-engine:pull-request',
+      moduleId: 'sprint-engine',
+      type: 'external' as const,
+      label: 'Pull request',
+      target: { kind: 'sprintengine.pullRequest', id: 'https://example.test/pull/1' },
+      status: 'active' as const,
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    }
+    const first = await addOrUpdateBacklogLink({ workspaceRoot: tempRoot, relativePath, link })
+    assert.equal(first.ok, true, 'the first link write lands')
+
+    const afterFirst = await readFile(storePath, 'utf-8')
+    const mtimeFirst = (await stat(storePath)).mtimeMs
+
+    // Re-persisting the identical link is what the live status sync does on every
+    // tick. It must be a complete no-op.
+    await new Promise((resolve) => setTimeout(resolve, 12))
+    const again = await addOrUpdateBacklogLink({ workspaceRoot: tempRoot, relativePath, link })
+    assert.equal(again.ok, true, 'a confirming re-write still reports success')
+
+    assert.equal(await readFile(storePath, 'utf-8'), afterFirst, 'no field changed, updatedAt included')
+    assert.equal((await stat(storePath)).mtimeMs, mtimeFirst, 'the file was not rewritten at all')
+
+    // A real change must still land, or the guard would be silently swallowing writes.
+    const changed = await addOrUpdateBacklogLink({
+      workspaceRoot: tempRoot,
+      relativePath,
+      link: { ...link, status: 'completed' as const },
+    })
+    assert.equal(changed.ok, true)
+    const afterChange = await readFile(storePath, 'utf-8')
+    assert.notEqual(afterChange, afterFirst, 'a genuine status change is persisted')
+    assert.match(afterChange, /"status": "completed"/)
+  } finally {
+    await rm(tempRoot, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
+  .then(() => testConfirmingRewritesLeaveTheSidecarAlone())
   .catch((error) => {
     console.error(error)
     process.exit(1)

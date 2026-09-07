@@ -1130,7 +1130,17 @@ async function mutateItem(
           updatedAt: now,
         }
     const items = [...store.items]
-    const next = update(base, now)
+    const candidate = update(base, now)
+    // Every updater stamps `updatedAt: now` unconditionally, so a write that
+    // changed nothing else still dirtied the record — and with it a tracked file.
+    // Link status re-resolution ticks against live PRs and sprint runs and
+    // re-persists what is already stored, which is what churned the sidecar all
+    // day. Keep the prior instant when the payload is otherwise identical, so a
+    // confirming re-resolve is a true no-op and saveStore can skip the write.
+    const next =
+      index >= 0 && sameBacklogRecord({ ...candidate, updatedAt: base.updatedAt }, base)
+        ? base
+        : candidate
     if (index >= 0) {
       items[index] = next
     } else {
@@ -1187,9 +1197,23 @@ async function loadStore(workspace: ValidWorkspace): Promise<BacklogObjectStore>
 async function saveStore(workspace: ValidWorkspace, store: BacklogObjectStore): Promise<void> {
   const target = resolve(workspace.storePath)
   if (!isPathInside(workspace.root, target)) throw new Error('Backlog metadata path escaped the workspace root.')
+  const next = `${JSON.stringify(normalizeStore(store), null, 2)}\n`
+  // Every scan reaches a save, even one that discovers nothing: `mutateStore` has
+  // no change check, and the reducers that do (ensureBacklogObjectRecords) guard
+  // only themselves. The sidecar is ~550KB and tracked, so rewriting identical
+  // bytes cost a full serialize per scan AND left the working tree permanently
+  // dirty. normalizeStore emits a fixed key order, so equal content is equal bytes
+  // and this comparison is exact rather than heuristic.
+  let current: string | null = null
+  try {
+    current = await readFile(target, 'utf-8')
+  } catch (error) {
+    if (!isMissingFileError(error)) throw new Error(`Could not read Backlog metadata: ${errorMessage(error)}`)
+  }
+  if (current === next) return
   try {
     await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, `${JSON.stringify(normalizeStore(store), null, 2)}\n`, 'utf-8')
+    await writeFile(target, next, 'utf-8')
   } catch (error) {
     throw new Error(`Could not write Backlog metadata: ${errorMessage(error)}`)
   }
@@ -1274,6 +1298,12 @@ function normalizeStore(value: unknown): BacklogObjectStore {
   // merging any that collapse onto the same id (union links, newest wins). Runs
   // on every load/save/mutate through this one chokepoint and is idempotent.
   return { schemaVersion: 1, items: reconcileBacklogObjectRecordIds(items) }
+}
+
+// Field-for-field record equality, taken through the canonical normalizer so the
+// comparison cannot be fooled by key order or by fields normalizeRecord drops.
+function sameBacklogRecord(a: BacklogObjectRecord, b: BacklogObjectRecord): boolean {
+  return JSON.stringify(normalizeRecord(a)) === JSON.stringify(normalizeRecord(b))
 }
 
 function normalizeRecord(value: unknown): BacklogObjectRecord | null {
