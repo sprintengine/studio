@@ -1,8 +1,10 @@
 // Single source of truth for the JavaScript side of the theme system.
 //
 // The CSS contract (the actual color values per theme) lives in
-// `src/renderer/src/assets/index.css` under the four `:root[data-theme="..."]`
-// blocks. This file owns everything else: the id list, user-facing labels,
+// `src/renderer/src/assets/index.css` under the `:root[data-theme="..."]`
+// blocks. The catalogue was cut to eleven on 2026-09-06 (owner): a picker of
+// nineteen read as a wall, and the themes that went were the ones nobody could
+// tell apart from a neighbour. This file owns everything else: the id list, user-facing labels,
 // the resolved-vs-user-preference relationship, type unions, normalizer, and
 // the Select option list that the picker renders.
 //
@@ -28,19 +30,11 @@ export type AppTheme =
   | 'vellum'
   | 'herbarium'
   | 'herbarium-dark'
-  | 'verdigris'
   | 'slate'
-  | 'conifer'
-  | 'fernery'
   | 'sage'
-  | 'greenhouse'
-  | 'caramel'
   | 'lantern'
-  | 'aubergine'
   | 'tokyo-night'
   | 'rose-pine'
-  | 'ayu-mirage'
-  | 'gruvbox'
 
 // The concrete themes that <html data-theme="…"> can actually carry. `system`
 // is a user preference that resolves to one of these at mount time.
@@ -140,19 +134,6 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     },
   },
   {
-    id: 'verdigris',
-    label: 'Verdigris',
-    resolved: 'verdigris',
-    description: 'Dark forest-green parchment',
-    swatches: {
-      bgApp: '#0c100c',
-      bgSurface: '#101810',
-      bgSurfaceRaised: '#142018',
-      accent: '#c05038',
-      textStrong: '#e0e8d4',
-    },
-  },
-  {
     id: 'herbarium',
     label: 'Herbarium',
     resolved: 'herbarium',
@@ -192,32 +173,6 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
     },
   },
   {
-    id: 'conifer',
-    label: 'Dark Conifer',
-    resolved: 'conifer',
-    description: 'Muted sage forest',
-    swatches: {
-      bgApp: '#141814',
-      bgSurface: '#1c201c',
-      bgSurfaceRaised: '#20241c',
-      accent: '#c8a458',
-      textStrong: '#b4c0b0',
-    },
-  },
-  {
-    id: 'fernery',
-    label: 'Fernery',
-    resolved: 'fernery',
-    description: 'Mid green chrome, terracotta accent',
-    swatches: {
-      bgApp: '#142414',
-      bgSurface: '#1c2c1c',
-      bgSurfaceRaised: '#243424',
-      accent: '#cc5838',
-      textStrong: '#e8ecd8',
-    },
-  },
-  {
     id: 'sage',
     label: 'Sage',
     resolved: 'sage',
@@ -228,32 +183,6 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#303428',
       accent: '#c85838',
       textStrong: '#e8e8d4',
-    },
-  },
-  {
-    id: 'greenhouse',
-    label: 'Greenhouse',
-    resolved: 'greenhouse',
-    description: 'Cool sage room, warm cards, terracotta',
-    swatches: {
-      bgApp: '#1c2418',
-      bgSurface: '#2c281c',
-      bgSurfaceRaised: '#302c20',
-      accent: '#c85838',
-      textStrong: '#f0ead2',
-    },
-  },
-  {
-    id: 'caramel',
-    label: 'Caramel',
-    resolved: 'caramel',
-    description: 'Vintage workshop warm',
-    swatches: {
-      bgApp: '#181408',
-      bgSurface: '#241c10',
-      bgSurfaceRaised: '#302414',
-      accent: '#5c7cfc',
-      textStrong: '#f4ecd8',
     },
   },
   {
@@ -268,19 +197,6 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#242018',
       accent: '#e8a850',
       textStrong: '#f4e8c8',
-    },
-  },
-  {
-    id: 'aubergine',
-    label: 'Aubergine',
-    resolved: 'aubergine',
-    description: 'Muted purple-grey',
-    swatches: {
-      bgApp: '#14141c',
-      bgSurface: '#1c1c24',
-      bgSurfaceRaised: '#242430',
-      accent: '#8c7cfc',
-      textStrong: '#d0c8e0',
     },
   },
   {
@@ -307,32 +223,6 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
       bgSurfaceRaised: '#241c34',
       accent: '#d488a0',
       textStrong: '#e0d4dc',
-    },
-  },
-  {
-    id: 'ayu-mirage',
-    label: 'Ayu Mirage',
-    resolved: 'ayu-mirage',
-    description: 'Muted dark with golden accents',
-    swatches: {
-      bgApp: '#1c2030',
-      bgSurface: '#202434',
-      bgSurfaceRaised: '#242838',
-      accent: '#fccc6c',
-      textStrong: '#ccd0d8',
-    },
-  },
-  {
-    id: 'gruvbox',
-    label: 'Gruvbox Dark',
-    resolved: 'gruvbox',
-    description: 'Retro warm sepia',
-    swatches: {
-      bgApp: '#1c1c18',
-      bgSurface: '#282824',
-      bgSurfaceRaised: '#3c3834',
-      accent: '#fcb04c',
-      textStrong: '#ecdcb4',
     },
   },
 ]
