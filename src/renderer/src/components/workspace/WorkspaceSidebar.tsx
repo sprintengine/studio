@@ -10,6 +10,7 @@ import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMa
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { startColumnResizeDrag } from './columnResizeDrag'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -1346,56 +1347,44 @@ export default function WorkspaceSidebar({
   const handleResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
-      event.preventDefault()
       const startX = event.clientX
       const startWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
       let collapsed = sidebarCollapsed
-      let frame: number | null = null
-      let pendingX = startX
       dragWidthRef.current = startWidth
-
-      const apply = () => {
-        frame = null
-        const outcome = resolveSidebarResize(startWidth + (pendingX - startX))
-        if (outcome.kind === 'collapse') {
-          if (!collapsed) {
-            collapsed = true
-            dragWidthRef.current = null
-            onSetSidebarCollapsed(true)
-          }
-          return
-        }
-        if (collapsed) {
-          collapsed = false
-          onSetSidebarCollapsed(false)
-        }
-        // Per-frame update stays in the DOM: no store mutation, so no registry
-        // re-serialization and no app-wide re-render while dragging.
-        dragWidthRef.current = outcome.width
-        if (sidebarRef.current) sidebarRef.current.style.width = `${outcome.width}px`
-      }
-      const onMove = (e: PointerEvent) => {
-        pendingX = e.clientX
-        if (frame === null) frame = window.requestAnimationFrame(apply)
-      }
-      const onUp = () => {
-        if (frame !== null) window.cancelAnimationFrame(frame)
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        // Commit the final width to the store exactly once (skipped if the drag
-        // ended in the collapsed state, which already updated the store).
-        const finalWidth = dragWidthRef.current
-        dragWidthRef.current = null
-        if (finalWidth !== null && !collapsed) onSetSidebarWidth(finalWidth)
-        setIsResizingSidebar(false)
-      }
       setIsResizingSidebar(true)
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      // The gesture is startColumnResizeDrag's, not this component's: a
+      // maximised workspace pane covers the row this drag crosses, and a
+      // browser tab in it is a `<webview>` guest that would swallow every
+      // pointer event from the moment the pointer entered it.
+      startColumnResizeDrag(event, {
+        onDrag: (clientX) => {
+          const outcome = resolveSidebarResize(startWidth + (clientX - startX))
+          if (outcome.kind === 'collapse') {
+            if (!collapsed) {
+              collapsed = true
+              dragWidthRef.current = null
+              onSetSidebarCollapsed(true)
+            }
+            return
+          }
+          if (collapsed) {
+            collapsed = false
+            onSetSidebarCollapsed(false)
+          }
+          // Per-frame update stays in the DOM: no store mutation, so no registry
+          // re-serialization and no app-wide re-render while dragging.
+          dragWidthRef.current = outcome.width
+          if (sidebarRef.current) sidebarRef.current.style.width = `${outcome.width}px`
+        },
+        onDragEnd: () => {
+          // Commit the final width to the store exactly once (skipped if the drag
+          // ended in the collapsed state, which already updated the store).
+          const finalWidth = dragWidthRef.current
+          dragWidthRef.current = null
+          if (finalWidth !== null && !collapsed) onSetSidebarWidth(finalWidth)
+          setIsResizingSidebar(false)
+        },
+      })
     },
     [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
   )
