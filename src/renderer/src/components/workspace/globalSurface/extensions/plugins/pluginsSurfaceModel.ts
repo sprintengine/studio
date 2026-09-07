@@ -9,6 +9,7 @@
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../../../shared/marketplace/manifest'
+import { pluginNeedsOwnFiles, referencesPluginRoot } from '../../../../../../../shared/mcp/plugin-root'
 import {
   STUDIO_SKILL_SOURCE_ID,
   describePluginComponents,
@@ -278,6 +279,24 @@ export function describeInstallPlan(input: {
     }
     return { harness, label: HARNESS_LABEL[harness], line: `${parts.join('; ')}.${unsupported}${key}` }
   })
+}
+
+/**
+ * The plugin's OWN files, when a server it declares runs out of them, in the
+ * pane's words — one sentence above the per-harness lines, because the copy is
+ * harness-independent: every CLI's MCP config points at the same directory.
+ *
+ * Null when nothing extra is copied, which is the common case and must stay
+ * visibly so
+ * (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+ */
+export function describePluginFilesPlan(plugin: ScannedPlugin): string | null {
+  if (!plugin.componentsKnown || !pluginNeedsOwnFiles(plugin)) return null
+  const servers = plugin.components.mcpServers.filter(referencesPluginRoot).map((server) => server.id)
+  const named = servers.length === 1 ? servers[0] : servers.join(', ')
+  return `The plugin's own files are copied into .multicode/claude-plugins/${plugin.id}, because ${named} ${
+    servers.length === 1 ? 'runs' : 'run'
+  } from the plugin's directory. \${CLAUDE_PLUGIN_ROOT} is resolved to where they land; Remove deletes them again.`
 }
 
 function claudeOnlyComponents(plugin: ScannedPlugin): string {

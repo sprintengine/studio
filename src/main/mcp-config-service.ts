@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { dirname, delimiter, isAbsolute, join } from 'path'
+import { dirname, join } from 'path'
 
 // Lazy electron so the module is importable from node-only test bundles.
 function loadElectron(): typeof import('electron') {
@@ -32,6 +32,7 @@ import {
   type McpServerNormalizationOptions,
 } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
+import { commandOnPath } from './command-on-path'
 import { getPluginById } from './plugin-registry-instance'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 
@@ -390,7 +391,7 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
         serverId: server.id,
         message: command.slice(MANAGED_MISSING_COMMAND_PREFIX.length),
       })
-    } else if (!commandExists(command)) {
+    } else if (!commandOnPath(command)) {
       issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} command was not found: ${command}` })
     }
   }
@@ -415,14 +416,6 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
   return issues
 }
 
-function commandExists(command: string): boolean {
-  if (isAbsolute(command)) return existsSync(command)
-  const pathValue = process.env.PATH ?? process.env.Path ?? ''
-  const names = process.platform === 'win32'
-    ? [command, `${command}.cmd`, `${command}.exe`, `${command}.ps1`]
-    : [command]
-  return pathValue.split(delimiter).some((dir) => names.some((name) => existsSync(join(dir, name))))
-}
 
 /**
  * The absolute path a plugin's declared MCP config template resolves to, or

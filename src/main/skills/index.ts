@@ -61,6 +61,7 @@ import {
   MARKETPLACE_EXTRA_HOSTS_ENV,
   parseMarketplaceExtraHosts,
 } from '../../shared/marketplace/source-policy'
+import { pluginNeedsOwnFiles } from '../../shared/mcp/plugin-root'
 import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { createSkillDiscoveryClient, type SkillDiscoveryOptions } from './discover'
@@ -75,7 +76,8 @@ import {
 } from './github-tree'
 import { installSkill, uninstallSkill } from './install'
 import { installPlugin, readEnabledClaudePlugins, uninstallPlugin } from './install-plugin'
-import { scanLocalSkillSource } from './local-source'
+import { listLocalTree, scanLocalSkillSource } from './local-source'
+import type { PluginDirectoryFile } from './plugin-directory'
 import { createPluginInstallStore, type PluginInstallStore } from './plugin-install-store'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import {
@@ -696,6 +698,19 @@ export function createSkillsService(
           ? githubRefFor(source)
           : null
     const harnesses = await listHarnesses()
+    // The plugin's OWN files, listed only when a server it declares runs out of
+    // its directory. The listing is a repository tree request, so asking the
+    // question first is what keeps every other plugin's install at the cost it
+    // has always had
+    // (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+    let pluginFiles: PluginDirectoryFile[] = []
+    let readPluginFile: ((file: PluginDirectoryFile) => Promise<Buffer>) | undefined
+    if (pluginNeedsOwnFiles(plugin)) {
+      const listed = await listPluginDirectory(source, plugin, commitSha, bytesRef)
+      if (!listed.ok) return listed
+      pluginFiles = listed.files
+      readPluginFile = listed.readFile
+    }
     const result = await installPlugin({
       workspaceRoot,
       sourceId: source.id,
@@ -714,6 +729,8 @@ export function createSkillsService(
         }
         return readSkillBytes(source, skill, file)
       },
+      pluginFiles,
+      ...(readPluginFile ? { readPluginFile } : {}),
       mcpClients: await mcpClients(),
     })
     if (!result.ok) return result
@@ -725,6 +742,7 @@ export function createSkillsService(
       marketplaceName: scan.marketplaceName ?? '',
       claudePluginKey: result.claudePluginKey,
       skillDirNames: [...new Set(result.harnesses.flatMap((harness) => harness.skillDirNames))],
+      ...(result.pluginDirName ? { pluginDirName: result.pluginDirName } : {}),
       mcpServerIds: result.mcpServers.map((server) => server.id),
       commitSha,
       installedAt: new Date().toISOString(),
@@ -742,7 +760,85 @@ export function createSkillsService(
       harnesses: result.harnesses,
       mcpServers: result.mcpServers,
       claudePluginKey: result.claudePluginKey,
+      pluginRoot: result.pluginRoot,
+      pluginFileCount: result.pluginFileCount,
       warnings: result.warnings,
+    }
+  }
+
+  /**
+   * Every file of a plugin's OWN directory, and how to read one.
+   *
+   * Four places a plugin's bytes can live, and each answers the same shape:
+   * a linked plugin's repository at the commit the read resolved, an in-tree
+   * plugin of a GitHub source at that source's commit, a folder source on this
+   * disk, and our own bundled marketplace seed. A registry entry has no
+   * directory at all, and says so rather than installing an empty one.
+   *
+   * Symlinks and anything that is not a blob are skipped, for the reason the
+   * skill scan skips them: a symlink's content is a path, and writing one into
+   * a workspace either recreates a link out of the plugin directory or drops a
+   * file holding somebody else's path.
+   */
+  async function listPluginDirectory(
+    source: SkillSource,
+    plugin: ScannedPlugin,
+    commitSha: string,
+    bytesRef: SkillRepoRef | null
+  ): Promise<
+    | { ok: true; files: PluginDirectoryFile[]; readFile: (file: PluginDirectoryFile) => Promise<Buffer> }
+    | { ok: false; message: string }
+  > {
+    const origin = plugin.origin
+    if (origin.kind === 'registry') {
+      return {
+        ok: false,
+        message: `${plugin.name} declares an MCP server that runs from the plugin's own directory, which a marketplace-registry entry does not ship.`,
+      }
+    }
+    const dir = origin.path
+    const localRoot =
+      source.kind === 'local'
+        ? localRootFor(source.id)
+        : source.id === STUDIO_SKILL_SOURCE_ID && source.commitSha === ''
+          ? studioSeedRoot()
+          : null
+    if (localRoot) {
+      const root = dir === '' ? localRoot : join(localRoot, ...dir.split('/'))
+      try {
+        const entries = await listLocalTree(root)
+        return {
+          ok: true,
+          files: entries.map((entry) => ({ path: entry.path, size: entry.size ?? 0 })),
+          readFile: (file) => readFile(join(root, ...file.path.split('/'))),
+        }
+      } catch (error) {
+        return { ok: false, message: describeFetchError(error) }
+      }
+    }
+    if (!bytesRef || bytesRef.owner === '' || bytesRef.repo === '') {
+      return { ok: false, message: `${plugin.name} is not in a repository this app can read its files from.` }
+    }
+    try {
+      const github = { ...deps.github, token: await deps.resolveToken() }
+      const tree = await fetchSkillRepoTree(bytesRef, commitSha, github)
+      const prefix = dir === '' ? '' : `${dir}/`
+      const files = tree.entries
+        .filter((entry) => entry.type === 'blob' && entry.mode !== '120000')
+        .filter((entry) => prefix === '' || entry.path.startsWith(prefix))
+        .map((entry) => ({ path: entry.path.slice(prefix.length), size: entry.size ?? 0 }))
+        .filter((entry) => entry.path !== '')
+      return {
+        ok: true,
+        files,
+        readFile: async (file) =>
+          fetchSkillRepoFile(bytesRef, commitSha, `${prefix}${file.path}`, {
+            ...deps.github,
+            token: await deps.resolveToken(),
+          }),
+      }
+    } catch (error) {
+      return { ok: false, message: describeFetchError(error) }
     }
   }
 
@@ -758,6 +854,7 @@ export function createSkillsService(
       pluginId: record.pluginId,
       marketplaceName: record.marketplaceName,
       skillDirNames: record.skillDirNames,
+      pluginDirName: record.pluginDirName ?? '',
       allHarnesses: SKILL_PACK_HARNESSES,
     })
     if (!result.ok) return result

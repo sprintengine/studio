@@ -11,7 +11,14 @@
 //     store and sync into each CLI's own config from there (the workspace's
 //     `.mcp.json` for Claude Code); the install returns the configs and the
 //     surface adds them.
-//  3. **Commands, agents, hooks and language servers are not installed.** They
+//  3. **The plugin's own directory is copied when its server needs it.** A
+//     server declared as `bun run --cwd ${CLAUDE_PLUGIN_ROOT} … start` cannot
+//     start unless those files are on disk and that variable means something,
+//     and only Claude Code's own loader sets it. So the plugin root lands under
+//     `.multicode/claude-plugins/<id>` and the variable is resolved to where it
+//     landed (plugin-directory.ts, shared/mcp/plugin-root.ts). A plugin whose
+//     servers name no such directory copies nothing extra.
+//  4. **Commands, agents, hooks and language servers are not installed.** They
 //     are Claude Code's own formats and this app has no loader for them; the
 //     outcome and the pane say so rather than implying they landed.
 //
@@ -35,10 +42,17 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
+import { pluginNeedsOwnFiles, referencesPluginRoot, resolvePluginRoot } from '../../shared/mcp/plugin-root'
 import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
 import { describeUnreadPlugin, type ScannedPlugin, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
+import { commandOnPath } from '../command-on-path'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
+import {
+  installPluginDirectory,
+  uninstallPluginDirectory,
+  type PluginDirectoryFile,
+} from './plugin-directory'
 
 // The mapping is shared with the renderer's own "Add this server" row, so both
 // stamp the same provenance; re-exported here because this module was where it
@@ -72,8 +86,18 @@ export type PluginInstallOptions = {
   /** The commit the plugin's bytes are read at — the source's, or a linked plugin's own. */
   commitSha: string
   readSkillFile: (skill: ScannedSkill, file: SkillFileRef) => Promise<Buffer>
+  /**
+   * The plugin's own files, relative to the plugin's directory, and how to read
+   * them. Required exactly when `pluginNeedsOwnFiles(plugin)` — the caller does
+   * the listing because it is a network round trip and this is where it is
+   * known whether one is needed at all.
+   */
+  pluginFiles?: readonly PluginDirectoryFile[]
+  readPluginFile?: (file: PluginDirectoryFile) => Promise<Buffer>
   /** Which CLIs the returned MCP configs should target; the renderer may widen it. */
   mcpClients: readonly string[]
+  /** Whether a command can be run on this machine; the PATH probe by default. */
+  commandExists?: (command: string) => boolean
   /** Test seam. */
   now?: () => Date
 }
@@ -95,6 +119,16 @@ export type PluginInstallResult =
        * about what landed on disk depends on it.
        */
       claudePluginKey: string
+      /**
+       * Where the plugin's own files landed, '' when the plugin needed none.
+       * The MCP commands above point into it, and the uninstall receipt keeps
+       * its directory name so a Remove can take it back.
+       */
+      pluginRoot: string
+      /** The single path segment under `.multicode/claude-plugins`, '' when nothing was copied. */
+      pluginDirName: string
+      /** Files copied into `pluginRoot`; 0 when nothing was. */
+      pluginFileCount: number
       /** Failures that did not stop the install (one skill of several). */
       warnings: string[]
     }
@@ -132,6 +166,38 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
   const outcomes: PluginInstallHarnessOutcome[] = []
   const warnings: string[] = []
   const skillHarnesses: SkillHarness[] = []
+
+  // The plugin's own files FIRST, and a failure here stops the install.
+  //
+  // Ordered first because nothing has been written yet at this point: a plugin
+  // whose server cannot be given a directory to run from is not a plugin that
+  // half-installed, it is one that was not installed. The alternative — copy
+  // the skills, then hand back a server whose command expands to nothing — is
+  // exactly the bug this file was corrected for.
+  let pluginRoot = ''
+  let pluginDirName = ''
+  let pluginFileCount = 0
+  if (pluginNeedsOwnFiles(plugin)) {
+    const files = options.pluginFiles ?? []
+    const readPluginFile = options.readPluginFile
+    if (files.length === 0 || !readPluginFile) {
+      return {
+        ok: false,
+        message: `${plugin.name} declares an MCP server that runs from the plugin's own directory, and that directory's files could not be read from ${describeOrigin(plugin)}.`,
+      }
+    }
+    const copied = await installPluginDirectory({
+      workspaceRoot: options.workspaceRoot,
+      pluginId: plugin.id,
+      files,
+      readFile: readPluginFile,
+      provenance: { sourceId: options.sourceId, pluginId: plugin.id, commitSha: options.commitSha },
+    })
+    if (!copied.ok) return copied
+    pluginRoot = copied.root
+    pluginDirName = copied.dirName
+    pluginFileCount = copied.fileCount
+  }
 
   for (const harness of options.harnesses) {
     if (plugin.components.skills.length === 0) {
@@ -183,10 +249,17 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
   }
 
   if ([...copiedByHarness.values()].every((dirs) => dirs.length === 0)) {
+    // A refusal from here on has to take the plugin's directory back out with
+    // it. Copying it is the first thing this function does, so without the
+    // sweep an install that failed on its skills would leave a plugin root
+    // sitting in the workspace with no receipt naming it and nothing that would
+    // ever remove it.
     if (plugin.components.skills.length > 0 && warnings.length > 0) {
+      await sweepPluginDirectory(options.workspaceRoot, plugin.id, pluginDirName)
       return { ok: false, message: warnings[0] }
     }
     if (plugin.components.mcpServers.length === 0) {
+      await sweepPluginDirectory(options.workspaceRoot, plugin.id, pluginDirName)
       return {
         ok: false,
         message: `${plugin.name} has nothing the agent CLIs on this machine can use. ${nothingMessage(plugin, options.harnesses[0] ?? 'codex')}`,
@@ -218,23 +291,75 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
     else warnings.push(enabled.message)
   }
 
+  // Provenance, so a later Sync of this source can refresh exactly these
+  // entries: the source, the server's id in that source's scan, the commit the
+  // declaration was read at — and, for a server that runs out of the plugin's
+  // own directory, where that directory landed, so the sync re-resolves the
+  // variable instead of writing the literal token back over the real path.
+  const mcpServers = plugin.components.mcpServers.map((server) => {
+    const rooted = pluginRoot !== '' && referencesPluginRoot(server)
+    return mcpServerConfigFromScanned(rooted ? resolvePluginRoot(server, pluginRoot) : server, options.mcpClients, {
+      sourceId: options.sourceId,
+      itemId: server.id,
+      commitSha: options.commitSha,
+      ...(rooted ? { pluginRoot } : {}),
+    })
+  })
+  warnings.push(...missingRuntimeWarnings(mcpServers, options.commandExists ?? commandOnPath))
+
   return {
     ok: true,
     pluginId: plugin.id,
     harnesses: outcomes,
-    // Provenance, so a later Sync of this source can refresh exactly these
-    // entries: the source, the server's id in that source's scan, and the
-    // commit the declaration was read at.
-    mcpServers: plugin.components.mcpServers.map((server) =>
-      mcpServerConfigFromScanned(server, options.mcpClients, {
-        sourceId: options.sourceId,
-        itemId: server.id,
-        commitSha: options.commitSha,
-      })
-    ),
+    mcpServers,
     claudePluginKey: nativeKey,
+    pluginRoot,
+    pluginDirName,
+    pluginFileCount,
     warnings,
   }
+}
+
+/**
+ * A stdio server whose command this machine cannot run, said plainly.
+ *
+ * Never a refusal. The files are correct, the entry is correct, and the person
+ * may install `bun` in a minute — an entry that had been quietly dropped would
+ * then have to be noticed and installed again. What is not acceptable is
+ * silence: before this, `telegram` landed looking exactly like a server that
+ * works and failed at launch with nothing on screen to explain it
+ * (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+ *
+ * This also catches the shapes plugin-root resolution deliberately does NOT
+ * rewrite — a relative command like `./server`, or a runtime like `uvx` or
+ * `docker` that simply is not installed — because they fail the same probe.
+ */
+function missingRuntimeWarnings(
+  servers: readonly McpServerConfig[],
+  exists: (command: string) => boolean
+): string[] {
+  const warnings: string[] = []
+  for (const server of servers) {
+    const command = server.command?.trim() ?? ''
+    if (server.transport !== 'stdio' || command === '') continue
+    if (exists(command)) continue
+    warnings.push(`${server.name} runs \`${command}\`, which is not on this machine's PATH, so it will not start until that is installed.`)
+  }
+  return warnings
+}
+
+/** Undo the directory copy when a later step turns the install into a refusal. */
+async function sweepPluginDirectory(workspaceRoot: string, pluginId: string, dirName: string): Promise<void> {
+  if (dirName === '') return
+  await uninstallPluginDirectory({ workspaceRoot, pluginId })
+}
+
+/** Where a plugin's bytes come from, for a sentence about not being able to read them. */
+function describeOrigin(plugin: ScannedPlugin): string {
+  const origin = plugin.origin
+  if (origin.kind === 'linked') return origin.repo || origin.url || 'its repository'
+  if (origin.kind === 'registry') return 'the Multicode marketplace, which ships no plugin directory'
+  return 'its source'
 }
 
 export type PluginUninstallOptions = {
@@ -243,6 +368,13 @@ export type PluginUninstallOptions = {
   marketplaceName: string
   /** Skill directory names the install copied; swept from every harness dir. */
   skillDirNames: readonly string[]
+  /**
+   * The plugin's own directory under `.multicode/claude-plugins`, '' when the
+   * install copied none. Absent on a receipt written before plugin directories
+   * existed, which means the same thing: there is nothing of that kind to
+   * remove.
+   */
+  pluginDirName?: string
   allHarnesses: readonly SkillHarness[]
 }
 
@@ -268,6 +400,18 @@ export async function uninstallPlugin(options: PluginUninstallOptions): Promise<
     })
     if (!result.ok) return result
     removedPaths.push(...result.removedPaths)
+  }
+  // The plugin's own directory, when the install copied one. It goes before the
+  // settings edit for the same reason it was copied first: it is the part an
+  // agent would still be able to launch a server out of.
+  if ((options.pluginDirName ?? '') !== '') {
+    const removed = await uninstallPluginDirectory({
+      workspaceRoot: options.workspaceRoot,
+      pluginId: options.pluginId,
+    })
+    if (!removed.ok) return removed
+    removedPaths.push(...removed.removedPaths)
+    warnings.push(...removed.warnings)
   }
   let disabledKey = ''
   if (options.marketplaceName !== '') {

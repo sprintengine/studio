@@ -31,6 +31,7 @@ import {
 } from '../../../../ui'
 import {
   describeInstallPlan,
+  describePluginFilesPlan,
   pluginExternalUrl,
   type PluginInstallAvailability,
   type PluginInstallState,
@@ -68,6 +69,7 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
     marketplaceRepo: props.source.kind === 'github' ? props.source.repo : '',
     harnesses: props.harnesses,
   })
+  const filesPlan = describePluginFilesPlan(plugin)
   const origin = plugin.origin
   const installed = props.install.kind !== 'not-installed'
 
@@ -172,6 +174,17 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
         {props.harnesses.length > 0 ? (
           <Section level={4} title="What installs where">
             <dl className="flex flex-col gap-2 text-meta">
+              {/*
+                Above the per-harness lines because it is not per-harness: one
+                copy of the plugin's directory serves every CLI's MCP config
+                (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+              */}
+              {filesPlan ? (
+                <div className="grid grid-cols-[112px_minmax(0,1fr)] gap-3">
+                  <dt className="font-medium text-[color:var(--text-strong)]">Plugin files</dt>
+                  <dd className="break-words leading-relaxed text-[color:var(--text-muted)]">{filesPlan}</dd>
+                </div>
+              ) : null}
               {plan.map((line) => (
                 <div key={line.harness} className="grid grid-cols-[112px_minmax(0,1fr)] gap-3">
                   <dt className="font-medium text-[color:var(--text-strong)]">{line.label}</dt>

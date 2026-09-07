@@ -1114,6 +1114,18 @@ export type McpServerSourceRef = {
    * source rather than deleting a server someone is using.
    */
   missing?: boolean
+  /**
+   * Where the declaring plugin's own files landed in this workspace, for a
+   * server whose command was `${CLAUDE_PLUGIN_ROOT}`-relative. Absent for every
+   * other server.
+   *
+   * Kept on the entry, not looked up: MCP settings are app-level and a sync
+   * runs with no workspace open, so this is the only place the re-read knows
+   * what to resolve the variable to. Without it the next sync would write the
+   * literal token back over a working path
+   * (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
+   */
+  pluginRoot?: string
 }
 
 export type McpServerConfig = {
@@ -1547,6 +1559,10 @@ export type SkillPluginInstallOutcome =
        * plugin — see src/main/skills/install-plugin.ts.
        */
       claudePluginKey: string
+      /** Where the plugin's own files landed, '' when it needed none. */
+      pluginRoot: string
+      /** Files copied there; 0 when nothing was. */
+      pluginFileCount: number
       warnings: string[]
     }
   | { ok: false; message: string; needsHookAcknowledgement?: boolean }
@@ -1573,6 +1589,12 @@ export type InstalledPluginRecord = {
   marketplaceName: string
   claudePluginKey: string
   skillDirNames: string[]
+  /**
+   * The plugin's own directory under `.multicode/claude-plugins`, when its MCP
+   * server runs out of one. Absent on a receipt from before plugin directories
+   * existed, and on every plugin that needs none.
+   */
+  pluginDirName?: string
   mcpServerIds: string[]
   /** The commit the bytes were read at; '' for a registry plugin. */
   commitSha: string
