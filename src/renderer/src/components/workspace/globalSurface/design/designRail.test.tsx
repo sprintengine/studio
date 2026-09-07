@@ -11,6 +11,7 @@ import {
   designRowTitle,
   libraryRowId,
   projectRowId,
+  resolveDesignProjectPath,
   type DesignRailEntry,
 } from './designRailState'
 
@@ -77,11 +78,55 @@ function railMarkup(entries: DesignRailEntry[], selectedId: string | null = null
 // ── The pure model ───────────────────────────────────────────────────────────
 
 run('row ids separate the attached copy from the same folder in the library', () => {
-  // A bundle attached to the open project and the same bundle registered in the
+  // A bundle attached to the shown project and the same bundle registered in the
   // library are two rows for one folder; selecting one must not light the other.
-  assert.notEqual(projectRowId('ws-1'), libraryRowId('/work/brand/design-system'))
-  assert.equal(projectRowId('ws-1'), 'project:ws-1')
+  assert.notEqual(projectRowId('/work/brand/design-system'), libraryRowId('/work/brand/design-system'))
   assert.equal(libraryRowId('/a/b'), 'lib:/a/b')
+  // Keyed on the FOLDER, not a workspace id: the project can be a folder the
+  // user browsed to, which no open workspace claims.
+  assert.equal(projectRowId('/a/b/design-system'), projectRowId('/a/b/design-system/'))
+  assert.notEqual(projectRowId('/a/b/design-system'), projectRowId('/c/d/design-system'))
+})
+
+run('the door shows the project the user picked, and remembers it', () => {
+  // Default: no pick yet, so the door follows the active workspace — which is
+  // what it did before it had a chip at all.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: null, storedPathExists: null, activeWorkspaceFolderPath: '/work/active' }),
+    '/work/active',
+  )
+  // A stored pick wins over the active workspace. This is the whole point:
+  // pointing the app at another project must not silently move the door.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: '/work/picked', storedPathExists: true, activeWorkspaceFolderPath: '/work/active' }),
+    '/work/picked',
+  )
+  // A folder the user browsed to has no workspace behind it, and is still the
+  // door's project.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: '/elsewhere/brand', storedPathExists: true, activeWorkspaceFolderPath: null }),
+    '/elsewhere/brand',
+  )
+  // Gone from disk: fall back rather than showing a project that is not there.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: '/work/gone', storedPathExists: false, activeWorkspaceFolderPath: '/work/active' }),
+    '/work/active',
+  )
+  // Still being probed counts as present, so the door does not flash onto the
+  // active workspace and back on every open.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: '/work/picked', storedPathExists: null, activeWorkspaceFolderPath: '/work/active' }),
+    '/work/picked',
+  )
+  // Nothing stored, nothing open: no group, exactly as before.
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: null, storedPathExists: null, activeWorkspaceFolderPath: null }),
+    null,
+  )
+  assert.equal(
+    resolveDesignProjectPath({ storedPath: '/work/gone', storedPathExists: false, activeWorkspaceFolderPath: null }),
+    null,
+  )
 })
 
 run('a group with no rows is dropped, so one group means no headings', () => {
@@ -91,7 +136,7 @@ run('a group with no rows is dropped, so one group means no headings', () => {
   assert.deepEqual(libraryOnly.map((group) => group.key), ['library'])
 
   const both = buildDesignRailGroups(
-    [entry({ group: 'project', id: projectRowId('ws-1') }), entry({ path: '/other/design-system' })],
+    [entry({ group: 'project', id: projectRowId('/proj/design-system') }), entry({ path: '/other/design-system' })],
     '',
   )
   assert.deepEqual(both.map((group) => group.key), ['project', 'library'])
@@ -173,7 +218,7 @@ run('headings appear only when both groups have rows', () => {
   const oneGroup = railMarkup([entry()])
   assert.ok(!/In this project/.test(oneGroup), 'a heading must separate something from something')
   const twoGroups = railMarkup([
-    entry({ group: 'project', id: projectRowId('ws-1'), path: '/proj/design-system' }),
+    entry({ group: 'project', id: projectRowId('/proj/design-system'), path: '/proj/design-system' }),
     entry(),
   ])
   assert.match(twoGroups, /In this project/)
@@ -191,6 +236,32 @@ run('the filter glyph is offered only once something is actually broken', () => 
   )
   const withBroken = railMarkup([entry(), entry({ path: '/gone', identity: null, failure: 'missing' })])
   assert.match(withBroken, /aria-label="Filter design systems"/)
+})
+
+run('the project chip rides the rail head, so an empty project can still change it', () => {
+  // A group with no rows is dropped, so a chip in the "In this project" heading
+  // would vanish exactly when a person needs it: the project they are pointed at
+  // has no design system, and changing the project is the only move left.
+  const html = markup(
+    <DesignRail
+      entries={[]}
+      selectedId={null}
+      accentMode="light"
+      projectScope={<span data-project-scope="true">multicode</span>}
+      search=""
+      onSearch={() => {}}
+      status="all"
+      onStatus={() => {}}
+      onSelect={() => {}}
+      onCreate={() => {}}
+      newSelected={false}
+    />,
+  )
+  assert.match(html, /data-project-scope="true"/, 'the chip renders with no rows at all')
+  assert.ok(
+    html.indexOf('data-project-scope="true"') < html.indexOf('New design system'),
+    'and above the New affordance, where the head puts what the door is showing',
+  )
 })
 
 run('a search that matches nothing says so instead of reading as an empty library', () => {

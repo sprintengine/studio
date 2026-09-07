@@ -2,6 +2,7 @@ import type {
   DesignSystemBundleReadFailure,
   DesignSystemBundleIdentity,
 } from '../../../../../../shared/design-system/bundle-view'
+import { designSystemRegistrationId } from '../../../../../../shared/design-system/library'
 
 // Pure rail model for the Design door (item 2002). Grouping, row identity, and
 // search matching live here so the surface stays composition and the rules are
@@ -66,9 +67,39 @@ export const DESIGN_RAIL_GROUP_LABELS: Record<DesignRailGroupKey, string> = {
   library: 'Library',
 }
 
-/** The row id for the bundle attached to the open project. */
-export function projectRowId(workspaceId: string): string {
-  return `project:${workspaceId}`
+/**
+ * Which project the door is SHOWING.
+ *
+ * The door opens from the Extensions drawer, which is global, so it used to bind
+ * to whichever workspace happened to be focused last. Now the user picks, and
+ * the pick persists. The order is: the stored folder while it is still there,
+ * else the active workspace, else nothing (and the group is simply absent, as it
+ * always was with no workspace open).
+ *
+ * `storedPathExists` is null while the probe is in flight, and that counts as
+ * present: a folder that is merely slow to answer must not flash the door onto
+ * another project and back.
+ */
+export function resolveDesignProjectPath(input: {
+  storedPath: string | null
+  storedPathExists: boolean | null
+  activeWorkspaceFolderPath: string | null
+}): string | null {
+  const stored = input.storedPath?.trim()
+  if (stored && input.storedPathExists !== false) return stored
+  return input.activeWorkspaceFolderPath?.trim() || null
+}
+
+/**
+ * The row id for the bundle attached to the project the door is showing.
+ *
+ * Keyed on the FOLDER, hashed the way the library registry keys its own
+ * registrations, rather than on a workspace id: the project can now be a folder
+ * the user browsed to, which no open workspace claims and which therefore has no
+ * workspace id to key on.
+ */
+export function projectRowId(bundlePath: string): string {
+  return `project:${designSystemRegistrationId(bundlePath)}`
 }
 
 /** The row id for a bundle the library knows about, keyed by its folder. */

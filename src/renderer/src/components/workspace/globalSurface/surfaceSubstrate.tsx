@@ -303,8 +303,14 @@ export function SurfaceRailHeader({
 }: {
   /** One line under the door's name, above everything it offers — what this
    *  door is FOR, where a door has a sibling it has to be told apart from
-   *  (Workflows and Sprints, item 2470). Said once, here, and nowhere else on
-   *  the surface; a door with nothing to distinguish it omits it entirely. */
+   *  (Workflows and Sprints, item 2470), or WHICH THING it is showing, where a
+   *  global door is scoped to one project (the Design door's project chip). Said
+   *  once, here, and nowhere else on the surface; a door with nothing to
+   *  distinguish it omits it entirely.
+   *
+   *  It sits outside the group headings deliberately: a heading whose group has
+   *  no rows is dropped, and a scope control that vanished when its project had
+   *  nothing in it would disappear at exactly the moment it was wanted. */
   intro?: React.ReactNode
   newAffordance: SurfaceRailNewAffordance
   /** Search over the rows. Omit on a rail with nothing to narrow. */
@@ -329,8 +335,12 @@ export function SurfaceRailHeader({
     // — deliberately WIDER than the scrollport's 4px, because the head holds
     // full-width controls while the rows hold hover fills (MC-2101's grid).
     <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-0 pt-2">
+      {/* A div, not a p: the slot is typed `ReactNode` and the Design door puts
+          its project chip here, whose popover renders a div — inside a `p` the
+          browser silently closes the paragraph and the chip lands outside it.
+          Sprints' tagline reads identically either way. */}
       {intro ? (
-        <p className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</p>
+        <div className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</div>
       ) : null}
       <button
         type="button"

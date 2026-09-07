@@ -61,9 +61,9 @@ import {
   REMOTE_PRESET_DISABLED_REASONS,
 } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
-import { ProjectSourceMenu, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
+import { ProjectScopePicker } from './ProjectScopePicker'
+import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
-import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import {
@@ -1991,132 +1991,6 @@ function RemoteBranchSegment({
   )
 }
 
-/** The scope line as a control: the projects open here, plus Browse. */
-function ProjectScopePicker({
-  label,
-  branch,
-  options,
-  selectedPath,
-  onSelect,
-  onBrowse,
-  onClone,
-}: {
-  label: string
-  branch: string | null
-  options: NewAgentProjectOption[]
-  selectedPath: string | null
-  onSelect: (path: string) => void
-  onBrowse?: () => void
-  onClone?: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
-}) {
-  // Projects this app knows beyond the ones open in this window: the recent
-  // folders the workspace hub lists. Searching the selector covers them too,
-  // so a repo opened last week is one keystroke away rather than a Browse.
-  const storedRecentFolders = useWorkspaceStore((s) => s.appSettings.recentWorkspaceFolders ?? [])
-  const recentOptions = React.useMemo<NewAgentProjectOption[]>(() => {
-    const open = new Set(options.map((option) => folderPathKey(option.path)))
-    const seen = new Set<string>()
-    const recents: NewAgentProjectOption[] = []
-    for (const path of storedRecentFolders) {
-      const trimmed = path?.trim()
-      if (!trimmed) continue
-      const key = folderPathKey(trimmed)
-      if (open.has(key) || seen.has(key)) continue
-      seen.add(key)
-      recents.push({ path: trimmed, label: basename(trimmed) || trimmed })
-    }
-    return recents
-  }, [options, storedRecentFolders])
-  // Cold start: nothing open and nothing recent still needs somewhere for a
-  // clone to land, so the app's default parent (the hub's own fallback) is
-  // asked for once rather than telling the person to open a project first.
-  const [fallbackParent, setFallbackParent] = React.useState<string | null>(null)
-  React.useEffect(() => {
-    let active = true
-    void window.api.defaultWorkspaceParentDir?.()
-      .then((dir) => {
-        if (active) setFallbackParent(dir)
-      })
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [])
-  // Where an imported repository lands: beside the current project, else
-  // beside the first offered one, else beside a recent one, else the app's
-  // default — the same smart-parent resolver the workspace hub uses.
-  const defaultParent = resolveDefaultParentPath({
-    folderPath: selectedPath,
-    recentFolders: [...options.map((option) => option.path), ...storedRecentFolders],
-    fallbackParent,
-  })
-  // A host that runs the clone itself outlives this popover; without one the
-  // panel clones in place (the tab-strip host offers no picker, so in practice
-  // this is the door with an older host).
-  const runClone = React.useCallback(
-    async (request: ProjectCloneRequest): Promise<ProjectCloneResult> => {
-      if (onClone) return onClone(request)
-      const cloned = await window.api
-        .cloneGitHubRepo(request)
-        .catch((caught: unknown): { ok: false; message: string } => ({
-          ok: false,
-          message: caught instanceof Error ? caught.message : 'Could not clone the repository.',
-        }))
-      if (!cloned.ok) return cloned
-      showToast({ tone: 'good', title: `Cloned ${basename(cloned.path) || cloned.path}`, description: cloned.path })
-      onSelect(cloned.path)
-      return { ok: true, path: cloned.path }
-    },
-    [onClone, onSelect],
-  )
-  const [open, setOpen] = React.useState(false)
-  return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      ariaLabel="Project this agent runs in"
-      popupRole="menu"
-      placement="bottom-start"
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          // A stable hook for the Playwright passes (scripts/testing/
-          // newChatWorkspace.mjs), which reach the folder through this control.
-          data-project-trigger="true"
-          // Exactly the machine trigger's box: the scope line is one row of
-          // sibling chips, so a `mt-1` left over from when this was the only
-          // control on its own line pushed it half a step below the machine
-          // dropdown, and a bare `rounded` was an untokenized radius next to
-          // its siblings' control radius.
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
-          {label}
-          {branch ? ` · ${branch}` : ''}
-          <ChevronGlyph />
-        </button>
-      )}
-    >
-      {/* Search + sources (remote-sessions-ux / project-selector-sources):
-          the selector filters the projects, browses the disk, and steps in
-          place into the shipped MC-2207 Git import — one surface, no second
-          dialog stacked on the first. */}
-      <ProjectSourceMenu
-        options={options}
-        recentOptions={recentOptions}
-        selectedPath={selectedPath}
-        defaultParent={defaultParent}
-        onSelect={(path) => onSelect(path)}
-        onBrowse={onBrowse}
-        onClone={runClone}
-        onClose={() => setOpen(false)}
-      />
-    </Popover>
-  )
-}
-
 /**
  * The ⋯ surface: what a launch rarely changes. Two rows now — the role picker
  * left with the specialists (a role is a way of working, which is what a skill
@@ -2277,12 +2151,6 @@ function MenuValueRow({
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = NewChatDraftImage
-
-// One key per folder whatever the separator or trailing slash, so an open
-// project and its recent-folders twin count once.
-function folderPathKey(path: string): string {
-  return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-}
 
 // Quoted only when the path needs it, matching the terminal drop idiom.
 function quotePath(path: string): string {

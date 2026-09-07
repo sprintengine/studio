@@ -1503,6 +1503,33 @@ async function main(): Promise<void> {
     localIdentityAnswer = () => null
   })
 
+  // The chip and its menu were lifted out of this file into ProjectScopePicker
+  // so the Design door can ask the same question with the same control. New chat
+  // must be unchanged by the move: the chip is still here, and it still offers
+  // BOTH sources — Browse… and Import from Git.
+  await check('the lifted project chip still opens New chat’s own sources', async () => {
+    seedStore()
+    resetRememberedMachineForTests()
+    fleetConnections = []
+    const view = await render({
+      folderPath: '/proj',
+      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    await settle()
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    assert.ok(trigger, 'the scope line still carries the project chip')
+    await click(trigger)
+    await settle()
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')
+    assert.ok(menu, 'the chip opens the shared project menu')
+    assert.ok(buttonWithText(menu!, 'Browse…'), 'Browse… is still offered')
+    assert.ok(buttonWithText(menu!, 'Import from Git'), 'and so is the Git import')
+    assert.ok(buttonWithText(menu!, 'other'), 'with the open projects under them')
+    view.unmount()
+  })
+
   await check('the local access menu walks with the arrows and selects on Enter', async () => {
     seedStore()
     resetRememberedMachineForTests()

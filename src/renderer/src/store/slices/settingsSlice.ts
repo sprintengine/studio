@@ -392,6 +392,17 @@ export function normalizeRecentWorkspaceFolders(
   return normalized.slice(0, MAX_RECENT_WORKSPACE_FOLDERS)
 }
 
+/**
+ * One stored folder path, or null. Blank and non-string both mean "unset", so a
+ * hand-edited settings file cannot leave a surface scoped to the empty string.
+ * Deliberately not resolved against disk here: a folder that is temporarily
+ * unmounted must not be forgotten by a hydration, and only the surface that uses
+ * it can decide what to fall back to.
+ */
+export function normalizeFolderPathSetting(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 // Relocated to shared with MC-2160 (main normalizes the preset when it composes
 // a sprint run); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/sprintengine/automation-lifecycle'
@@ -1016,6 +1027,9 @@ export const defaultAppSettings = (): AppSettings => ({
   searchExcludes: [],
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
+  // Null follows the active workspace, which is what the Design door did before
+  // it had a chip at all.
+  designProjectScopePath: null,
   usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
@@ -1091,6 +1105,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       settings?.recentWorkspaceFolders,
       workspaces.map((ws) => ws.folderPath)
     ),
+    designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
     usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
@@ -1275,6 +1290,8 @@ export interface SettingsSliceActions {
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   /** Remember the open-in-editor target the user just used (app-wide). */
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
+  /** The Design door's viewing scope. Null returns it to following the active workspace. */
+  setDesignProjectScopePath: (path: string | null) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   /**
@@ -1646,6 +1663,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastFolderOpenTarget: (target) =>
       set((state) => {
         state.appSettings.lastFolderOpenTarget = isFolderOpenTargetId(target) ? target : null
+      }),
+
+    setDesignProjectScopePath: (path) =>
+      set((state) => {
+        state.appSettings.designProjectScopePath = normalizeFolderPathSetting(path)
       }),
 
     setLastAgentSpawnPermissionPreset: (preset) =>
