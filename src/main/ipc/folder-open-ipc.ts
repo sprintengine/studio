@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { posix as posixPath, win32 as windowsPath } from 'node:path'
@@ -27,6 +27,14 @@ export type LauncherProbe = {
   platform: NodeJS.Platform
   env: NodeJS.ProcessEnv
   exists(candidatePath: string): boolean
+  /**
+   * macOS only: where an application with one of these bundle identifiers is
+   * installed, wherever that is. The directory scan above it only knows the
+   * conventional folders; an app dragged onto another volume (`/Volumes/work/
+   * IntelliJ IDEA.app`) is still an installed app, and Launch Services knows
+   * about it even when we do not. Absent in a probe that has no such lookup.
+   */
+  locateAppByBundleId?(bundleIds: readonly string[]): string | null
 }
 
 type LaunchOutcome = { ok: true } | { ok: false; message: string }
@@ -39,14 +47,28 @@ export type FolderOpenIpcDependencies = {
   assertPathReachable(targetPath: string): Promise<void>
 }
 
-const EDITOR_LAUNCHERS: Record<Exclude<FolderOpenTargetId, 'finder'>, { cliNames: string[]; macAppNames: string[] }> = {
+// The bundle names cover every spelling the vendors ship: the Community edition
+// installs as "IntelliJ IDEA CE.app", and JetBrains Toolbox writes
+// "IntelliJ IDEA Ultimate.app". The bundle ids are what Launch Services indexes
+// the same app under whatever it was renamed to on disk.
+const EDITOR_LAUNCHERS: Record<
+  Exclude<FolderOpenTargetId, 'finder'>,
+  { cliNames: string[]; macAppNames: string[]; macBundleIds: string[] }
+> = {
   vscode: {
     cliNames: ['code'],
     macAppNames: ['Visual Studio Code.app'],
+    macBundleIds: ['com.microsoft.VSCode'],
   },
   intellij: {
     cliNames: ['idea'],
-    macAppNames: ['IntelliJ IDEA.app', 'IntelliJ IDEA Community Edition.app'],
+    macAppNames: [
+      'IntelliJ IDEA.app',
+      'IntelliJ IDEA Ultimate.app',
+      'IntelliJ IDEA CE.app',
+      'IntelliJ IDEA Community Edition.app',
+    ],
+    macBundleIds: ['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'],
   },
 }
 
@@ -65,8 +87,9 @@ const LAUNCH_SETTLE_MS = 5_000
 /**
  * The editor probe, as a plain call. Shared by the `fs:folder-open-targets`
  * handler and the boot-discovery pass so both answer "which editors are
- * installed" the same way. Cheap and synchronous — it walks PATH and
- * /Applications with `existsSync` and spawns nothing — so it needs no cache.
+ * installed" the same way. Synchronous: it walks PATH and the application
+ * folders with `existsSync`, and only for an editor none of that finds does it
+ * ask Spotlight once (cached, see `locateAppByBundleIdHere`).
  */
 export function listFolderOpenTargetAvailability(
   resolveLauncher: (target: FolderOpenTargetId) => FolderOpenLauncher | null
@@ -76,7 +99,68 @@ export function listFolderOpenTargetAvailability(
 
 /** `resolveFolderOpenLauncher` against the real machine. */
 export function resolveFolderOpenLauncherHere(target: FolderOpenTargetId): FolderOpenLauncher | null {
-  return resolveFolderOpenLauncher(target, { platform: process.platform, env: process.env, exists: existsSync })
+  return resolveFolderOpenLauncher(target, {
+    platform: process.platform,
+    env: process.env,
+    exists: existsSync,
+    locateAppByBundleId: locateAppByBundleIdHere,
+  })
+}
+
+// Spotlight answers are remembered for a minute. The probe runs at boot, again
+// for every workspace bar that mounts, and once more at launch time; `mdfind`
+// costs tens of milliseconds on the main process, and the answer does not
+// change between one workspace switch and the next. A minute is short enough
+// that an editor installed while the app is open shows up on the next probe.
+const SPOTLIGHT_CACHE_MS = 60_000
+const spotlightCache = new Map<string, { at: number; path: string | null }>()
+
+/**
+ * Ask Spotlight where an app with one of these bundle ids lives. The directory
+ * scan finds the conventional installs; this finds the rest — an app kept on a
+ * second volume, or a bundle renamed on disk. `mdfind` is the same index Launch
+ * Services opens apps through, so a hit here is an app `open -a` can start.
+ *
+ * Conventional folders win when Spotlight lists several copies (an install and
+ * a stray download), and anything in the Trash or a Time Machine backup is not
+ * an install at all. Any failure — Spotlight off, the volume unindexed, a slow
+ * index — is "not found", never an error: the menu simply omits the editor.
+ */
+export function locateAppByBundleIdHere(bundleIds: readonly string[]): string | null {
+  if (process.platform !== 'darwin' || bundleIds.length === 0) return null
+  const key = bundleIds.join('|')
+  const cached = spotlightCache.get(key)
+  if (cached && Date.now() - cached.at < SPOTLIGHT_CACHE_MS) return cached.path
+
+  let found: string | null = null
+  try {
+    const query = bundleIds.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(' || ')
+    const output = execFileSync('/usr/bin/mdfind', [query], {
+      encoding: 'utf8',
+      timeout: 2_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    found = pickInstalledBundle(output.split('\n'), process.env.HOME ?? '')
+  } catch {
+    found = null
+  }
+  spotlightCache.set(key, { at: Date.now(), path: found })
+  return found
+}
+
+/** The bundle to launch out of Spotlight's list, or null when none is an install. */
+export function pickInstalledBundle(candidates: readonly string[], home: string): string | null {
+  const bundles = candidates
+    .map((line) => line.trim())
+    .filter((line) => line.endsWith('.app'))
+    .filter((line) => !line.includes('/.Trash/') && !line.includes('Backups.backupdb'))
+  if (bundles.length === 0) return null
+  const rank = (bundle: string): number => {
+    if (bundle.startsWith('/Applications/')) return 0
+    if (home && bundle.startsWith(posixPath.join(home, 'Applications') + '/')) return 1
+    return 2
+  }
+  return [...bundles].sort((a, b) => rank(a) - rank(b))[0] ?? null
 }
 
 export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDependencies): void {
@@ -159,7 +243,41 @@ export function resolveFolderOpenLauncher(target: FolderOpenTargetId, probe: Lau
   const appBundle = findMacApp(spec.macAppNames, probe)
   if (appBundle) return { kind: 'command', command: '/usr/bin/open', args: ['-a', appBundle] }
 
+  // Nowhere we know to look: ask Launch Services where the app actually is.
+  if (probe.platform === 'darwin' && probe.locateAppByBundleId) {
+    const located = probe.locateAppByBundleId(spec.macBundleIds)
+    if (located) return { kind: 'command', command: '/usr/bin/open', args: ['-a', located] }
+  }
+
   return null
+}
+
+/**
+ * Directories the editor CLIs live in when they are installed but not on PATH:
+ * JetBrains Toolbox writes its `idea` shim to a scripts folder it asks the user
+ * to add to PATH (and most never do), and the VS Code installer on Windows
+ * offers PATH as an unticked box. A GUI app's PATH is the login shell's, which
+ * is what makes these worth knowing by name.
+ */
+function wellKnownCliDirs(probe: LauncherProbe): string[] {
+  const { platform, env } = probe
+  if (platform === 'darwin') {
+    const home = env.HOME ?? ''
+    return home ? [posixPath.join(home, 'Library/Application Support/JetBrains/Toolbox/scripts')] : []
+  }
+  if (platform === 'win32') {
+    const dirs: string[] = []
+    const local = env.LOCALAPPDATA
+    if (local) {
+      dirs.push(windowsPath.join(local, 'JetBrains', 'Toolbox', 'scripts'))
+      dirs.push(windowsPath.join(local, 'Programs', 'Microsoft VS Code', 'bin'))
+    }
+    const programFiles = env.ProgramFiles
+    if (programFiles) dirs.push(windowsPath.join(programFiles, 'Microsoft VS Code', 'bin'))
+    return dirs
+  }
+  const home = env.HOME ?? ''
+  return home ? [posixPath.join(home, '.local/share/JetBrains/Toolbox/scripts')] : []
 }
 
 function findOnPath(name: string, probe: LauncherProbe): string | null {
@@ -167,7 +285,10 @@ function findOnPath(name: string, probe: LauncherProbe): string | null {
   const pathValue = probe.env.PATH ?? probe.env.Path ?? ''
   const candidateNames = isWindows ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name]
   const joinPath = isWindows ? windowsPath.join : posixPath.join
-  for (const dir of pathValue.split(isWindows ? ';' : ':')) {
+  // PATH first, so a shim the person put there deliberately wins over a default
+  // install location; the well-known directories are the fallback.
+  const dirs = [...pathValue.split(isWindows ? ';' : ':'), ...wellKnownCliDirs(probe)]
+  for (const dir of dirs) {
     if (!dir) continue
     for (const candidateName of candidateNames) {
       const candidate = joinPath(dir, candidateName)
@@ -180,7 +301,11 @@ function findOnPath(name: string, probe: LauncherProbe): string | null {
 function findMacApp(appNames: string[], probe: LauncherProbe): string | null {
   if (probe.platform !== 'darwin') return null
   const home = probe.env.HOME ?? ''
-  const searchDirs = home ? ['/Applications', posixPath.join(home, 'Applications')] : ['/Applications']
+  // JetBrains Toolbox keeps its installs in a folder of their own under the
+  // user's Applications, so that folder is one of the places an IDE lives.
+  const searchDirs = home
+    ? ['/Applications', posixPath.join(home, 'Applications'), posixPath.join(home, 'Applications/JetBrains Toolbox')]
+    : ['/Applications']
   for (const dir of searchDirs) {
     for (const appName of appNames) {
       const candidate = posixPath.join(dir, appName)

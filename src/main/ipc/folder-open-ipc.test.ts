@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import {
   createFolderOpenIpcDependencies,
+  pickInstalledBundle,
   registerFolderOpenIpc,
   resolveFolderOpenLauncher,
   type FolderOpenIpcDependencies,
@@ -27,12 +28,24 @@ function probe(options: {
   platform: NodeJS.Platform
   installed: string[]
   env?: NodeJS.ProcessEnv
+  /** Spotlight's answer per bundle-id list, keyed by the ids joined with `|`. */
+  spotlight?: Record<string, string | null>
+  /** Every bundle-id list Spotlight was asked about, in order. */
+  spotlightAsked?: string[][]
 }): LauncherProbe {
   const installed = new Set(options.installed)
   return {
     platform: options.platform,
     env: options.env ?? { PATH: '/usr/local/bin:/usr/bin', HOME: '/Users/dev' },
     exists: (candidate) => installed.has(candidate),
+    ...(options.spotlight
+      ? {
+          locateAppByBundleId: (ids: readonly string[]) => {
+            options.spotlightAsked?.push([...ids])
+            return options.spotlight?.[ids.join('|')] ?? null
+          },
+        }
+      : {}),
   }
 }
 
@@ -40,6 +53,8 @@ void main()
 
 async function main(): Promise<void> {
   assertProbeResolvesEachTarget()
+  assertProbeFindsEditorsOutsideTheConventionalFolders()
+  assertSpotlightPickPrefersAnInstall()
   await assertProbeChannelReportsEveryTarget()
   await assertOpenSucceeds()
   await assertOpenFails()
@@ -103,6 +118,124 @@ function assertProbeResolvesEachTarget(): void {
     args: ['/d', '/s', '/c', 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
   })
   assert.equal(resolveFolderOpenLauncher('intellij', windows), null)
+}
+
+// The conventional folders are where the scan looks first, not the only place
+// an editor can be: JetBrains Toolbox has folders of its own, the vendors ship
+// several bundle names, and an app on another volume is still an installed app
+// — Spotlight knows it by bundle id. (The IntelliJ that prompted this lived at
+// `/home/dev/projects/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
+// menu said it was not installed.)
+function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
+  // The Toolbox `idea` shim, which Toolbox writes but rarely gets onto PATH.
+  const toolboxShim = probe({
+    platform: 'darwin',
+    installed: ['/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea'],
+  })
+  assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxShim), {
+    kind: 'command',
+    command: '/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea',
+    args: [],
+  })
+
+  // The Community edition's real bundle name, and Toolbox's own install folder.
+  const communityEdition = probe({ platform: 'darwin', installed: ['/Applications/IntelliJ IDEA CE.app'] })
+  assert.deepEqual(resolveFolderOpenLauncher('intellij', communityEdition), {
+    kind: 'command',
+    command: '/usr/bin/open',
+    args: ['-a', '/Applications/IntelliJ IDEA CE.app'],
+  })
+  const toolboxInstall = probe({
+    platform: 'darwin',
+    installed: ['/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
+  })
+  assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxInstall), {
+    kind: 'command',
+    command: '/usr/bin/open',
+    args: ['-a', '/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
+  })
+
+  // Nowhere the scan knows: Spotlight is asked by bundle id, and its answer is
+  // what `open -a` starts.
+  const asked: string[][] = []
+  const onAnotherVolume = probe({
+    platform: 'darwin',
+    installed: [],
+    spotlight: { 'com.jetbrains.intellij|com.jetbrains.intellij.ce': '/home/dev/projects/IntelliJ IDEA.app' },
+    spotlightAsked: asked,
+  })
+  assert.deepEqual(resolveFolderOpenLauncher('intellij', onAnotherVolume), {
+    kind: 'command',
+    command: '/usr/bin/open',
+    args: ['-a', '/home/dev/projects/IntelliJ IDEA.app'],
+  })
+  assert.equal(resolveFolderOpenLauncher('vscode', onAnotherVolume), null, 'Spotlight knowing nothing is "not installed"')
+  assert.deepEqual(asked, [['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'], ['com.microsoft.VSCode']])
+
+  // Spotlight is the LAST resort: an install the scan finds never spawns it.
+  const askedWhenScanHits: string[][] = []
+  const scanHits = probe({
+    platform: 'darwin',
+    installed: ['/Applications/IntelliJ IDEA.app'],
+    spotlight: {},
+    spotlightAsked: askedWhenScanHits,
+  })
+  resolveFolderOpenLauncher('intellij', scanHits)
+  assert.deepEqual(askedWhenScanHits, [], 'the directory scan answering means Spotlight is never asked')
+
+  // A probe with no Spotlight lookup (other platforms, tests) simply stops at
+  // the scan — the optional hook is optional.
+  assert.equal(resolveFolderOpenLauncher('intellij', probe({ platform: 'darwin', installed: [] })), null)
+
+  // Windows: the Toolbox scripts folder and VS Code's default install folder
+  // are searched after PATH, so an unticked "add to PATH" box is not "absent".
+  const windowsDefaults = probe({
+    platform: 'win32',
+    installed: [
+      'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd',
+      'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd',
+    ],
+    env: {
+      Path: 'C:\\Windows\\system32',
+      LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      ComSpec: 'C:\\Windows\\system32\\cmd.exe',
+    },
+  })
+  assert.deepEqual(resolveFolderOpenLauncher('intellij', windowsDefaults), {
+    kind: 'command',
+    command: 'C:\\Windows\\system32\\cmd.exe',
+    args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd'],
+  })
+  assert.deepEqual(resolveFolderOpenLauncher('vscode', windowsDefaults), {
+    kind: 'command',
+    command: 'C:\\Windows\\system32\\cmd.exe',
+    args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd'],
+  })
+}
+
+// Spotlight lists every copy it has indexed. The one to launch is an install:
+// the conventional folders first, and never the Trash or a backup.
+function assertSpotlightPickPrefersAnInstall(): void {
+  assert.equal(pickInstalledBundle([], '/Users/dev'), null)
+  assert.equal(pickInstalledBundle(['', '   '], '/Users/dev'), null)
+  assert.equal(
+    pickInstalledBundle(['/Users/dev/.Trash/IntelliJ IDEA.app', '/Volumes/Backup/Backups.backupdb/mac/IntelliJ IDEA.app'], '/Users/dev'),
+    null,
+    'a trashed or backed-up bundle is not an install',
+  )
+  assert.equal(
+    pickInstalledBundle(
+      ['/home/dev/projects/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app', '/Applications/IntelliJ IDEA.app'],
+      '/Users/dev',
+    ),
+    '/Applications/IntelliJ IDEA.app',
+  )
+  assert.equal(
+    pickInstalledBundle(['/home/dev/projects/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'], '/Users/dev'),
+    '/Users/dev/Applications/IntelliJ IDEA.app',
+  )
+  assert.equal(pickInstalledBundle(['/home/dev/projects/IntelliJ IDEA.app\n'], '/Users/dev'), '/home/dev/projects/IntelliJ IDEA.app')
 }
 
 async function assertProbeChannelReportsEveryTarget(): Promise<void> {
