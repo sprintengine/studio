@@ -20,6 +20,7 @@ import {
   type SprintRunCanvasModel,
 } from './SprintsCanvas'
 import { SprintsRail } from './SprintsRail'
+import { WorkflowsGlyph } from '../../surfaceGlyphs'
 import { runsForDoor, type RunDoorId } from './runDoors'
 import type { RunDoorDefinition } from './runDoorCopy'
 import { useSprintRunIndex } from './useSprintRunIndex'
@@ -293,24 +294,14 @@ function SurfaceBody({
 // Sprints is the four-pane board from the mockup's sidebar row; Workflows is one
 // goal fanning out into the work it becomes, which is the difference between
 // them said as a picture.
+//
+// The Workflows mark is the drawer row's own `WorkflowsGlyph`, at canvas size —
+// not a second copy of it. A door and its empty state are the same door, and a
+// change whose thesis is "one surface, no copies" cannot keep two identical
+// path definitions to be edited apart. Sprints keeps its markup here because
+// this is where the mark was moved to when the canvas took it over.
 function RunDoorGlyph({ door }: { door: RunDoorId }): JSX.Element {
-  if (door === 'workflows') {
-    return (
-      <svg viewBox="0 0 16 16" fill="none" className="size-icon-md" aria-hidden="true">
-        <circle cx="3.6" cy="8" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-        <path
-          d="M5.3 8h1.5M6.8 8c1.8 0 1.8-4 3.6-4M6.8 8h3.6M6.8 8c1.8 0 1.8 4 3.6 4"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="11.9" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="11.9" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="11.9" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-      </svg>
-    )
-  }
+  if (door === 'workflows') return <WorkflowsGlyph className="size-icon-md" />
   return (
     <svg viewBox="0 0 16 16" fill="none" className="size-icon-md" aria-hidden="true">
       <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3" />

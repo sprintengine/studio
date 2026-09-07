@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 
-// The Extensions drawer (Extensions drawer ruling, 2026-09-05): FIVE rows in a
-// fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs — where the
-// last three are three views of the ONE `extensions` surface. This renders the
+// The Extensions drawer (Extensions drawer ruling, 2026-09-05): SIX rows in a
+// fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs —
+// six since item 2470 split the one run door in two, and where the last three
+// are three views of the ONE `extensions` surface. This renders the
 // real drawer against the real module registry because the contract is the
 // WIRING: the ruling's order survives whatever `order` the modules declared, a
 // row opens a DOOR (Stage 2 — the rows stopped opening modals) latched to its

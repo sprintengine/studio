@@ -173,6 +173,14 @@ export function SprintsRail({
       // (owner ruling R7). It rides `afterRows` because that is the slot INSIDE
       // the rail's one scrollport — a form beside the list would scroll
       // separately from the list it belongs to.
+      //
+      // Scoped to the LIST, not to the rows: the way to start a run does not
+      // depend on what the search matched. Left at the default it vanished
+      // whenever the empty notice showed — so a search for a run that does not
+      // exist yet removed the one control that would create it, and an open form
+      // with a half-typed goal in it was unmounted the moment the rows behind it
+      // went to zero.
+      afterRowsScope="list"
       afterRows={<RunDoorNewRow door={door} projectFilter={projectFilter} />}
     />
   )

@@ -384,6 +384,7 @@ export function SurfaceRail({
   emptyNotice,
   outerContext,
   afterRows,
+  afterRowsScope = 'rows',
 }: {
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
@@ -432,6 +433,17 @@ export function SurfaceRail({
    *  it scrolled separately from the list it hangs off, and anything with its own
    *  height cap became a third. */
   afterRows?: React.ReactNode
+  /** What `afterRows` HANGS OFF, which decides whether an empty list takes it
+   *  with it. `'rows'` (the default, and Horizon's) means it belongs to a row:
+   *  the horizons' plan is the plan of the horizon that is selected, so a search
+   *  that hides every horizon hides the plan too, rather than leaving it
+   *  stranded under "No horizons match." `'list'` means it belongs to the LIST
+   *  itself — the run doors' `+` — and a list you can add to is still a list you
+   *  can add to when the filter matches nothing. Getting this wrong on the run
+   *  doors removed the only way to make a run from a door whose search happened
+   *  to match nothing, and, worse, unmounted an open new-row form mid-typing
+   *  with the goal in it. */
+  afterRowsScope?: 'rows' | 'list'
 }): JSX.Element {
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
@@ -650,8 +662,12 @@ export function SurfaceRail({
           screen either — rendering it anyway put the Horizon door's plan
           directly under "No horizons match.", a plan belonging to a horizon the
           filter had just hidden. The notice explains an empty list; it cannot
-          also explain the populated thing under it. */}
-      {afterRows && !(emptyNotice && rows.length === 0) ? afterRows : null}
+          also explain the populated thing under it.
+          That reasoning is about a level hanging off a ROW, which is why it is
+          conditioned on `afterRowsScope` rather than on emptiness alone: a slot
+          that hangs off the LIST — the run doors' `+` — is not explained by the
+          notice and is not hidden by it. */}
+      {afterRows && !(afterRowsScope === 'rows' && emptyNotice && rows.length === 0) ? afterRows : null}
       </div>
     </div>
   )

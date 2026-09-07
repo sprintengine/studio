@@ -13,6 +13,7 @@ import {
   SPRINT_ENGINE_RUN_TARGET_KIND,
 } from './sprintengineBacklogLinks'
 import { normalizeSprintEngineProjection } from './sprintengine'
+import { runDoorForProjection } from '../components/workspace/globalSurface/sprints/runDoors'
 
 const workspaceRoot = '/repo'
 
@@ -202,6 +203,33 @@ async function main(): Promise<void> {
     'a run link opens the Sprints door on its run',
   )
   assert.deepEqual(doorOpens, ['/repo/.multi-code/sprintengine/team/run.yaml'])
+
+  // WHICH door it opens (item 2470). The link's port reads the run's projection
+  // before opening anything — it already has to, to prove the link still points
+  // at something — and answers the door from that read. A link that named
+  // "sprints" still resolves; it now resolves to the door the run is actually
+  // listed in, because opening the other one shows a rail whose own partition
+  // keeps the run out. This drives the same helper the port calls, on projections
+  // normalized the same way, so the branch is exercised rather than assumed.
+  for (const [configuredRoles, expected] of [
+    [['architect', 'developer'], 'workflows'],
+    [[], 'sprints'],
+    [undefined, 'workflows'],
+  ] as const) {
+    const projection = normalizeSprintEngineProjection({
+      run: { name: 'team', ...(configuredRoles ? { configuredRoles } : {}) },
+      tasks: [],
+      roster: {},
+    })
+    assert.equal(
+      runDoorForProjection(projection),
+      expected,
+      `a run configured ${JSON.stringify(configuredRoles)} opens the ${expected} door`,
+    )
+  }
+  // And a projection that would not normalize states no kind at all, so the link
+  // takes the partition's own fallback rather than guessing at planning.
+  assert.equal(runDoorForProjection(null), 'sprints', 'an unreadable run still opens a door')
 
   // A run whose store is gone reports it. Opening the door anyway would land the
   // operator on some unrelated sprint and call that success.

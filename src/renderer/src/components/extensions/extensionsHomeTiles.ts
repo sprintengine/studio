@@ -1,6 +1,6 @@
 // What the Extensions home's six tiles SAY (Extensions drawer ruling,
-// 2026-09-05, Stage 3; six since item 2470 split the run doors in two) — the one-line summary under each name, and the rule
-// each live count line follows.
+// 2026-09-05, Stage 3; six since item 2470 split the run doors in two) — the
+// one-line summary under each name, and the rule each live count line follows.
 //
 // A leaf: no React, no store, no IPC. The page reads the numbers (from the
 // stores and readers that already hold them) and these turn them into the line
@@ -38,9 +38,9 @@ export type ExtensionsHomeTileId =
 /**
  * The one-line summary under each tile's name. Not in the registry: a module
  * declares what its surface is CALLED, and this is what it is FOR, which is
- * the home page's own copy about the product's five parts.
+ * the home page's own copy about the product's six parts.
  *
- * A row with no entry here still renders — name, glyph, chevron — so a sixth
+ * A row with no entry here still renders — name, glyph, chevron — so a seventh
  * row added to the drawer appears on the home rather than silently vanishing.
  */
 export const EXTENSIONS_HOME_TILE_SUMMARIES: Readonly<Record<string, string>> = {

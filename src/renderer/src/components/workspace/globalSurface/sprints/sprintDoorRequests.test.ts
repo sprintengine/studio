@@ -160,8 +160,18 @@ assert.ok(
 )
 assert.match(
   create,
-  /if \(cameFromDoor\) \{\s*noteSprintDoorSelection\(created\.statePath\)\s*openGlobalSurface\(cameFromDoor\)/,
-  'and the return is to the door that claimed it — a run created from anywhere else stays where it was started, and a workflow never lands in Sprints',
+  /if \(cameFromDoor\) \{\s*noteSprintDoorSelection\(created\.statePath\)\s*openGlobalSurface\(runDoorForRoleCounts\(launchRoleCounts\)\)/,
+  'the claim decides WHETHER to return to a door; the run that was actually made decides WHICH',
+)
+// The claim is a hint, never the answer. Routing on it put an operator down on a
+// list its own partition kept the new run out of, whenever the roster they chose
+// disagreed with the door they pressed — which is every Workflows `+` that left
+// its roster unstated, and every Sprints `+` on a profile whose last-used roster
+// staffs an architect.
+assert.doesNotMatch(
+  create,
+  /openGlobalSurface\(cameFromDoor\)/,
+  'the door that asked never routes the run by itself',
 )
 
 void (async () => {

@@ -1,4 +1,10 @@
+import type { SprintEngineRoleCounts } from '../../../../types/workspace'
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
+import type { SprintEngineState } from '../../../../../../shared/sprintengine/run-types'
+import {
+  sprintEngineCoordinatorSeat,
+  sprintEngineCoordinatorSeatForRoleCounts,
+} from '../../../../../../shared/sprintengine/state'
 
 // Which door a run belongs to (item 2470).
 //
@@ -45,6 +51,28 @@ import type { SprintRunSummary } from '../../../../../../shared/sprintengine/run
 // `configuredRoles` resolves to the architect seat the engine still resolves for
 // it, so it reads correctly under Workflows.
 
+// WHAT THIS PREDICATE TRANSITIVELY IS TODAY, AND THE CASE IT GETS WRONG.
+//
+// Nothing in this file names a role, and nothing in it ever should. But the seat
+// it reads is resolved by `sprintEngineCoordinatorSeat`, and that function
+// bottoms out at `src/shared/sprintengine/state.ts:1745` on
+// `roles.has('architect')`. Followed all the way down, therefore, the door rule
+// as the app runs it today is `configuredRoles.includes('architect')`.
+//
+// It gets one case wrong, and the case is real: a run staffing
+// `['developer', 'tester']` staffs ROLES and has no architect. Its seat resolves
+// roleless, so it lists under Sprints — while this item's own plan calls
+// Workflows "the same run-index read, filtered to role-based runs". Until the
+// literal goes, the door a run lists under honestly means "does an architect
+// coordinate it", not "does it staff roles at all".
+//
+// The literal is epic 2058's to delete — the coordination seat, the death of
+// `general` and the routing rule are that epic's by name, and this item is
+// forbidden from touching them. When it goes, nothing here needs editing: the
+// seat simply starts answering for the runs it currently mis-sorts. The gap is
+// pinned by a test in `runDoors.test.ts` that derives its seat from a real
+// `SprintEngineState`, so it is recorded rather than hidden.
+
 export type RunDoorId = 'workflows' | 'sprints'
 
 /** Every door, in the order they sit beside each other in the rail. */
@@ -80,6 +108,35 @@ export function runsForDoor<T extends RunDoorClassifiable>(
   door: RunDoorId,
 ): T[] {
   return runs.filter((run) => runBelongsToDoor(run, door))
+}
+
+/**
+ * The door a run WOULD list under if it were created with these role counts.
+ *
+ * The create path needs this because a door can only claim to have opened what
+ * it actually made: the operator's roster choice, not the door they pressed `+`
+ * on, is what decides the run's kind, so creation asks the same rule the rail
+ * asks rather than trusting the claim it was started with. It is also how the
+ * Workflows `+` decides which saved rosters it may offer — a roster that seats
+ * no named coordinator would produce a sprint, and a door must not offer a
+ * choice that lands its own run in the other list.
+ */
+export function runDoorForRoleCounts(roleCounts: SprintEngineRoleCounts): RunDoorId {
+  return runDoorFor({ coordinatorSeat: sprintEngineCoordinatorSeatForRoleCounts(roleCounts) })
+}
+
+/**
+ * The door a run lists under, read from its own projection rather than from the
+ * index summary. The Backlog run link resolves this way: it has already read the
+ * run off disk to prove the link still points at something, so it answers the
+ * door from that read instead of waiting for an index it is not holding. A
+ * projection that would not normalize states no kind and takes the partition's
+ * own fallback, which is Sprints.
+ */
+export function runDoorForProjection(
+  state: Pick<SprintEngineState, 'configuredRoles'> | null | undefined,
+): RunDoorId {
+  return runDoorFor({ coordinatorSeat: state ? sprintEngineCoordinatorSeat(state) : null })
 }
 
 /**

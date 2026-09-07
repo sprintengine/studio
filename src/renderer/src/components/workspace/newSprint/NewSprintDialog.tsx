@@ -41,6 +41,7 @@ import {
   consumeSprintDoorDraft,
   noteSprintDoorSelection,
 } from '../globalSurface/sprints/sprintDoorRequests'
+import { runDoorForRoleCounts } from '../globalSurface/sprints/runDoors'
 import { inferSourcePlanKind, markdownTitle, workspaceRelativePath } from '../newWorkspace/helpers'
 import {
   PlainAgentsPanel,
@@ -332,8 +333,12 @@ export default function NewSprintDialog({
     if (!goal && !doorDraft.rosterId) return
     appliedDoorDraftRef.current = true
     if (doorDraft.rosterId) editor.onSelectRoster(doorDraft.rosterId)
-    if (goal) setCreatingItem(true)
-  }, [doorDraft, editor])
+    // The capture writes into a project's `backlog/`, so with no project open
+    // there is nothing for it to write to and it renders nothing. Opening it
+    // anyway is how a typed goal used to disappear in silence; the goal is shown
+    // on the picks panel instead, with the one thing missing named.
+    if (goal && folderPath) setCreatingItem(true)
+  }, [doorDraft, editor, folderPath])
 
   const selectedRoster = useMemo(
     () =>
@@ -864,11 +869,21 @@ export default function NewSprintDialog({
       // Read the door's claim before closing — closing releases it. A run
       // started at a door returns to THAT door, on the run just created (items
       // 1765 + 2470); one started anywhere else stays where it was started.
+      //
+      // The claim says which door ASKED. It does not say what was made, and the
+      // two come apart the moment the operator's roster choice differs from the
+      // door's promise: the roster is what decides the run's kind, so a claim
+      // that outranked it would put the operator down on a list its own
+      // partition keeps the new run out of — a run that reads as never created,
+      // and on a first run an empty state inviting them to make the one they
+      // just made. So the claim decides WHETHER to return to a door, and the run
+      // itself decides WHICH: `runDoorForRoleCounts` asks the partition the
+      // same question the rail will ask of the index summary a moment later.
       const cameFromDoor = consumeSprintCreationDoorClaim()
       onClose()
       if (cameFromDoor) {
         noteSprintDoorSelection(created.statePath)
-        openGlobalSurface(cameFromDoor)
+        openGlobalSurface(runDoorForRoleCounts(launchRoleCounts))
       }
     } catch (error) {
       setCreateError(
@@ -1165,9 +1180,34 @@ export default function NewSprintDialog({
 
                 <div className="flex flex-col gap-1">
                   {sourceCount === 0 ? (
-                    <p className="text-meta text-[color:var(--text-muted)]">
-                      Pick from the backlog on the left, or choose a file below.
-                    </p>
+                    // A goal typed at the Workflows door and not yet written
+                    // down is still the operator's answer, so it is shown here
+                    // rather than dropped: the capture may have been cancelled,
+                    // or there may be no project for it to write into. Either
+                    // way the words survive where they can be acted on, and the
+                    // one thing standing in the way is named.
+                    doorDraft.goal.trim() ? (
+                      <div className="flex flex-col items-start gap-1.5">
+                        <p className="text-meta text-[color:var(--text-muted)]">
+                          Your goal is not written down yet:
+                        </p>
+                        <p className="text-meta text-[color:var(--text-strong)]">
+                          “{doorDraft.goal.trim()}”
+                        </p>
+                        <button
+                          type="button"
+                          disabled={!folderPath}
+                          onClick={() => setCreatingItem(true)}
+                          className="text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:no-underline disabled:text-[color:var(--text-disabled)] focus-visible:focus-ring"
+                        >
+                          {folderPath ? 'Write it down' : 'Open a project to write it down'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-meta text-[color:var(--text-muted)]">
+                        Pick from the backlog on the left, or choose a file below.
+                      </p>
+                    )
                   ) : (
                     <>
                       {pickedEpics.map((epic) => {

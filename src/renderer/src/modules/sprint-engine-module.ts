@@ -66,16 +66,14 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
     { useWorkspaceStore },
     { publishDiagnostic },
     { noteSprintDoorSelection },
-    { runDoorFor },
+    { runDoorForProjection },
     { normalizeSprintEngineProjection },
-    { sprintEngineCoordinatorSeat },
   ] = await Promise.all([
     import('../store/workspaceStore'),
     import('../utils/diagnostics'),
     import('../components/workspace/globalSurface/sprints/sprintDoorRequests'),
     import('../components/workspace/globalSurface/sprints/runDoors'),
     import('../utils/sprintengine'),
-    import('../../../shared/sprintengine/state'),
   ])
   return {
     openSprintsDoorOnRun: async (statePath: string): Promise<boolean> => {
@@ -95,7 +93,7 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
       } catch {
         return false
       }
-      const door = runDoorFor({ coordinatorSeat: state ? sprintEngineCoordinatorSeat(state) : null })
+      const door = runDoorForProjection(state)
       noteSprintDoorSelection(statePath)
       useWorkspaceStore.getState().openGlobalSurface(door)
       return true

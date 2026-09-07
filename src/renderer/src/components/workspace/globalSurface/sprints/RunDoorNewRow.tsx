@@ -10,6 +10,7 @@ import { buildNewSprintSource, epicPickKey } from '../../newSprint/newSprintMode
 import { isBacklogEpicPath } from '../../../../utils/backlogEpics'
 import type { SprintEngineRoster } from '../../../../types/workspace'
 import { noteSprintDoorDraft, requestNewSprint } from './sprintDoorRequests'
+import { runDoorForRoleCounts } from './runDoors'
 import type { RunDoorDefinition } from './runDoorCopy'
 
 // The `+` at the end of a door's list, and what it opens (item 2470, mockup
@@ -33,6 +34,15 @@ import type { RunDoorDefinition } from './runDoorCopy'
 //     draft the New sprint dialog opens on. A workflow plans from something
 //     written down, so the goal becomes the title of the item that dialog's own
 //     capture writes — the existing path, opened on what was already said.
+//
+// THE WORKFLOWS ROW MUST ACTUALLY PRODUCE A WORKFLOW. Its roster list is the
+// rosters that seat a NAMED coordinator, asked of `runDoors` itself so the row
+// offers exactly the choices whose runs its own door will list. There is no
+// "leave it to the default" option, because the default is No roles: a door that
+// offered it would quietly make sprints and then put the operator down on a list
+// that keeps them out. Where a profile has no such roster yet, the row says the
+// team is picked in the next step rather than inventing one — the dialog's Team
+// menu is where rosters are chosen and made, and it is one screen away.
 //
 // A second creation path would mean a second set of rules about connectors,
 // isolation, rosters and backlog links, which is exactly what "no new creation
@@ -63,20 +73,32 @@ export function RunDoorNewRow({
   const [open, setOpen] = useState(false)
   const plusRef = useRef<HTMLButtonElement | null>(null)
   const firstFieldRef = useRef<HTMLTextAreaElement | HTMLDivElement | null>(null)
+  const wasOpenRef = useRef(false)
 
-  // Closing returns focus to the plus, so cancelling never drops the operator
-  // at the top of the document. Opening moves it into the first field, which is
-  // what makes the row usable from the keyboard at all.
-  const close = useCallback(() => {
-    setOpen(false)
-    plusRef.current?.focus()
-  }, [])
+  // Closing returns focus to the plus, so cancelling never drops the operator at
+  // the top of the document. Opening moves it into the first field, which is what
+  // makes the row usable from the keyboard at all.
+  const close = useCallback(() => setOpen(false), [])
 
+  // Both halves of that happen in an EFFECT, after the render that swapped the
+  // form for the plus (or the plus for the form). Calling `focus()` in the same
+  // tick as `setOpen(false)` focused nothing at all: while the form is open the
+  // plus is unmounted, so its ref is null and the call is a no-op — focus stayed
+  // on the button that had just been removed and landed on `<body>`. From there
+  // the rail's j/k navigation is dead and the NEXT Escape reaches the window
+  // listener, closing the whole door on an operator who only meant to abandon a
+  // form. `wasOpenRef` is what keeps this to the open→closed transition, so the
+  // row does not steal focus merely by mounting.
   useEffect(() => {
-    if (!open) return
-    const node = firstFieldRef.current
-    if (node instanceof HTMLTextAreaElement) node.focus()
-    else node?.querySelector('input')?.focus()
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = open
+    if (open) {
+      const node = firstFieldRef.current
+      if (node instanceof HTMLTextAreaElement) node.focus()
+      else node?.querySelector('input')?.focus()
+      return
+    }
+    if (wasOpen) plusRef.current?.focus()
   }, [open])
 
   if (!open) {
@@ -141,27 +163,48 @@ function WorkflowsNewRowFields({
   onDone: () => void
 }): JSX.Element {
   const [goal, setGoal] = useState('')
-  const [rosterId, setRosterId] = useState('')
+  const [pickedRosterId, setPickedRosterId] = useState<string | null>(null)
+  const workspaces = useWorkspaceStore((state) => state.workspaces)
+  const projects = useMemo(() => listAutomationProjectFolders(workspaces), [workspaces])
   const rosters = useWorkspaceStore(
     (state) => state.appSettings.sprintEngineRoleSettings?.savedRosters ?? EMPTY_ROSTERS,
   )
-  // The empty option resolves the way the dialog itself resolves an unstated
-  // roster — the one you last used there — so the label says that rather than
-  // promising a fixed default the resolver does not deliver.
-  const rosterItems: SelectItem[] = useMemo(
-    () => [
-      { value: '', label: 'Last used roster' },
-      ...rosters.map((roster) => ({ value: roster.id, label: roster.name })),
-    ],
+  // The rosters this door may offer: the ones whose runs it will list. The
+  // question is asked of the partition itself — a roster that seats no named
+  // coordinator makes a sprint, whatever door was pressed to start it — so the
+  // row cannot drift from the rule the rail filters by.
+  const coordinatorRosters = useMemo(
+    () => rosters.filter((roster) => runDoorForRoleCounts(roster.roleCounts) === 'workflows'),
     [rosters],
   )
+  const rosterItems: SelectItem[] = useMemo(
+    () => coordinatorRosters.map((roster) => ({ value: roster.id, label: roster.name })),
+    [coordinatorRosters],
+  )
+  // Never `''`. An unstated choice used to fall through to the resolver's
+  // zero-configuration default, which is No roles — the exact promise the
+  // comment on the old empty option claimed to be avoiding. The row leads with
+  // the first roster that can actually coordinate one.
+  const rosterId = pickedRosterId ?? coordinatorRosters[0]?.id ?? null
 
   const start = (): void => {
     const trimmed = goal.trim()
     if (!trimmed) return
-    noteSprintDoorDraft({ goal: trimmed, rosterId: rosterId || null })
+    noteSprintDoorDraft({ goal: trimmed, rosterId })
     requestNewSprint(undefined, 'workflows')
     onDone()
+  }
+
+  // A workflow plans from something written down, and the writing lands in a
+  // project's `backlog/`. With no project open there is nowhere for it to go, so
+  // the row says so BEFORE a goal is typed rather than swallowing one after —
+  // the same refusal the Sprints row already makes for the same reason.
+  if (projects.length === 0) {
+    return (
+      <p className="px-0.5 text-micro leading-4 text-[color:var(--text-muted)]">
+        Open a project so the workflow has a backlog to write its goal into.
+      </p>
+    )
   }
 
   return (
@@ -174,12 +217,18 @@ function WorkflowsNewRowFields({
         aria-label={door.newRowPrompt}
         onChange={(event) => setGoal(event.target.value)}
       />
-      <Select
-        ariaLabel="Roster for this workflow"
-        value={rosterId}
-        items={rosterItems}
-        onChange={setRosterId}
-      />
+      {rosterId ? (
+        <Select
+          ariaLabel="Roster for this workflow"
+          value={rosterId}
+          items={rosterItems}
+          onChange={setPickedRosterId}
+        />
+      ) : (
+        <p className="px-0.5 text-micro leading-4 text-[color:var(--text-muted)]">
+          No saved team has a coordinator yet — pick one on the next screen.
+        </p>
+      )}
       <PrimaryButton type="button" disabled={goal.trim().length === 0} onClick={start}>
         {door.newRowSubmitLabel}
       </PrimaryButton>
