@@ -8,6 +8,7 @@ import { EmptyState as KitEmptyState, PrimaryButton } from '../ui'
 import { Modal } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
+import { generatedWorkspaceTitleRequester } from '../../store/generatedWorkspaceTitle'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
@@ -560,7 +561,6 @@ export default function WorkspaceManager() {
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const recordWorkspaceTurnEnd = useWorkspaceStore((s) => s.recordWorkspaceTurnEnd)
-  const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
   const projectLaunchedAgentSessions = useWorkspaceStore((s) => s.projectLaunchedAgentSessions)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -2193,7 +2193,9 @@ export default function WorkspaceManager() {
       }
 
       // Name a new chat after the first real prompt sent inside it, so a sidebar
-      // of them says what each was for instead of "Chat 44". The store action
+      // of them says what each was for instead of "Chat 44". The requester
+      // lands the heuristic title at once and, when the person has it on, lets
+      // their own agent's title replace it when it arrives. The store action
       // owns the rules — it no-ops once a workspace's name is locked, and skips a
       // prompt that yields no usable title (an app-injected skill drop, pure
       // filler), leaving the next prompt to try. So this only has to avoid
@@ -2204,7 +2206,7 @@ export default function WorkspaceManager() {
         const offered = titledPromptAtRef.current.get(session.sessionId)
         if (offered !== undefined && offered >= prompt.at) continue
         titledPromptAtRef.current.set(session.sessionId, prompt.at)
-        autoTitleWorkspaceFromPrompt(session.workspaceId, prompt.text)
+        generatedWorkspaceTitleRequester().titleFromPrompt(session.workspaceId, prompt.text)
       }
 
       if (!reconciledLaunchFlagsRef.current) {
@@ -2271,7 +2273,6 @@ export default function WorkspaceManager() {
     recordWorkspaceTurnEnd,
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
-    autoTitleWorkspaceFromPrompt,
   ])
 
   useEffect(() => {

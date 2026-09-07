@@ -52,13 +52,14 @@ export function claudeChatTitleInvocation(input: ClaudeInvocationInput): ChatTit
 // Reads the title out of `claude -p --output-format json` stdout. The envelope
 // is one object today; verbose mode wraps it in an array of messages with the
 // result last, and both shapes are accepted so a CLI flag drift does not read
-// as a failure. Null when nothing there is a title.
+// as a failure. Null when nothing there is a title — including stdout that is
+// not JSON at all, which in json mode is a banner or an error, never an answer.
 export function readClaudeChatTitleStdout(stdout: string): string | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
   } catch {
-    return readChatTitleOutput(stdout)
+    return null
   }
   const envelope = Array.isArray(parsed)
     ? parsed.findLast((entry): entry is Record<string, unknown> =>

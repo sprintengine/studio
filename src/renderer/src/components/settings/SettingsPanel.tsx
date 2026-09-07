@@ -38,6 +38,7 @@ import LearnCenter from '../learn/LearnCenter'
 import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
+import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
@@ -1893,6 +1894,8 @@ export default function SettingsPanel({
               })}
             </div>
           )}
+
+          <TextGenerationSettingsSection />
 
           {idleSuspendDescriptor ? (
             <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">

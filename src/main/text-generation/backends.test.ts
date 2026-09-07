@@ -61,7 +61,7 @@ run('reads the claude envelope, verbose arrays, and refuses an error envelope', 
     'an envelope without structured_output still yields its result text',
   )
   assert.equal(readClaudeChatTitleStdout('{"type":"result","is_error":true,"result":"rate limited"}'), null)
-  assert.equal(readClaudeChatTitleStdout('not json at all'), 'not json at all', 'plain stdout is read as the title itself')
+  assert.equal(readClaudeChatTitleStdout('Error: not logged in'), null, 'non-JSON stdout is never a title')
   assert.equal(readClaudeChatTitleStdout('[]'), null)
 })
 

@@ -23,6 +23,7 @@ import {
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
   normalizeSpecialistPacks,
+  normalizeTextGenerationSettings,
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import {
@@ -1777,6 +1778,117 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
     true,
     'while adding one still means "wire this up"',
   )
+}
+
+// Model-written chat titles (MC-2484). The setting is on by default — the
+// heuristic title is the fallback for a person with this off or with no
+// supported CLI installed, so nothing is lost by starting it on — and the
+// engine choice is a separate axis that survives an off.
+{
+  assert.deepEqual(normalizeTextGenerationSettings(undefined), { enabled: true, engine: null })
+  assert.deepEqual(normalizeTextGenerationSettings(null), { enabled: true, engine: null })
+  assert.deepEqual(normalizeTextGenerationSettings({}), { enabled: true, engine: null })
+  assert.deepEqual(
+    normalizeTextGenerationSettings({ enabled: false }),
+    { enabled: false, engine: null },
+    'an explicit off is kept — only a missing value defaults to on',
+  )
+  assert.equal(
+    normalizeTextGenerationSettings({ enabled: false, engine: { cli: 'codex', model: 'gpt-5.6-luna' } }).enabled,
+    false,
+  )
+
+  // An engine with no CLI is nothing: a stray level or model without the CLI
+  // that would run it cannot name an engine.
+  assert.equal(normalizeTextGenerationSettings({ engine: { cli: '   ', model: 'gpt-5.6-luna' } }).engine, null)
+  assert.equal(normalizeTextGenerationSettings({ engine: { model: 'gpt-5.6-luna' } as never }).engine, null)
+  assert.equal(normalizeTextGenerationSettings({ engine: 'codex' as never }).engine, null)
+
+  // A CLI with an empty model is a real setting: that CLI at its default model.
+  assert.deepEqual(normalizeTextGenerationSettings({ engine: { cli: 'codex', model: '' } }).engine, {
+    cli: 'codex',
+    model: '',
+  })
+
+  assert.deepEqual(
+    normalizeTextGenerationSettings({
+      engine: { cli: '  codex  ', model: '  gpt-5.6-luna  ', reasoning: '  low  ' },
+    }).engine,
+    { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'low' },
+    'every field is trimmed',
+  )
+
+  // Reasoning is optional, and an empty level is absent rather than stored as
+  // an empty string — an empty string would be forwarded as a flag with no value.
+  assert.deepEqual(
+    normalizeTextGenerationSettings({ engine: { cli: 'codex', model: 'gpt-5.6-luna', reasoning: '   ' } }).engine,
+    { cli: 'codex', model: 'gpt-5.6-luna' },
+  )
+  assert.equal(
+    'reasoning' in
+      (normalizeTextGenerationSettings({ engine: { cli: 'codex', model: 'gpt-5.6-luna', reasoning: '' } }).engine ??
+        {}),
+    false,
+  )
+
+  // And the key is always present after the whole-settings normalizer, so a
+  // profile persisted before this shipped reads as "on, nothing chosen".
+  assert.deepEqual(defaultAppSettings().textGeneration, { enabled: true, engine: null })
+  assert.deepEqual(normalizeAppSettings(undefined, []).textGeneration, { enabled: true, engine: null })
+  assert.deepEqual(normalizeAppSettings({}, []).textGeneration, { enabled: true, engine: null })
+  assert.deepEqual(
+    normalizeAppSettings({ textGeneration: { enabled: false, engine: { cli: 'codex', model: '' } } } as never, [])
+      .textGeneration,
+    { enabled: false, engine: { cli: 'codex', model: '' } },
+  )
+
+  // --- the two writers -----------------------------------------------------
+
+  const textGeneration = (): ReturnType<typeof defaultAppSettings>['textGeneration'] =>
+    useWorkspaceStore.getState().appSettings.textGeneration
+
+  useWorkspaceStore.getState().setTextGenerationEngine({ cli: 'codex', model: '  gpt-5.6-luna  ', reasoning: 'high' })
+  assert.deepEqual(textGeneration()?.engine, { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'high' })
+
+  // Turning titles off must not make them pick their CLI again when they
+  // turn it back on.
+  useWorkspaceStore.getState().setTextGenerationEnabled(false)
+  assert.equal(textGeneration()?.enabled, false)
+  assert.deepEqual(textGeneration()?.engine, { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'high' })
+  useWorkspaceStore.getState().setTextGenerationEnabled(true)
+  assert.equal(textGeneration()?.enabled, true)
+  assert.deepEqual(
+    textGeneration()?.engine,
+    { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'high' },
+    'the engine survives the round trip through off',
+  )
+
+  // The same effort rule as setSpecialistModelDefault: a level outlives a model
+  // change inside the CLI...
+  useWorkspaceStore.getState().setTextGenerationEngine({ cli: 'codex', model: 'gpt-5.1-codex-mini' })
+  assert.deepEqual(textGeneration()?.engine, { cli: 'codex', model: 'gpt-5.1-codex-mini', reasoning: 'high' })
+
+  // ...and is dropped when the CLI changes, because levels do not carry across.
+  useWorkspaceStore.getState().setTextGenerationEngine({ cli: 'claude-code', model: 'claude-haiku-4-5' })
+  assert.deepEqual(textGeneration()?.engine, { cli: 'claude-code', model: 'claude-haiku-4-5' })
+
+  // An explicit level always wins over whatever was stored.
+  useWorkspaceStore
+    .getState()
+    .setTextGenerationEngine({ cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'low' })
+  assert.deepEqual(textGeneration()?.engine, { cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'low' })
+  useWorkspaceStore
+    .getState()
+    .setTextGenerationEngine({ cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'medium' })
+  assert.deepEqual(textGeneration()?.engine, { cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'medium' })
+
+  // null is "whichever supported CLI is installed, at its default" — not off.
+  useWorkspaceStore.getState().setTextGenerationEngine(null)
+  assert.deepEqual(textGeneration(), { enabled: true, engine: null })
+  useWorkspaceStore.getState().setTextGenerationEnabled(false)
+  useWorkspaceStore.getState().setTextGenerationEngine(null)
+  assert.deepEqual(textGeneration(), { enabled: false, engine: null }, 'clearing the engine leaves enabled alone')
+  useWorkspaceStore.getState().setTextGenerationEnabled(true)
 }
 
 console.log('settingsSlice.test.ts: ok')

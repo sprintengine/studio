@@ -4,6 +4,7 @@ import {
   isNoRolesRosterRef,
 } from '../../../../shared/sprintengine/run-types'
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
+import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
@@ -612,6 +613,27 @@ export function normalizeCliModelCatalogs(
 // Persisted last-used conversation provider/model. Keeps only a well-formed
 // non-empty pair; anything else (legacy absence, partial blob) resets to null so
 // spawn falls back to the first available option.
+/**
+ * The text-generation setting as persisted. Enabled by default: the owner's
+ * ruling (2026-09-07) is that the heuristic is the fallback for a person who
+ * turned this off or has no supported CLI, so a fresh profile starts with it
+ * on. The engine follows the AgentCliModelSelection rules — a CLI with an
+ * empty model means that CLI's default model, and a stray level without a
+ * CLI is nothing.
+ */
+export function normalizeTextGenerationSettings(
+  input: Partial<TextGenerationSettings> | null | undefined,
+): TextGenerationSettings {
+  const enabled = typeof input?.enabled === 'boolean' ? input.enabled : true
+  const raw = input?.engine
+  if (!raw || typeof raw !== 'object') return { enabled, engine: null }
+  const cli = typeof raw.cli === 'string' ? raw.cli.trim() : ''
+  const model = typeof raw.model === 'string' ? raw.model.trim() : ''
+  const reasoning = typeof raw.reasoning === 'string' ? raw.reasoning.trim() : ''
+  if (!cli) return { enabled, engine: null }
+  return { enabled, engine: { cli, model, ...(reasoning ? { reasoning } : {}) } }
+}
+
 export function normalizeConversationModel(
   input: AgentConversationRuntime | null | undefined,
 ): AgentConversationRuntime | null {
@@ -999,6 +1021,7 @@ export const defaultAppSettings = (): AppSettings => ({
   mcp: defaultMcpSettings(),
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
+  textGeneration: { enabled: true, engine: null },
   lastNewChatAgent: { kind: 'general' },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
@@ -1063,6 +1086,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     mcp: normalizeMcpSettings(settings?.mcp),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
+    textGeneration: normalizeTextGenerationSettings(settings?.textGeneration),
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget)
       ? settings.lastFolderOpenTarget
@@ -1272,6 +1296,15 @@ export interface SettingsSliceActions {
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
+  /** Turn model-written chat titles on or off. The engine choice survives an off. */
+  setTextGenerationEnabled: (enabled: boolean) => void
+  /**
+   * Choose the CLI/model/effort that writes chat titles, or `null` for "the
+   * first supported installed CLI at its default". Same effort rule as
+   * setSpecialistModelDefault: a level outlives a model change within the CLI
+   * and is dropped when the CLI changes.
+   */
+  setTextGenerationEngine: (selection: AgentCliModelSelection | null) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   /** Remember the open-in-editor target the user just used (app-wide). */
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
@@ -1636,6 +1669,31 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
         state.appSettings.lastSelectedConversationModel = normalizeConversationModel(selection)
+      }),
+
+    setTextGenerationEnabled: (enabled) =>
+      set((state) => {
+        state.appSettings.textGeneration = {
+          ...normalizeTextGenerationSettings(state.appSettings.textGeneration),
+          enabled,
+        }
+      }),
+
+    setTextGenerationEngine: (selection) =>
+      set((state) => {
+        const current = normalizeTextGenerationSettings(state.appSettings.textGeneration)
+        if (!selection) {
+          state.appSettings.textGeneration = { ...current, engine: null }
+          return
+        }
+        const stored = current.engine
+        const reasoning = (
+          selection.reasoning ?? (stored?.cli === selection.cli ? stored.reasoning : undefined)
+        )?.trim()
+        state.appSettings.textGeneration = {
+          ...current,
+          engine: { cli: selection.cli, model: selection.model.trim(), ...(reasoning ? { reasoning } : {}) },
+        }
       }),
 
     setLastNewChatAgent: (choice) =>

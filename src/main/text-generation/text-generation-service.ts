@@ -30,7 +30,9 @@ import {
   type TextGenerationResult,
   supportsTextGeneration,
 } from '../../shared/text-generation/contract'
-import { defaultProbeEnv, detectCli } from '../cli-runtime-install'
+import { detectAgentCliAvailability } from '../cli-availability'
+import { defaultProbeEnv } from '../cli-runtime-install'
+import { listPluginRegistryEntries } from '../plugin-registry-instance'
 import { STRIPPED_ANTHROPIC_AUTH_ENV_KEYS } from '../providers/claude-agent-provider'
 import {
   claudeChatTitleInvocation,
@@ -65,7 +67,7 @@ export async function generateChatTitle(
   const model = engine.model.trim()
   if (!model) return { ok: false, code: 'unsupported', message: 'No model was chosen for text generation.' }
 
-  const binaryPath = await resolveBinary(engine.cli, request.cliRuntimes, deps.detect ?? detectCli)
+  const binaryPath = await resolveBinary(engine.cli, request.cliRuntimes, deps.detect ?? cachedDetect)
   if (!binaryPath.ok) return binaryPath
 
   const scratch = await mkdtemp(path.join(deps.scratchRoot ?? tmpdir(), SCRATCH_PREFIX))
@@ -119,6 +121,30 @@ async function prepareBackend(
   return {
     invocation: claudeChatTitleInvocation(input),
     readAnswer: async (stdout) => readClaudeChatTitleStdout(stdout),
+  }
+}
+
+// Detection through the same 60 s cache the launch pre-flight uses, so a
+// title never pays for a fresh login-shell probe when a spawn moments ago
+// already answered. Errored probes are absent from the map, which reads here
+// as "could not be probed" — never as "not installed".
+async function cachedDetect(cli: string, runtime?: { command?: string; useWsl?: boolean }): Promise<CliDetectResult> {
+  const base = { cli, binary: runtime?.command?.trim() || cli, version: null, resolvedPath: null, useWsl: runtime?.useWsl ?? false }
+  const entry = listPluginRegistryEntries().find((candidate) => candidate.id === cli)
+  if (!entry) return { ...base, installed: false, error: `No plugin manifest found for "${cli}".` }
+  const availability = await detectAgentCliAvailability(
+    { cliRuntimes: runtime ? { [cli]: runtime } : undefined },
+    { listEntries: () => [entry] },
+  )
+  const detected = availability[cli]
+  if (!detected) return { ...base, binary: base.binary === cli ? entry.binary : base.binary, installed: false, error: 'the availability probe failed' }
+  return {
+    ...base,
+    binary: base.binary === cli ? entry.binary : base.binary,
+    installed: detected.installed,
+    version: detected.version,
+    resolvedPath: detected.resolvedPath,
+    error: null,
   }
 }
 
