@@ -48,6 +48,19 @@ export type McpServerSourceRef = {
   commitSha: string
   /** Set by a sync that no longer found `itemId` in the source. */
   missing?: boolean
+  /**
+   * Where the declaring plugin's own files landed, for a server whose command
+   * was `${CLAUDE_PLUGIN_ROOT}`-relative. Absent for every other server; the
+   * contract's copy in electron-api.ts carries the full reasoning.
+   *
+   * Added here on 2026-09-06. The field landed on the contract alone
+   * (b3b1c81a0) and this twin kept the shorter shape, which is exactly the
+   * drift `server-from-scanned.test.ts` guards — "a provenance field added to
+   * one and not the other is a config that loses its source somewhere between
+   * the two". The guard was right and had simply not been run: verify:app was
+   * halting 226 steps before it.
+   */
+  pluginRoot?: string
 }
 
 export type McpServerConfig = {
