@@ -1649,6 +1649,22 @@ export default function WorkspaceSidebar({
     [activeWorkspaceId]
   )
 
+  // A project whose every chat has come to rest leaves the sidebar (owner
+  // ruling, 2026-09-07). Its header was a line that said nothing was happening
+  // — a folder name over a "Settled 1" fold and nothing to do — and a person
+  // with a dozen quiet projects read a dozen of them before reaching the work.
+  // It is not archived and not forgotten: the folder is still open, and New
+  // chat is where you pick a project to start a conversation in. The tree shows
+  // the projects that have something going on.
+  //
+  // A folder returns the moment anything in it wakes, is un-settled, or is
+  // selected — the active chat is never shelved, so opening one of its chats
+  // from search or New chat brings its project back with it.
+  const activeGroups = useMemo(
+    () => groups.filter((group) => !group.workspaces.every(isShelved)),
+    [groups, isShelved]
+  )
+
   // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
   // paired machine's sessions, read only while the band is open and this rail
   // is the one showing; a machine that is asleep is drawn from its last read.
@@ -3129,7 +3145,7 @@ export default function WorkspaceSidebar({
             </div>
           </section>
         ) : null}
-        {groups.map((group) => renderFolderSection(group))}
+        {activeGroups.map((group) => renderFolderSection(group))}
       </nav>
       {/* The account + Settings cluster that used to pin to this column's foot
           lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever
