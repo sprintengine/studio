@@ -1072,6 +1072,17 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
     assert.equal(await readFile(storePath, 'utf-8'), afterFirst, 'no field changed, updatedAt included')
     assert.equal((await stat(storePath)).mtimeMs, mtimeFirst, 'the file was not rewritten at all')
 
+    // Studio writes this cache into every workspace it opens, including repos
+    // whose .gitignore we have no business editing. The folder therefore ignores
+    // itself, exactly as the browser pane's screenshot folder does.
+    const cacheIgnore = join(tempRoot, '.multi-code', 'backlog', 'cache', '.gitignore')
+    assert.equal(await readFile(cacheIgnore, 'utf-8'), '*\n', 'the cache folder ignores itself')
+
+    // A hand-edited ignore file is never clobbered on a later save.
+    await writeFile(cacheIgnore, '# mine\n*\n', 'utf-8')
+    await addOrUpdateBacklogLink({ workspaceRoot: tempRoot, relativePath, link: { ...link, status: 'failed' as const } })
+    assert.equal(await readFile(cacheIgnore, 'utf-8'), '# mine\n*\n', 'an existing ignore file is left alone')
+
     // A real change must still land, or the guard would be silently swallowing writes.
     const changed = await addOrUpdateBacklogLink({
       workspaceRoot: tempRoot,

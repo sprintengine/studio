@@ -1359,12 +1359,41 @@ async function saveStore(workspace: ValidWorkspace, store: BacklogObjectStore): 
   } catch (error) {
     if (!isMissingFileError(error)) throw new Error(`Could not read Backlog metadata: ${errorMessage(error)}`)
   }
-  if (current === next) return
+  // Scaffolding is ensured before the early return, not after it: the content
+  // write is what we skip when nothing moved, but a cache folder that already
+  // holds the right bytes still has to be a folder git ignores. Putting this
+  // below the return meant a workspace whose cache never changed never got its
+  // ignore file. Both calls are cheap and idempotent — a recursive mkdir on an
+  // existing directory, and a `wx` write that fails immediately once it exists.
   try {
     await mkdir(dirname(target), { recursive: true })
+    await ensureCacheSelfIgnored(dirname(target))
+  } catch (error) {
+    throw new Error(`Could not write Backlog metadata: ${errorMessage(error)}`)
+  }
+  if (current === next) return
+  try {
     await writeFile(target, next, 'utf-8')
   } catch (error) {
     throw new Error(`Could not write Backlog metadata: ${errorMessage(error)}`)
+  }
+}
+
+// The cache folder ignores itself, so a project that does not list it in its own
+// .gitignore still never sees the cache in `git status`. Studio writes this into
+// every workspace it opens, and editing somebody else's root .gitignore to make
+// our runtime state invisible is not ours to do — the same rule, and the same
+// one-line file, the browser pane's screenshot folder already follows
+// (src/main/browser/browser-manager.ts).
+//
+// `wx` so a pre-existing file (or one a person edited) is never clobbered, and a
+// failure here is deliberately swallowed: an un-ignored cache is untidy, a cache
+// that would not save is broken.
+async function ensureCacheSelfIgnored(directory: string): Promise<void> {
+  try {
+    await writeFile(join(directory, '.gitignore'), '*\n', { encoding: 'utf-8', flag: 'wx' })
+  } catch {
+    // Already present, or not writable. Either way the save proceeds.
   }
 }
 

@@ -1517,16 +1517,16 @@ async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
 
   assert.equal(result.ok, true)
   // Lifecycle/triage now live in the item's markdown frontmatter (v2), not the
-  // sidecar; the body is preserved byte-for-byte and items.json is never created.
+  // sidecar; the body is preserved byte-for-byte and the link cache is never created.
   const updated = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'idea.md'), 'utf8'))
   assert.equal(updated.fields.status, 'ready')
   assert.equal(updated.fields.difficulty, 'm')
   assert.equal(updated.fields.criticality, 'high')
   assert.equal(updated.body, body, 'backlog.update must preserve the document body')
   await assert.rejects(
-    () => readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8'),
+    () => readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8'),
     /ENOENT/,
-    'backlog.update must not write the sidecar for lifecycle/triage',
+    'backlog.update must not write the link cache for lifecycle/triage',
   )
 
   const invalid = await service.dispatch(command('backlog.update', {
@@ -1551,7 +1551,7 @@ type BacklogStoreItem = {
 
 async function readBacklogStoreItems(workspaceRoot: string): Promise<BacklogStoreItem[]> {
   const store = JSON.parse(
-    await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')
+    await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8')
   ) as { items: BacklogStoreItem[] }
   return store.items
 }
@@ -1922,7 +1922,9 @@ async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
   assert.equal(result.ok, true)
   const data = result.ok ? (result.data as { id: string; relativePath: string }) : null
   assert.ok(data?.relativePath?.startsWith('backlog/'), 'create returns a backlog/-relative path')
-  assert.match(data!.relativePath, /^backlog\/\d{4}-\d{2}-\d{2}-ship-the-phone-widget\.md$/)
+  // A folder under `backlog/` is an epic, so an item created without one is filed
+  // in `unfiled/` rather than landing at the top level among the epic folders.
+  assert.match(data!.relativePath, /^backlog\/unfiled\/\d{4}-\d{2}-\d{2}-ship-the-phone-widget\.md$/)
   assert.ok(data!.id.startsWith('backlog_'), 'create returns a stable backlog id')
 
   // v2-native create: lifecycle/triage live in the new file's frontmatter (the
@@ -1936,11 +1938,11 @@ async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
     /^---\nid: 1\ntype: spike\nstatus: idea\ndifficulty: m\ncriticality: high\nupdated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\n---\n\n# Ship the phone widget\n\nUsers need the widget on the phone\.\n$/
   )
 
-  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {
+  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8')) as {
     items: Array<{ id: string; source: { relativePath: string }; status?: string; type?: string; difficulty?: string; criticality?: string }>
   }
   const record = store.items.find((item) => item.source.relativePath === data!.relativePath)
-  assert.ok(record, 'backlog.create should upsert a real items.json record')
+  assert.ok(record, 'backlog.create should upsert a real link-cache record')
   assert.equal(record?.status, undefined, 'lifecycle must not be seeded into the sidecar record')
   assert.equal(record?.type, undefined)
   assert.equal(record?.difficulty, undefined)
