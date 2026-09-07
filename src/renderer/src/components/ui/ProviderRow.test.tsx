@@ -584,7 +584,10 @@ assert.doesNotMatch(
   'the explanatory lede is gone — the list explains itself',
 )
 assert.match(settings, /Agent CLIs/, 'the section band is titled Agent CLIs')
-assert.match(settings, /Checked \$\{freshness\}/, 'the band carries the freshness meta')
+// The freshness fact now composes into the header's meta line alongside the
+// installed count ("3 installed · checked 2m ago"), so match the fact rather
+// than the sentence it used to be.
+assert.match(settings, /checked \$\{freshness\}/i, 'the band carries the freshness meta')
 assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)/, 'the band re-checks for real')
 
 // The registry canvas states registry availability, not a local health probe.

@@ -10,8 +10,7 @@ import { getHighlightSwatch } from '../../utils/highlight'
 // row's epic identity hue, and that tint was painted *instead of* the selection
 // fill: selecting such a row moved it by 1.06:1 where a plain row moves 1.27:1,
 // and in grayscale it did not move at all — the selected row was
-// indistinguishable from its neighbours (docs/reviews/design-system-conformance-ui.md,
-// F1).
+// indistinguishable from its neighbours.
 //
 // Selection outranks identity: `--bg-selected` composites over the identity
 // tint rather than being overpainted by it, so a row steps by the same amount

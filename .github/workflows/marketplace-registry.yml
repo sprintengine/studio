@@ -28,4 +28,4 @@ jobs:
         run: npm run verify:marketplace-registry
 
       - name: Exercise valid and tampered submissions
-        run: npm run test:marketplace-publish
+        run: node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
