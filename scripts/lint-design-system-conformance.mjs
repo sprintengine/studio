@@ -35,13 +35,15 @@
 //                          ("Restraint": selection is neutral, no left bar).
 //   backdrop-filter        `backdrop-blur` / `backdrop-filter` ("Motion":
 //                          never on a scrim; it is also a ~10fps regression).
-//                          Two sanctioned surfaces, both KIT SHELLS, through
+//                          Three sanctioned surfaces, all KIT SHELLS, through
 //                          the `surface-glass` utility in the app CSS: the
 //                          toast card (owner ruling 2026-09-04 — a
-//                          corner-sized area) and PointerPopover's opt-in
+//                          corner-sized area), PointerPopover's opt-in
 //                          `material="glass"` (owner ruling 2026-09-07, the
 //                          conversation peek, drawn deliberately over a
-//                          running terminal). Any other blur, and any other
+//                          running terminal) and Popover's opt-in of the same
+//                          name (2026-09-08, the composer skill type-ahead,
+//                          drawn over the transcript). Any other blur, and any other
 //                          consumer of the utility — a product file included
 //                          — is flagged: a surface that wants glass asks the
 //                          shell for it.
@@ -652,19 +654,24 @@ const ACCENT_BORDER = /(?<![\w-])border-\[(?:color:)?var\(--accent-primary\)\]/g
 const LEFT_BORDER_WIDTH = /(?<![\w-])border-l(?:-(?:0|2|4|8|\[\d+(?:\.\d+)?(?:px|rem)?\]))?(?![\w-])/
 
 const BACKDROP_FILTER = /(?<![\w-])backdrop-(?:blur|filter)(?:-[\w.[\]/-]+)?/g
-// Glass is the toast's alone: the utility that carries the blur, and the one
-// file allowed to wear it. Everything else that blurs — or borrows the class —
-// is a `backdrop-filter` violation.
+// Glass is the kit's alone: the utility that carries the blur, and the shells
+// allowed to wear it. Everything else that blurs — or borrows the class — is a
+// `backdrop-filter` violation.
 const GLASS_UTILITY = 'surface-glass'
 const GLASS_UTILITY_PATTERN = /(?<![\w-])surface-glass(?![\w-])/g
-// The two kit shells the owner has sanctioned, and nothing else. Widened from
+// The kit shells the owner has sanctioned, and nothing else. Widened from
 // Toast.tsx alone by the owner ruling of 2026-09-07 (the conversation peek);
 // `design-system/components/toast/component.md` carries the amended ruling and
 // says plainly that the peek is the larger area, rather than pretending the
-// 2026-09-04 area argument still covers it.
+// 2026-09-04 area argument still covers it. Popover.tsx joined on 2026-09-08:
+// the popover spec's "Material" section already ruled glass an opt-in material
+// of the whole popover family, and the anchored shell is that family's engine —
+// the composer skill type-ahead is its first glass consumer. A product file
+// that wants glass asks one of these shells for it.
 const GLASS_CONSUMER_FILES = new Set([
   'src/renderer/src/components/ui/Toast.tsx',
   'src/renderer/src/components/ui/PointerPopover.tsx',
+  'src/renderer/src/components/ui/Popover.tsx',
 ])
 
 const TAILWIND_SHADOW = /(?<![\w-])shadow-(?:sm|md|lg|xl|2xl)(?![\w-])/g
@@ -1070,7 +1077,7 @@ function scanSourceFile(file, push) {
   if (!GLASS_CONSUMER_FILES.has(file.path)) {
     forEachMatch(GLASS_UTILITY_PATTERN, source, (match) => {
       if (!inCode(match.index)) return
-      push('backdrop-filter', file, match.index, `${match[0]} (glass belongs to the kit's two sanctioned shells)`)
+      push('backdrop-filter', file, match.index, `${match[0]} (glass belongs to the kit's sanctioned shells)`)
     })
   }
 
@@ -1545,7 +1552,7 @@ const FIX_HINT = {
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
   'backdrop-filter':
     'separation comes from the scrim tone plus the shell shadow; glass is the toast card and ' +
-    'PointerPopover material="glass" (surface-glass in the kit) and nothing else blurs or borrows it',
+    'Popover / PointerPopover material="glass" (surface-glass in the kit) and nothing else blurs or borrows it',
   'shadow-in-flow':
     'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
     '.control-edge; all other in-flow chrome takes a hairline',

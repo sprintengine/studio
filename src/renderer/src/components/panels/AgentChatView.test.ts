@@ -25,6 +25,7 @@ import {
   attachmentRejection,
   base64ByteLength,
   buildModelGroups,
+  chatSkillTrigger,
   ComposerAttachmentStrip,
   ComposerContextMenu,
   composerSendAction,
@@ -1450,6 +1451,32 @@ const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels
   assert.equal(groups[0]?.subscription, true)
   assert.equal(groups[1]?.subscription, undefined, 'a metered provider is not annotated as a subscription')
 }
+// The skill type-ahead's two doors: `/` opening an otherwise-empty draft, and
+// `$` at the start of a word anywhere in it.
+assert.deepEqual(chatSkillTrigger('/'), { kind: 'slash', query: '', token: '/' }, 'a bare slash opens the list unfiltered')
+assert.deepEqual(chatSkillTrigger('/back'), { kind: 'slash', query: 'back', token: '/back' })
+assert.equal(chatSkillTrigger('/backlog triage'), null, 'a space commits the slash text as literal')
+assert.equal(chatSkillTrigger('run /backlog'), null, 'a slash mid-draft is not a trigger')
+assert.deepEqual(chatSkillTrigger('$'), { kind: 'mention', query: '', token: '$' }, 'a bare dollar opens the list unfiltered')
+assert.deepEqual(
+  chatSkillTrigger('please run $back'),
+  { kind: 'mention', query: 'back', token: '$back' },
+  'a dollar starting a word anywhere in the draft is a mention, and the token is what a pick replaces',
+)
+assert.equal(chatSkillTrigger('costs US$40'), null, 'a dollar inside a word is money, not a mention')
+assert.equal(chatSkillTrigger('please run $backlog on it'), null, 'a space ends the mention token')
+assert.equal(chatSkillTrigger('hello'), null)
+assert.equal(chatSkillTrigger(''), null)
+
+// The type-ahead is mounted inside the composer box, whose top edge anchors it,
+// and the same handler answers the shell's light dismiss and the field's Escape.
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('{skillTrigger ? (')),
+  /^[\s\S]{0,900}?<ComposerAttachmentStrip/,
+  'the skill type-ahead sits inside the composer box, ahead of the attachment strip'
+)
+assert.ok(chatViewSource.includes('onDismiss={dismissSkillTrigger}'), 'a click outside the list dismisses the trigger')
+
 
 // The headline 1772 case: a key-configured provider that is NOT the active one.
 // Its live catalog is merged in as soon as the picker browses to it, and the

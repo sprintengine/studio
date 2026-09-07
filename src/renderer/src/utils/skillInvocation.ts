@@ -49,6 +49,16 @@ export function renderChatSkillPrefill(skill: Pick<WorkspaceSkill, 'id'>): strin
   return `Use the ${skill.id} skill to `
 }
 
+// What the chat composer's `$` type-ahead inserts mid-prompt.
+// A noun phrase, not the prefill sentence:
+// the person is already writing a sentence, and this has to read inside it
+// ("run the backlog skill on…", "with the debug skill"). Conversation transports
+// have no native mention syntax, so a bare `$backlog` would be a character the
+// model has no contract for; the phrase is what every agent can follow.
+export function renderChatSkillMention(skill: Pick<WorkspaceSkill, 'id'>): string {
+  return `the ${skill.id} skill`
+}
+
 // Whether a workspace skill is present in the harness dir a plugin's native
 // skill integration reads from.
 export function skillInstalledForHarness(

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { OVERLAY_SURFACE_CLASS } from './tokens'
+import { OVERLAY_CHROME_CLASS, OVERLAY_SURFACE_CLASS } from './tokens'
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
 
@@ -31,6 +31,20 @@ type PopoverProps = {
   surfaceClassName?: string
   surfaceAs?: PopoverSurfaceElement
   onOpenAutoFocus?: (surface: HTMLElement) => void
+  /**
+   * The surface's material. `raised` is the ordinary opaque popover chrome and
+   * stays the family default.
+   *
+   * `glass` is `bg.surface-raised` at the system's own `glass.opacity` over a
+   * blur and saturate of whatever is behind it — the `surface-glass` utility,
+   * the same material `PointerPopover` offers. Per the popover spec it is
+   * opt-in per surface, for a card drawn deliberately over live app content the
+   * reader should still see: the skill type-ahead sits over the conversation
+   * the person is mid-way through reading, and a solid slab there reads as
+   * having replaced the transcript rather than as sitting over it. An opaque
+   * menu is still the right answer for a menu.
+   */
+  material?: 'raised' | 'glass'
 }
 
 // The surface is portaled to <body> and positioned with fixed coordinates so it
@@ -139,6 +153,7 @@ export function Popover({
   surfaceClassName,
   surfaceAs = 'div',
   onOpenAutoFocus,
+  material = 'raised',
 }: PopoverProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   // Wrapper around the trigger. Used as the positioning anchor when a caller's
@@ -285,7 +300,10 @@ export function Popover({
                 // menu draws for itself cannot drift from the surface an anchored
                 // one gets here. What sits on it owns its own inset.
                 'popover-enter z-[var(--z-popover)]',
-                OVERLAY_SURFACE_CLASS,
+                // One ground per surface, written as one class each: `surface-glass`
+                // sets `background` and the raised chrome sets `background-color`,
+                // so spelling both would leave which one wins to stylesheet order.
+                material === 'glass' ? `${OVERLAY_CHROME_CLASS} surface-glass` : OVERLAY_SURFACE_CLASS,
                 surfaceClassName ?? '',
               ].join(' ')}
             >

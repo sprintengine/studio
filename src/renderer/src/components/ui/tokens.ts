@@ -191,6 +191,20 @@ export const OVERLAY_SURFACE_CLASS =
   'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]'
 
 /**
+ * The same chrome without its ground, for the one case where a shell paints
+ * the ground itself: `Popover`'s opt-in `material="glass"`, where the ground is
+ * the `surface-glass` utility (design-system/components/popover, "Material").
+ * `background` and `background-color` on one element are resolved by
+ * stylesheet order, so the raised ground cannot simply be layered under the
+ * glass one — the glass surface takes this and adds its own ground, exactly as
+ * `PointerPopover` already does.
+ *
+ * Written out in full, per the literal rule above.
+ */
+export const OVERLAY_CHROME_CLASS =
+  'rounded-[7px] border border-[color:var(--border-strong)] shadow-[var(--shadow-popover)]'
+
+/**
  * The chat composer's material (MC: remote-sessions-ux /
  * composer-surface-premium), shared by the launch composer and the session
  * composer so the most-looked-at surface in the product is ONE surface:
