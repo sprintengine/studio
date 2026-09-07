@@ -1,0 +1,594 @@
+{
+  "$comment": "How each test file is bundled. Generated from the 547 one-off npm scripts this replaced: every flag set here is byte-identical to what that test built with before. A test file inherits the nearest enclosing directory default; overrides name the exceptions.",
+  "$serialComment": "Tests that must not share a CPU with the rest: they assert on scheduler timing, so contention makes them flake. They run last, one at a time.",
+  "$skipComment": "Not run by default, with the reason each is held back. They are listed on every run so a skip stays visible instead of quietly rotting. Include them with --all.",
+  "skip": {
+    "src/main/mobile/bridge/index.test.ts": "Reaches into the sibling multiauth checkout (../../multiauth) for its relay and auth services, so it cannot run on a machine that only has this repo. Currently fails there too: the device.revoke result never comes back from the fake relay (the relay:device:revoke scope still exists in multiauth, so this looks like real cross-repo drift rather than a stale assertion)."
+  },
+  "serial": [
+    "src/main/account-client.test.ts",
+    "src/main/agent-state-service.test.ts",
+    "src/main/automation/automation.test.ts",
+    "src/main/automation/tailnet-fleet-reachability.test.ts",
+    "src/main/automation/tailnet-fleet.test.ts",
+    "src/main/automation/tailnet-live-events.test.ts",
+    "src/main/automation/tailnet.test.ts",
+    "src/main/backlog-service.test.ts",
+    "src/main/capability-watcher.test.ts",
+    "src/main/companion-agent-service.test.ts",
+    "src/main/hosted-feed/card-feed-client.test.ts",
+    "src/main/mobile/bridge/index.test.ts",
+    "src/main/skills/studio-plugin.test.ts",
+    "src/main/sprintengine-boot-discovery.test.ts",
+    "src/main/sprintengine-mcp-hub.test.ts",
+    "src/main/sprintengine-run-index.test.ts",
+    "src/main/studio-plugin-service.test.ts",
+    "src/main/terminal-runtime.test.ts",
+    "src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx",
+    "src/renderer/src/components/workspace/globalSurface/sprints/sprintRunIndexStore.test.ts",
+    "src/renderer/src/components/workspace/newSprint/NewSprintDialog.test.tsx",
+    "src/renderer/src/hooks/useSharedBacklogScan.test.ts",
+    "src/renderer/src/modules/backlog-reader.test.ts",
+    "src/renderer/src/store/workspaceStore.activeSync.test.ts",
+    "src/renderer/src/store/workspaceStore.persistence.test.ts",
+    "src/renderer/src/store/workspaceStore.registrySnapshotHeal.test.ts",
+    "src/seams/conversationSeam.test.ts",
+    "src/seams/premiumFeelSeam.test.tsx",
+    "src/seams/reviewMainSeam.test.tsx",
+    "src/seams/skillSourcesSeam.test.tsx",
+    "src/seams/sprintsDoorSeam.test.tsx"
+  ],
+  "profiles": {
+    "cjs-bundled": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=bundle",
+        "--define:import.meta.env.DEV=false"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-3": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.PROD=true",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-4": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_WORKSPACE_STORAGE_LIVE_SYNC=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-5": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-jsx": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-jsx-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-jsx-flexlayout": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-jsx-jsdom": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--external:jsdom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-bundled-jsx-jsdom-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--external:jsdom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-bigheap": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external"
+      ],
+      "ext": "cjs",
+      "node": [
+        "--max-old-space-size=4096"
+      ]
+    },
+    "cjs-external-electron-stub": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external",
+        "--alias:electron=./scripts/testing/stubs/electron.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-flexlayout": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external",
+        "--loader:.css=empty",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-flexlayout-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--packages=external",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-jsx": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=external",
+        "--loader:.css=empty"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-jsx-flexlayout": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=external",
+        "--loader:.css=empty",
+        "--define:import.meta.env={\"DEV\":false}",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-jsx-flexlayout-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=external",
+        "--loader:.css=empty",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-jsx-flexlayout-electron-stub": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=external",
+        "--loader:.css=empty",
+        "--define:import.meta.env={\"DEV\":false}",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs",
+        "--alias:electron=./scripts/testing/stubs/electron.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "cjs-external-jsx-jsdom-flexlayout": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--jsx=automatic",
+        "--packages=external",
+        "--external:jsdom",
+        "--loader:.css=empty",
+        "--define:import.meta.env={\"DEV\":false}",
+        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
+      ],
+      "ext": "cjs"
+    },
+    "esm-bundled": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty"
+      ],
+      "ext": "mjs"
+    },
+    "esm-bundled-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "mjs"
+    },
+    "esm-bundled-jsx": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--loader:.css=empty"
+      ],
+      "ext": "mjs"
+    },
+    "esm-bundled-jsx-2": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "mjs"
+    },
+    "esm-bundled-jsx-3": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty",
+        "--jsx=automatic"
+      ],
+      "ext": "mjs"
+    },
+    "esm-bundled-jsx-jsdom": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--jsx=automatic",
+        "--packages=bundle",
+        "--external:react",
+        "--external:react-dom",
+        "--external:jsdom",
+        "--define:import.meta.env.DEV=false",
+        "--define:import.meta.env.VITE_MULTICODE_SAFE_MODE=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_SYNC=\"0\"",
+        "--define:import.meta.env.VITE_MULTICODE_DISABLE_SPRINTENGINE_TERMINALS=\"0\"",
+        "--loader:.css=empty"
+      ],
+      "ext": "mjs"
+    },
+    "esm-external": {
+      "esbuild": [
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--packages=external"
+      ],
+      "ext": "mjs"
+    }
+  },
+  "directoryDefaults": {
+    "packages": "cjs-external",
+    "resources": "cjs-external",
+    "src": "cjs-external",
+    "src/main/providers": "cjs-bundled-2",
+    "src/renderer/src/commands": "cjs-bundled",
+    "src/renderer/src/components": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/automations": "cjs-external",
+    "src/renderer/src/components/auxWindows": "cjs-external",
+    "src/renderer/src/components/backlog": "cjs-external",
+    "src/renderer/src/components/extensions": "cjs-bundled",
+    "src/renderer/src/components/onboarding": "cjs-bundled-jsx",
+    "src/renderer/src/components/panels": "cjs-bundled",
+    "src/renderer/src/components/panels/fleet": "cjs-external",
+    "src/renderer/src/components/panels/sprintEngineBoard": "cjs-bundled-jsx",
+    "src/renderer/src/components/remote": "cjs-external",
+    "src/renderer/src/components/settings": "cjs-bundled",
+    "src/renderer/src/components/workspace/globalSurface": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/globalSurface/automations": "cjs-external",
+    "src/renderer/src/components/workspace/globalSurface/backlog": "cjs-external-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/extensions/plugins": "cjs-bundled",
+    "src/renderer/src/components/workspace/globalSurface/extensions/skills": "cjs-bundled",
+    "src/renderer/src/components/workspace/globalSurface/sprints": "cjs-external",
+    "src/renderer/src/components/workspace/guidedBrief": "esm-bundled",
+    "src/renderer/src/components/workspace/newWorkspace": "cjs-bundled",
+    "src/renderer/src/components/workspace/pane": "cjs-bundled",
+    "src/renderer/src/components/workspace/remoteBand": "cjs-external",
+    "src/renderer/src/hooks": "cjs-bundled",
+    "src/renderer/src/modules": "cjs-bundled",
+    "src/renderer/src/store": "cjs-bundled",
+    "src/seams": "cjs-external-jsx-flexlayout-electron-stub"
+  },
+  "overrides": {
+    "src/main/companion-agent-service.test.ts": "cjs-bundled-2",
+    "src/main/conversation-runtime.test.ts": "cjs-bundled-2",
+    "src/main/hosted-feed/card-feed-service.test.ts": "cjs-external-electron-stub",
+    "src/main/ipc/cards-ipc.test.ts": "cjs-external-electron-stub",
+    "src/main/ipc/conversation-ipc.test.ts": "cjs-bundled-2",
+    "src/main/skills/security.test.ts": "cjs-external-bigheap",
+    "src/main/sprintengine-pr-merge-poller.test.ts": "esm-external",
+    "src/renderer/src/components/CliIcon.test.ts": "cjs-bundled",
+    "src/renderer/src/components/automations/AutomationReportViewer.test.tsx": "cjs-external-jsx-flexlayout-2",
+    "src/renderer/src/components/auxWindows/BranchStepStrip.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/backlog/BacklogRow.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/backlog/RosterEditor.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/commandPaletteSearch.test.ts": "cjs-bundled-jsx",
+    "src/renderer/src/components/extensions/ExtensionsHomeSurface.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/extensions/homeCards.test.ts": "cjs-bundled-jsx",
+    "src/renderer/src/components/panels/AgentChatView.test.ts": "esm-bundled-jsx-jsdom",
+    "src/renderer/src/components/panels/AgentPanel.test.ts": "esm-bundled-2",
+    "src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/panels/AutomationsPanel/AutomationRunActions.test.tsx": "cjs-external-jsx-flexlayout-2",
+    "src/renderer/src/components/panels/AutomationsPanel/automationEditorSave.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/panels/ConnectorsPanel/agentCliShelfInstall.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/panels/ConnectorsPanel/installedInventoryUpdates.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/panels/SprintEngineSettingsPopover.test.tsx": "cjs-bundled-jsx-2",
+    "src/renderer/src/components/panels/runPullRequest.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/panels/sprintEngineBoard/SprintEngineInboxHonesty.test.ts": "cjs-bundled",
+    "src/renderer/src/components/panels/sprintEngineBoard/boardAgentReveal.test.ts": "cjs-bundled",
+    "src/renderer/src/components/panels/sprintEngineInspector.test.ts": "cjs-external",
+    "src/renderer/src/components/settings/ModuleSettingsSection.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/settings/ThirdPartyModuleList.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/settings/tailnetPanelModel.test.ts": "cjs-external",
+    "src/renderer/src/components/settings/ticketTrackerConnectors.test.ts": "cjs-external",
+    "src/renderer/src/components/ui/accessibility-contracts.test.ts": "cjs-external",
+    "src/renderer/src/components/ui/designSystemAxes.test.ts": "cjs-external",
+    "src/renderer/src/components/ui/fileTypeGlyph.test.ts": "cjs-bundled-jsx",
+    "src/renderer/src/components/ui/iconPlate.test.ts": "cjs-external",
+    "src/renderer/src/components/ui/modelPermissionPresets.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/AgentTabIdentityPopover.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/AttentionQueuePopover.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/ConversationPeekCard.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/ModuleAbsenceSurfaces.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/SpawnDebugToggle.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/SprintEngineProjectionSupervisor.test.tsx": "esm-bundled-jsx",
+    "src/renderer/src/components/workspace/SprintEngineRunChangeSubscriber.test.tsx": "esm-bundled-jsx",
+    "src/renderer/src/components/workspace/WorkspaceManager.restore.test.ts": "esm-bundled",
+    "src/renderer/src/components/workspace/WorkspaceSidebar.rowAccent.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/WorkspaceSidebar.rowMeta.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/agentCheckout.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/agentComposer/agentComposerSelection.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/agentComposer/suggestionBank.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/columnResizeDrag.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/conversationPeekRow.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/conversationSpawnOptions.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/extensionsDrawer.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/followedCheckout.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/globalSurface/automations/AutomationsRail.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/globalSurface/automations/automationsSurface.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/globalSurface/automations/builtinAutomations.test.tsx": "cjs-external-jsx-jsdom-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/backlog/backlogDoorActions.test.ts": "cjs-bundled-jsx-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/contextRail.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/globalSurface/extensions/catalogue/extensionsCatalogue.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/globalSurface/extensions/home/cardSplash.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/globalSurface/extensions/plugins/PluginsSurface.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/globalSurface/extensions/skills/SkillsSurface.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/globalSurface/globalDoorsIntegration.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/sprints/RunDoorNewRow.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/globalSurface/sprints/SprintsRail.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/globalSurface/sprints/sprintRowsLeaveProjects.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/sprints/sprintsSurfaceComposition.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/surfaceBarLift.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/workspace/globalSurface/surfaceSubstrate.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/guidedBrief/componentGallery.test.ts": "esm-bundled-jsx",
+    "src/renderer/src/components/workspace/guidedBrief/guidedBriefFlow.test.ts": "esm-bundled-jsx",
+    "src/renderer/src/components/workspace/newSprint/sprintConnectors.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/newWorkspace/DesignSystemAttachStep.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/newWorkspace/WizardControls.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/newWorkspace/folderCreation.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/openInEditorTargets.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/panelTabAccent.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/sidebarWidth.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/terminalLines.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/useSidebarGitSummaries.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/workspaceAsideColumn.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/workspace/workspaceLayoutRetention.test.ts": "cjs-bundled",
+    "src/renderer/src/components/workspace/workspaceManagerHelpers.test.ts": "cjs-bundled",
+    "src/renderer/src/hooks/useAllProjectsBacklog.test.ts": "cjs-external-flexlayout",
+    "src/renderer/src/hooks/useSharedBacklogScan.test.ts": "cjs-external",
+    "src/renderer/src/modules/bundled-ids.test.ts": "cjs-external-flexlayout-2",
+    "src/renderer/src/modules/dev-only-gate.test.ts": "cjs-bundled-3",
+    "src/renderer/src/modules/registry-snapshot.test.ts": "cjs-external",
+    "src/renderer/src/review/canvas/ChangeMapView.test.tsx": "cjs-external-jsx",
+    "src/renderer/src/review/canvas/ReviewWalkthrough.test.tsx": "cjs-external-jsx",
+    "src/renderer/src/review/canvas/reviewCommentSurface.test.tsx": "esm-bundled-jsx-3",
+    "src/renderer/src/review/canvas/useReviewSession.test.tsx": "cjs-bundled-jsx-jsdom-2",
+    "src/renderer/src/review/door/reviewAppState.test.ts": "cjs-bundled-jsx-jsdom-2",
+    "src/renderer/src/review/door/reviewGuidePreparation.test.tsx": "cjs-bundled-jsx-jsdom-2",
+    "src/renderer/src/review/door/reviewSurfaceComposition.test.tsx": "cjs-external-jsx",
+    "src/renderer/src/store/backlogViewStore.test.ts": "cjs-external",
+    "src/renderer/src/store/onboardingState.test.ts": "cjs-external",
+    "src/renderer/src/store/slices/focusedAgentSlice.test.ts": "cjs-external",
+    "src/renderer/src/store/sprintRunStoreSlice.test.ts": "cjs-external-2",
+    "src/renderer/src/store/workspaceStore.activeSync.test.ts": "esm-bundled",
+    "src/renderer/src/store/workspaceStore.persistence.test.ts": "esm-bundled",
+    "src/renderer/src/store/workspaceStore.registrySnapshotHeal.test.ts": "esm-bundled",
+    "src/renderer/src/store/workspaceStore.storageLiveSyncFlag.test.ts": "esm-bundled",
+    "src/renderer/src/utils/attentionQueue.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/backgroundModeSync.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/bundledSpecialistPackMigration.test.ts": "esm-bundled",
+    "src/renderer/src/utils/feedNotifications.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/guidedBriefWorkspace.test.ts": "esm-bundled",
+    "src/renderer/src/utils/modelRegistry.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/seededEpicPipeline.integration.test.ts": "esm-bundled",
+    "src/renderer/src/utils/sprintengine.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineAutoRun.test.ts": "cjs-bundled-5",
+    "src/renderer/src/utils/sprintengineAutoRunExecutor.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineAutoRunRolelessOrdering.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineAutomationLifecycle.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineAutomationModeSync.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineDormancy.test.ts": "esm-bundled-jsx-2",
+    "src/renderer/src/utils/sprintengineInitialSpawns.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineLaunchSettingsSync.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineProjectionRefresh.test.ts": "esm-bundled",
+    "src/renderer/src/utils/sprintengineRunSummary.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineRunTeardown.test.ts": "esm-bundled",
+    "src/renderer/src/utils/sprintengineRuntimeBridge.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/sprintengineWorkspaceCreation.test.ts": "cjs-bundled-4",
+    "src/renderer/src/utils/terminalFocusRequest.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/workspaceRunGlyph.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/workspaceSettle.test.ts": "cjs-bundled",
+    "src/seams/freshInstallWalkSeam.test.ts": "cjs-external",
+    "src/seams/prepackagedAutomationsSeam.test.ts": "cjs-external",
+    "src/seams/sprintCreationParitySeam.test.tsx": "cjs-bundled-jsx-jsdom"
+  }
+}

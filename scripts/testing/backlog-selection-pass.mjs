@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Live Backlog selection pass for the design-system conformance epic (T19).
 //
-// F1 of docs/reviews/design-system-conformance-ui.md: on a Backlog row that
-// carries an identity colour — an epic's hue or a hand-set highlight — the row
+// On a Backlog row that carries an identity colour — an epic's hue or a
+// hand-set highlight — the row
 // tint was painted instead of the selection fill, so clicking the row moved it
 // by 1.06:1 where a plain row moves 1.27:1, and in grayscale it did not move at
 // all. This harness measures the step in the built Electron app, on the rows the

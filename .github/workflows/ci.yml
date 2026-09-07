@@ -41,7 +41,7 @@ jobs:
       # the js-tests job below, so a broken test no longer hides a broken build.
       - name: Test mobile sprintengine command
         if: runner.os == 'Windows'
-        run: npm run test:main:mobile-sprintengine-command
+        run: node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts
 
       - name: Build
         run: npm run build

@@ -49,7 +49,7 @@ const session = (over: Partial<FocusFallbackSession>): FocusFallbackSession => (
   lastInputAt: null,
   lastOutputAt: null,
   ...over,
-})
+});
 
 // The last focused agent wins while it still exists — even with its tab
 // closed and its session gone.

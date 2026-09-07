@@ -537,9 +537,8 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
 })
 
 // Paint order, measured on the helper rather than on a regex: selection owns the
-// row background, identity owns the bar and the unselected tint. This is F1 of
-// docs/reviews/design-system-conformance-ui.md — an epic-member row used to keep
-// its tint when selected, so the click left no visible mark.
+// row background, identity owns the bar and the unselected tint. An epic-member
+// row used to keep its tint when selected, so the click left no visible mark.
 // A hand-set highlight and an epic identity hue are the same `litFill` case by
 // the time the row is painted — resolveBacklogRowColor collapses them to one
 // {color, litFill} (its own precedence test above) — so the rule below covers

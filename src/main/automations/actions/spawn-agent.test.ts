@@ -220,10 +220,26 @@ async function assertUnspecifiedPresetResolvesToBypass(): Promise<void> {
   await runSpawnAgentAction({ prompt: 'Sweep the repo.' }, stubRuntime(undefined, unset))
   assert.equal(unset.permissionPreset, 'bypass', 'an automation with no preset launches unattended')
 
-  for (const preset of ['default', 'auto', 'bypass'] as const) {
+  for (const preset of ['none', 'manual', 'auto', 'bypass'] as const) {
     const explicit: CapturedLaunch = { prompt: '' }
     await runSpawnAgentAction({ prompt: 'Sweep the repo.', permissionPreset: preset }, stubRuntime(undefined, explicit))
     assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
+  }
+
+  // Pre-MC-2210 spellings still parse: a definition saved before the rename
+  // names one, and it resolves to the preset it was renamed to rather than
+  // being rejected.
+  for (const [legacy, canonical] of [
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
+    ['bypass_all', 'bypass'],
+  ] as const) {
+    const saved: CapturedLaunch = { prompt: '' }
+    await runSpawnAgentAction(
+      { prompt: 'Sweep the repo.', permissionPreset: legacy },
+      stubRuntime(undefined, saved),
+    )
+    assert.equal(saved.permissionPreset, canonical, `the legacy "${legacy}" normalizes to "${canonical}"`)
   }
 
   // The skill-loop wrapper re-parses its config through the same parse, so it

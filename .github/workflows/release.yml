@@ -89,13 +89,13 @@ jobs:
         run: npm run typecheck:all
 
       - name: Test mobile sprintengine command
-        run: npm run test:main:mobile-sprintengine-command
+        run: node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts
 
       - name: Validate registry and plugin signatures
         run: npm run verify:marketplace-registry
 
       - name: Exercise valid and tampered marketplace submissions
-        run: npm run test:marketplace-publish
+        run: node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
 
   package:
     name: Package (${{ matrix.name }})
