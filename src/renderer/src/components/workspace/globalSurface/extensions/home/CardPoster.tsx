@@ -24,6 +24,13 @@
 // **The whole card is the target, and hover is a background change only** — the
 // task-card family contract: no lift, no shadow, no scale.
 //
+// **`Go` opens the model picker, and choosing a row is what runs the card**
+// (owner ruling R4b, 2026-09-06, item 2473). The button is the picker's
+// trigger: nothing installs and nothing runs until a row is chosen, and the row
+// that is chosen carries the cli, model, reasoning and permission preset the
+// run launches on. What that is NOT is the consent screen R4 removed — the
+// reasoning is in `CardGoPicker.tsx`, which is the surface this opens.
+//
 // The target is a STRETCHED OVERLAY, and the article itself is inert. The first
 // build hung `onClick` on the `<article>` with `cursor-pointer` over it and
 // nothing else, which is the half of the contract a mouse can see: no tab stop,
@@ -34,18 +41,16 @@
 // technology is required to make sense of.
 //
 // So `Go` is the one tab stop and the one control, and the card is the area it
-// answers for:
+// answers for: ONE pointer surface, a direct child of the article, aria-hidden,
+// carrying no keyboard duty because the keyboard already has `Go`.
 //
-//   The ordinary card stretches `Go`'s own `::after` over the whole shell. The
-//   button sits in normal flow inside the body, so the nearest positioned
-//   ancestor of that pseudo-element is the article — which is exactly the box
-//   the overlay should cover.
-//
-//   The hero cannot use it. Its row of words is absolutely positioned over the
-//   picture, so the same `::after` would resolve against that row and cover a
-//   sixth of the card. The hero gets the overlay as a DIRECT CHILD of the
-//   article instead: one pointer surface, aria-hidden, carrying no keyboard
-//   duty, because the keyboard already has `Go`.
+// Both shapes take that same overlay now, and the ordinary card's `::after`
+// went with the picker. A pseudo-element resolves against the nearest
+// POSITIONED ancestor, and `Go` is wrapped by the picker's own
+// `relative inline-flex` anchor from the moment it became a popover trigger —
+// so the stretch that used to cover the whole card would cover a 30px pill.
+// The hero never had the option for the same reason on a different box: its row
+// of words is absolutely positioned over the picture.
 //
 // The focus ring goes on the CARD, keyed to that one button
 // (`has-[button:focus-visible]:focus-ring`, the wrapper idiom `ui/tokens.ts`
@@ -59,7 +64,9 @@ import React from 'react'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
 import { cardStampLabel } from '../../../../extensions/homeCards'
 import { OutlineButton, PrimaryButton } from '../../../../ui/Buttons'
+import { Popover } from '../../../../ui/Popover'
 import { CardArt } from './cardArt'
+import { CardGoPicker, type CardLaunchChoice } from './CardGoPicker'
 import { CardSplash, CardSplashScrim, CardSplashStamp, CardSplashTitle } from './cardSplash'
 
 /**
@@ -86,20 +93,15 @@ const SHELL =
   'has-[button:focus-visible]:focus-ring'
 
 /**
- * The overlay that makes the card the target, in the two shapes it takes.
+ * The overlay that makes the card the target, in the one shape both cards take.
  *
- * No layer of its own in either: painting order is DOM order here, and both sit
- * after the plate they cover. The one piece of furniture that DID have a layer —
- * the stamp — now stands out of the pointer's way instead (`cardSplash.tsx`), so
- * the top-right corner of a card is not the one square of poster that does
- * nothing when you press it.
- *
- * Both spelled out in full, and neither assembled from the other: `after:` is a
- * variant, and a variant Tailwind cannot read as literal text in a source file
- * produces no CSS (`ui/tokens.ts` has the long version of this).
+ * No layer of its own: painting order is DOM order here, and it sits after the
+ * plate it covers. The one piece of furniture that DID have a layer — the stamp
+ * — now stands out of the pointer's way instead (`cardSplash.tsx`), so the
+ * top-right corner of a card is not the one square of poster that does nothing
+ * when you press it.
  */
-const HERO_OVERLAY = 'absolute inset-0'
-const GO_OVERLAY = 'after:absolute after:inset-0'
+const CARD_OVERLAY = 'absolute inset-0'
 
 /**
  * The button, and the only control on the card.
@@ -110,50 +112,76 @@ const GO_OVERLAY = 'after:absolute after:inset-0'
  * what keeps the name a superset of the label rather than a replacement for it.
  */
 function CardGo({
-  title,
+  card,
   accent,
-  stretch,
   running,
   disabled,
-  onGo,
+  open,
+  onOpenChange,
+  onLaunch,
 }: {
-  title: string
+  card: HostedCard
   accent: boolean
-  /** Own the card-wide hit area as a pseudo-element. The ordinary card only. */
-  stretch: boolean
   /** This card's own run is in flight. */
   running: boolean
   /** A run is in flight — this card's or another's. */
   disabled: boolean
-  onGo: () => void
+  /** The picker's open state, owned by the card so its glass can open it too. */
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onLaunch: (choice: CardLaunchChoice) => void
 }): JSX.Element {
-  const props = {
-    'aria-label': `Go — ${title}`,
-    // Disabled for exactly as long as a run is in flight, which is the whole of
-    // what this card shows about a run in progress: `Go` goes, and R4 rules out
-    // a plan, a progress modal and any other ceremony between the press and the
-    // work. `aria-busy` says the same thing to a reader without putting a
-    // spinner on a poster.
-    disabled,
-    'aria-busy': running || undefined,
-    // `focus-visible:outline-none` discharged by the card, not left dangling:
-    // `SHELL` above draws the shared ring on the article whenever this button is
-    // focus-visible, which is one indicator on one tab stop rather than two.
-    // The card is what Enter acts on, so the card is what the ring should
-    // outline.
-    className: `focus-visible:outline-none ${stretch ? GO_OVERLAY : ''}`,
-    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-      // The overlay is this button's own pseudo-element on an ordinary card, so
-      // there is nothing to stop; on the hero the overlay is a sibling and this
-      // press never reaches it either. Kept anyway, and cheap: it is the guard
-      // that makes one press one run whatever a later shape does with the
-      // pointer surface.
-      event.stopPropagation()
-      onGo()
-    },
-    children: 'Go',
-  }
-  return accent ? <PrimaryButton size="md" {...props} /> : <OutlineButton {...props} />
+  return (
+    <Popover
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel={`Run ${card.title}`}
+      popupRole="dialog"
+      placement="bottom-end"
+      surfaceClassName="overflow-hidden"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => {
+        const props = {
+          ref,
+          'aria-label': `Go — ${card.title}`,
+          // Disabled for exactly as long as a run is in flight, which is the
+          // whole of what this card shows about a run in progress: `Go` goes,
+          // and R4 rules out a plan, a progress modal and any other ceremony
+          // between the press and the work. `aria-busy` says the same thing to
+          // a reader without putting a spinner on a poster.
+          disabled,
+          'aria-busy': running || undefined,
+          // `focus-visible:outline-none` discharged by the card, not left
+          // dangling: `SHELL` above draws the shared ring on the article
+          // whenever this button is focus-visible, which is one indicator on one
+          // tab stop rather than two. The card is what Enter acts on, so the
+          // card is what the ring should outline.
+          className: 'focus-visible:outline-none',
+          onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+            // The overlay is a sibling and this press never reaches it. Kept
+            // anyway, and cheap: it is the guard that makes one press one
+            // popover whatever a later shape does with the pointer surface.
+            event.stopPropagation()
+            togglePopover()
+          },
+          children: 'Go',
+          ...triggerProps,
+        }
+        return accent ? <PrimaryButton size="md" {...props} /> : <OutlineButton {...props} />
+      }}
+    >
+      {/* Rendered only while open, which is what keeps the composer hook — the
+          plugin catalogue, the remembered engine defaults — off a page drawing
+          seven cards. Choosing a row closes this and starts the run: one
+          action, and nothing to agree to afterwards (R4b). */}
+      <CardGoPicker
+        card={card}
+        onChoose={(choice) => {
+          onOpenChange(false)
+          onLaunch(choice)
+        }}
+      />
+    </Popover>
+  )
 }
 
 /**
@@ -171,7 +199,7 @@ export function CardPoster({
   shape = 'card',
   running = false,
   disabled = false,
-  onGo,
+  onLaunch,
 }: {
   card: HostedCard
   shape?: 'card' | 'hero'
@@ -179,9 +207,57 @@ export function CardPoster({
   running?: boolean
   /** A run is in flight somewhere on the page, so no card may start a second. */
   disabled?: boolean
-  onGo: () => void
+  /** A row was chosen in the picker, and that IS the press that runs the card. */
+  onLaunch: (choice: CardLaunchChoice) => void
 }): JSX.Element {
   const stamp = cardStampLabel(card.kind)
+  // The picker's open state lives HERE rather than on the button, because the
+  // glass over the card opens the same popover the button does and a card is
+  // one target. A run in flight closes it and keeps it shut: the popover must
+  // not be openable on a card that is already working, and one left standing
+  // over a card whose run has started is a second row waiting to be clicked.
+  const [open, setOpen] = React.useState(false)
+  React.useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+  const glass = (
+    /* The card's pointer surface. It is a direct child of the article because
+       every other candidate is absolutely positioned inside the splash, and an
+       overlay resolves against the nearest positioned ancestor rather than
+       against the card it means. `aria-hidden` and no tab stop: this is glass
+       for a mouse, and the keyboard's way in is the `Go` inside it.
+
+       Last, and so over the `Go` as well — deliberately, and at the cost of
+       that one button's own hover tint. Lifting the button back out from under
+       it would take a z-index the ladder does not have a rung for, and the card
+       is ONE target: a press on the glass over the button opens exactly what
+       the button opens, and the hover a person sees is the card's ground and
+       hairline moving, which is the whole of the hover the task-card family
+       allows anyway.
+
+       It OPENS the picker; it never toggles it. The popover dismisses itself on
+       any pointer down outside its surface and its trigger, and this glass is
+       neither — so a toggle here would read the state after that dismissal and
+       reopen what the person was closing. */
+    <span
+      aria-hidden="true"
+      className={CARD_OVERLAY}
+      onClick={() => {
+        if (!disabled) setOpen(true)
+      }}
+    />
+  )
+  const go = (
+    <CardGo
+      card={card}
+      accent={shape === 'hero'}
+      running={running}
+      disabled={disabled}
+      open={open}
+      onOpenChange={setOpen}
+      onLaunch={onLaunch}
+    />
+  )
   // Painting order IS DOM order for the splash's furniture (cardSplash.tsx):
   // artwork, then scrim, then title. The stamp takes its own layer, so it may
   // come last and still sit over everything.
@@ -203,36 +279,15 @@ export function CardPoster({
                   </p>
                 ) : null}
               </div>
-              <CardGo
-                title={card.title}
-                accent
-                stretch={false}
-                running={running}
-                disabled={disabled}
-                onGo={onGo}
-              />
+              {go}
             </div>
           </CardSplashTitle>
           <CardSplashStamp label={stamp} />
         </CardSplash>
-        {/* The hero's pointer surface. It is a direct child of the article
-            because every other candidate is absolutely positioned inside the
-            splash, and an overlay resolves against the nearest positioned
-            ancestor rather than against the card it means. `aria-hidden` and no
-            tab stop: this is glass for a mouse, and the keyboard's way in is the
-            `Go` inside it.
-
-            Last, and so over the `Go` as well — deliberately, and at the cost of
-            that one button's own hover tint. Lifting the button back out from
-            under it would take a z-index the ladder does not have a rung for,
-            and the card is ONE target: a press on the glass over the button runs
-            exactly what the button runs, and the hover a person sees is the
-            card's ground and hairline moving, which is the whole of the hover
-            the task-card family allows anyway. */}
         {/* Disabled with the button it fronts. The glass is the card's hit
-            area, so a run already in flight must not be startable through it
+            area, so a run already in flight must not open a picker through it
             either — the button below is where the one press lives. */}
-        <span aria-hidden="true" className={HERO_OVERLAY} onClick={() => { if (!disabled) onGo() }} />
+        {glass}
       </article>
     )
   }
@@ -260,18 +315,10 @@ export function CardPoster({
               {card.credit}
             </span>
           ) : null}
-          <span className="ml-auto flex shrink-0">
-            <CardGo
-              title={card.title}
-              accent={false}
-              stretch
-              running={running}
-              disabled={disabled}
-              onGo={onGo}
-            />
-          </span>
+          <span className="ml-auto flex shrink-0">{go}</span>
         </div>
       </div>
+      {glass}
     </article>
   )
 }

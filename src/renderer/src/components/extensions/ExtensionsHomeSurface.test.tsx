@@ -30,6 +30,19 @@ anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
+// React's change-event POLYFILL, given the two IE methods it reaches for. This
+// bundle evaluates react-dom before the jsdom globals exist, so React decides at
+// load that there is no DOM and never detects the browser `input` event; the
+// polyfill it falls back to watches ONE focused field at a time and attaches to
+// it through `attachEvent`/`detachEvent`, which jsdom does not have. Without
+// these two no-ops every real focus threw inside React's own dispatch — noise in
+// the log, and worse than noise: the throw came BEFORE the polyfill could let go
+// of the field it was watching, so once the model picker's search box had taken
+// focus the page's own search box could never be tracked again and typing into
+// it silently did nothing.
+const asAny = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>
+asAny.attachEvent = () => {}
+asAny.detachEvent = () => {}
 dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
 // The page's five readers, stubbed at the preload boundary. The two that are
 // absent here (`skillsListSources`, `listDesignSystemLibrary`) are absent on
@@ -52,6 +65,14 @@ import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { consumePendingExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
+import type { CardLaunchChoice } from '../workspace/globalSurface/extensions/home/CardGoPicker'
+import {
+  __resetModelPermissionPresetsForTest,
+  setModelPermissionPreset,
+} from '../ui/modelPermissionPresets'
+
+/** A model id this machine "has", added the way Settings adds one. */
+const MODEL = 'claude-opus-5'
 
 const RULED_ORDER = ['Workflows', 'Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs']
 
@@ -444,48 +465,127 @@ for (const poster of cardsIn(home.host)) {
 // .test.tsx` is written the same way, and so is this item’s own
 // `run-card.test.ts` — the shape is the repo’s, not a special case.
 async function main(): Promise<void> {
-  // ── `Go` runs the card once, and never twice (item 2469) ────────────────────
-  // The run itself belongs to the shell: this page asks the Extensions host to do
-  // it, because a page that installed things would be a second implementation of
-  // every installer. So what is asserted here is the half that IS this page's —
-  // one press, one run — plus the two states around it.
+  // ── `Go` opens the picker, and CHOOSING a row is what runs the card ─────────
+  // Owner ruling R4b (2026-09-06, item 2473): pressing Go shows the model
+  // picker's popover; nothing installs and nothing runs until a row is chosen.
+  // This is the assertion that catches a Go that went back to running on its
+  // own — and the one that catches a picker built beside the shipped one, since
+  // the rows it reads are `CliModelPopoverSurface`'s own `data-model-row`.
   //
-  // With no host registered (no WorkspaceManager mounted), a press is a no-op
-  // that must not throw: the same guard every reader on this page already has.
+  // The run itself belongs to the shell: this page asks the Extensions host to
+  // do it, because a page that installed things would be a second
+  // implementation of every installer. So what is asserted here is the half that
+  // IS this page's — one press, one popover, one run — plus the states around it.
+
+  /** The card's picker, portaled to <body> rather than into the card. */
+  const picker = () =>
+    dom.window.document.querySelector('[role="dialog"][aria-label^="Run "]') as HTMLElement | null
+  const pickerRows = () =>
+    [...(picker()?.querySelectorAll('[data-model-row="true"]') ?? [])] as HTMLElement[]
+  const rowNamed = (needle: string) =>
+    pickerRows().find((row) => row.textContent?.includes(needle))
+  /** Shut whatever is open, the way a second press on the trigger would. */
+  const closePicker = () => {
+    act(() => {
+      for (const go of goButtons()) if (go.getAttribute('aria-expanded') === 'true') go.click()
+    })
+  }
+
+  // A model the picker can name, so the row a click lands on is one this test
+  // can identify — and a preset stored against THAT row, to prove the preset
+  // rides the row rather than the app.
+  act(() => {
+    useWorkspaceStore.setState((state) => ({
+      appSettings: {
+        ...state.appSettings,
+        lastSelectedCli: 'claude-code',
+        cliRuntimes: { 'claude-code': { command: 'claude', useWsl: false, models: [MODEL] } },
+        lastAgentSpawnPermissionPreset: 'manual' as const,
+      },
+    }))
+  })
+  __resetModelPermissionPresetsForTest()
+  setModelPermissionPreset('claude-code', MODEL, 'auto')
+
+  // With no host registered (no WorkspaceManager mounted), opening the picker
+  // and choosing from it is a no-op that must not throw: the same guard every
+  // reader on this page already has.
   act(() => {
     goButtons()[0]?.click()
-    cardsIn(home.host)[1]?.click()
   })
+  assert.ok(picker(), 'Go opens the picker rather than running the card')
+  act(() => {
+    rowNamed(MODEL)?.click()
+  })
+  closePicker()
 
-  // With one registered, a double click starts ONE run. A state flag alone could
-  // not promise this — two clicks in the same tick read the same render — so the
-  // page holds a ref, and this is the assertion that would catch its loss.
   {
     let settle: (() => void) | null = null
-    const ran: string[] = []
+    const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
     setExtensionsSurfaceHost({
       onLaunchConnector: () => {},
       onUseInAutomation: () => {},
       onUseSkillInNewAgent: () => {},
-      onRunCard: (card) => {
-        ran.push(card.slug)
+      onRunCard: (card, launch) => {
+        ran.push({ slug: card.slug, launch })
         return new Promise<void>((resolve) => {
           settle = resolve
         })
       },
     })
+
+    // Pressing Go — twice, and on two different cards — starts NOTHING. The one
+    // moment the card stops and waits is this popover, and it is not a consent
+    // screen: it is the control every other agent in this product is spawned
+    // from (the ruling of 2026-08-04, "the model picker is the spawner").
     act(() => {
       goButtons()[0]?.click()
-      goButtons()[0]?.click()
-      // …and the other card too: one run at a time on the page, not one per card.
       goButtons()[1]?.click()
     })
-    assert.deepEqual(ran.length, 1, 'a double click — on one card or on two — starts exactly one run')
-    // Every Go is disabled while it is in flight, because a button that looks
-    // pressable and does nothing is worse than one that says it cannot be pressed.
+    assert.equal(ran.length, 0, 'pressing Go installs nothing and runs nothing on its own (R4b)')
+    assert.equal(
+      goButtons()[0]?.getAttribute('aria-expanded'),
+      'true',
+      'the button says it opened something, because it is now a popover trigger',
+    )
+    closePicker()
+
+    // Choosing a row IS the press that runs it, and the row's own axes ride
+    // with it: the cli, the model, the effort the CLI declares, and the
+    // permission preset remembered against `<cli>:<model>` since 2026-09-05.
+    act(() => {
+      goButtons()[0]?.click()
+    })
+    const row = rowNamed(MODEL)
+    assert.ok(row, 'the picker lists the model this machine has, on the shipped surface’s own rows')
+    act(() => {
+      row?.click()
+      // A second click on a row that has already started the run must not start
+      // a second: the page's ref is what makes that true, not its state.
+      row?.click()
+    })
+    assert.equal(ran.length, 1, 'choosing a row runs the card exactly once')
+    assert.deepEqual(
+      ran[0]?.launch,
+      { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'auto' },
+      'and it runs on THAT row — its cli, its model, and the preset stored against it rather than the app-wide default',
+    )
+    assert.equal(ran[0]?.slug, 'workflows', 'on the card whose Go was pressed')
+    assert.equal(picker(), null, 'the popover closes on the choice; there is nothing to confirm afterwards')
+
+    // Every Go is disabled while a run is in flight, because a button that looks
+    // pressable and does nothing is worse than one that says it cannot be
+    // pressed — and a disabled trigger opens no popover, which is what keeps the
+    // non-re-entrancy guard true for the picker as well as for the run.
     for (const go of goButtons()) {
       assert.equal((go as HTMLButtonElement).disabled, true, 'every Go is disabled while a run is in flight')
     }
+    act(() => {
+      goButtons()[1]?.click()
+      cardsIn(home.host)[1]?.click()
+    })
+    assert.equal(picker(), null, 'a card cannot open its picker while a run is in flight — nor through its glass')
+    assert.equal(ran.length, 1, 'and nothing else started')
     assert.equal(
       goButtons()[0]?.getAttribute('aria-busy'),
       'true',
@@ -504,8 +604,90 @@ async function main(): Promise<void> {
       assert.equal((go as HTMLButtonElement).disabled, false, 'and every Go is pressable again once the run settles')
     }
     assert.equal(goButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
+
+    // A row nobody has set falls back to the APP-WIDE default in Settings, not
+    // to something invented here: the CLI's own default-model row has no stored
+    // preset, so it launches on `lastAgentSpawnPermissionPreset`.
+    act(() => {
+      goButtons()[0]?.click()
+    })
+    const defaultRow = rowNamed('Claude Code')
+    assert.ok(defaultRow, 'the runtime’s own default-model row is there too')
+    act(() => {
+      defaultRow?.click()
+    })
+    assert.equal(ran.length, 2)
+    assert.deepEqual(
+      ran[1]?.launch,
+      { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
+      'a row nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
+    )
+    settle?.()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     setExtensionsSurfaceHost(null)
   }
+
+  // ── Which row it opens on ───────────────────────────────────────────────────
+  // A card declaring `require.cli` opens the picker on that runtime and says so
+  // in the quiet line Frame 4 draws; a card naming a runtime this machine does
+  // not have says THAT, on the row, with the way to install one — rather than
+  // opening on an empty list or on somebody else's CLI.
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      cards: [
+        {
+          slug: 'asks-for-claude-code',
+          kind: 'skill' as const,
+          title: 'A card that asks for a runtime',
+          dek: 'It names the harness its skill is copied into.',
+          art: 'tokens',
+          publishedAt: '2026-09-06T00:00:00.000Z',
+          go: [{ verb: 'require.cli' as const, cli: 'claude-code' }],
+        },
+        {
+          slug: 'asks-for-a-runtime-you-do-not-have',
+          kind: 'skill' as const,
+          title: 'A card that asks for one you do not have',
+          dek: 'It names a harness this machine has never installed.',
+          art: 'browser',
+          publishedAt: '2026-09-05T00:00:00.000Z',
+          go: [{ verb: 'require.cli' as const, cli: 'a-cli-nobody-installed' }],
+        },
+      ] satisfies HostedCard[],
+      cardFeedStatus: 'ready' as const,
+    }))
+  })
+  act(() => {
+    goButtons()[0]?.click()
+  })
+  assert.ok(
+    picker()?.textContent?.includes('The card asks for Claude Code.'),
+    'the card’s own runtime leads, and the picker says the card asked for it',
+  )
+  assert.ok(pickerRows().length > 0, 'and it opens with rows to press, not empty')
+  assert.ok(
+    pickerRows().every((row) => !row.textContent?.includes('Codex')),
+    'and the runtimes the card did not ask for are not offered — a row that launched one would launch a model the card’s harness never saw',
+  )
+  closePicker()
+  act(() => {
+    goButtons()[1]?.click()
+  })
+  assert.ok(
+    picker()?.textContent?.includes('a-cli-nobody-installed'),
+    'a card naming a CLI this machine does not have says which one, on the row',
+  )
+  assert.ok(
+    picker()?.textContent?.includes('Install an agent CLI'),
+    'and offers the one route that ends with having it — never an empty list',
+  )
+  assert.equal(pickerRows().length, 0, 'there is no model row to press, because there is no runtime to press it on')
+  closePicker()
+  act(() => {
+    useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+  })
 
   // ── The tiles are still there, and they are underneath ───────────────────────
   assert.ok(tilesIn(home.host).length > 0, 'the tiles keep their place on the page')

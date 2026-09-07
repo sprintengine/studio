@@ -82,6 +82,14 @@
 // install before them has succeeded. That is also why `open.chat` must be the
 // last action or the card is refused outright: a chat attached to a server that
 // failed to install is worse than no chat.
+//
+// **The chosen model row passes straight through** (owner ruling R4b,
+// 2026-09-06, item 2473). Since Go opens the model picker and choosing a row is
+// what starts the run, the request carries that row's model, reasoning effort
+// and permission preset. This file reads none of them — they mean something to
+// a launcher and nothing to an installer — and hands all three back on the chat
+// hand-off, beside the cli a `require.cli` verified, so that one object on the
+// far side describes the whole launch rather than half of it.
 
 import type {
   CardActionOutcome,
@@ -438,9 +446,20 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
       send: action.send,
       skills: [...(action.skills ?? [])],
       // The CLI the card required, so the chat opens on the harness the skills
-      // were installed into; null when the card required none and the app's own
-      // default stands.
+      // were installed into; null when the card required none and the row the
+      // person picked in the picker stands.
       cli: requiredCli,
+      // The rest of that row, handed straight back (item 2473). This file does
+      // not read them and must not: a model id, an effort level and a
+      // permission preset mean something to a launcher and nothing to an
+      // installer, and the executor's whole job is the installs. They travel
+      // through it so that ONE object on the far side says what is about to be
+      // launched — the cli above came from `require.cli` and the three below
+      // came from the picker, and splitting them across two sources is how the
+      // pair drifts.
+      model: input.model ?? null,
+      reasoning: input.reasoning ?? null,
+      permissionPreset: input.permissionPreset ?? null,
     }
     return { status: 'done', message: action.send ? 'Chat opened, prompt sent.' : 'Chat opened.' }
   }

@@ -21,6 +21,11 @@
  * Plus the boundary: an id a feed made up resolves against nothing this app
  * holds, and a repository name is re-checked here rather than taken on the
  * parser's word.
+ *
+ * And, since item 2473, the pass-through: `Go` opens the model picker and
+ * choosing a row is what runs the card, so the row's model, effort and
+ * permission preset ride the request. The executor must hand all three back
+ * untouched — it is an installer, and none of the three means anything to one.
  */
 import assert from 'node:assert/strict'
 
@@ -204,6 +209,11 @@ async function main(): Promise<void> {
         // skill was installed into rather than on whatever the renderer's
         // template resolver would otherwise pick.
         cli: 'claude-code',
+        // The picker row, when the request carried none: null everywhere, which
+        // means "the app's own defaults" on the far side rather than "no model".
+        model: null,
+        reasoning: null,
+        permissionPreset: null,
       },
       'the chat is handed back for the renderer to open, and it carries `send` (R4: Go goes)',
     )
@@ -610,6 +620,68 @@ async function main(): Promise<void> {
     assert.equal(result.ok, false)
     assert.match(result.message ?? '', /Open a project/, 'a card carries no workspace, so the app has to have one')
     assert.deepEqual(calls, [], 'and nothing was reached for without one')
+  }
+
+  // ── The picker row rides through, untouched (item 2473) ─────────────────────
+  // `Go` opens the model picker and choosing a row is what runs the card (R4b),
+  // so the row's model, effort and permission preset travel with the request.
+  // The executor reads none of them — they mean something to a launcher and
+  // nothing to an installer — and hands all three back on the chat, beside the
+  // cli, so ONE object on the far side describes the whole launch.
+  {
+    const { deps } = recorder()
+    const result = await runCard(
+      {
+        slug: 'browser',
+        actions: HAPPY,
+        workspaceRoot: WORKSPACE,
+        cloneParentDir: PARENT,
+        mcpServers: [],
+        mcpSyncEnabled: false,
+        model: 'claude-opus-5',
+        reasoning: 'high',
+        permissionPreset: 'auto',
+      },
+      deps,
+    )
+    assert.equal(result.ok, true)
+    assert.deepEqual(
+      result.chat,
+      {
+        prompt: 'Open example.com and read the headline.',
+        send: true,
+        skills: ['browser'],
+        cli: 'claude-code',
+        model: 'claude-opus-5',
+        reasoning: 'high',
+        permissionPreset: 'auto',
+      },
+      'the chosen row comes back whole — the runtime the card required, and the three axes the person picked',
+    )
+  }
+
+  // A card that requires no CLI hands back no CLI, and the row still travels:
+  // the renderer then launches on the row it was given, which is the whole of
+  // "the last-used row leads" (R4b).
+  {
+    const { deps } = recorder()
+    const result = await runCard(
+      {
+        slug: 'browser',
+        actions: [{ verb: 'open.chat', prompt: 'Draw me a design system.', send: true }],
+        workspaceRoot: WORKSPACE,
+        cloneParentDir: PARENT,
+        mcpServers: [],
+        mcpSyncEnabled: false,
+        model: null,
+        reasoning: null,
+        permissionPreset: 'manual',
+      },
+      deps,
+    )
+    assert.equal(result.chat?.cli, null, 'no require.cli is no override — the picked row is the runtime')
+    assert.equal(result.chat?.model, null, 'and its own default model row is null, not a missing field')
+    assert.equal(result.chat?.permissionPreset, 'manual', 'the preset the row carried is the preset handed back')
   }
 
   console.log('run-card.test.ts: ok')

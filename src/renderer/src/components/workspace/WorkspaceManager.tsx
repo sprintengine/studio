@@ -47,6 +47,7 @@ import type {
   AppNotification,
   FuturePlanWorkspaceSource,
   SpecialistActionId,
+  SprintEngineCliPermissionPreset,
   Workspace,
   WorkspaceId,
   WorkspaceWindowId,
@@ -60,6 +61,7 @@ import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
 import type { CardRunResult, WorkspaceSkill } from '../../../../shared/electron-api'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
+import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -2607,6 +2609,13 @@ export default function WorkspaceManager() {
     // read back from the defaults yet.
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
+    // The rest of a model row the caller just picked, for the same reason the
+    // model is passed in: a caller that wrote the row back as a default and read
+    // it out again in the same event would read the value from before the write.
+    // A card's `Go` is the one caller that has all of it (item 2473); every
+    // other spawn omits this and the remembered defaults answer, exactly as
+    // before.
+    picked?: { reasoning?: string | null; permissionPreset?: SprintEngineCliPermissionPreset },
   ) => {
     if (!windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -2643,9 +2652,16 @@ export default function WorkspaceManager() {
       name: tabName,
       cli: spawnCli,
       cliModel,
-      cliReasoning: resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
+      cliReasoning:
+        picked?.reasoning !== undefined
+          ? picked.reasoning ?? undefined
+          : resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
-      cliPermissionPreset: resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
+      // The preset is a property of the model ROW (2026-09-05), so it is read
+      // from the row that launches — or taken from the caller that just read it
+      // off that same row.
+      cliPermissionPreset:
+        picked?.permissionPreset ?? resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
@@ -2981,6 +2997,15 @@ export default function WorkspaceManager() {
    * goes"). One press installs what the card names and lands the person in the
    * chat with the prompt SENT — no consent screen, no plan, no progress modal.
    *
+   * The one thing between the press and the work is the MODEL PICKER (ruling
+   * R4b, item 2473), and choosing a row in it is what calls this. `launch` is
+   * that row: its cli, its model, its reasoning effort and the permission preset
+   * remembered against it. All four travel through `cards:run` and come back on
+   * the chat hand-off, so the object that describes the launch is one object —
+   * the executor may still override the cli, because a card's `require.cli`
+   * names the harness its skills were copied into and that is the harness the
+   * chat has to open in (the security pass of item 2469).
+   *
    * The whole of the run happens in main, in one call: `cards:run` composes the
    * installers that already own each concern, in the card's own order, stopping
    * at the first failure. Nothing here installs anything, so there is no second
@@ -2998,7 +3023,7 @@ export default function WorkspaceManager() {
    * It never rejects: a failure is a toast, named and specific, and the promise
    * settles either way so the card's one button can re-enable itself.
    */
-  const runCardGo = useCallback(async (card: HostedCard): Promise<void> => {
+  const runCardGo = useCallback(async (card: HostedCard, launch: CardLaunchChoice): Promise<void> => {
     if (typeof window.api?.cardsRun !== 'function') return
     const state = useWorkspaceStore.getState()
     const workspaceRoot =
@@ -3021,6 +3046,11 @@ export default function WorkspaceManager() {
         // `upsertMcpServer` does below with that same server — so a person who
         // turned MCP sync off keeps it off unless they install something.
         mcpSyncEnabled: state.appSettings.mcp?.syncEnabled === true,
+        // The row the person chose, carried whole. Main reads none of the three
+        // and hands all three back on the chat.
+        model: launch.model,
+        reasoning: launch.reasoning,
+        permissionPreset: launch.permissionPreset,
       })
       .catch((error: unknown): CardRunResult => ({
         ok: false,
@@ -3118,24 +3148,29 @@ export default function WorkspaceManager() {
 
     if (chat.send && !movedWorkspace && workspaceRoot) {
       // R4, kept: a general agent on the CLI the card required — falling back
-      // to the General-engine default only when it required none — with the
-      // skills attached and the prompt as its startup prompt, which is the
-      // launch path that SENDS. `require.cli` verified a CLI and the chat used
-      // to launch on whatever the template resolver returned, so a card could
-      // check `claude-code` and open a chat in a harness the skill it had just
-      // installed was never copied into.
+      // to the row the person picked when it required none — with the skills
+      // attached and the prompt as its startup prompt, which is the launch path
+      // that SENDS. `require.cli` verified a CLI and the chat used to launch on
+      // whatever the template resolver returned, so a card could check
+      // `claude-code` and open a chat in a harness the skill it had just
+      // installed was never copied into. The resolver is still consulted, and
+      // only as the normaliser it is: it takes the id main sent back — a plain
+      // string that crossed a process boundary — and answers with a runtime this
+      // machine can actually launch.
+      //
+      // The other three axes are the picked row's, passed rather than read back
+      // out of the remembered defaults: the picker wrote that row as the default
+      // a moment ago, and a spawn that read its own write in the same turn would
+      // read the value from before it (R4b, item 2473).
       closeGlobalSurface()
       closeModalSurface()
       void addNewCliAgent(
-        resolveTemplateAgentCli(
-          chat.cli ?? specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
-          lastSelectedCli,
-          agentCliCatalog,
-        ),
+        resolveTemplateAgentCli(chat.cli ?? launch.cli, lastSelectedCli, agentCliCatalog),
         skills,
         undefined,
-        undefined,
+        chat.model,
         { prompt: chat.prompt },
+        { reasoning: chat.reasoning, ...(chat.permissionPreset ? { permissionPreset: chat.permissionPreset } : {}) },
       )
       if (switchedAway) {
         // Not silently, and not by dragging them back: the agent is running in
@@ -3169,6 +3204,12 @@ export default function WorkspaceManager() {
     // No project open at all is the third: `addNewCliAgent` early-returns
     // without one, so a card whose only action is `open.chat` pressed on a
     // fresh install closed the door and did nothing whatsoever.
+    //
+    // The row the person picked is not lost on this path either, and it does not
+    // ride the draft: the picker wrote it back as the roleless agent's
+    // remembered engine on the way out, so the composer that opens here is
+    // already standing on it. The draft carries what only the CARD knows — the
+    // prompt and the skills.
     openNewChatPanel(chatRoot ?? undefined)
     writeNewChatDraft(workspaceWindowId, { prompt: chat.prompt, skills })
     if (chat.send) {
@@ -3188,7 +3229,6 @@ export default function WorkspaceManager() {
     lastSelectedCli,
     openGlobalSurface,
     openNewChatPanel,
-    specialistCliDefaults,
     upsertMcpServer,
     windowActiveWorkspaceId,
     workspaceWindowId,
@@ -3225,7 +3265,7 @@ export default function WorkspaceManager() {
         [skill],
       )
     },
-    onRunCard: (card) => runCardGo(card),
+    onRunCard: (card, launch) => runCardGo(card, launch),
     onUseInAutomation: () => {
       // The route to author a connector automation is the Automations door
       // (Extensions drawer ruling, 2026-09-05; a modal before that); the
@@ -3250,7 +3290,7 @@ export default function WorkspaceManager() {
       onLaunchConnector: (connector) => extensionsHostRef.current?.onLaunchConnector(connector),
       onUseInAutomation: (serverId) => extensionsHostRef.current?.onUseInAutomation(serverId),
       onUseSkillInNewAgent: (skill) => extensionsHostRef.current?.onUseSkillInNewAgent(skill),
-      onRunCard: (card) => extensionsHostRef.current?.onRunCard(card) ?? Promise.resolve(),
+      onRunCard: (card, launch) => extensionsHostRef.current?.onRunCard(card, launch) ?? Promise.resolve(),
     })
     return () => setExtensionsSurfaceHost(null)
   }, [])

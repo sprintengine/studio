@@ -19,9 +19,10 @@
 // and whether MCP sync is on — are the app's own facts, and they never came
 // from the feed. They are still checked here, because "the renderer sent it" is
 // a claim about a process, not about a shape: the two paths are checked for
-// shape and rejected when relative, and every server is put through
+// shape and rejected when relative, every server is put through
 // `normalizeMcpServerConfig` — the same normalizer the settings store uses —
-// rather than cast. The header claimed the checking until 2026-09-06 while
+// rather than cast, and the picker row's three launch axes (item 2473) are
+// checked the same way. The header claimed the checking until 2026-09-06 while
 // `raw.mcpServers` went through untouched, which would have let a malformed row
 // reach a sync and be written into every CLI's config.
 
@@ -29,7 +30,12 @@ import type { IpcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { CardRunInput, CardRunResult, McpServerConfig } from '../../shared/electron-api'
+import type {
+  CardRunInput,
+  CardRunResult,
+  McpServerConfig,
+  SprintEngineCliPermissionPreset,
+} from '../../shared/electron-api'
 import { parseCardAction, type CardAction } from '../../shared/hosted-card-feed'
 import { normalizeMcpServerConfig } from '../../shared/mcp/normalize-server'
 import { detectCli } from '../cli-runtime-install'
@@ -157,8 +163,33 @@ function parseRequest(raw: unknown): ParsedRequest {
       // a server, so the only thing a missing field can do is leave a setting
       // alone.
       mcpSyncEnabled: raw.mcpSyncEnabled === true,
+      // The picker row (item 2473), checked for shape like the two paths above
+      // and for the same reason: "the renderer sent it" is a claim about a
+      // process, not about a shape. A model id and an effort level are strings
+      // or they are absent, and a preset is one of the four this build knows —
+      // anything else is dropped rather than refused, because a malformed
+      // launch axis must not be why a card's installs do not run. What that
+      // costs is the app's own default on the far side, which is what an absent
+      // field means anyway.
+      model: text(raw.model),
+      reasoning: text(raw.reasoning),
+      ...(isPermissionPreset(raw.permissionPreset) ? { permissionPreset: raw.permissionPreset } : {}),
     },
   }
+}
+
+/** The four presets this build knows, listed so an unknown one cannot ride in. */
+const PERMISSION_PRESETS: readonly SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+
+function isPermissionPreset(value: unknown): value is SprintEngineCliPermissionPreset {
+  return typeof value === 'string' && PERMISSION_PRESETS.includes(value as SprintEngineCliPermissionPreset)
+}
+
+/** A non-empty string, or null. Null is "the app's own default", never "no model". */
+function text(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 /**

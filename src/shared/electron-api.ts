@@ -817,6 +817,28 @@ export type CardRunInput = {
    * store does with that same server (`upsertMcpServer`).
    */
   mcpSyncEnabled: boolean
+  /**
+   * The model row the person chose in the picker `Go` opens (owner ruling R4b,
+   * 2026-09-06, item 2473). Choosing a row is what starts the run, so the row's
+   * own axes travel with it: the model id (null is the runtime's own default
+   * model), the reasoning effort where the CLI declares one, and the permission
+   * preset stored against that row (`modelFavouriteKey`, falling back to
+   * `appSettings.lastAgentSpawnPermissionPreset`).
+   *
+   * They are carried here rather than kept in a renderer closure so that ONE
+   * object describes the launch on the way back: `CardChatHandoff` already
+   * carries the cli a `require.cli` verified, and a launch whose runtime came
+   * from the hand-off while its model came from a variable captured minutes
+   * earlier is a pair that drifts. Main does not interpret any of the three; it
+   * checks their shape and hands them back on the chat.
+   *
+   * All three are optional because a caller that has not opened a picker (a
+   * test, a future headless run) is a caller with no row to describe, and an
+   * absent field must mean "the app's own default" rather than "no model".
+   */
+  model?: string | null
+  reasoning?: string | null
+  permissionPreset?: SprintEngineCliPermissionPreset
 }
 
 /** `already` is a no-op that succeeded; `skipped` is an action a failure before it stopped. */
@@ -853,6 +875,17 @@ export type CardChatHandoff = {
    * server no earlier action installs — so the field had nothing left to say.
    */
   cli: string | null
+  /**
+   * The rest of the row the person chose in the picker (item 2473), echoed back
+   * beside the cli so the hand-off describes the WHOLE launch rather than half
+   * of it. `model` is null for the runtime's own default model, `reasoning` is
+   * null where the CLI declares no effort axis, and `permissionPreset` is null
+   * when the request carried none — the spawn then resolves the row's preset
+   * itself, exactly as every other spawn in the app does.
+   */
+  model: string | null
+  reasoning: string | null
+  permissionPreset: SprintEngineCliPermissionPreset | null
 }
 
 export type CardSurfaceHandoff = { view: CardSurfaceView; installed: boolean }

@@ -13,6 +13,7 @@ import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { CardPoster } from '../workspace/globalSurface/extensions/home/CardPoster'
+import type { CardLaunchChoice } from '../workspace/globalSurface/extensions/home/CardGoPicker'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useSkillSources } from '../workspace/globalSurface/extensions/skills/useSkillSources'
 import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
@@ -379,11 +380,15 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   const loading = cardFeedStatus === 'loading' && drawable === 0
   const hasCardRegion = loading || drawable > 0
 
-  // What `Go` does (item 2469, owner ruling R4: "Go goes"). The run itself is
-  // the shell's — `onRunCard` installs what the card names in the workspace the
-  // person is in and lands them in the chat with the prompt sent — because this
-  // page knows nothing about workspaces, settings stores or spawning agents.
-  // What is this page's is the button: one run at a time, and never two.
+  // What `Go` does (item 2469, owner ruling R4: "Go goes"; item 2473, ruling
+  // R4b). Pressing it opens the model picker; CHOOSING A ROW is what arrives
+  // here, and the choice rides the run — the cli, model, reasoning effort and
+  // permission preset of the row that was clicked (`CardPoster.tsx` holds the
+  // trigger, `CardGoPicker.tsx` the surface). The run itself is the shell's —
+  // `onRunCard` installs what the card names in the workspace the person is in
+  // and lands them in the chat with the prompt sent — because this page knows
+  // nothing about workspaces, settings stores or spawning agents. What is this
+  // page's is the button: one run at a time, and never two.
   //
   // The REF is what makes it non-re-entrant, and the state is only what draws
   // it. Two clicks in the same tick both read the same render's `runningSlug`,
@@ -404,7 +409,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
       mounted.current = false
     }
   }, [])
-  const onGo = useCallback((card: HostedCard) => {
+  const onLaunch = useCallback((card: HostedCard, choice: CardLaunchChoice) => {
     if (runningRef.current !== null) return
     // Null only when no WorkspaceManager is mounted (tests), and then this is a
     // press that does nothing rather than a throw.
@@ -412,7 +417,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
     if (!host) return
     runningRef.current = card.slug
     setRunningSlug(card.slug)
-    void host.onRunCard(card).finally(() => {
+    void host.onRunCard(card, choice).finally(() => {
       runningRef.current = null
       if (mounted.current) setRunningSlug(null)
     })
@@ -475,7 +480,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                   shape="hero"
                   running={runningSlug === grid.hero.slug}
                   disabled={runningSlug !== null}
-                  onGo={() => onGo(grid.hero as HostedCard)}
+                  onLaunch={(choice) => onLaunch(grid.hero as HostedCard, choice)}
                 />
               </div>
             ) : null}
@@ -485,7 +490,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                 card={card}
                 running={runningSlug === card.slug}
                 disabled={runningSlug !== null}
-                onGo={() => onGo(card)}
+                onLaunch={(choice) => onLaunch(card, choice)}
               />
             ))}
           </CardGrid>
