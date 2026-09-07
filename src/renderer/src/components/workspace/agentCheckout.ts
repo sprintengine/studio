@@ -1,7 +1,23 @@
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import { observedCheckoutKind } from '../../../../shared/observed-checkout'
 import type { AgentExecution } from '../../../../shared/sprintengine/agent-state'
-import type { AgentTabCheckout } from './AgentTabIdentityPopover'
+
+/**
+ * The shapes a checkout can take, before a git root is attached. Named for the
+ * tab that first needed the vocabulary; it now describes every surface that
+ * says where an agent runs. `observed: true` means the session's own lifecycle
+ * hooks reported the directory and git resolved it; `observed: false` is the
+ * app's launch intent, standing in until the first hook frame answers.
+ */
+export type AgentTabCheckout =
+  | { kind: 'worktree'; branch: string | null; cwd: string | null; observed: boolean }
+  | { kind: 'main'; branch: string | null; cwd: string | null; observed: true }
+  | { kind: 'folder'; cwd: string; observed: true }
+  // The observed directory no longer exists (a worktree pruned under the agent).
+  | { kind: 'missing'; cwd: string; observed: true }
+  // A cwd was observed but git could not answer for it on this host (no git,
+  // a WSL-internal path on a Windows main): say where, claim nothing more.
+  | { kind: 'unverified'; cwd: string; observed: true }
 
 /**
  * Where an agent runs — ONE answer, shared by every surface that says so

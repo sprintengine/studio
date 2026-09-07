@@ -127,6 +127,43 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * The shapes an app-injected fragment takes inside a prompt, named once so the
+ * two consumers cannot drift apart. `stripInjectedFragments` deletes all of
+ * them; the conversation peek (`src/main/conversation-peek/text.ts`) deletes
+ * some and turns the path-shaped ones into attachment chips — the same tokens
+ * have to be recognised identically on both routes or a peek would quote a path
+ * the title already knew was not part of the sentence.
+ *
+ * Every pattern carries the `g` flag and is therefore stateful; use them only
+ * with `String.replace` (which resets `lastIndex` on completion) or
+ * `String.matchAll` (which iterates a clone), never with a bare `.test()`.
+ */
+export const INJECTED_FRAGMENT_PATTERNS = {
+  /** Fenced code and pasted blocks: their contents would supply plausible-looking words. */
+  fencedBlock: /```[\s\S]*?```/g,
+  /** Inline code spans. */
+  inlineCode: /`[^`\n]*`/g,
+  /**
+   * A slash-command invocation, wherever it sits — a dropped skill pastes one at
+   * the front, but a user can type one mid-sentence.
+   */
+  slashCommand: /(?:^|\s)\/[a-z0-9][a-z0-9._-]*/gi,
+  /** @-mentions of files and agents. */
+  mention: /(?:^|\s)@[^\s]+/g,
+  /** URLs. */
+  url: /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi,
+  /**
+   * Path-shaped tokens that announce themselves with a leading `/`, `./`, `../`
+   * or `~/`: absolute paths, repo-relative paths, dropped directories.
+   */
+  explicitPath: /(?:^|\s)~?\.{0,2}\/\S+/g,
+  /** Path-shaped tokens with no leading marker ("src/main/app.ts"). */
+  barePath: /(?:^|\s)[\w.-]+\/[\w./-]+/g,
+  /** A bare commit hash pasted by a commit drop. */
+  commitHash: /(?:^|\s)[0-9a-f]{7,64}(?=\s|$)/gi,
+} as const
+
+/**
  * Strip the fragments the APP pastes into a terminal, so a title is never
  * derived from Multicode's own injection instead of the person's request.
  *
@@ -142,24 +179,16 @@ function escapeRegExp(value: string): string {
  * `UserPromptSubmit` prompt field, so it cannot reach this function at all.
  */
 export function stripInjectedFragments(prompt: string): string {
+  const patterns = INJECTED_FRAGMENT_PATTERNS
   return prompt
-    // Fenced code and pasted blocks: never a title, and their contents would
-    // otherwise supply plausible-looking words.
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`\n]*`/g, ' ')
-    // A slash-command invocation, wherever it sits — a dropped skill pastes one
-    // at the front, but a user can type one mid-sentence.
-    .replace(/(?:^|\s)\/[a-z0-9][a-z0-9._-]*/gi, ' ')
-    // @-mentions of files and agents.
-    .replace(/(?:^|\s)@[^\s]+/g, ' ')
-    // URLs.
-    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ')
-    // Path-shaped tokens: anything containing a slash with no spaces. Catches
-    // absolute paths, repo-relative paths, and dropped directories alike.
-    .replace(/(?:^|\s)~?\.{0,2}\/\S+/g, ' ')
-    .replace(/(?:^|\s)[\w.-]+\/[\w./-]+/g, ' ')
-    // A bare commit hash pasted by a commit drop.
-    .replace(/(?:^|\s)[0-9a-f]{7,64}(?=\s|$)/gi, ' ')
+    .replace(patterns.fencedBlock, ' ')
+    .replace(patterns.inlineCode, ' ')
+    .replace(patterns.slashCommand, ' ')
+    .replace(patterns.mention, ' ')
+    .replace(patterns.url, ' ')
+    .replace(patterns.explicitPath, ' ')
+    .replace(patterns.barePath, ' ')
+    .replace(patterns.commitHash, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }

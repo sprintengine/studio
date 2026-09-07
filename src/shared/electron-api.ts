@@ -1,5 +1,12 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ObservedCheckout } from './observed-checkout'
+import type { ConversationPeek } from './conversation-peek'
+export type {
+  ConversationPeek,
+  ConversationPeekAttachment,
+  ConversationPeekMessage,
+  ConversationPeekSource,
+} from './conversation-peek'
 // Type-only both ways (agent-launch.ts imports this module's McpSettings /
 // permission-preset vocabulary), so the cycle erases at compile time and no
 // runtime import exists in either direction.
@@ -4233,6 +4240,18 @@ export type ElectronApi = {
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
+  // The conversation peek: what has actually been said in a chat the person is
+  // hovering rather than looking at — the first message, everything since, and
+  // what they attached to the first. `source` says which of the three shapes the
+  // answer is in (the CLI's transcript, the prompts seen since launch, or
+  // neither), because the card is required to say so rather than look broken.
+  // See `shared/conversation-peek.ts`.
+  readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
+  // Open an attachment the peek just handed out: an image goes to the OS image
+  // viewer, a file is revealed in the file manager. Takes the attachment's id,
+  // never a path — main resolves it against the peek it produced, so a renderer
+  // cannot name a file of its own.
+  openConversationPeekAttachment: (sessionId: string, attachmentId: string) => Promise<void>
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).

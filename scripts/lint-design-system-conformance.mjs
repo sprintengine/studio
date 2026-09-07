@@ -35,11 +35,16 @@
 //                          ("Restraint": selection is neutral, no left bar).
 //   backdrop-filter        `backdrop-blur` / `backdrop-filter` ("Motion":
 //                          never on a scrim; it is also a ~10fps regression).
-//                          One sanctioned surface: the toast card (owner
-//                          ruling 2026-09-04) — a corner-sized area — through
-//                          the `surface-glass` utility in the app CSS,
-//                          consumed by Toast.tsx alone. Any other blur, and
-//                          any other consumer of the utility, is flagged.
+//                          Two sanctioned surfaces, both KIT SHELLS, through
+//                          the `surface-glass` utility in the app CSS: the
+//                          toast card (owner ruling 2026-09-04 — a
+//                          corner-sized area) and PointerPopover's opt-in
+//                          `material="glass"` (owner ruling 2026-09-07, the
+//                          conversation peek, drawn deliberately over a
+//                          running terminal). Any other blur, and any other
+//                          consumer of the utility — a product file included
+//                          — is flagged: a surface that wants glass asks the
+//                          shell for it.
 //   shadow-in-flow         a Tailwind `shadow-{sm,md,lg,xl,2xl}` utility
 //                          ("Hairlines carry the structure": elevation is a
 //                          three-step overlay ramp taken from the shadow
@@ -652,7 +657,15 @@ const BACKDROP_FILTER = /(?<![\w-])backdrop-(?:blur|filter)(?:-[\w.[\]/-]+)?/g
 // is a `backdrop-filter` violation.
 const GLASS_UTILITY = 'surface-glass'
 const GLASS_UTILITY_PATTERN = /(?<![\w-])surface-glass(?![\w-])/g
-const GLASS_CONSUMER_FILES = new Set(['src/renderer/src/components/ui/Toast.tsx'])
+// The two kit shells the owner has sanctioned, and nothing else. Widened from
+// Toast.tsx alone by the owner ruling of 2026-09-07 (the conversation peek);
+// `design-system/components/toast/component.md` carries the amended ruling and
+// says plainly that the peek is the larger area, rather than pretending the
+// 2026-09-04 area argument still covers it.
+const GLASS_CONSUMER_FILES = new Set([
+  'src/renderer/src/components/ui/Toast.tsx',
+  'src/renderer/src/components/ui/PointerPopover.tsx',
+])
 
 const TAILWIND_SHADOW = /(?<![\w-])shadow-(?:sm|md|lg|xl|2xl)(?![\w-])/g
 
@@ -1057,7 +1070,7 @@ function scanSourceFile(file, push) {
   if (!GLASS_CONSUMER_FILES.has(file.path)) {
     forEachMatch(GLASS_UTILITY_PATTERN, source, (match) => {
       if (!inCode(match.index)) return
-      push('backdrop-filter', file, match.index, `${match[0]} (glass is the toast's alone)`)
+      push('backdrop-filter', file, match.index, `${match[0]} (glass belongs to the kit's two sanctioned shells)`)
     })
   }
 
@@ -1531,8 +1544,8 @@ const FIX_HINT = {
   'emoji-as-icon': 'use a glyph from components/AppIcons.tsx, or delete the decoration',
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
   'backdrop-filter':
-    'separation comes from the scrim tone plus the shell shadow; the toast card is the one glass ' +
-    'surface (surface-glass in Toast.tsx) and nothing else blurs or borrows it',
+    'separation comes from the scrim tone plus the shell shadow; glass is the toast card and ' +
+    'PointerPopover material="glass" (surface-glass in the kit) and nothing else blurs or borrows it',
   'shadow-in-flow':
     'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
     '.control-edge; all other in-flow chrome takes a hairline',

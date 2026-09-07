@@ -5,6 +5,8 @@ import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSess
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { ConversationPeekPopover } from './ConversationPeekPopover'
+import { peekStatusOf, rowConversationPeekIdentity } from './conversationPeekRow'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
@@ -2194,6 +2196,78 @@ export default function WorkspaceSidebar({
       </span>
     )
 
+    // The row's conversation peek (2026-09-07). The row says what the chat is
+    // CALLED; the card says what was actually asked — the message that started
+    // it, everything sent since, and the model and session behind it. Null when
+    // the row holds no agent session: there is nothing to read, and a card that
+    // only restated the row's own title is exactly the noise this replaced.
+    const peekIdentity = rowConversationPeekIdentity({
+      workspace,
+      sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
+      status: peekStatusOf(activity, idleRecencyText),
+    })
+    // The whole row is the peek's hover target (owner ruling 2026-09-07), which
+    // costs the title its own tooltip. `TruncatedText` opens one the moment a
+    // title is clipped, and with the card opening from the same row that would
+    // be a second surface over the first — saying the same name the card's
+    // header is already saying in full. So where there IS a peek the title
+    // truncates plainly and the card carries the name.
+    //
+    // Only where there is one. A row with no agent session opens no card, and
+    // dropping the tooltip there too would leave a long chat name with no way
+    // to be read at all — so that row keeps `TruncatedText` exactly as it was.
+    // `TruncatedText` itself is untouched; this is only how the row uses it.
+    const titleClusterClass = `flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`
+    const titleClass = `min-w-0 flex-1 ${
+      // Weight ONLY. "Hot" used to claim `--text-strong` as well, and
+      // the ink lift is selection's channel, not residency's — a
+      // resident row that was not the selected one read at exactly the
+      // selected row's ink while ALSO being bold, so it out-shouted the
+      // chat the user was actually in. Residency keeps the weight,
+      // which is a channel selection never uses; the ink lift belongs
+      // to the one selected row (design-system/patterns/selection.html).
+      // This is also what kept the mark honest on an attention row,
+      // where text-strong cancelled the warn ink the row was wearing.
+      resident ? 'font-semibold' : ''
+    } ${
+      // Muted ink for a row at rest; selection's ink lift still wins
+      // when it is the row you are in.
+      options?.settled && !active ? 'text-[color:var(--text-muted)]' : ''
+    }`
+    const titleClusterContent = (
+      <>
+        {options?.remoteMachine ? <RemoteRowGlyph machineName={options.remoteMachine} /> : null}
+        {starred ? (
+          <StarGlyph
+            filled
+            className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+            label="Starred"
+          />
+        ) : null}
+        {workspace.mode === 'sprintengine' ? (
+          <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
+        ) : null}
+        {peekIdentity ? (
+          <span className={`${titleClass} truncate`}>{workspace.name}</span>
+        ) : (
+          <TruncatedText as="span" text={workspace.name} className={titleClass} />
+        )}
+        {resident ? <span className="sr-only"> (agents resident)</span> : null}
+        {/* The gold surface is the visible mark; this is the same meaning
+            in words, since no state may be carried by colour alone. */}
+        {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
+        {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
+        {options?.settled ? <span className="sr-only"> (settled)</span> : null}
+      </>
+    )
+    const titleCluster = peekIdentity ? (
+      <ConversationPeekPopover identity={peekIdentity} now={now} className={titleClusterClass}>
+        {titleClusterContent}
+      </ConversationPeekPopover>
+    ) : (
+      <span className={titleClusterClass}>{titleClusterContent}</span>
+    )
+
     return (
       <div
         key={rowKey}
@@ -2296,47 +2370,7 @@ export default function WorkspaceSidebar({
             className={`min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0 text-heading text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           />
         ) : (
-          <span
-            className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
-          >
-            {options?.remoteMachine ? <RemoteRowGlyph machineName={options.remoteMachine} /> : null}
-            {starred ? (
-              <StarGlyph
-                filled
-                className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                label="Starred"
-              />
-            ) : null}
-            {workspace.mode === 'sprintengine' ? (
-              <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
-            ) : null}
-            <TruncatedText
-              as="span"
-              text={workspace.name}
-              className={`min-w-0 flex-1 ${
-                // Weight ONLY. "Hot" used to claim `--text-strong` as well, and
-                // the ink lift is selection's channel, not residency's — a
-                // resident row that was not the selected one read at exactly the
-                // selected row's ink while ALSO being bold, so it out-shouted the
-                // chat the user was actually in. Residency keeps the weight,
-                // which is a channel selection never uses; the ink lift belongs
-                // to the one selected row (design-system/patterns/selection.html).
-                // This is also what kept the mark honest on an attention row,
-                // where text-strong cancelled the warn ink the row was wearing.
-                resident ? 'font-semibold' : ''
-              } ${
-                // Muted ink for a row at rest; selection's ink lift still wins
-                // when it is the row you are in.
-                options?.settled && !active ? 'text-[color:var(--text-muted)]' : ''
-              }`}
-            />
-            {resident ? <span className="sr-only"> (agents resident)</span> : null}
-            {/* The gold surface is the visible mark; this is the same meaning
-                in words, since no state may be carried by colour alone. */}
-            {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
-            {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
-            {options?.settled ? <span className="sr-only"> (settled)</span> : null}
-          </span>
+          titleCluster
         )}
 
         {folderMissing ? (

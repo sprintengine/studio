@@ -92,6 +92,7 @@ import { getGitBranches } from './git-read-models'
 import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
+import { createConversationPeek } from './conversation-peek/io'
 import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
@@ -1044,6 +1045,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   tailnetToolsFrontDoor = automationService
+  // The conversation peek (hover a chat row or an agent tab): reads the CLI's
+  // own transcript, or the prompts the runtime reported since launch, for the
+  // session the card is anchored to. Built here rather than inside the runtime
+  // so its assembly rules stay Electron-free and testable.
+  const conversationPeek = createConversationPeek(terminalRuntime.readConversationPeekSessionState)
+
   // The change feed (2026-09-05): paired devices used to poll terminal.list
   // and workspace.list every thirty seconds; now the runtime's own coalesced
   // sessions beat, and the registry's accepted events, become one small push
@@ -1132,6 +1139,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintPowerManager,
     sprintPullRequestMergePoller,
     sprintRuntime,
+    conversationPeek,
     terminalRuntime,
     updateService,
     withIpcDiagnostics,

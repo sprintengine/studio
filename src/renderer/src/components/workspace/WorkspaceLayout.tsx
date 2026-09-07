@@ -48,8 +48,8 @@ import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
-import { AgentTabIdentityPopover, type AgentTabCheckout, type AgentTabIdentity } from './AgentTabIdentityPopover'
-import { agentCheckoutOf } from './agentCheckout'
+import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
@@ -1403,20 +1403,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
 
       // Everything needed to identify this agent, surfaced in the hover/focus
       // popout wrapping the tab content. Role glyph stays the at-rest signal;
-      // the popout carries the exact model, runtime, and session id.
-      const prettyRole = (role: string): string =>
-        role
-          .split(/[-_\s]+/u)
-          .filter(Boolean)
-          .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-          .join(' ')
-      // An agent with neither a specialist nor a sprint role has no role at all,
-      // and the card's own Model and Runtime rows already name what it runs.
-      const roleLabel = specialist
-        ? `${specialist.shortLabel} specialist`
-        : sprintEngineRole
-          ? `${prettyRole(sprintEngineRole)} · sprint`
-          : 'No role'
+      // the popout carries the exact model, the session id, and the
+      // conversation itself.
+      //
+      // No role line any more (2026-09-07): it read "No role" for almost every
+      // agent, and the role glyph the tab already wears says it for the ones it
+      // did not. No runtime line either — it repeated the mark on the tab — and
+      // no checkout line, which repeated the branch on the topbar.
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
@@ -1444,22 +1437,22 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               : { tone: 'neutral', pulse: false, label: 'Idle' }
       const agentIdentity: AgentTabIdentity = {
         name: agent?.name ?? node.getName(),
-        roleLabel,
         model: agent?.cliModel ?? null,
         cli: agent?.cli ?? null,
-        cliLabel: agent?.cli ? labelForCliRuntime(agent.cli) : null,
         sessionId: agentSessionId ?? null,
         taskId: currentTaskId ?? null,
-        checkout: agentCheckout,
         status: identityStatus,
-        lastMessage: tabPrompt ?? null,
+        // A tab IS one agent, so there is no other agent for its card to be
+        // quietly standing in for. Only a sidebar row, which is a whole chat,
+        // has to say which of several it is showing.
+        agentScope: null,
       }
 
-      // The identity card carries the last message itself, so the agent tab
-      // takes the bare name — wrapping `tabContent` here would open the peek
-      // popover UNDER this card and leave two hover surfaces fighting over the
-      // same pointer. Plain terminal tabs, which have no identity card, keep
-      // the peek as their only reveal.
+      // The identity card IS the conversation peek, so the agent tab takes the
+      // bare name — wrapping `tabContent` in TabPromptPeek here would open a
+      // second hover surface UNDER this card and leave the two fighting over
+      // the same pointer. Plain terminal tabs, which have no identity card,
+      // keep that peek as their only reveal.
       renderValues.content = (
         <AgentTabIdentityPopover identity={agentIdentity}>
           {tabNameSpan}
