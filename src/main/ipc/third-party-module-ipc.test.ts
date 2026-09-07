@@ -31,6 +31,7 @@ function testLaunchReadinessClasses(): void {
       status: 'trusted_executable',
       hasMainEntry: true,
       expectedToLoad: true,
+      rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is eligible for startup execution.',
     }
   )
@@ -40,6 +41,7 @@ function testLaunchReadinessClasses(): void {
       status: 'trusted_manifest_only',
       hasMainEntry: false,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Trusted manifest-only module; no main entry will run.',
     }
   )
@@ -49,6 +51,7 @@ function testLaunchReadinessClasses(): void {
       status: 'blocked_unsigned',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Unsigned module is waiting for trust before startup execution.',
     }
   )
@@ -58,6 +61,7 @@ function testLaunchReadinessClasses(): void {
       status: 'blocked_signed',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Signed module is waiting for trust before startup execution.',
     }
   )
@@ -67,6 +71,7 @@ function testLaunchReadinessClasses(): void {
       status: 'blocked_invalid',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Invalid signature blocks startup execution.',
     }
   )
@@ -76,6 +81,7 @@ function testLaunchReadinessClasses(): void {
       status: 'launch_error',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'entry.main must export a callable registerMain(host).',
     }
   )
@@ -98,6 +104,7 @@ function testExpectedToLoadUsesEnablementOverrides(): void {
       status: 'trusted_executable',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is disabled by user setting until enabled.',
     }
   )
@@ -111,6 +118,7 @@ function testExpectedToLoadUsesEnablementOverrides(): void {
       status: 'trusted_executable',
       hasMainEntry: true,
       expectedToLoad: true,
+      rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is eligible for startup execution.',
     }
   )
@@ -129,6 +137,7 @@ function testCurrentBlockedStateWinsOverStaleLaunchError(): void {
       status: 'blocked_unsigned',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Unsigned module is waiting for trust before startup execution.',
     }
   )
@@ -149,6 +158,7 @@ function testLaunchErrorsAreSanitized(): void {
       status: 'launch_error',
       hasMainEntry: true,
       expectedToLoad: false,
+      rendererEntry: { availability: 'none' },
       message: 'Module main entry failed during startup.',
     }
   )

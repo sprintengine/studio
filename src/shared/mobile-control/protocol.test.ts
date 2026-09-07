@@ -380,11 +380,20 @@ assertInvalid(
     ],
   }),
 );
+// The advertised command list is part of a device's capabilities, not of a
+// snapshot — a snapshot carrying a stray `commands` key is simply a snapshot
+// with an unknown field, which the validator ignores. What must fail closed is
+// a device advertising a command this protocol version does not define.
 assertInvalid(
-  "invalid snapshot command",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
+  "invalid advertised command",
+  validateMobileControlCapabilities({
+    protocolVersion: mobileControlProtocolVersion,
+    deviceId: "device_1",
     commands: ["artifact.approve", "terminal.write"],
+    capabilities: ["snapshots.read"],
+    artifactPreviewModes: ["text"],
+    maxFollowUpCharacters: 1000,
+    snapshotTtlMs: 15000,
   }),
 );
 assertInvalid(

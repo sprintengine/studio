@@ -231,7 +231,12 @@ async function testProviderList(): Promise<void> {
             workspaceId: { type: 'string', minLength: 1 },
             cli: { type: 'string', minLength: 1 },
             cliModel: { type: 'string', minLength: 1 },
-            permissionPreset: { type: 'string', enum: ['default', 'auto', 'bypass'] },
+            // Canonical presets first, then the pre-MC-2210 spellings the schema
+            // still accepts so a definition saved before the rename validates.
+            permissionPreset: {
+              type: 'string',
+              enum: ['none', 'manual', 'auto', 'bypass', 'default', 'auto_workspace', 'bypass_all'],
+            },
             specialistId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },
