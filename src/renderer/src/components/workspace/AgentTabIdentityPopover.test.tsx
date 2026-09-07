@@ -2,144 +2,116 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { AgentTabIdentityCard, type AgentTabIdentity } from './AgentTabIdentityPopover'
+import { ConversationPeekCard } from './ConversationPeekCard'
+import type { AgentTabIdentity } from './AgentTabIdentityPopover'
+import type { ConversationPeek } from '../../../../shared/conversation-peek'
 
-// QA for the agent-tab identity card content. The card is the presentational
-// half of the hover popout (the portal/hover half can't be server-rendered), so
-// this exercises the field logic that matters: model vs CLI-default fallback,
-// role line, runtime/task rows, and the copyable session id.
+// QA for what an agent TAB's hover card now is. The card itself is
+// `ConversationPeekCard` (its own suite covers the message half); this one holds
+// the tab-specific ruling of 2026-09-07: the identity card stopped being six
+// definition rows and became the conversation, and the four rows that were
+// repeating the window are gone for good.
+//
+// The portal/hover half cannot be server-rendered, so this exercises the card
+// with a tab-shaped identity — which is exactly what the popover hands it.
+const consoleError = console.error
+console.error = (...args: unknown[]) => {
+  if (typeof args[0] === 'string' && args[0].includes('useLayoutEffect does nothing on the server')) return
+  consoleError(...args)
+}
 
-function card(identity: AgentTabIdentity, copied = false): string {
+let failures = 0
+function run(name: string, fn: () => void): void {
+  try {
+    fn()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    failures += 1
+    console.error(`not ok - ${name}`)
+    console.error(error)
+  }
+}
+
+const NOW = 1_800_000_000_000
+
+const TAB: AgentTabIdentity = {
+  name: 'planner-agent',
+  model: 'claude-opus-4-8',
+  cli: 'claude-code',
+  sessionId: 'a21ac8e7-548f-6f89',
+  taskId: null,
+  status: { tone: 'good', pulse: true, label: 'Working' },
+  agentScope: null,
+}
+
+const PEEK: ConversationPeek = {
+  sessionId: TAB.sessionId ?? 's',
+  source: 'transcript',
+  first: {
+    id: 'm1',
+    text: 'Freeze the title after the first prompt and put the rest on the hover.',
+    at: NOW - 3 * 3_600_000,
+    attachments: [],
+    truncatedChars: 0,
+  },
+  since: [
+    {
+      id: 'm2',
+      text: 'Drop the role row from the tab card while you are in there',
+      at: NOW - 32 * 60_000,
+      attachments: [],
+      truncatedChars: 0,
+    },
+  ],
+  totalMessages: 2,
+}
+
+function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {
   return renderToStaticMarkup(
-    <AgentTabIdentityCard identity={identity} copied={copied} onCopy={() => {}} />,
+    <ConversationPeekCard
+      identity={identity}
+      peek={peek}
+      loading={false}
+      now={NOW}
+      copied={false}
+      onCopySession={() => {}}
+      onOpenAttachment={() => {}}
+    />,
   )
 }
 
-const ROLELESS: AgentTabIdentity = {
-  name: 'planner-agent',
-  roleLabel: 'No role',
-  model: 'claude-opus-4-8',
-  cli: 'claude-code',
-  cliLabel: 'Claude Code',
-  sessionId: 'a21ac8e7-548f-6f89',
-  taskId: null,
-  checkout: null,
-  status: { tone: 'good', pulse: true, label: 'Working' },
-  lastMessage: null,
-}
-
-// --- Roleless agent: model + runtime + session, no task --------------------
-const roleless = card(ROLELESS)
-assert.match(roleless, /planner-agent/, 'shows the agent name')
-assert.match(roleless, /No role/, 'an agent with no role says so, and is never called a General agent')
-assert.equal(/General agent/.test(roleless), false, '"General agent" is not a thing the app says')
-assert.match(roleless, /claude-opus-4-8/, 'shows the exact model as text')
-assert.match(roleless, /Claude Code/, 'shows the friendly runtime label')
-assert.match(roleless, /a21ac8e7-548f-6f89/, 'shows the session id')
-assert.match(roleless, /aria-label="Copy session id"/i, 'exposes a copy affordance for the session id')
-assert.match(roleless, /Working/, 'shows the status label')
-assert.equal(/>Task</.test(roleless), false, 'roleless agent shows no Task row')
-
-// --- Model unset reads "CLI default", never blank --------------------------
-const noModel = card({ ...ROLELESS, model: null })
-assert.match(noModel, /CLI default/, 'null model falls back to "CLI default"')
-assert.equal(/claude-opus-4-8/.test(noModel), false, 'no stale model string when unset')
-
-// --- Sprint agent: role + task ---------------------------------------------
-const sprint = card({
-  ...ROLELESS,
-  name: 'nuclear-reviewer',
-  roleLabel: 'Nuclear · sprint',
-  model: 'claude-sonnet-4-6',
-  taskId: 'MC-1444',
-  status: { tone: 'warn', pulse: false, label: 'Blocked — needs input' },
+run('the tab card keeps the two facts that earned their place', () => {
+  const markup = tabCard()
+  assert.match(markup, /planner-agent/, 'names the agent')
+  assert.match(markup, /claude-opus-4-8/, 'shows the exact model')
+  assert.match(markup, /a21ac8e7…6f89/, 'shows the session id, elided in the middle')
+  assert.match(markup, /aria-label="Copy session id"/, 'and the session keeps its copy button')
+  assert.match(markup, /Working/, 'shows the status label')
 })
-assert.match(sprint, /Nuclear · sprint/, 'shows the sprint role line')
-assert.match(sprint, /MC-1444/, 'shows the claimed task id')
-assert.match(sprint, /Blocked — needs input/, 'shows the blocked status label')
 
-// --- Checkout: main checkout vs a named worktree branch --------------------
-assert.match(roleless, /Checkout/, 'always shows a Checkout row')
-assert.match(roleless, /Main checkout/, 'a main-checkout agent says so plainly')
-
-const onWorktree = card({
-  ...ROLELESS,
-  checkout: { kind: 'worktree', branch: 'feat/tab-identity', cwd: '/tmp/wt/feat-tab-identity', observed: false },
+run('Role, Runtime and Checkout are gone, and so is the label column that held them up', () => {
+  const markup = tabCard()
+  for (const gone of ['No role', 'General agent', 'Claude Code', 'Main checkout']) {
+    assert.equal(markup.includes(gone), false, `"${gone}" is not a thing the tab card says any more`)
+  }
+  assert.equal(/<dl[\s>]/.test(markup), false, 'no definition list — the label column went with the rows')
 })
-assert.match(onWorktree, /feat\/tab-identity/, 'a worktree agent shows its branch')
-assert.equal(/Main checkout/.test(onWorktree), false, 'worktree agent is not labelled main checkout')
-assert.match(onWorktree, /title="\/tmp\/wt\/feat-tab-identity"/, 'worktree cwd is available on hover')
 
-// Observed checkouts (MC-2440): what the agent's own hooks report, resolved
-// through git — so an agent that created a worktree mid-run, went back to the
-// primary checkout, or wandered into a plain folder is described truthfully.
-const observedWorktree = card({
-  ...ROLELESS,
-  checkout: { kind: 'worktree', branch: 'agent/feature', cwd: '/repo/.claude/worktrees/feature', observed: true },
+run('the space they freed is the conversation', () => {
+  const markup = tabCard()
+  assert.match(markup, /Freeze the title after the first prompt/, 'the message that started the work')
+  assert.match(markup, /Drop the role row from the tab card/, 'and everything sent since')
 })
-assert.match(observedWorktree, /agent\/feature/, 'an observed worktree shows its branch')
-assert.match(observedWorktree, /title="\/repo\/.claude\/worktrees\/feature"/, 'the observed worktree root is on hover')
 
-const observedMain = card({
-  ...ROLELESS,
-  checkout: { kind: 'main', branch: 'main', cwd: '/repo', observed: true },
+run('a sprint agent still names the task it is claimed on', () => {
+  const markup = tabCard({ ...TAB, taskId: 'MC-1444' })
+  assert.match(markup, /MC-1444/, 'the task id survived the cull')
 })
-assert.match(observedMain, /Main checkout/, 'an observed primary checkout still says main checkout')
-assert.match(observedMain, /<span[^>]*>main<\/span>/, 'and names the branch the hooks saw')
-assert.match(observedMain, /title="\/repo"/, 'the primary checkout root is on hover')
 
-const detachedMain = card({ ...ROLELESS, checkout: { kind: 'main', branch: null, cwd: '/repo', observed: true } })
-assert.match(detachedMain, /Main checkout/)
-assert.equal(/>main<\/span>/.test(detachedMain), false, 'a detached HEAD shows no branch token')
-
-const removed = card({ ...ROLELESS, checkout: { kind: 'missing', cwd: '/repo/.claude/worktrees/gone', observed: true } })
-assert.match(removed, /Removed/, 'a vanished directory says so')
-assert.match(removed, /worktrees\/gone/, 'and names it')
-assert.equal(/Main checkout/.test(removed), false)
-
-const unverified = card({ ...ROLELESS, checkout: { kind: 'unverified', cwd: '/home/me/proj', observed: true } })
-assert.match(unverified, /Unverified/, 'a cwd git could not answer for is neither main nor a folder')
-assert.match(unverified, /\/home\/me\/proj/, 'but where it is, is shown')
-assert.equal(/Main checkout/.test(unverified), false, 'never claims main for an unverifiable cwd')
-
-const onFolder = card({ ...ROLELESS, checkout: { kind: 'folder', cwd: '/Users/me/scratch', observed: true } })
-assert.match(onFolder, /Folder/, 'a cwd outside any repository is a folder, not a checkout')
-assert.match(onFolder, /\/Users\/me\/scratch/, 'and shows where')
-assert.equal(/Main checkout/.test(onFolder), false, 'a folder is never called the main checkout')
-
-// --- Last message: on THIS card, never a second hover surface --------------
-// An agent tab used to open the identity card and a prompt-peek popover at the
-// same time, one over the other. The message is a row here now; the row clamps
-// and carries the full text in its own tooltip, because a prompt has no length
-// limit and a card that grew with it would cover the work it describes.
-const withMessage = card({
-  ...ROLELESS,
-  lastMessage: { text: 'Rewrite the door bar so it lifts into the app strip', at: Date.now() - 60_000 },
+run('an agent with no session yet still gets a card, and asks for no copy button', () => {
+  const markup = tabCard({ ...TAB, sessionId: null }, null)
+  assert.match(markup, /planner-agent/, 'the tab is still identified')
+  assert.equal(markup.includes('Copy session id'), false, 'nothing to copy, so no button')
 })
-assert.match(withMessage, /Last message/, 'the card carries a Last message row')
-assert.match(withMessage, /Rewrite the door bar/, 'and the message itself')
-assert.match(withMessage, /line-clamp-2/, 'clamped, so a long prompt cannot grow the card without bound')
-assert.equal(
-  /Last message/.test(roleless),
-  false,
-  'a tab with no captured prompt shows no empty row',
-)
 
-// --- Paused agent: status reads "Paused", never "Idle" ---------------------
-const paused = card({
-  ...ROLELESS,
-  status: { tone: 'neutral', pulse: false, label: 'Paused · 13m' },
-})
-assert.match(paused, /Paused · 13m/, 'a suspended agent reads Paused with elapsed time')
-assert.equal(/>Idle</.test(paused), false, 'paused agent never shows an Idle status')
-
-// --- Never-started agent: no session row, no copy button -------------------
-const noSession = card({ ...ROLELESS, sessionId: null })
-assert.equal(/Copy session id/i.test(noSession), false, 'no copy button without a session id')
-assert.equal(/>Session</.test(noSession), false, 'no Session row without a session id')
-
-// --- Copied flash flips the copy button's accessible name ------------------
-const copiedMarkup = card(ROLELESS, true)
-assert.match(copiedMarkup, /aria-label="Session id copied"/i, 'copied state announces success')
-
-console.log('AgentTabIdentityPopover.test.tsx: all assertions passed')
+process.exit(failures === 0 ? 0 : 1)

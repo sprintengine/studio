@@ -56,6 +56,20 @@ type TooltipProps = {
    * break the owned-element relationship.
    */
   wrapperRole?: React.AriaRole
+  /**
+   * Which layer the surface sits on. `popover` (the default, `z.popover`) is
+   * right for a trigger in the page.
+   *
+   * `menu` is for a trigger that lives INSIDE a menu-tier surface — a
+   * `PointerPopover`, a `ContextMenu`. Those sit at `z.menu`, one above the
+   * default, so a tooltip opened from inside one painted UNDERNEATH it: the
+   * moment the surface flipped the tooltip onto itself, the description became
+   * a smear behind the glass. A tooltip must be able to sit above the surface
+   * that owns it, so it joins that surface's tier; being portaled later it
+   * paints above its owner at the same z, and it still cannot cover a
+   * context menu summoned afterwards.
+   */
+  layer?: 'popover' | 'menu'
 }
 
 // Gap between the trigger and the tooltip, and the minimum margin the tooltip
@@ -135,6 +149,7 @@ export function Tooltip({
   className,
   wrapperClassName,
   wrapperRole,
+  layer = 'popover',
 }: TooltipProps) {
   const id = useId()
   const [open, setOpen] = useState(false)
@@ -266,7 +281,8 @@ export function Tooltip({
               className={[
                 // No entrance animation (tooltip spec → States): the surface
                 // is neither alive nor arriving, it is the label made visible.
-                'pointer-events-none z-[var(--z-popover)]',
+                'pointer-events-none',
+                layer === 'menu' ? 'z-[var(--z-menu)]' : 'z-[var(--z-popover)]',
                 multiline
                   ? 'max-w-[420px] whitespace-pre-wrap break-words'
                   : 'whitespace-nowrap',

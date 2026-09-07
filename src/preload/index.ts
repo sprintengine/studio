@@ -14,6 +14,7 @@ import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
+import { conversationPeekApi } from './api/conversation-peek'
 import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
@@ -82,6 +83,7 @@ const api = {
   ...modulesApi,
   ...pluginsApi,
   ...conversationApi,
+  ...conversationPeekApi,
   ...credentialApi,
   ...designSystemApi,
   ...skillsApi,

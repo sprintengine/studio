@@ -55,6 +55,16 @@ their own floor.
   the anchor and the layer differ. In the shipped kit this is `PointerPopover`
   (rich coordinate-anchored content) and the surface `ContextMenu` shares.
 
+- **Material** — `raised` (default) or `glass`. Raised is the ordinary
+  surface. Glass is `bg.surface-raised` at `glass.opacity` over a
+  `backdrop-filter` of `glass.blur` and `glass.saturation`, and it is opt-in
+  per surface, never the family default: it exists for a card drawn
+  deliberately over live app content that the reader should still see (the
+  conversation peek over a running terminal). Elevation and radius do not
+  change with it — the popover family keeps `shadow.popover` and
+  `radius.overlay` in both materials. See the toast spec for the blur ruling
+  this opts into; nothing outside the kit may borrow the utility.
+
 There is no arrow variant. A caret pointing at the trigger is decoration the
 4px gap already does the work of, and it forces the surface to track the
 trigger horizontally instead of clamping freely.

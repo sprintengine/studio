@@ -86,6 +86,22 @@ export type TerminalSession = {
   // I working on here?") and names a new chat after its first real prompt.
   // Absent for plain terminals, for hookless CLIs, and until the first prompt.
   lastPrompt?: SessionPrompt
+  // Every prompt this session has been sent since it launched, oldest first and
+  // bounded (see rememberSessionPrompt). This is the conversation peek's LIVE
+  // fallback: Codex, Grok and Kimi Code report `UserPromptSubmit` but hand us no
+  // transcript, so without this the card for one of them could only ever show
+  // the single most recent thing said.
+  //
+  // In memory only, and deliberately so. It is never written to the snapshot,
+  // never to the sidecar, never to the workspace registry: the app that does not
+  // write a person's prompts down cannot leak them, and the transcript route
+  // already covers "what did I say yesterday" for the runtimes that keep one.
+  peekPrompts?: SessionPrompt[]
+  // The CLI's own transcript, as its turn-end hook last reported it. Retained so
+  // the conversation peek can read the whole history on a hover instead of only
+  // what this app happened to watch go by. UNTRUSTED — a path chosen by the hook
+  // reporter — so containment belongs to the reader (conversation-peek/transcript.ts).
+  transcriptPath?: string
   // When the agent's last turn ended (hook-reported Stop). Stamped in
   // ingestAgentStateFrame, carried across resume and through the snapshot
   // sidecar; never overwritten by suspend/exit. See the snapshot field.

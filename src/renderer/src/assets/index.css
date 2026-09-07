@@ -79,12 +79,14 @@
   outline-offset: calc(-1 * var(--focus-ring-offset));
 }
 
-/* The one glass surface: the toast card (owner ruling 2026-09-04). `bg.surface-raised` at `glass.opacity` over a
- * blur-and-saturate of whatever is behind — a corner-sized area, which is why
- * this is allowed where a scrim's full-viewport blur is not (see the
- * `backdrop-filter` rule in scripts/lint-design-system-conformance.mjs: this
- * utility, and Toast.tsx consuming it, are the only sanctioned sites). Where
- * backdrop-filter is unsupported the card is solid bg.surface-raised. */
+/* Glass: `bg.surface-raised` at `glass.opacity` over a blur-and-saturate of
+ * whatever is behind — a corner-sized area, which is why this is allowed where
+ * a scrim's full-viewport blur is not (see the `backdrop-filter` rule in
+ * scripts/lint-design-system-conformance.mjs). Two kit shells consume it and
+ * nothing else may: the toast card (owner ruling 2026-09-04) and `PointerPopover`'s opt-in `material="glass"`, which the
+ * conversation peek asks for because it is drawn across a running terminal
+ * rather than out of a control. Where backdrop-filter is unsupported both fall
+ * back to a solid bg.surface-raised. */
 @utility surface-glass {
   background: color-mix(in srgb, var(--bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
   -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
@@ -1663,6 +1665,49 @@ samp,
   }
 }
 
+/* Slider — the geometry half of `ui/Slider.tsx`
+ * (design-system/components/slider). Only what a class list cannot state lives
+ * here: the calc()s that spend the control's one 0-1 coordinate, and the travel
+ * they animate at. Fill, hairline, radius, height and inset stay utilities on
+ * the element, exactly as the switch's do.
+ *
+ * The root insets 8px on both sides -- half the 16px thumb -- so the track ends
+ * where the thumb's CENTRE can reach. That is what puts the fill's width, every
+ * tick's offset, and the thumb's own position in one coordinate space: a track
+ * drawn edge to edge leaves the first and last ticks somewhere the thumb never
+ * arrives. Thumb offsets are absolute, not deltas: 0 at the leading stop and
+ * width - 16 at the far one. */
+.slider-fill {
+  width: calc(var(--slider-position) * 100%);
+  transition: width var(--motion-normal) var(--motion-ease);
+}
+
+.slider-tick {
+  left: calc(var(--slider-tick) * 100%);
+  width: 3px;
+  height: 3px;
+  translate: -50% -50%;
+}
+
+.slider-thumb {
+  left: calc(var(--slider-position) * (100% - 16px));
+  width: 16px;
+  height: 16px;
+  translate: 0 -50%;
+  transition: left var(--motion-normal) var(--motion-ease);
+}
+
+/* At the leading stop nothing is filled, so the thumb is resting on the neutral
+ * track and takes a neutral ink instead. Pinned to --text-on-accent it
+ * disappears there: dark ink on a dark groove in dark mode, which is the state
+ * the control is in the first time it is ever shown. --text-muted rather than
+ * the switch's full-strength off-thumb ink: the leading stop is the ramp at
+ * rest, and --text-strong made the quietest state on the control the loudest
+ * mark on it. */
+[data-slider="true"][data-at-start] .slider-thumb {
+  background: var(--text-muted);
+}
+
 @keyframes chip-enter {
   from {
     opacity: 0;
@@ -1696,6 +1741,93 @@ samp,
 
 @media (prefers-reduced-motion: reduce) {
   .suspense-fallback {
+    animation: none;
+  }
+}
+
+/* The conversation peek's entrance — the geometry half of
+ * `components/workspace/ConversationPeekCard.tsx` and the popover that carries
+ * it (design: backlog/mockups/2026-09-07-conversation-peek.html, frame 5).
+ *
+ * Only what a class list cannot state lives here: a two-part staggered
+ * entrance. The SURFACE rises out of the row it came from — 8px toward the
+ * anchor, landing at full size — and the LINES follow it in one beat apart,
+ * which is what makes a thread read as arriving rather than as a block
+ * appearing. The dwell before any of it is the hover-intent timer in
+ * `useConversationPeek`, not a delay here: the surface does not exist until the
+ * dwell has passed, so a sweep down the sidebar fires nothing.
+ *
+ * Leaving is immediate and has no counterpart below — a card that trailed the
+ * pointer out is the failure this whole surface is trying not to be.
+ *
+ * Every duration is a token. The stagger step is derived from `--motion-fast`
+ * rather than spelled in milliseconds, so the rhythm follows the motion scale
+ * if the scale ever moves. */
+@keyframes conversation-peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes conversation-peek-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.conversation-peek-surface {
+  transform-origin: left center;
+  animation: conversation-peek-in var(--motion-normal) var(--motion-ease) both;
+}
+
+.conversation-peek-line {
+  animation: conversation-peek-line-in var(--motion-fast) var(--motion-ease) var(--peek-line-delay, 0ms) both;
+}
+
+/* The quoted first message leads; each thread row is one step behind the one
+ * above it. Past the fourth the list is scrolling anyway, so the rows that
+ * arrive off-screen share the last delay rather than growing the tail. */
+.conversation-peek-line {
+  --peek-line-delay: calc(var(--motion-fast) / 2);
+}
+
+.conversation-peek-thread > .conversation-peek-line:nth-child(1) {
+  --peek-line-delay: calc(var(--motion-fast) * 3 / 4);
+}
+
+.conversation-peek-thread > .conversation-peek-line:nth-child(2) {
+  --peek-line-delay: var(--motion-fast);
+}
+
+.conversation-peek-thread > .conversation-peek-line:nth-child(3) {
+  --peek-line-delay: calc(var(--motion-fast) * 5 / 4);
+}
+
+.conversation-peek-thread > .conversation-peek-line:nth-child(n + 4) {
+  --peek-line-delay: calc(var(--motion-fast) * 3 / 2);
+}
+
+/* A thread taller than its scroll box fades at the top edge, so it is obvious
+ * there is more above. A mask, not a gradient overlay: the surface behind the
+ * list is glass, and a painted fade would have to know what it is sitting on. */
+.conversation-peek-thread--faded {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--sem-space-xl));
+  mask-image: linear-gradient(to bottom, transparent 0, black var(--sem-space-xl));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-peek-surface,
+  .conversation-peek-line {
     animation: none;
   }
 }
@@ -2150,7 +2282,9 @@ samp,
   /* The press scale was already guarded; the hover crossfade was not, so
    * every `.interactive` surface still animated its colours under reduce. */
   .interactive,
-  .switch-thumb {
+  .switch-thumb,
+  .slider-fill,
+  .slider-thumb {
     transition: none;
   }
   .interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {

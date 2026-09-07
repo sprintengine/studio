@@ -29,12 +29,21 @@ The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glas
 `shadow.popover` drawing the edge over whatever shows through. Where
 `backdrop-filter` is unsupported the card is solid `bg.surface-raised`.
 
-This is the one surface in the system allowed to blur. The blur ban
-(`principles.md`, the modal and drawer specs) exists because a full-viewport
-scrim re-samples every terminal pane under it every frame; a toast's area is
-a corner, a fraction of that cost. The conformance lint pins the glass to
-this component — any other surface that blurs, or borrows the toast's
-utility, is a violation.
+The blur ban (`principles.md`, the modal and drawer specs) exists because a
+full-viewport scrim re-samples every terminal pane under it every frame; a
+toast's area is a corner, a fraction of that cost.
+
+**Amended 2026-09-07 (owner ruling): two surfaces blur, not one.** The
+conversation peek — the hover card that shows what a chat was asked, drawn
+deliberately over a running terminal — is the second, through
+`PointerPopover`'s opt-in `material="glass"`. It is a larger area than a
+toast and this is not pretended otherwise: the ruling accepts that cost for a
+surface whose whole point is to sit *over* the app it is describing, while
+the area argument still holds against the thing it was written for, a
+full-viewport scrim. The conformance lint pins the glass utility to those two
+**kit shells** (`Toast.tsx`, `PointerPopover.tsx`); a product file that
+blurs, or borrows the utility directly, is still a violation — a surface that
+wants glass asks the shell for it.
 
 The tone is carried by the dot's shape-plus-color and by the words — never by
 tinting the surface. A toast that survives greyscale is the test.

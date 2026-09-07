@@ -1,4 +1,5 @@
 import type { IpcMain } from 'electron'
+import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import type { AppServices } from './app-services'
 
@@ -16,4 +17,8 @@ export function registerWorkflowIpc(ipcMain: IpcMain, services: AppServices): vo
       services.conversationRuntime.setIdleThresholdMs(value)
     },
   })
+
+  // The conversation peek reads a terminal session, so it registers alongside
+  // the runtime that owns one rather than with the core surfaces.
+  registerConversationPeekIpc(ipcMain, services.conversationPeek)
 }

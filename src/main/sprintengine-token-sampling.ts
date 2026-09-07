@@ -19,16 +19,23 @@ import {
 // manifest declares the Claude harness (same rule the agent-state reporter
 // install uses in terminal-runtime.ts), so future Anthropic-compatible
 // runtimes are measured without a hardcoded id list.
-export function sprintTokenUsageDeps(): TokenUsageDeps {
-  return {
-    isClaudeHarnessCli: (cli) => {
-      try {
-        return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
-      } catch {
-        return false
-      }
-    },
+//
+// Also THE answer to "does this runtime write a ~/.claude transcript at all",
+// which is why it is named and exported rather than left inline: the
+// conversation peek asks the same question before it derives a transcript path
+// for a session, and two definitions of the Claude family would drift into a
+// peek that invented a Claude-shaped path for Codex.
+export function isClaudeHarnessCli(cli: string | undefined): boolean {
+  if (!cli) return false
+  try {
+    return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
+  } catch {
+    return false
   }
+}
+
+export function sprintTokenUsageDeps(): TokenUsageDeps {
+  return { isClaudeHarnessCli }
 }
 
 type SprintSessionIdentity = {

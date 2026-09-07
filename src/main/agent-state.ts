@@ -165,6 +165,27 @@ export function holdTurnEndForBackgroundWork(
 // registered anew — e.g. Claude's PreToolUse, dropped because PostToolUse alone
 // clears awaiting_input and halves the per-tool reporter spawns (the manifest
 // $comment on the claude-code plugin carries the full rationale).
+/**
+ * The hook events on which the reporter forwards the person's prompt
+ * (`resources/hooks/multicode-agent-state.mjs`). `UserPromptSubmit` is
+ * Claude/Codex/Kimi vocabulary; Cursor spells the same moment
+ * `beforeSubmitPrompt`. Named here because the reporter's list and any reader's
+ * idea of "does this runtime report messages" have to be the same list.
+ */
+const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit', 'beforeSubmitPrompt'])
+
+/**
+ * True when this CLI's manifest declares an event that carries what the person
+ * typed. The conversation peek asks this to tell "has said nothing yet" apart
+ * from "cannot report at all" — OpenCode has an agentStateSpec and still
+ * forwards no prompt, so the presence of a spec is not the same question.
+ */
+export function agentStateSpecReportsPrompts(
+  spec: Pick<PluginAgentStateSpec, 'events'> | null | undefined
+): boolean {
+  return Boolean(spec?.events.some((entry) => PROMPT_REPORTING_EVENTS.has(entry.event)))
+}
+
 export function registeredAgentStateEvents(
   spec: Pick<PluginAgentStateSpec, 'events'>
 ): Array<{ event: string; matcher?: string }> {

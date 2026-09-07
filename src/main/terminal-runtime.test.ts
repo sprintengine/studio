@@ -703,6 +703,54 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
       'the armed wakeup must still be in the future on the turn-end event'
     )
 
+    // What the conversation peek reads off the session, left there by these same
+    // frames: the transcript the turn end named, and every prompt seen since
+    // launch. The prompt list is the peek's LIVE fallback — the only source for
+    // a runtime that reports prompts but hands us no transcript — and it exists
+    // nowhere else, because no prompt is ever written to disk.
+    runtime.ingestAgentStateFrame(frame({
+      phase: 'thinking',
+      event: 'UserPromptSubmit',
+      ts: scheduledAt + 2_000,
+      prompt: 'Check whether the prompt is persisted anywhere',
+    }))
+    runtime.ingestAgentStateFrame(frame({
+      phase: 'thinking',
+      event: 'UserPromptSubmit',
+      ts: scheduledAt + 3_000,
+      prompt: 'Use the design system for this',
+    }))
+    assert.deepEqual(
+      runtime.readConversationPeekSessionState('session-phase'),
+      {
+        transcriptPath: '/tmp/transcript.jsonl',
+        // The id the CLI reports for itself — for a Claude session it is also
+        // the name of its transcript file, which is how a parked chat recovers
+        // a history no hook has named yet.
+        cliSessionId: 'session-phase',
+        // The LAUNCH directory, not wherever the agent has since cd'd to: the
+        // folder a Claude transcript lives in is fixed when the CLI starts.
+        launchCwd: workspaceRoot,
+        // claude-code's manifest declares harnessId 'claude', so this session
+        // may have a ~/.claude transcript derived for it. Codex and Grok are
+        // false here and must never get one.
+        claudeHarness: true,
+        // Claude Code reports messages, so a chat of its that has said nothing
+        // yet must never be reported as a runtime that cannot report.
+        reportsMessages: true,
+        prompts: [
+          { text: 'Check whether the prompt is persisted anywhere', at: scheduledAt + 2_000 },
+          { text: 'Use the design system for this', at: scheduledAt + 3_000 },
+        ],
+      },
+      'the peek must see the turn end’s transcript, the launch cwd and every prompt since launch'
+    )
+    assert.equal(
+      runtime.readConversationPeekSessionState('session-nonexistent'),
+      null,
+      'a session that does not exist answers null, not an empty peek'
+    )
+
     // A stale frame (older than the recorded phase) is rejected upstream of the
     // listener, so no consumer can act on a phase the runtime itself ignored.
     const before = events.length
@@ -1856,6 +1904,31 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
   // ── "Run 2": a fresh runtime (empty terminals map = post-relaunch state). ──
   const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
   try {
+    // The conversation peek answers for a PARKED chat, before anything has
+    // rehydrated it — `terminals` is empty here, exactly as after a relaunch,
+    // and this is the case the card is most wanted for. The facts come from the
+    // sidecar: which CLI, its session id, and the directory it was launched in.
+    // No prompts: nothing writes a prompt to disk, so a parked chat answers from
+    // its transcript or not at all.
+    const parked = runtime2.readConversationPeekSessionState('session-frozen')
+    assert.deepEqual(
+      parked,
+      {
+        launchCwd: workspaceRoot,
+        claudeHarness: false,
+        // codex's manifest declares UserPromptSubmit, so the card must not say
+        // this runtime cannot report its messages.
+        reportsMessages: true,
+        prompts: [],
+      },
+      'a parked session must still answer from its snapshot sidecar'
+    )
+    assert.equal(
+      runtime2.readConversationPeekSessionState('session-never-existed'),
+      null,
+      'a session with neither a live record nor a sidecar answers null'
+    )
+
     assert.deepEqual(
       await runtime2.ipcHandlers.getTerminalStatus('session-frozen', mockSender as unknown as WebContents),
       { processAlive: false, suspended: true },
