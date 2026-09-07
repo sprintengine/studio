@@ -371,6 +371,7 @@ export function RemoteTailnetSettingsTab() {
       <section>
         <SettingsSectionTitle className="mb-1.5">Machines on your tailnet</SettingsSectionTitle>
         <PeerPicker
+          intro="Connect to another Studio."
           scan={scan}
           scanning={scanning}
           connections={presence.fleet}
