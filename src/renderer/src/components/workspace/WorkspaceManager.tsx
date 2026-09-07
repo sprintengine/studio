@@ -474,13 +474,6 @@ export default function WorkspaceManager() {
       }
     })
   }, [])
-  // Startup tidiness sweep: archive workspaces idle for 5+ days (pinned states,
-  // starred rows, and every window's active workspace never qualify). Once per
-  // window mount — the sweep is idempotent, so a second window re-running it is
-  // harmless.
-  useEffect(() => {
-    useWorkspaceStore.getState().archiveStaleWorkspaces()
-  }, [])
   // Main-owned automation mode intent (MC-1567): subscribe to authoritative
   // broadcasts and run the one-time per-run hydration sweep. Idempotent across
   // windows (main accepts the first hydration only).

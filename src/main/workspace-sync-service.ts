@@ -628,11 +628,29 @@ const EDITABLE_FIELDS = [
   'folderPath',
   'folderMissing',
   'memory',
-  'archivedAt',
+  'settledAt',
+  'settledOverride',
   'highlight',
   'worktree',
   'lastTerminalActivityAt',
+  'lastTurnEndedAt',
 ] as const
+
+// The domain of each typed editable field. A wrong-shaped value would persist
+// and broadcast to every window, and the readers of these fields are plain
+// `typeof` tests — a string clock would make the rest sweep read NaN, an
+// unknown override would park a row out of the sweep forever.
+const FIELD_VALUE_CHECKS: Partial<Record<(typeof EDITABLE_FIELDS)[number], (value: unknown) => boolean>> = {
+  settledAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
+  settledOverride: (value) => value === null || value === 'settled' || value === 'active',
+  lastTerminalActivityAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
+  lastTurnEndedAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
+}
+
+function fieldValueIsWellFormed(key: string, value: unknown): boolean {
+  const check = FIELD_VALUE_CHECKS[key as (typeof EDITABLE_FIELDS)[number]]
+  return check ? check(value) : true
+}
 
 function validateUpdateFields(payload: Record<string, unknown>): ValidationResult {
   const workspaceId = normalizeId(payload.workspaceId)
@@ -645,6 +663,9 @@ function validateUpdateFields(payload: Record<string, unknown>): ValidationResul
     if (value === undefined) continue
     if (!(EDITABLE_FIELDS as readonly string[]).includes(key)) {
       return reject('field_not_editable', `Workspace field "${key}" is not editable through workspace sync.`)
+    }
+    if (!fieldValueIsWellFormed(key, value)) {
+      return reject('invalid_field_value', `Workspace field "${key}" was sent a value of the wrong shape.`)
     }
     ;(patch as Record<string, unknown>)[key] = clone(value)
   }

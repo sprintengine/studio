@@ -98,6 +98,15 @@ export type WorkspaceSyncCommand =
     }
 
 /**
+ * The two activity clocks a record carries — the person's last input and the
+ * agent's last turn end — only ever move forward, and every window learns
+ * them from the same sessions. So a patch may only ADVANCE them: main's
+ * reducer and the renderer's inbound paths both keep the later value, and an
+ * older reading from a lagging window can never roll a persisted clock back.
+ */
+export const MONOTONIC_WORKSPACE_CLOCKS = ['lastTerminalActivityAt', 'lastTurnEndedAt'] as const
+
+/**
  * The registry fields a user edits through `workspace.update_fields`. An absent
  * key means "this window has no opinion" and never clears main's copy; an
  * explicit `null` is a tombstone meaning "the user cleared this" — the same
@@ -107,10 +116,12 @@ export type WorkspaceFieldsPatch = {
   folderPath?: string | null
   folderMissing?: boolean
   memory?: Workspace['memory']
-  archivedAt?: number | null
+  settledAt?: number | null
+  settledOverride?: Workspace['settledOverride']
   highlight?: Workspace['highlight'] | null
   worktree?: Workspace['worktree']
   lastTerminalActivityAt?: number | null
+  lastTurnEndedAt?: number | null
 }
 
 export type WorkspaceSyncEventType =
@@ -343,10 +354,16 @@ function applyWorkspaceFields(
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
   // An absent key is "no opinion" and is skipped; an explicit null is the
-  // user clearing the field and is written through.
+  // user clearing the field and is written through — except that an activity
+  // clock only moves forward (MONOTONIC_WORKSPACE_CLOCKS).
+  const record = workspace as Record<string, unknown>
   for (const [key, value] of Object.entries(payload.patch)) {
     if (value === undefined) continue
-    ;(workspace as Record<string, unknown>)[key] = value
+    if ((MONOTONIC_WORKSPACE_CLOCKS as readonly string[]).includes(key)) {
+      const current = record[key]
+      if (typeof current === 'number' && (typeof value !== 'number' || value < current)) continue
+    }
+    record[key] = value
   }
 }
 

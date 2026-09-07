@@ -1061,11 +1061,21 @@ export type Workspace = {
   // parked chat with no live session, so it says when the agent finished
   // rather than when the person last typed — or nothing.
   lastTurnEndedAt?: number | null
-  // When set, the workspace is archived: hidden from the sidebar rail and the
-  // Sprints aside's default lenses, but fully intact on disk and in the store —
-  // visible under the aside's Archived lens and still findable in search.
-  // Presentation-level only; archiving never touches agents or run state.
-  archivedAt?: number | null
+  // When set, the chat has come to rest: it renders as a compact row in its
+  // folder's Settled shelf rather than in the active list. Set by the
+  // sidebar's reconcile sweep after three idle days, or by hand from the row
+  // menu; cleared by input into the chat, by the agent working or blocking
+  // on input again, or by hand. Presentation-level: settling never touches
+  // agents, sessions, or run state. See `utils/workspaceSettle.ts`. The
+  // retired `archivedAt` (the startup archive sweep, gone 2026-09-07) heals
+  // into this on registry read.
+  settledAt?: number | null
+  // A hand decision about rest that outranks the sweep. `'settled'` is a
+  // manual Settle; `'active'` is a manual Un-settle, which holds the row in
+  // the active list until new activity (typing, a turn) clears it — otherwise
+  // the sweep would settle it straight back on its next tick. The sweep never
+  // touches a row carrying either value.
+  settledOverride?: 'settled' | 'active' | null
   // True once this workspace's name is settled and auto-titling must never touch
   // it again. Set by the auto-title itself (a name derived from the first real
   // prompt), by a manual rename, and at creation for any workspace given an

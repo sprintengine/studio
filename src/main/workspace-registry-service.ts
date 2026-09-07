@@ -245,8 +245,11 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
         if (event.payload.patch.memory !== undefined) {
           stamp(event.payload.workspaceId, 'memory', event.payload.editedAt)
         }
-        if (event.payload.patch.archivedAt !== undefined) {
-          stamp(event.payload.workspaceId, 'archivedAt', event.payload.editedAt)
+        if (event.payload.patch.settledAt !== undefined) {
+          stamp(event.payload.workspaceId, 'settledAt', event.payload.editedAt)
+        }
+        if (event.payload.patch.settledOverride !== undefined) {
+          stamp(event.payload.workspaceId, 'settledOverride', event.payload.editedAt)
         }
         break
       default:
@@ -696,7 +699,10 @@ function stampedFieldsForCommand(
       const fields: [WorkspaceRegistryStampedField, number][] = []
       if (command.payload.patch.folderPath !== undefined) fields.push(['folderPath', command.payload.editedAt])
       if (command.payload.patch.memory !== undefined) fields.push(['memory', command.payload.editedAt])
-      if (command.payload.patch.archivedAt !== undefined) fields.push(['archivedAt', command.payload.editedAt])
+      if (command.payload.patch.settledAt !== undefined) fields.push(['settledAt', command.payload.editedAt])
+      if (command.payload.patch.settledOverride !== undefined) {
+        fields.push(['settledOverride', command.payload.editedAt])
+      }
       return fields
     }
     default:

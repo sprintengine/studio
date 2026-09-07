@@ -194,7 +194,8 @@ minus the fields §1.3 leaves in the renderer, plus:
     "layoutModel": 1816999000000,
     "folderPath": 1816000000000,
     "memory": 0,
-    "archivedAt": 0
+    "settledAt": 0,
+    "settledOverride": 0
   }
 }
 ```
@@ -213,8 +214,10 @@ mechanism inside `fieldEditedAt`.
 `sprintEngineRoleCliDefaults`, `sprintEngineRosterSessions`,
 `sprintEngineAutoState` (**mirror only** — `automation.json` stays the authority
 for run intent; see resolved question 10), `moduleState` (minus the stripped
-`sprintengine` entry), `guidedBriefState`, `createdAt`, `archivedAt`, `highlight`,
-`lastTerminalActivityAt` — plus the routing block (`workspaceWindows`,
+`sprintengine` entry), `guidedBriefState`, `createdAt`, `settledAt`,
+`settledOverride` (settled-chats, 2026-09-07; the retired `archivedAt` heals into
+`settledAt` on read), `highlight`, `lastTerminalActivityAt`, `lastTurnEndedAt` —
+plus the routing block (`workspaceWindows`,
 `primaryWorkspaceWindowId`, `activeWorkspaceId`), which main already persists in
 the routing snapshot.
 
@@ -316,7 +319,7 @@ New event types, added to `WorkspaceSyncEventType`
 | `workspace.created` | the full minted record (exists today; payload becomes main's record, not the renderer's) |
 | `workspace.renamed` | `{ id, name, titleLocked, editedAt }` |
 | `workspace.layout_updated` | `{ id, layoutModel, editedAt }` |
-| `workspace.fields_updated` | `{ id, patch, editedAt }` — folderPath, memory, archivedAt, highlight, worktree |
+| `workspace.fields_updated` | `{ id, patch, editedAt }` — folderPath, memory, settledAt, settledOverride, highlight, worktree, lastTerminalActivityAt, lastTurnEndedAt (the two clocks only ever advance) |
 | `workspace.agents_updated` | `{ id, agentId, patch \| null, configEditedAt }` |
 | `workspace.removed` | `{ id, removedAt }` |
 
@@ -360,7 +363,7 @@ user-editable fact, so two concurrent edits to different fields never contend:
 |---|---|
 | `workspace.rename` `{ id, name, editedAt }` | `renameWorkspace` (`workspacesSlice.ts:1338-1347`), `autoTitleWorkspaceFromPrompt` (`:1349-1365`) |
 | `workspace.update_layout` `{ id, layoutModel, editedAt }` | FlexLayout model change |
-| `workspace.update_fields` `{ id, patch, editedAt }` | `setFolderPath`, memory root, archive/unarchive, highlight, worktree |
+| `workspace.update_fields` `{ id, patch, editedAt }` | `setFolderPath`, memory root, settle/un-settle and the rest sweep, the activity clocks, highlight, worktree |
 | `workspace.update_agent` `{ id, agentId, patch \| null, configEditedAt }` | agent rename, runtime override, queued startup prompt |
 | `workspace.create` `{ template, name?, folderPath?, mode?, windowId }` | the new-workspace wizard and every UI creation path |
 | `workspace.remove` `{ id }` | row context menu / close |

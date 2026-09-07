@@ -3,6 +3,7 @@ import type { Workspace } from '../types/workspace'
 import {
   WORKSPACE_STALE_THRESHOLD_MS,
   isWorkspaceStale,
+  keepLaterWorkspaceClocks,
   partitionWorkspacesByRecency,
   sortWorkspacesByActivity,
   sortWorkspacesByAttention,
@@ -28,12 +29,13 @@ const DAY = 24 * 60 * 60 * 1000
 // readable without an `any`.
 function makeWorkspace(
   id: string,
-  fields: { createdAt: number; lastTerminalActivityAt?: number | null }
+  fields: { createdAt?: number; lastTerminalActivityAt?: number | null; lastTurnEndedAt?: number | null }
 ): Workspace {
   return {
     id,
-    createdAt: fields.createdAt,
+    createdAt: fields.createdAt ?? NOW - 30 * DAY,
     lastTerminalActivityAt: fields.lastTerminalActivityAt,
+    lastTurnEndedAt: fields.lastTurnEndedAt,
   } as unknown as Workspace
 }
 
@@ -235,6 +237,21 @@ run('sortWorkspacesByAttention is stable within a band and does not mutate input
   assert.deepEqual(sorted.map((w) => w.id), ['a', 'b', 'c'])
   assert.notEqual(sorted, input)
   assert.deepEqual(input.map((w) => w.id), ['a', 'b', 'c'])
+})
+
+console.log('workspaceRecency.test.ts: ok')
+
+run('keepLaterWorkspaceClocks never rolls an activity clock back', () => {
+  const existing = makeWorkspace('w', { lastTerminalActivityAt: NOW - DAY, lastTurnEndedAt: NOW - 2 * DAY })
+  const older = makeWorkspace('w', { lastTerminalActivityAt: NOW - 3 * DAY, lastTurnEndedAt: null })
+  const merged = keepLaterWorkspaceClocks(existing, older)
+  assert.equal(merged.lastTerminalActivityAt, NOW - DAY, 'the later input clock wins')
+  assert.equal(merged.lastTurnEndedAt, NOW - 2 * DAY, 'an absent incoming clock keeps the known one')
+  assert.notEqual(merged, older, 'a merge is a new object')
+
+  const newer = makeWorkspace('w', { lastTerminalActivityAt: NOW, lastTurnEndedAt: NOW })
+  assert.equal(keepLaterWorkspaceClocks(existing, newer), newer, 'a newer record passes through untouched')
+  assert.equal(keepLaterWorkspaceClocks(makeWorkspace('w', {}), older), older, 'nothing known, nothing kept')
 })
 
 console.log('workspaceRecency.test.ts: ok')

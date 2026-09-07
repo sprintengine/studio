@@ -15,7 +15,13 @@ import {
 import { composeSprintEngineWorkspaceRecord } from '../../../../shared/sprintengine/workspace-record'
 import { detectLanguage } from '../../utils/files'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
-import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
+import {
+  decideWorkspaceSettlement,
+  isSettledWorkspace,
+  settleWorkspacePatch,
+  wakeWorkspacePatch,
+} from '../../utils/workspaceSettle'
+import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import {
   guidedBriefLayoutModel,
@@ -74,6 +80,20 @@ import {
 import type { ReviewWorkspaceState } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
 import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
+
+// How far the person's last-input clock may run ahead of main's copy before
+// the next report is sent as a field patch (recordWorkspaceTerminalActivity).
+// Renderer-session scoped: a fresh window sends its first report.
+const WORKSPACE_ACTIVITY_CLOCK_SYNC_MS = 60_000
+const activityClockSyncedAt = new Map<WorkspaceId, number>()
+
+// Every window sees the same sessions and reaches the same rest decisions, so
+// every window applies them locally — but only the window a workspace is
+// routed to SPEAKS for it to main. Otherwise M windows send M identical
+// commands for one turn end and main commits, rebuilds and re-broadcasts each.
+function thisWindowSpeaksFor(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): boolean {
+  return findWorkspaceWindow(state, workspaceId)?.id === getCurrentWorkspaceWindowIdForSlice()
+}
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -287,8 +307,12 @@ export interface WorkspacesSliceActions {
   applyWorkspaceCreatedEvent: (apply: WorkspaceCreatedApply) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
-  archiveStaleWorkspaces: () => void
+  setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  reconcileWorkspaceSettlement: (input: {
+    now: number
+    busyIds: ReadonlySet<WorkspaceId>
+    heldIds: ReadonlySet<WorkspaceId>
+  }) => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   forgetFolder: (folderPath: string) => void
@@ -613,7 +637,12 @@ function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId
 
 export function createWorkspacesSlice(
   set: WorkspacesSliceSet,
-  deps: WorkspacesSliceDependencies
+  deps: WorkspacesSliceDependencies,
+  // The current state, for the one action that has to DECIDE before it
+  // writes: a `set` whose draft goes untouched still notifies every
+  // subscriber through this store's middleware, and the rest sweep runs on a
+  // 30 s tick in every window.
+  getState: () => WorkspacesSliceCarrier
 ): WorkspacesSlice {
   return {
     workspaces: [],
@@ -933,62 +962,124 @@ export function createWorkspacesSlice(
         if (ws) ws.highlight = undefined
       }),
 
-    // Presentation-level archive flag: hides the workspace from the sidebar
-    // rail and the Sprints aside's default lenses. Never touches agents, run
-    // state, or window assignment, so unarchiving restores it exactly.
-    setWorkspaceArchived: (id, archived) =>
+    // A hand decision about rest (settled-chats, 2026-09-07). Settle parks the
+    // row in its folder's Settled shelf and records the decision so the sweep
+    // leaves it alone; Un-settle brings it back and HOLDS it back — without
+    // the override the sweep would re-settle a three-day-idle row on its next
+    // tick. Applied locally, then sent to main as the field patch every
+    // user-edited registry field travels by.
+    setWorkspaceSettled: (id, settled) => {
+      let patch: WorkspaceFieldsPatch | null = null
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        ws.archivedAt = archived ? Date.now() : null
-      }),
+        patch = settled ? settleWorkspacePatch(ws, Date.now(), 'settled') : wakeWorkspacePatch('active')
+        Object.assign(ws, patch)
+      })
+      // A hand gesture is this window's to report, whichever window routes the row.
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
 
-    // Startup tidiness sweep: archive workspaces idle for 5+ days
-    // (shouldAutoArchiveWorkspace — starred rows, pending-work sprints, and
-    // the Automations host never qualify). Every window's active workspace is
-    // excluded so the sweep can never hide what someone is looking at. Typing
-    // into an archived workspace revives it (recordWorkspaceTerminalActivity).
-    archiveStaleWorkspaces: () =>
+    // The rest sweep (settled-chats, 2026-09-07), run by the sidebar on mount
+    // and on its 30 s tick: a quiet row settles after three idle days, a
+    // resting row that is working again wakes. The sidebar passes what only
+    // it knows — `busyIds`, the rows whose agent is working, and `heldIds`,
+    // the rows that want the person (blocked on a prompt, or wearing the
+    // unseen finished mark) — because those verdicts are derived from live
+    // sessions the store does not hold; every window's active workspace is
+    // exempt here so the sweep can never settle what someone is looking at.
+    // Every window runs it and applies the same decisions; only the window a
+    // row is routed to reports them. The rule itself is
+    // `decideWorkspaceSettlement`.
+    reconcileWorkspaceSettlement: ({ now, busyIds, heldIds }) => {
+      // Decide against the current state and write only when a row moves,
+      // so a tick on which nothing changes touches no subscriber.
+      const current = getState()
+      const activeIds = new Set<WorkspaceId | null>([
+        current.activeWorkspaceId,
+        ...current.workspaceWindows.map((windowState) => windowState.activeWorkspaceId),
+      ])
+      const patches: [WorkspaceId, WorkspaceFieldsPatch, boolean][] = []
+      for (const ws of current.workspaces) {
+        const decision = decideWorkspaceSettlement({
+          workspace: ws,
+          now,
+          active: activeIds.has(ws.id),
+          busy: busyIds.has(ws.id),
+          held: heldIds.has(ws.id),
+        })
+        if (decision === 'none') continue
+        const patch = decision === 'settle' ? settleWorkspacePatch(ws, now, null) : wakeWorkspacePatch(null)
+        patches.push([ws.id, patch, thisWindowSpeaksFor(current, ws.id)])
+      }
+      if (patches.length === 0) return
       set((state) => {
-        const now = Date.now()
-        const activeIds = new Set<WorkspaceId | null>([
-          state.activeWorkspaceId,
-          ...state.workspaceWindows.map((windowState) => windowState.activeWorkspaceId),
-        ])
-        for (const ws of state.workspaces) {
-          if (activeIds.has(ws.id)) continue
-          if (shouldAutoArchiveWorkspace(ws, now)) ws.archivedAt = now
+        for (const [id, patch] of patches) {
+          const ws = state.workspaces.find((w) => w.id === id)
+          if (ws) Object.assign(ws, patch)
         }
-      }),
+      })
+      for (const [id, patch, speaks] of patches) {
+        if (speaks) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+      }
+    },
 
     // Monotonic: `lastTerminalActivityAt` only moves forward, and is fed from the
-    // user's last terminal input (typing), not terminal output — so reopening a
-    // workspace never advances it. See deriveWorkspaceLastInputAt.
-    recordWorkspaceTerminalActivity: (id, lastInputAt) =>
+    // session's last input (a keystroke, or an automation driving the chat),
+    // not terminal output — so reopening a workspace never advances it. See
+    // deriveWorkspaceLastInputAt.
+    //
+    // Input wakes a resting workspace: it leaves the Settled shelf, and any
+    // hand decision about its rest is spent with it (new activity resumes the
+    // usual rules). Only input that ADVANCES the clock counts — the sessions
+    // are re-listed on every window mount with the same stamps they had, and a
+    // replay must not un-settle a row the person put to rest after typing.
+    //
+    // Main's copy of the clock is what a restart rebuilds the row from, so it
+    // is refreshed here too, on a coarse cadence (the sweep needs days, not
+    // seconds): the first report per window, then whenever the clock has
+    // moved a minute past the last copy sent. A rest decision sends the clock
+    // with it (`settleWorkspacePatch`), so main is never behind a decision.
+    recordWorkspaceTerminalActivity: (id, lastInputAt) => {
+      let patch: WorkspaceFieldsPatch | null = null
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        if (
-          typeof ws.lastTerminalActivityAt !== 'number'
-          || ws.lastTerminalActivityAt < lastInputAt
-        ) {
-          ws.lastTerminalActivityAt = lastInputAt
+        const previous = ws.lastTerminalActivityAt
+        if (typeof previous === 'number' && previous >= lastInputAt) return
+        ws.lastTerminalActivityAt = lastInputAt
+        const synced = activityClockSyncedAt.get(id)
+        const syncClock = synced === undefined || lastInputAt - synced >= WORKSPACE_ACTIVITY_CLOCK_SYNC_MS
+        const speaks = thisWindowSpeaksFor(state, id)
+        if (isSettledWorkspace(ws) || ws.settledOverride != null) {
+          Object.assign(ws, wakeWorkspacePatch(null))
+          if (speaks) patch = { ...wakeWorkspacePatch(null), lastTerminalActivityAt: lastInputAt }
+        } else if (syncClock && speaks) {
+          patch = { lastTerminalActivityAt: lastInputAt }
         }
-        // Real work revives an archived workspace — typing is the one signal
-        // that the user is back in it, so it reappears in the rail.
-        if (typeof ws.archivedAt === 'number') ws.archivedAt = null
-      }),
+      })
+      if (patch) {
+        activityClockSyncedAt.set(id, lastInputAt)
+        void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+      }
+    },
 
     // Monotonic like the stamp above, fed from the hook-reported turn end of any
     // agent in the workspace (WorkspaceManager mirrors it off the session
     // snapshots). An agent finishing is not the person returning, so it never
-    // un-archives.
-    recordWorkspaceTurnEnd: (id, at) =>
+    // wakes a resting row — but it is activity for the rest sweep, so main's
+    // copy is kept current; turn ends are rare enough to send every advance.
+    recordWorkspaceTurnEnd: (id, at) => {
+      let report = false
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        if (typeof ws.lastTurnEndedAt !== 'number' || ws.lastTurnEndedAt < at) ws.lastTurnEndedAt = at
-      }),
+        if (typeof ws.lastTurnEndedAt === 'number' && ws.lastTurnEndedAt >= at) return
+        ws.lastTurnEndedAt = at
+        report = thisWindowSpeaksFor(state, id)
+      })
+      if (report) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, { lastTurnEndedAt: at })
+    },
 
     forgetFolder: (folderPath) =>
       set((state) => {

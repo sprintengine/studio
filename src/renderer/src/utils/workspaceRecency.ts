@@ -1,4 +1,5 @@
 import type { Workspace } from '../types/workspace'
+import { MONOTONIC_WORKSPACE_CLOCKS } from '../../../shared/workspace-sync'
 
 // A workspace folds into its folder's "Show more" disclosure once it has gone
 // this long without being worked on. Kept as a single constant on purpose — the
@@ -140,4 +141,25 @@ export function sortWorkspacesByAttention(
     if (byTier !== 0) return byTier
     return compareWorkspacesByActivity(a, b, now)
   })
+}
+
+// When main's record arrives (a snapshot, or a field patch another window
+// sent from an older reading), the later copy of each activity clock is the
+// truth — the same rule main's reducer applies (MONOTONIC_WORKSPACE_CLOCKS):
+// an older stamp must not roll a row's clock back and let the rest sweep read
+// a chat that was active yesterday as idle.
+export function keepLaterWorkspaceClocks(
+  existing: Pick<Workspace, (typeof MONOTONIC_WORKSPACE_CLOCKS)[number]>,
+  incoming: Workspace
+): Workspace {
+  let merged: Workspace | null = null
+  for (const clock of MONOTONIC_WORKSPACE_CLOCKS) {
+    const mine = existing[clock]
+    const theirs = incoming[clock]
+    if (typeof mine !== 'number') continue
+    if (typeof theirs === 'number' && theirs >= mine) continue
+    merged = merged ?? { ...incoming }
+    merged[clock] = mine
+  }
+  return merged ?? incoming
 }

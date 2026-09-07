@@ -77,7 +77,8 @@ import {
   sortWorkspacesByAttention,
   type WorkspaceAttentionTier,
 } from '../../utils/workspaceRecency'
-import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { isSettledWorkspace } from '../../utils/workspaceSettle'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -1241,6 +1242,24 @@ export default function WorkspaceSidebar({
   // the Extensions home — which uses the same resolver — listed it.
   const now = useRelativeNow()
 
+  // The rest sweep (settled-chats, 2026-09-07): on mount, on the 30 s tick the
+  // idle labels ride, and whenever an agent's activity flips — so a resting
+  // row whose agent starts working wakes at once, not a tick later. This is
+  // the one place that knows every blocker: what is working (activity, so it
+  // wakes a resting row and holds an active one), and what wants the person
+  // (a prompt, or the unseen finished mark — a thing to look at, which holds
+  // a row out of the shelf but never wakes one). The store owns the rule and
+  // the record; see `reconcileWorkspaceSettlement`.
+  useEffect(() => {
+    const busyIds = new Set<WorkspaceId>()
+    const heldIds = new Set<WorkspaceId>(unseenDoneIds)
+    for (const [id, activity] of Object.entries(activityByWorkspaceId)) {
+      if (activity === 'working') busyIds.add(id)
+      else if (activity === 'needs-input') heldIds.add(id)
+    }
+    useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
+  }, [now, activityByWorkspaceId, unseenDoneIds])
+
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // How many folded (stale) rows each folder has revealed via "Show N older" —
   // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
@@ -1457,10 +1476,13 @@ export default function WorkspaceSidebar({
   // stitches against the full `workspaces` array so a hidden workspace keeps its
   // place in the persisted order. Cross-workspace search now lives in the
   // global-search palette (T6), not a sidebar box.
+  // Resting rows (`settledAt`, settled-chats 2026-09-07) are out of the rail
+  // for now exactly as the retired archive stamp kept them out; the folder's
+  // Settled shelf that shows them lands with the sweep that fills it.
   const railWorkspaces = useMemo(
     () =>
       workspaces.filter(
-        (workspace) => !isHiddenFromRail(workspace) && !isArchivedWorkspace(workspace)
+        (workspace) => !isHiddenFromRail(workspace) && !isSettledWorkspace(workspace)
       ),
     [workspaces]
   )

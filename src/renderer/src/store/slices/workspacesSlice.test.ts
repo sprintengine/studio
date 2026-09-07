@@ -1112,4 +1112,91 @@ assert.equal(lockedOf(renamedId), true, 'a manual rename locks the name')
 useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(renamedId, 'add a retry to the uploader')
 assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a hand-typed name')
 
+
+// Settled chats (2026-09-07): the hand decisions, the sweep, and the wake.
+{
+  const DAY = 24 * 60 * 60 * 1000
+  const settleId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/settle',
+    background: true,
+  })
+  // Adding activates, so hand the selection to a second row: the sweep's
+  // active-row exemption is asserted separately below.
+  const lookedAtId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/settle-looked-at',
+    background: true,
+  })
+  useWorkspaceStore.getState().setActiveWorkspace(lookedAtId)
+  const rowOf = (id: string) => useWorkspaceStore.getState().workspaces.find((w) => w.id === id)!
+  const reconcile = (now: number, busyIds: string[] = [], heldIds: string[] = []) =>
+    useWorkspaceStore
+      .getState()
+      .reconcileWorkspaceSettlement({ now, busyIds: new Set(busyIds), heldIds: new Set(heldIds) })
+  const activeIds = () =>
+    new Set([
+      useWorkspaceStore.getState().activeWorkspaceId,
+      ...useWorkspaceStore.getState().workspaceWindows.map((w) => w.activeWorkspaceId),
+    ])
+  assert.equal(activeIds().has(settleId), false, 'the fixture row is not the active row of any window')
+  const bornAt = rowOf(settleId).createdAt
+
+  // Too recent: the sweep leaves it.
+  reconcile(bornAt + DAY)
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'a day-old row does not settle')
+
+  // Old enough, but wearing the unseen finished mark: held, not settled.
+  reconcile(bornAt + 4 * DAY, [], [settleId])
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'the unseen mark holds a row out of the shelf')
+
+  // Idle three days: it settles, quietly.
+  reconcile(bornAt + 4 * DAY)
+  assert.equal(rowOf(settleId).settledAt, bornAt + 4 * DAY, 'the sweep stamps settledAt')
+  assert.equal(rowOf(settleId).settledOverride ?? null, null, 'the sweep records no hand decision')
+
+  // Busy again: it wakes.
+  reconcile(bornAt + 5 * DAY, [settleId])
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'a busy resting row wakes')
+
+  // A hand Un-settle holds against the sweep until real activity.
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, true)
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'Settle stamps')
+  assert.equal(rowOf(settleId).settledOverride, 'settled', 'and records the decision')
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, false)
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'Un-settle clears the stamp')
+  assert.equal(rowOf(settleId).settledOverride, 'active', 'and holds the row active')
+  reconcile(bornAt + 30 * DAY)
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'the sweep honours the hold, however old the row')
+
+  // Typing spends the hold, and the next sweep applies the usual rule.
+  useWorkspaceStore.getState().recordWorkspaceTerminalActivity(settleId, bornAt + 30 * DAY)
+  assert.equal(rowOf(settleId).settledOverride ?? null, null, 'a keystroke clears the hand decision')
+  reconcile(bornAt + 34 * DAY)
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'three idle days after the keystroke, it settles again')
+
+  // A replayed keystroke — the same stamp the store already holds — is not
+  // input: the sessions are re-listed on every window mount with the stamps
+  // they had, and that must not wake a row settled after the person typed.
+  useWorkspaceStore.getState().recordWorkspaceTerminalActivity(settleId, bornAt + 30 * DAY)
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'a replayed input stamp does not wake a settled row')
+
+  // Typing into a settled row wakes it.
+  useWorkspaceStore.getState().recordWorkspaceTerminalActivity(settleId, bornAt + 34 * DAY + 1)
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'typing wakes a settled row')
+  assert.equal(rowOf(settleId).settledOverride ?? null, null, 'and leaves no hand decision behind')
+
+  // The agent's turn end is activity for the idle clock, but never a wake.
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, true)
+  useWorkspaceStore.getState().recordWorkspaceTurnEnd(settleId, bornAt + 35 * DAY)
+  assert.equal(rowOf(settleId).lastTurnEndedAt, bornAt + 35 * DAY, 'the turn end is recorded')
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'an agent finishing is not the person returning')
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, false)
+
+  // The active row of a window never settles under the person.
+  const activeId = useWorkspaceStore.getState().activeWorkspaceId
+  assert.ok(activeId, 'the fixture store has an active row')
+  const activeBornAt = rowOf(activeId!).createdAt
+  reconcile(activeBornAt + 30 * DAY)
+  assert.equal(rowOf(activeId!).settledAt ?? null, null, 'the active row is exempt from the sweep')
+}
+
 console.log('workspacesSlice.test.ts: ok')

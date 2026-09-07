@@ -274,21 +274,59 @@ test('a field patch honours absent-means-no-opinion and null-means-cleared', () 
   try {
     const { workspaceId } = seed(h)
     const patched = h.dispatch(
-      { type: 'workspace.update_fields', payload: { workspaceId, patch: { archivedAt: 12_345 }, editedAt: 6_000 } },
+      {
+        type: 'workspace.update_fields',
+        payload: { workspaceId, patch: { settledAt: 12_345, settledOverride: 'settled' }, editedAt: 6_000 },
+      },
       WINDOW_A,
     )
     assert.equal(patched.ok, true)
     let record = h.registry.getRecord(workspaceId)!
-    assert.equal(record.archivedAt, 12_345)
+    assert.equal(record.settledAt, 12_345)
+    assert.equal(record.settledOverride, 'settled')
     assert.equal(record.folderPath, '/repo', 'a field the patch did not name is untouched')
 
     const cleared = h.dispatch(
-      { type: 'workspace.update_fields', payload: { workspaceId, patch: { archivedAt: null }, editedAt: 6_001 } },
+      { type: 'workspace.update_fields', payload: { workspaceId, patch: { settledAt: null }, editedAt: 6_001 } },
       WINDOW_A,
     )
     assert.equal(cleared.ok, true)
     record = h.registry.getRecord(workspaceId)!
-    assert.equal(record.archivedAt, null, 'an explicit null is a tombstone, not "no opinion"')
+    assert.equal(record.settledAt, null, 'an explicit null is a tombstone, not "no opinion"')
+    assert.equal(record.settledOverride, 'settled', 'a field the patch did not name keeps its value')
+
+    // The settle fields are stamped: a window's sweep that decided BEFORE the
+    // person's Un-settle loses, however late it arrives, so the row cannot be
+    // left resting with the hold that says it is not.
+    const stale = h.dispatch(
+      { type: 'workspace.update_fields', payload: { workspaceId, patch: { settledAt: 5_000 }, editedAt: 5_000 } },
+      WINDOW_B,
+    )
+    assert.equal(stale.ok, false, 'an older settle decision is rejected')
+    assert.equal(h.registry.getRecord(workspaceId)!.settledAt, null)
+
+    // A typed field is checked for shape, not just for name.
+    const malformed = h.dispatch(
+      {
+        type: 'workspace.update_fields',
+        payload: { workspaceId, patch: { settledOverride: 'archived' } as never, editedAt: 6_003 },
+      },
+      WINDOW_A,
+    )
+    assert.equal(malformed.ok === false && malformed.reason, 'invalid_field_value')
+
+    // An activity clock only moves forward, whichever window reports it.
+    const ahead = h.dispatch(
+      { type: 'workspace.update_fields', payload: { workspaceId, patch: { lastTurnEndedAt: 9_000 }, editedAt: 6_004 } },
+      WINDOW_A,
+    )
+    assert.equal(ahead.ok, true)
+    const behind = h.dispatch(
+      { type: 'workspace.update_fields', payload: { workspaceId, patch: { lastTurnEndedAt: 8_000 }, editedAt: 6_005 } },
+      WINDOW_B,
+    )
+    assert.equal(behind.ok, true, 'accepted as a command')
+    assert.equal(h.registry.getRecord(workspaceId)!.lastTurnEndedAt, 9_000, 'but an older clock reading does not roll main back')
 
     const notEditable = h.dispatch(
       { type: 'workspace.update_fields', payload: { workspaceId, patch: { mode: 'switchboard' } as never, editedAt: 6_002 } },

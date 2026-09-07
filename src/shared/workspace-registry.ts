@@ -63,7 +63,8 @@ export type WorkspaceRegistryFieldStamps = {
   layoutModel: number
   folderPath: number
   memory: number
-  archivedAt: number
+  settledAt: number
+  settledOverride: number
 }
 
 export const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
@@ -71,7 +72,8 @@ export const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
   'layoutModel',
   'folderPath',
   'memory',
-  'archivedAt',
+  'settledAt',
+  'settledOverride',
 ] as const
 
 export type WorkspaceRegistryStampedField = (typeof WORKSPACE_REGISTRY_STAMPED_FIELDS)[number]
@@ -129,7 +131,7 @@ export const WORKSPACE_REGISTRY_TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000
 export const DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 
 export function emptyWorkspaceRegistryFieldStamps(): WorkspaceRegistryFieldStamps {
-  return { name: 0, layoutModel: 0, folderPath: 0, memory: 0, archivedAt: 0 }
+  return { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0 }
 }
 
 export function emptyWorkspaceRegistryFile(now = 0): WorkspaceRegistryFile {
@@ -363,6 +365,22 @@ export function parseWorkspaceRegistryRecord(raw: unknown): RecordParse {
   // protecting, so the lock is dropped on read; the auto-title re-locks it with
   // a real name, which is the state the record should have reached.
   if (record.titleLocked && isDefaultWorkspaceName(record.name)) delete record.titleLocked
+  // Heal the retired archive stamp into the settle stamp (settled-chats,
+  // 2026-09-07). The startup archive sweep hid rows it stamped `archivedAt`
+  // with nothing to list or restore them; a chat at rest is now `settledAt`,
+  // shown in its folder's Settled shelf. Same no-migration idiom as the lock
+  // above: the record reads as it should have been written, its old
+  // last-write-wins stamp carried across so a lagging window's stale archive
+  // command cannot outrank it.
+  const legacy = record as WorkspaceRegistryRecord & { archivedAt?: unknown }
+  if (typeof legacy.archivedAt === 'number') {
+    if (typeof record.settledAt !== 'number') record.settledAt = legacy.archivedAt
+    const legacyStamp = isRecord(raw.fieldEditedAt) ? raw.fieldEditedAt.archivedAt : undefined
+    if (typeof legacyStamp === 'number' && legacyStamp > record.fieldEditedAt.settledAt) {
+      record.fieldEditedAt.settledAt = legacyStamp
+    }
+  }
+  delete legacy.archivedAt
   return { record }
 }
 

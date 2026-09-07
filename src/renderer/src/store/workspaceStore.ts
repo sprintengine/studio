@@ -122,6 +122,7 @@ import {
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
 } from './slices/normalizers'
+import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
 import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
@@ -243,8 +244,12 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   forgetFolder: (folderPath: string) => void
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
-  setWorkspaceArchived: (id: WorkspaceId, archived: boolean) => void
-  archiveStaleWorkspaces: () => void
+  setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  reconcileWorkspaceSettlement: (input: {
+    now: number
+    busyIds: ReadonlySet<WorkspaceId>
+    heldIds: ReadonlySet<WorkspaceId>
+  }) => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
@@ -1207,7 +1212,7 @@ function emitHydrationDiagnostic(): void {
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
-    immer((set) => ({
+    immer((set, get) => ({
       ...createAuthSlice(set),
       ...createSettingsSlice(set),
       ...createLayoutSlice(set),
@@ -1223,7 +1228,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createCliVersionAdvisorySlice(set),
       ...createWorkspacePaneSlice(set),
       ...createFocusedAgentSlice(set),
-      ...createWorkspacesSlice(set, workspacesSliceDeps),
+      ...createWorkspacesSlice(set, workspacesSliceDeps, get),
     })),
     {
       name: WORKSPACE_STORAGE_KEY,
@@ -1508,7 +1513,7 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
       }
       const existing = currentById.get(incoming.id)
       if (!existing) return incoming
-      return {
+      return keepLaterWorkspaceClocks(existing, {
         ...incoming,
         editorState: existing.editorState,
         fileExplorerState: existing.fileExplorerState,
@@ -1528,7 +1533,7 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
         // agents this window owns.
         sprintEngineState: existing.sprintEngineState,
         agents: preserveAgentTerminalMetadata(incoming, existing).agents,
-      }
+      })
     })
     return {
       ...current,
@@ -1589,7 +1594,8 @@ function initWorkspaceSyncClient(): void {
           if (value === undefined) continue
           next[key] = value
         }
-        return next as Workspace
+        // A clock another window read earlier never rolls this one back.
+        return keepLaterWorkspaceClocks(workspace, next as Workspace)
       })),
     applyWorkspaceAgentUpdated: (apply) =>
       applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {

@@ -187,10 +187,28 @@ test('per-field last-write-wins accepts equal and newer stamps, drops older ones
   assert.equal(shouldApplyFieldEdit(100, Number.NaN), false)
 })
 
+test('a record still carrying the retired archive stamp reads as settled', () => {
+  const raw = {
+    ...toWorkspaceRegistryRecord(workspace(), 1),
+    archivedAt: 5_000,
+    fieldEditedAt: { name: 1, archivedAt: 9_000 },
+  }
+  const parsed = parseWorkspaceRegistryRecord(raw)
+  assert.ok('record' in parsed)
+  assert.equal(parsed.record.settledAt, 5_000, 'the archive stamp heals into the settle stamp')
+  assert.equal('archivedAt' in parsed.record, false, 'and the retired field is gone from the record')
+  assert.equal(parsed.record.fieldEditedAt.settledAt, 9_000, 'its last-write-wins stamp carries across')
+  assert.equal(parsed.record.fieldEditedAt.name, 1, 'other stamps are untouched')
+
+  const already = parseWorkspaceRegistryRecord({ ...raw, settledAt: 7_000 })
+  assert.ok('record' in already)
+  assert.equal(already.record.settledAt, 7_000, 'a settle stamp already present is the newer fact and wins')
+})
+
 test('a fresh record carries zeroed stamps unless seeded', () => {
   assert.deepEqual(
     emptyWorkspaceRegistryFieldStamps(),
-    { name: 0, layoutModel: 0, folderPath: 0, memory: 0, archivedAt: 0 },
+    { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0 },
   )
   assert.deepEqual(toWorkspaceRegistryRecord(workspace(), 1).fieldEditedAt, emptyWorkspaceRegistryFieldStamps())
 })
