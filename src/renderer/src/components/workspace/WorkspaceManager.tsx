@@ -11,7 +11,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { cliRuntimeForPlugin, resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { cliRuntimeForPlugin, isAgentCliAvailable, resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
@@ -1482,6 +1482,11 @@ export default function WorkspaceManager() {
     // start on exactly the row that was clicked rather than on whatever the
     // remembered default resolves to a tick later (the Backlog handoff).
     selectedModel?: string | null,
+    // The effort level of that same row, for a caller whose pick was never
+    // written to the defaults at all (a card's row, parked in a New chat draft —
+    // item 2473). Absent means "read the level the defaults remember", which is
+    // every other caller.
+    selectedReasoning?: string | null,
   ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
     // A plain New chat is a General agent, so it rides General's own remembered
@@ -1513,7 +1518,10 @@ export default function WorkspaceManager() {
       selectedModel !== undefined
         ? selectedModel ?? undefined
         : resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
-    const cliReasoning = resolveCliReasoning(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    const cliReasoning =
+      selectedReasoning !== undefined
+        ? selectedReasoning ?? undefined
+        : resolveCliReasoning(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     const workspaceId = createSoloChatWorkspace({
       folderPath,
       templateAgentCli,
@@ -2627,6 +2635,15 @@ export default function WorkspaceManager() {
       routeToCliInstall()
       return
     }
+    // The clamp above answers with SOME installed runtime — the first in the
+    // catalogue when the one asked for is not in it — and a caller that handed
+    // over a model row would then launch that row's model, effort and preset on
+    // a different runtime's binary. A row is one answer: if its runtime did not
+    // survive the clamp, its other three axes go with it and this spawn falls
+    // back to what the runtime it CAN launch remembers.
+    const askedForSurvived = isAgentCliAvailable(cli, agentCliCatalog)
+    const row = askedForSurvived ? picked : undefined
+    const rowModel = askedForSurvived ? selectedModel : undefined
     // General agents get a real first+last name from the shared pool, exactly
     // like specialists — not a numbered "General Agent 2/3…" placeholder. A
     // launch from a new-agent tab keeps the name that tab is already wearing.
@@ -2645,23 +2662,23 @@ export default function WorkspaceManager() {
     }
 
     const cliModel =
-      selectedModel !== undefined
-        ? selectedModel ?? undefined
+      rowModel !== undefined
+        ? rowModel ?? undefined
         : resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
       cliModel,
       cliReasoning:
-        picked?.reasoning !== undefined
-          ? picked.reasoning ?? undefined
+        row?.reasoning !== undefined
+          ? row.reasoning ?? undefined
           : resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
       // The preset is a property of the model ROW (2026-09-05), so it is read
       // from the row that launches — or taken from the caller that just read it
       // off that same row.
       cliPermissionPreset:
-        picked?.permissionPreset ?? resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
+        row?.permissionPreset ?? resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
@@ -2769,7 +2786,12 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
     worktree?: WorkspaceWorktree,
-  ) => createNewChat(folderPath, cli, skills, startupPrompt, worktree)
+    // The rest of a row the composer was standing on but had never stored (see
+    // `createNewChat`). Undefined on an ordinary launch, where the defaults the
+    // door writes as you pick are the record.
+    selectedModel?: string | null,
+    selectedReasoning?: string | null,
+  ) => createNewChat(folderPath, cli, skills, startupPrompt, worktree, selectedModel, selectedReasoning)
 
   const openSpecialistInNewChat = (
     specialistId: SpecialistActionId,
@@ -2866,9 +2888,11 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
     worktree?: WorkspaceWorktree,
+    selectedModel?: string | null,
+    selectedReasoning?: string | null,
   ) => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath, skills, startupPrompt, worktree)
+    openGeneralInNewChat(cli, folderPath, skills, startupPrompt, worktree, selectedModel, selectedReasoning)
   }
   const pickNewChatSpecialist = (
     specialistId: SpecialistActionId,
@@ -3000,11 +3024,17 @@ export default function WorkspaceManager() {
    * The one thing between the press and the work is the MODEL PICKER (ruling
    * R4b, item 2473), and choosing a row in it is what calls this. `launch` is
    * that row: its cli, its model, its reasoning effort and the permission preset
-   * remembered against it. All four travel through `cards:run` and come back on
-   * the chat hand-off, so the object that describes the launch is one object —
-   * the executor may still override the cli, because a card's `require.cli`
-   * names the harness its skills were copied into and that is the harness the
-   * chat has to open in (the security pass of item 2469).
+   * remembered against it. All four are ONE answer and stay one — the chat is
+   * spawned from `launch` and from nothing else, so no launch is ever assembled
+   * out of a runtime from here and a model from there. They ride `cards:run`
+   * too, so the hand-off main sends back describes the whole launch rather than
+   * half of it, and a later reader of that record is not left guessing.
+   *
+   * `require.cli` is not a second opinion about the runtime. It fails a card
+   * whose CLI this machine does not have, and it preselects that CLI in the
+   * picker; what the person then chooses is what runs, because a card's skills
+   * are copied into every skills-capable harness on the machine rather than into
+   * one.
    *
    * The whole of the run happens in main, in one call: `cards:run` composes the
    * installers that already own each concern, in the card's own order, stopping
@@ -3147,30 +3177,32 @@ export default function WorkspaceManager() {
       windowActiveWorkspaceId !== null && activeNow !== null && activeNow !== windowActiveWorkspaceId
 
     if (chat.send && !movedWorkspace && workspaceRoot) {
-      // R4, kept: a general agent on the CLI the card required — falling back
-      // to the row the person picked when it required none — with the skills
-      // attached and the prompt as its startup prompt, which is the launch path
-      // that SENDS. `require.cli` verified a CLI and the chat used to launch on
-      // whatever the template resolver returned, so a card could check
-      // `claude-code` and open a chat in a harness the skill it had just
-      // installed was never copied into. The resolver is still consulted, and
-      // only as the normaliser it is: it takes the id main sent back — a plain
-      // string that crossed a process boundary — and answers with a runtime this
-      // machine can actually launch.
+      // R4, kept: a general agent with the skills attached and the prompt as its
+      // startup prompt, which is the launch path that SENDS.
       //
-      // The other three axes are the picked row's, passed rather than read back
-      // out of the remembered defaults: the picker wrote that row as the default
-      // a moment ago, and a spawn that read its own write in the same turn would
-      // read the value from before it (R4b, item 2473).
+      // THE CHOSEN ROW WINS OUTRIGHT (R4b, item 2473). Its cli, its model, its
+      // effort and its preset are one answer and are handed over as one: nothing
+      // here takes the runtime from one source and the model from another. The
+      // hand-off's own `cli` — the one a card's `require.cli` named — is not
+      // consulted, because it is not a second opinion about the launch: a card's
+      // skills are installed into every skills-capable harness on the machine
+      // (`resolveInstalledSkillHarnesses`), so `require.cli`'s job is to fail a
+      // card whose CLI is missing, not to overrule the person's pick. Splitting
+      // the two is how a Codex model id used to ride a Claude Code launch.
+      //
+      // All four are passed rather than read back out of the remembered
+      // defaults, because the picker deliberately writes none of them: choosing
+      // how to run one card must not move the engine of the person's next New
+      // chat.
       closeGlobalSurface()
       closeModalSurface()
       void addNewCliAgent(
-        resolveTemplateAgentCli(chat.cli ?? launch.cli, lastSelectedCli, agentCliCatalog),
+        launch.cli,
         skills,
         undefined,
-        chat.model,
+        launch.model,
         { prompt: chat.prompt },
-        { reasoning: chat.reasoning, ...(chat.permissionPreset ? { permissionPreset: chat.permissionPreset } : {}) },
+        { reasoning: launch.reasoning, permissionPreset: launch.permissionPreset },
       )
       if (switchedAway) {
         // Not silently, and not by dragging them back: the agent is running in
@@ -3205,13 +3237,21 @@ export default function WorkspaceManager() {
     // without one, so a card whose only action is `open.chat` pressed on a
     // fresh install closed the door and did nothing whatsoever.
     //
-    // The row the person picked is not lost on this path either, and it does not
-    // ride the draft: the picker wrote it back as the roleless agent's
-    // remembered engine on the way out, so the composer that opens here is
-    // already standing on it. The draft carries what only the CARD knows — the
-    // prompt and the skills.
+    // The row the person picked RIDES THE DRAFT, because nothing else carries
+    // it: the picker writes no defaults (R4b, item 2473 — a card must not move
+    // the engine of the next New chat), and a draft already holding a selection
+    // wins over the panel's own, so a person who had picked a specialist row
+    // before pressing Go would have come back to New chat standing on it and
+    // launched its engine rather than the row they had just chosen. The draft
+    // says both: a roleless agent, on this engine. It carries what only the
+    // CARD knows besides — the prompt and the skills.
     openNewChatPanel(chatRoot ?? undefined)
-    writeNewChatDraft(workspaceWindowId, { prompt: chat.prompt, skills })
+    writeNewChatDraft(workspaceWindowId, {
+      prompt: chat.prompt,
+      skills,
+      selection: { kind: 'general' },
+      engine: { cli: launch.cli, model: launch.model, reasoning: launch.reasoning },
+    })
     if (chat.send) {
       showToast({
         tone: 'neutral',
@@ -3223,10 +3263,8 @@ export default function WorkspaceManager() {
     }
   }, [
     addNewCliAgent,
-    agentCliCatalog,
     closeGlobalSurface,
     closeModalSurface,
-    lastSelectedCli,
     openGlobalSurface,
     openNewChatPanel,
     upsertMcpServer,
@@ -3455,7 +3493,19 @@ export default function WorkspaceManager() {
         pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skills, startupPrompt, worktree)
         break
       case 'general':
-        pickNewChatGeneral(confirm.cli, folderPath, confirm.skills, startupPrompt, worktree)
+        // `model`/`reasoning` are on the confirm only when the composer was
+        // standing on a row nothing had stored — a card's pick, parked in the
+        // draft (item 2473). Every other launch leaves them undefined and the
+        // remembered defaults answer.
+        pickNewChatGeneral(
+          confirm.cli,
+          folderPath,
+          confirm.skills,
+          startupPrompt,
+          worktree,
+          confirm.model,
+          confirm.reasoning,
+        )
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })

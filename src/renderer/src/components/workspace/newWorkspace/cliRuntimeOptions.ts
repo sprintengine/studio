@@ -275,11 +275,17 @@ export function isAgentCliMissing(
   return Boolean(cli && !isAgentCliAvailable(cli, catalog))
 }
 
-// CLI a New chat / template agent should spawn with. An explicit picker
-// selection is honored as-is; otherwise the remembered `lastSelectedCli` is
-// clamped to an installed catalog entry so a stale value cannot seed a new
-// agent with an uninstalled plugin id. With an empty catalog (registry still
-// loading) it returns lastSelectedCli unchanged rather than throwing.
+// CLI a New chat / template agent should spawn with.
+//
+// It NORMALISES; it does not verify. An explicit selection is answered with its
+// registry id and nothing else is asked of it — this function never checks that
+// the machine has that runtime, and callers must not read it as if it had. The
+// check a spawn needs is `resolveLaunchableAgentCli`, which the spawn paths run
+// on their way in and which answers null when the machine has nothing to launch.
+// Only the REMEMBERED `lastSelectedCli` is clamped to an installed catalog entry
+// here, so a stale default cannot seed a new agent with an uninstalled plugin
+// id. With an empty catalog (registry still loading) it returns lastSelectedCli
+// unchanged rather than throwing.
 export function resolveTemplateAgentCli(
   explicitCli: AgentCli | null | undefined,
   lastSelectedCli: AgentCli,

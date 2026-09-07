@@ -207,6 +207,7 @@ export function CliModelPopoverSurface({
   reasoningAriaLabel,
   noneRow,
   railExtras,
+  groupNote,
   footer,
   permissions,
   composition,
@@ -251,6 +252,18 @@ export function CliModelPopoverSurface({
   noneRow?: { label: string; description?: string; selected: boolean; onSelect: () => void }
   /** Non-model ways in, on the rail below a divider. See PickerRailExtra. */
   railExtras?: ReadonlyArray<PickerRailExtra>
+  /**
+   * A quiet line about ONE runtime, drawn as that runtime's group heading above
+   * its rows — the shape Frame 4 of `2026-09-06-extensions-home.html` gives a
+   * card's `require.cli` ("Claude Code · the card asks for this one").
+   *
+   * A heading rather than the `footer` slot, because the sentence is about the
+   * list it sits over and the footer is the trailing row's control cluster. The
+   * rail already groups this surface by provider, so the heading is shown only
+   * while that runtime's own group is the one on screen: under a search the
+   * results span every provider and each row names its own.
+   */
+  groupNote?: { cli: AgentCli; note: string }
   /**
    * The host's own cluster at the LEADING end of the trailing row (the spawn
    * picker's role and ⋯ controls). Bare controls, not a band: this surface owns
@@ -641,6 +654,15 @@ export function CliModelPopoverSurface({
           />
         </div>
 
+        {/* The group heading, when a host has something to say about the group
+            below it. Outside the listbox rather than in it: a `role="listbox"`
+            takes options and groups of options, and this is a caption. */}
+        {groupNote && !searching && activeRail === groupNote.cli ? (
+          <p className="m-0 px-3 pt-2 text-micro text-[color:var(--text-muted)]">
+            {options.find((option) => option.value === groupNote.cli)?.label ?? groupNote.cli}
+            <span className="ml-1.5 text-[color:var(--text-subtle)]">{groupNote.note}</span>
+          </p>
+        ) : null}
         <div
           id={listId}
           role="listbox"

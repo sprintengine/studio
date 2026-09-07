@@ -357,6 +357,11 @@ export default function NewAgentPanel({
     initialSelection: draft?.selection ?? initialSelection,
     initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
     initialSkills: draft?.skills,
+    // The engine a parked draft was made on, when whoever made it stored none —
+    // a card's `Go` picker, which must not move this door's remembered engine
+    // on its way past (item 2473). The panel opens standing on that row and
+    // launches it; the first row picked here retires it.
+    initialEngine: draft?.engine ?? null,
   })
   const { selection } = composer
 
@@ -659,10 +664,14 @@ export default function NewAgentPanel({
       prompt,
       images,
       selection,
+      // Written back as it stands, which is null from the moment the person
+      // picks an engine of their own: parking a retired one would reinstate it
+      // on the next visit.
+      engine: composer.openingEngine,
       skills: composer.skills,
       mcpServers: composer.mcpServers,
     })
-  }, [draftKey, prompt, images, selection, composer.skills, composer.mcpServers])
+  }, [draftKey, prompt, images, selection, composer.openingEngine, composer.skills, composer.mcpServers])
 
   const insertPromptPath = (path: string) => {
     setPrompt((current) =>

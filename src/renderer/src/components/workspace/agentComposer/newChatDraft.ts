@@ -1,5 +1,6 @@
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
+import type { AgentCli } from '../../../types/workspace'
 import type { AgentComposerConnector, AgentComposerSelection } from './useAgentComposer'
 
 // The New chat door's parked draft (new-chat-survives-back-and-forward,
@@ -16,6 +17,19 @@ import type { AgentComposerConnector, AgentComposerSelection } from './useAgentC
 /** A pasted or dropped image, as the panel holds it: the attachment plus the temp path the agent opens. */
 export type NewChatDraftImage = ConversationImageAttachment & { path: string }
 
+/**
+ * The engine a draft opens on, when the pick that made the draft happened
+ * somewhere the remembered defaults were deliberately not written.
+ *
+ * That is exactly one caller today: a card's `Go` picker (item 2473, ruling
+ * R4b). Choosing how to run ONE card must not move the engine of the person's
+ * next unrelated New chat, so the picker writes nothing — and then the row it
+ * chose has nowhere else to live on the paths that land in the composer instead
+ * of spawning. It rides here, is applied as the composer's opening engine, and
+ * is dropped the moment the person picks a row of their own.
+ */
+export type NewChatDraftEngine = { cli: AgentCli; model: string | null; reasoning: string | null }
+
 export type NewChatDraft = {
   /** The project the draft was scoped to; null for "no project picked". */
   folderPath: string | null
@@ -23,6 +37,8 @@ export type NewChatDraft = {
   images: NewChatDraftImage[]
   /** The engine row picked, or null to fall back to the host's remembered choice. */
   selection: AgentComposerSelection | null
+  /** The cli/model/effort that row runs on, when the picker stored none. */
+  engine: NewChatDraftEngine | null
   skills: WorkspaceSkill[]
   mcpServers: AgentComposerConnector[]
 }
@@ -32,6 +48,7 @@ const EMPTY_DRAFT: NewChatDraft = {
   prompt: '',
   images: [],
   selection: null,
+  engine: null,
   skills: [],
   mcpServers: [],
 }
@@ -74,7 +91,8 @@ export function rescopeNewChatDraft(key: string, folderPath: string | null): New
  * Whether the draft holds anything a person would miss: typed words, attached
  * images, or skills / MCP servers they picked. The engine row and the project
  * are not content — both default, and a draft that is nothing but defaults
- * must not pin them onto every New chat after it.
+ * must not pin them onto every New chat after it. The parked ENGINE is the same
+ * kind of thing: it says how a chat would start, not that there is one to start.
  */
 export function newChatDraftHasContent(draft: NewChatDraft | null): boolean {
   if (!draft) return false

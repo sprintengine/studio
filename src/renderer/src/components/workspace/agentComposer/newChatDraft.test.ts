@@ -43,6 +43,9 @@ run('writes merge into one draft per window and read back whole', () => {
     prompt: 'fix the flaky test',
     images: [image],
     selection: null,
+    // The parked engine an ordinary draft has none of: it is written only by a
+    // picker that stored nothing (a card's `Go`, item 2473).
+    engine: null,
     skills: [],
     mcpServers: [],
   })

@@ -48,6 +48,10 @@ export type AgentComposerConfirm = (
   // installed on pick; the spawn prefills their invocations as the agent's
   // first input, in pick order, never auto-sent. Terminal confirms ignore them.
   skills?: WorkspaceSkill[]
+  // The effort level the launch runs at, carried only when the surface opened on
+  // an engine nothing had stored (see `initialEngine`). Absent otherwise, and
+  // the host resolves the level from the remembered defaults as it always has.
+  reasoning?: string | null
   // Optional "+ Worktree" attachment (general/specialist only): the spawn
   // creates a git worktree off the workspace repo and executes the agent in it.
   // An empty name means "derive from the agent's name at spawn".
@@ -185,6 +189,17 @@ type UseAgentComposerOptions = {
   initialMcpServers?: AgentComposerConnector[] | null
   /** Skills a parked New chat draft carried; absent starts with none. */
   initialSkills?: WorkspaceSkill[] | null
+  /**
+   * The engine this surface OPENS on for its roleless row, when the pick that
+   * chose it was never written to the remembered defaults (a card's `Go`
+   * picker, item 2473: choosing how to run one card must not move the engine of
+   * the next New chat). Absent everywhere else, and the defaults answer exactly
+   * as before.
+   *
+   * It is an opening position, not a lock: the first engine the person picks
+   * here writes a default and retires it.
+   */
+  initialEngine?: { cli: AgentCli; model: string | null; reasoning: string | null } | null
 }
 
 // Shared state + store-derived data for every AgentComposer surface (the New
@@ -199,6 +214,7 @@ export function useAgentComposer({
   initialSelection,
   initialMcpServers,
   initialSkills,
+  initialEngine,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const specialistCliDefaults = useWorkspaceStore(
@@ -257,6 +273,12 @@ export function useAgentComposer({
   // buttons) seeds it here; from then on it is an ordinary pick.
   const [mcpServers, setMcpServers] = React.useState<AgentComposerConnector[]>(() => initialMcpServers ?? [])
 
+  // The parked engine, until the person picks one. Held here rather than written
+  // to the store on the way in: a default the person did not choose is a default
+  // they cannot see they are carrying. Every engine write below retires it,
+  // because from then on the store holds the answer.
+  const [openingEngine, setOpeningEngine] = React.useState(() => initialEngine ?? null)
+
   const resolvePickerCli = React.useCallback(
     (cli: AgentCli): AgentCli => resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli),
     [agentCliOptions],
@@ -269,20 +291,29 @@ export function useAgentComposer({
         return resolvePickerCli(specialistCliDefaults[target.specialistId] ?? lastSelectedCli)
       }
       // General is just another keyed agent: its own entry in the specialist
-      // defaults map (falling back to the shared default for first display).
+      // defaults map (falling back to the shared default for first display) —
+      // or the engine this surface was opened on, which is a pick that happened
+      // somewhere else and was deliberately not stored.
+      if (openingEngine) return resolvePickerCli(openingEngine.cli)
       return resolvePickerCli(specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
     },
-    [resolvePickerCli, specialistCliDefaults, lastSelectedCli],
+    [resolvePickerCli, specialistCliDefaults, lastSelectedCli, openingEngine],
   )
   const selectionCli = cliForSelection(selection)
 
   const modelForSelection = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
       if (target.kind === 'specialist') return resolveSurfaceModel(cli, specialistModelDefaults[target.specialistId])
-      if (target.kind === 'general') return resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+      if (target.kind === 'general') {
+        // The opening engine answers for ITS OWN runtime only, exactly as a
+        // stored pair does: a model chosen for one CLI must never surface on
+        // another.
+        if (openingEngine && resolvePickerCli(openingEngine.cli) === cli) return openingEngine.model ?? undefined
+        return resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+      }
       return undefined
     },
-    [specialistModelDefaults],
+    [specialistModelDefaults, openingEngine, resolvePickerCli],
   )
 
   // Display names for a selection's remembered engine. Resolved from the
@@ -331,10 +362,13 @@ export function useAgentComposer({
   const reasoningForSelection = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
       if (target.kind === 'specialist') return resolveCliReasoning(cli, specialistModelDefaults[target.specialistId])
-      if (target.kind === 'general') return resolveCliReasoning(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+      if (target.kind === 'general') {
+        if (openingEngine && resolvePickerCli(openingEngine.cli) === cli) return openingEngine.reasoning ?? undefined
+        return resolveCliReasoning(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+      }
       return undefined
     },
-    [specialistModelDefaults],
+    [specialistModelDefaults, openingEngine, resolvePickerCli],
   )
 
   // `engine` names the runtime the confirm must launch on, for a surface where
@@ -352,16 +386,21 @@ export function useAgentComposer({
       // MCP servers reach CLI agents through their workspace config, so only
       // general/specialist confirms carry the picks.
       const servers = mcpServers.length > 0 ? { mcpServers } : {}
-      const model = engine ? { model: engine.model } : {}
+      // An opening engine is carried on the confirm for the same reason `engine`
+      // is: nothing wrote it to the defaults, so a host that read the defaults
+      // back would launch the row this surface was NOT standing on.
+      const opening = !engine && target.kind === 'general' && openingEngine
+      const model = engine ? { model: engine.model } : opening ? { model: openingEngine.model } : {}
+      const reasoning = opening ? { reasoning: openingEngine.reasoning } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
       if (target.kind === 'conversation') return { kind: 'conversation', ...picked }
       const cli = engine?.cli ?? cliForSelection(target)
       if (target.kind === 'specialist') {
         return { kind: 'specialist', specialistId: target.specialistId, cli, ...model, ...picked, ...worktree, ...servers }
       }
-      return { kind: 'general', cli, ...model, ...picked, ...worktree, ...servers }
+      return { kind: 'general', cli, ...model, ...reasoning, ...picked, ...worktree, ...servers }
     },
-    [cliForSelection, skills, worktreeName, mcpServers],
+    [cliForSelection, skills, worktreeName, mcpServers, openingEngine],
   )
 
   const moveSelection = React.useCallback(
@@ -380,7 +419,10 @@ export function useAgentComposer({
       if (target.kind === 'specialist') setSpecialistCliDefault(target.specialistId, cli)
       // General writes its own key in the specialist map — never the shared
       // lastSelectedCli, so choosing General's CLI never moves any specialist.
-      else setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
+      else {
+        setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
+        setOpeningEngine(null)
+      }
     },
     [setSpecialistCliDefault],
   )
@@ -396,6 +438,7 @@ export function useAgentComposer({
       } else {
         setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
         setSpecialistModelDefault(GENERAL_AGENT_ENGINE_KEY, selection)
+        setOpeningEngine(null)
       }
     },
     [setSpecialistCliDefault, setSpecialistModelDefault],
@@ -408,8 +451,14 @@ export function useAgentComposer({
       const key = target.kind === 'specialist' ? target.specialistId : GENERAL_AGENT_ENGINE_KEY
       setSpecialistCliDefault(key, cli)
       setSpecialistReasoningDefault(key, cli, reasoning)
+      // Effort is an axis OF the opening engine, not a replacement for it: a
+      // level chosen here moves that level and leaves the parked model standing,
+      // where picking a row retires the whole thing.
+      if (target.kind !== 'specialist') {
+        setOpeningEngine((held) => (held && resolvePickerCli(held.cli) === cli ? { ...held, reasoning } : held))
+      }
     },
-    [setSpecialistCliDefault, setSpecialistReasoningDefault],
+    [setSpecialistCliDefault, setSpecialistReasoningDefault, resolvePickerCli],
   )
 
   return {
@@ -435,6 +484,9 @@ export function useAgentComposer({
     setEngineCli,
     setEngineModel,
     setEngineReasoning,
+    // The engine this surface opened on and has not been overruled on yet, so a
+    // host parking its state can park that too rather than lose it.
+    openingEngine,
     agentCliOptions,
     generalCliOptions,
     // The installed, enabled roles in the user's order — the roster the spawn

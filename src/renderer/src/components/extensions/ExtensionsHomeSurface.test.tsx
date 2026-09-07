@@ -30,16 +30,21 @@ anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
-// React's change-event POLYFILL, given the two IE methods it reaches for. This
-// bundle evaluates react-dom before the jsdom globals exist, so React decides at
-// load that there is no DOM and never detects the browser `input` event; the
-// polyfill it falls back to watches ONE focused field at a time and attaches to
-// it through `attachEvent`/`detachEvent`, which jsdom does not have. Without
-// these two no-ops every real focus threw inside React's own dispatch — noise in
-// the log, and worse than noise: the throw came BEFORE the polyfill could let go
-// of the field it was watching, so once the model picker's search box had taken
-// focus the page's own search box could never be tracked again and typing into
-// it silently did nothing.
+// React's change-event POLYFILL, given the two IE methods it reaches for.
+//
+// THIS IS A PROPERTY OF THIS TEST ENVIRONMENT, not of anything the page does.
+// ES imports are hoisted, so the CJS bundle evaluates react-dom before the
+// statements above have put jsdom's globals on `globalThis`: React decides at
+// load that there is no DOM at all and never detects the browser `input` event,
+// and the polyfill it falls back to instead watches ONE focused field at a time
+// and attaches to it through `attachEvent`/`detachEvent`, which jsdom does not
+// have. Without these two no-ops every real focus threw inside React's own
+// dispatch — noise in the log, and worse than noise: the throw came BEFORE the
+// polyfill could let go of the field it was watching, so once the model
+// picker's search box had taken focus the page's own search box could never be
+// tracked again and typing into it silently did nothing. The other way out is a
+// module of its own imported ahead of react-dom, which is a change to how every
+// renderer test in this repo is bootstrapped and not this file's to make.
 const asAny = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>
 asAny.attachEvent = () => {}
 asAny.detachEvent = () => {}
@@ -484,11 +489,31 @@ async function main(): Promise<void> {
     [...(picker()?.querySelectorAll('[data-model-row="true"]') ?? [])] as HTMLElement[]
   const rowNamed = (needle: string) =>
     pickerRows().find((row) => row.textContent?.includes(needle))
-  /** Shut whatever is open, the way a second press on the trigger would. */
-  const closePicker = () => {
+  /** The card's glass — the pointer surface a mouse actually lands on. */
+  const glassOf = (index: number) =>
+    cardsIn(home.host)[index]?.querySelector(':scope > span[aria-hidden="true"]') as HTMLElement | undefined
+  /**
+   * Press a card the way a person does: on the glass, mouse DOWN and then the
+   * click.
+   *
+   * Both halves matter. The popover dismisses itself on a mousedown outside its
+   * surface and its trigger, so a press on the card is a dismissal followed by a
+   * click — and a glass that decided what to do at click time would reopen what
+   * the person had just closed, forever. Clicking the `Go` element directly (as
+   * this suite used to) can never see that: the glass is what a pointer hits.
+   */
+  const pressCard = (index: number) => {
+    const glass = glassOf(index)
     act(() => {
-      for (const go of goButtons()) if (go.getAttribute('aria-expanded') === 'true') go.click()
+      glass?.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+      glass?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
+  }
+  /** Shut whatever is open, the way a second press on the card does. */
+  const closePicker = () => {
+    for (const [index, card] of cardsIn(home.host).entries()) {
+      if (card.querySelector('button[aria-expanded="true"]')) pressCard(index)
+    }
   }
 
   // A model the picker can name, so the row a click lands on is one this test
@@ -549,6 +574,16 @@ async function main(): Promise<void> {
       'the button says it opened something, because it is now a popover trigger',
     )
     closePicker()
+
+    // A MOUSE can open it and a mouse can close it, on the card itself: press
+    // once and the picker is there, press again and it is gone. The second
+    // press is the one that used to be impossible — the card's glass reopened
+    // on every click, so the only way out was a click off the card entirely.
+    pressCard(0)
+    assert.ok(picker(), 'a press on the card opens the picker')
+    pressCard(0)
+    assert.equal(picker(), null, 'and a second press on the card closes it again')
+    assert.equal(ran.length, 0, 'opening and closing runs nothing')
 
     // Choosing a row IS the press that runs it, and the row's own axes ride
     // with it: the cli, the model, the effort the CLI declares, and the
@@ -629,11 +664,13 @@ async function main(): Promise<void> {
     setExtensionsSurfaceHost(null)
   }
 
-  // ── Which row it opens on ───────────────────────────────────────────────────
-  // A card declaring `require.cli` opens the picker on that runtime and says so
-  // in the quiet line Frame 4 draws; a card naming a runtime this machine does
-  // not have says THAT, on the row, with the way to install one — rather than
-  // opening on an empty list or on somebody else's CLI.
+  // ── Which row it opens on, and which rows it offers ────────────────────────
+  // A card declaring `require.cli` PRESELECTS that runtime and says so in the
+  // quiet line Frame 4 draws on its group heading. What it does NOT do is
+  // shorten the list: Frame 4 draws a Codex group under the Claude Code group,
+  // and the code agrees with the drawing, because a card's skills are copied
+  // into every skills-capable harness on the machine rather than into the one
+  // `require.cli` names.
   act(() => {
     useWorkspaceStore.setState(() => ({
       cards: [
@@ -659,25 +696,152 @@ async function main(): Promise<void> {
       cardFeedStatus: 'ready' as const,
     }))
   })
+
+  // While the plugin catalogue is still LOADING, the catalogue is the legacy
+  // fallback — three runtimes plus whatever is persisted — and `resources/plugins/`
+  // ships a dozen. So "that runtime is not installed" is a sentence this page
+  // has not earned yet, and it must not say it: a cold press on a card that
+  // requires one of the other nine would otherwise be told a lie it acts on.
   act(() => {
-    goButtons()[0]?.click()
+    goButtons()[1]?.click()
   })
+  assert.ok(picker(), 'a card whose runtime the catalogue has not answered for yet still opens a picker')
   assert.ok(
-    picker()?.textContent?.includes('The card asks for Claude Code.'),
-    'the card’s own runtime leads, and the picker says the card asked for it',
-  )
-  assert.ok(pickerRows().length > 0, 'and it opens with rows to press, not empty')
-  assert.ok(
-    pickerRows().every((row) => !row.textContent?.includes('Codex')),
-    'and the runtimes the card did not ask for are not offered — a row that launched one would launch a model the card’s harness never saw',
+    !picker()?.textContent?.includes('is not installed'),
+    'and it does not say a runtime is missing while it is still asking which are here',
   )
   closePicker()
+
+  // The catalogue answers: two runtimes, one of them with an effort axis and a
+  // model this test can name.
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      pluginCatalogEntries: [
+        {
+          id: 'claude-code',
+          displayName: 'Claude Code',
+          source: 'bundled',
+          version: 1,
+          binary: 'claude',
+          modelSelection: { options: [{ id: MODEL }], allowCustomId: true },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'high' }] },
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          source: 'bundled',
+          version: 1,
+          binary: 'codex',
+          modelSelection: { options: [{ id: 'gpt-6-astra' }], allowCustomId: true },
+        },
+      ] as never,
+      pluginCatalogStatus: 'ready' as never,
+    }))
+  })
+
+  {
+    const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
+    setExtensionsSurfaceHost({
+      onLaunchConnector: () => {},
+      onUseInAutomation: () => {},
+      onUseSkillInNewAgent: () => {},
+      onRunCard: (card, launch) => {
+        ran.push({ slug: card.slug, launch })
+        return Promise.resolve()
+      },
+    })
+
+    act(() => {
+      goButtons()[0]?.click()
+    })
+    const note = [...(picker()?.querySelectorAll('p') ?? [])].find((element) =>
+      element.textContent?.includes('the card asks for this one'),
+    )
+    assert.ok(note, 'the picker says the card asked for this runtime, in the mockup’s own words')
+    assert.ok(
+      note?.textContent?.includes('Claude Code'),
+      'and names the runtime it is about, because the line is that group’s heading',
+    )
+    assert.equal(
+      note?.nextElementSibling?.getAttribute('role'),
+      'listbox',
+      'the line is a heading over the rows it describes — not a chip in the trailing row of controls',
+    )
+    assert.ok(
+      pickerRows().some((row) => row.textContent?.includes(MODEL)),
+      'and it opens on that runtime’s rows',
+    )
+
+    // The other runtimes are still there. The surface groups by provider on its
+    // rail, so "the whole catalogue" is asserted where the catalogue lives.
+    const railFor = (label: string) =>
+      picker()?.querySelector(`[role="radio"][aria-label="${label}"]`) as HTMLElement | null
+    assert.ok(railFor('Codex'), 'the runtime the card did not name is offered too — `require.cli` leads the list, it does not shorten it')
+    act(() => {
+      railFor('Codex')?.click()
+    })
+    assert.ok(
+      pickerRows().some((row) => row.textContent?.includes('gpt-6-astra')),
+      'and its rows can be reached and pressed',
+    )
+    closePicker()
+
+    // The EFFORT the person set here rides the launch — and, like the row
+    // itself, it is never written to the engine the next New chat opens on.
+    act(() => {
+      goButtons()[0]?.click()
+    })
+    const effortTrigger = picker()?.querySelector('[data-reasoning-trigger="true"]') as HTMLElement | null
+    assert.ok(effortTrigger, 'the CLI declares an effort axis, so the picker offers it')
+    act(() => {
+      effortTrigger?.click()
+    })
+    const highLevel = [...dom.window.document.querySelectorAll('[data-reasoning-option="true"]')].find(
+      (option) => option.textContent?.trim() === 'high',
+    ) as HTMLElement | undefined
+    assert.ok(highLevel, 'and the levels the manifest declares are the levels offered')
+    act(() => {
+      highLevel?.click()
+    })
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.specialistModelDefaults?.__general__?.reasoning,
+      undefined,
+      'touching effort on a card writes NOTHING to the engine the person’s next New chat opens on',
+    )
+    act(() => {
+      rowNamed(MODEL)?.click()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    assert.deepEqual(
+      ran.at(-1)?.launch,
+      { cli: 'claude-code', model: MODEL, reasoning: 'high', permissionPreset: 'auto' },
+      'the level chosen here is the level the run launches at, on the row that was clicked',
+    )
+    // The whole point of holding the choice locally: a card is how to run ONE
+    // card, not a new default for everything after it.
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.specialistCliDefaults?.__general__,
+      undefined,
+      'and choosing a row leaves the remembered New-chat engine exactly where it was',
+    )
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.specialistModelDefaults?.__general__,
+      undefined,
+      'model included',
+    )
+    setExtensionsSurfaceHost(null)
+  }
+
+  // A card naming a CLI this machine does not have says which one, with the way
+  // to install it — now that the catalogue has actually answered.
   act(() => {
     goButtons()[1]?.click()
   })
   assert.ok(
     picker()?.textContent?.includes('a-cli-nobody-installed'),
-    'a card naming a CLI this machine does not have says which one, on the row',
+    'a card naming a CLI this machine does not have says which one',
   )
   assert.ok(
     picker()?.textContent?.includes('Install an agent CLI'),

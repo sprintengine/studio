@@ -52,6 +52,16 @@
 // The hero never had the option for the same reason on a different box: its row
 // of words is absolutely positioned over the picture.
 //
+// `Go` is RAISED OUT of the glass by the ladder's in-card step (`--z-sticky`,
+// the rung `WizardProgress` uses to lift painted text over its own track). Both
+// the glass and the picker's anchor are positioned with an automatic level, so
+// they paint in tree order and the glass — which has to be last, to cover the
+// card — was covering the button too. That cost the button its own hover tint,
+// and it cost more than that: a pointer could not reach `Go` at all, and the
+// only press that could close the picker was one outside the card. One rung is
+// the whole fix, and the card stays one target because the glass opens exactly
+// what the button opens.
+//
 // The focus ring goes on the CARD, keyed to that one button
 // (`has-[button:focus-visible]:focus-ring`, the wrapper idiom `ui/tokens.ts`
 // documents for `InboxSearchInput`). A 2px ring around a 30px pill is the wrong
@@ -139,6 +149,10 @@ function CardGo({
       popupRole="dialog"
       placement="bottom-end"
       surfaceClassName="overflow-hidden"
+      // The anchor Popover wraps the trigger in, raised one rung so the card's
+      // glass paints under this button instead of over it — see the note at the
+      // top of this file.
+      className="z-[var(--z-sticky)]"
       renderTrigger={({ ref, triggerProps, togglePopover }) => {
         const props = {
           ref,
@@ -157,9 +171,10 @@ function CardGo({
           // card is what the ring should outline.
           className: 'focus-visible:outline-none',
           onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-            // The overlay is a sibling and this press never reaches it. Kept
-            // anyway, and cheap: it is the guard that makes one press one
-            // popover whatever a later shape does with the pointer surface.
+            // The glass is a sibling painted UNDER this button, so a press here
+            // is this button's alone. Stopped anyway, and cheap: it is the
+            // guard that makes one press one popover whatever a later shape
+            // does with the pointer surface.
             event.stopPropagation()
             togglePopover()
           },
@@ -179,6 +194,10 @@ function CardGo({
           onOpenChange(false)
           onLaunch(choice)
         }}
+        // The install route opens Settings OVER this popover, and a popover
+        // left standing under a modal is what the person finds when the modal
+        // closes.
+        onNavigate={() => onOpenChange(false)}
       />
     </Popover>
   )
@@ -220,6 +239,18 @@ export function CardPoster({
   React.useEffect(() => {
     if (disabled) setOpen(false)
   }, [disabled])
+  // Whether the picker was open when the pointer went DOWN, which is the only
+  // moment at which this glass can tell an opening press from a closing one.
+  //
+  // The popover dismisses itself on any mousedown outside its surface and its
+  // trigger — and this glass is neither — so by the time the click arrives the
+  // picker is already shut and `open` already reads false. A press that read
+  // the state at click time would therefore reopen what the person had just
+  // closed, every time, and the picker could only be dismissed by clicking off
+  // the card altogether. Reading it at mousedown is what makes a second press
+  // on the card close the picker, which is what a person means by pressing
+  // again.
+  const openAtPress = React.useRef(false)
   const glass = (
     /* The card's pointer surface. It is a direct child of the article because
        every other candidate is absolutely positioned inside the splash, and an
@@ -227,23 +258,18 @@ export function CardPoster({
        against the card it means. `aria-hidden` and no tab stop: this is glass
        for a mouse, and the keyboard's way in is the `Go` inside it.
 
-       Last, and so over the `Go` as well — deliberately, and at the cost of
-       that one button's own hover tint. Lifting the button back out from under
-       it would take a z-index the ladder does not have a rung for, and the card
-       is ONE target: a press on the glass over the button opens exactly what
-       the button opens, and the hover a person sees is the card's ground and
-       hairline moving, which is the whole of the hover the task-card family
-       allows anyway.
-
-       It OPENS the picker; it never toggles it. The popover dismisses itself on
-       any pointer down outside its surface and its trigger, and this glass is
-       neither — so a toggle here would read the state after that dismissal and
-       reopen what the person was closing. */
+       Last, and so over everything the card draws — except `Go`, which is
+       raised one rung out from under it so the button keeps its own hover tint
+       and its own press. The card is still ONE target: the glass opens exactly
+       what the button opens. */
     <span
       aria-hidden="true"
       className={CARD_OVERLAY}
+      onMouseDown={() => {
+        openAtPress.current = open
+      }}
       onClick={() => {
-        if (!disabled) setOpen(true)
+        if (!disabled) setOpen(!openAtPress.current)
       }}
     />
   )

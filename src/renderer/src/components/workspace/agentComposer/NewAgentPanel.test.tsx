@@ -1557,6 +1557,48 @@ async function main(): Promise<void> {
     resetNewChatDraftsForTests()
   })
 
+  // A draft can also carry the ENGINE its pick was made on, for the one caller
+  // that picks a row and deliberately stores nothing: a card's `Go` picker
+  // (item 2473, ruling R4b). Choosing how to run one card must not move the
+  // engine of the next New chat, so the row travels in the draft instead — and
+  // the door has to open standing on it and launch it, or the pick is lost
+  // between the press and the composer.
+  await check('a draft carrying an engine opens the door on that row and launches it, storing nothing', async () => {
+    seedStore()
+    const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    resetNewChatDraftsForTests()
+    writeNewChatDraft('win-1', {
+      prompt: 'set up the design system',
+      folderPath: '/w/app',
+      selection: { kind: 'general' },
+      engine: { cli: 'claude-code', model: 'a-parked-model', reasoning: 'high' },
+    })
+    const view = await render({ draftKey: 'win-1' })
+    const engine = [...view.container.querySelectorAll('button')].find((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+    )
+    assert.ok(
+      (engine?.getAttribute('aria-label') ?? '').includes('a-parked-model'),
+      'the door opens standing on the row the draft carried',
+    )
+    const start = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Start agent',
+    )
+    await act(async () => {
+      start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(view.launches[0]?.model, 'a-parked-model', 'and launches on it')
+    assert.equal(view.launches[0]?.reasoning, 'high', 'at the effort that was chosen with it')
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.specialistCliDefaults?.__general__,
+      undefined,
+      'and standing on a parked row writes no default of its own',
+    )
+    view.unmount()
+    resetNewChatDraftsForTests()
+  })
+
   await check('without a draft key the surface keeps its per-tab state and parks nothing', async () => {
     const { readNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
     resetNewChatDraftsForTests()
