@@ -158,7 +158,9 @@ export type CliThemeSelectionSpec = {
  *   document in `<host-context>` tags and places it BEFORE the user's prompt.
  *
  * Omitted ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path
- * of the document the host wrote), `{{contextText}}` (the document itself) and
+ * of the document the host wrote), `{{contextFileJson}}` (that path as a JSON
+ * string literal, quotes included, for a template that embeds it in a JSON
+ * document), `{{contextText}}` (the document itself) and
  * `{{contextToml}}` (the document as a TOML basic-string literal, quoted and
  * escaped, for a CLI that takes it through a config override). Nothing renders
  * when the host has nothing to say.
@@ -333,7 +335,7 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/
 const INJECTION_MODES: CliPromptInjectionMode[] = ['positional-arg', 'stdin-pipe', 'send-after-ready', 'file']
 const CONTEXT_INJECTION_MODES: CliContextInjectionMode[] = ['argv', 'env', 'prompt']
 /** The variables a `contextInjection` template may spend the document through. */
-const CONTEXT_TEMPLATE_VARIABLES = ['contextFile', 'contextText', 'contextToml'] as const
+const CONTEXT_TEMPLATE_VARIABLES = ['contextFile', 'contextFileJson', 'contextText', 'contextToml'] as const
 const COMPLETION_MODES: CliCompletionMode[] = ['process-exit', 'output-sentinel', 'mcp-signal', 'idle-at-prompt']
 const MCP_FORMATS: CliMcpConfigFormat[] = ['claude-code', 'codex', 'opencode', 'generic']
 const VARIABLE_TYPES: CliVariableType[] = ['string', 'enum', 'boolean', 'number']

@@ -196,7 +196,14 @@ function buildVariableScope(
   // (codex's `-c developer_instructions=<value>` parses its value as TOML, so
   // an unescaped newline there is a parse error). Escaping lives here rather
   // than in the manifest, because a manifest is data and cannot escape anything.
-  if (context.contextFile !== undefined) scope.set('contextFile', context.contextFile)
+  if (context.contextFile !== undefined) {
+    scope.set('contextFile', context.contextFile)
+    // As a JSON string literal (quotes included), for a manifest that embeds the
+    // path inside a JSON document (OpenCode's OPENCODE_CONFIG_CONTENT). A raw
+    // Windows path has backslashes, and a backslash inside a JSON string is an
+    // escape — the raw form would hand the CLI an unparseable config.
+    scope.set('contextFileJson', JSON.stringify(context.contextFile))
+  }
   if (context.contextText !== undefined) {
     scope.set('contextText', context.contextText)
     scope.set('contextToml', toTomlBasicString(context.contextText))

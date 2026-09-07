@@ -75,9 +75,10 @@ export type PluginPromptInjection = {
 //   wrapped in `<host-context>` tags and placed BEFORE the user's prompt.
 //
 // Absent ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path of
-// the written document), `{{contextText}}` (the document itself) and
-// `{{contextToml}}` (the document as a TOML basic-string literal, for a CLI that
-// takes it through a config override). Nothing renders when the host had nothing
+// the written document), `{{contextFileJson}}` (that path as a JSON string
+// literal, for a template that embeds it in a JSON document), `{{contextText}}`
+// (the document itself) and `{{contextToml}}` (the document as a TOML
+// basic-string literal, for a CLI that takes it through a config override). Nothing renders when the host had nothing
 // to say, so an ordinary repo's launch is unchanged.
 export type PluginContextInjectionMode = 'argv' | 'env' | 'prompt'
 

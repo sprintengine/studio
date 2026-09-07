@@ -1179,10 +1179,21 @@ function testOpenCodeTakesTheContextThroughItsConfigEnv(): void {
       contextFile: HOST_CONTEXT_FILE,
       contextText: HOST_CONTEXT_TEXT,
     })
-    assert.equal(out.env.OPENCODE_CONFIG_CONTENT, `{"instructions":["${HOST_CONTEXT_FILE}"]}`)
+    assert.equal(out.env.OPENCODE_CONFIG_CONTENT, `{"instructions":[${JSON.stringify(HOST_CONTEXT_FILE)}]}`)
     // The env is the channel; nothing goes on the command line.
     assert.ok(!out.argv.some((arg) => arg.includes('instructions')), 'no argv leakage')
   }
+  // A Windows path has backslashes, which are escapes inside a JSON string: the
+  // path is embedded as a JSON literal so the config still parses.
+  const windowsFile = 'C:\\Users\\me\\AppData\\Roaming\\Studio\\host-context\\sid.md'
+  const windows = renderAgentLaunchArgv({
+    cli: 'opencode',
+    sessionId: 'sid_ctx',
+    contextFile: windowsFile,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  const parsed = JSON.parse(windows.env.OPENCODE_CONFIG_CONTENT) as { instructions: string[] }
+  assert.deepEqual(parsed.instructions, [windowsFile])
 }
 
 // A CLI with no out-of-band channel declares `prompt`: main wraps the document

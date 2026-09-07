@@ -49,9 +49,9 @@
     "mode": "positional-arg"
   },
   "contextInjection": {
-    "$comment": "OpenCode has no system-prompt flag; it merges OPENCODE_CONFIG_CONTENT (JSON) over the config it already loaded, and `instructions` is a list of instruction FILES. Verified against the installed binary, which reads process.env.OPENCODE_CONFIG_CONTENT and merges it last. Env rather than argv, so a resumed session is re-told for free. A user who already exports OPENCODE_CONFIG_CONTENT is merged with rather than clobbered — see mergeProviderLaunchEnv in terminal-launch.ts.",
+    "$comment": "OpenCode has no system-prompt flag; it merges OPENCODE_CONFIG_CONTENT (JSON) over the config it already loaded, and `instructions` is a list of instruction FILES. Verified against the installed binary, which reads process.env.OPENCODE_CONFIG_CONTENT and merges it last. Env rather than argv, so a resumed session is re-told for free. The path goes in as {{contextFileJson}} — a JSON string literal — because a Windows path's backslashes would otherwise be JSON escapes and the config would not parse. A user who already exports OPENCODE_CONFIG_CONTENT is merged with rather than clobbered — see mergeProviderLaunchEnv in terminal-launch.ts.",
     "mode": "env",
-    "env": { "OPENCODE_CONFIG_CONTENT": "{\"instructions\":[\"{{contextFile}}\"]}" }
+    "env": { "OPENCODE_CONFIG_CONTENT": "{\"instructions\":[{{contextFileJson}}]}" }
   },
   "completion": {
     "mode": "process-exit"
