@@ -200,6 +200,8 @@ check('only the health shape counts as a Studio', () => {
     transportVersion: 1,
     protocolVersions: ['2025-06-18'],
   })
+  // An older Studio, which says no `capabilities` at all, is still a Studio:
+  // discovery predates the field and must not start refusing machines over it.
 
   // Anything else on that port — another service, an error page, a captive
   // portal — is not a Studio. Treating a stray 200 as one would put an
@@ -226,8 +228,12 @@ check('nothing beyond product and protocol version is carried out of a peer’s 
   const payload = readHealthPayload(
     JSON.stringify({
       product: STUDIO_MCP_SERVER_NAME,
-      transportVersion: 1,
+      transportVersion: 2,
       protocolVersions: ['2025-06-18'],
+      // A field a newer Studio publishes (2026-09-06) and one it does not: the
+      // prober must read past both, since it probes whatever is out there.
+      capabilities: ['events', 'sliced-frames'],
+      somethingLater: true,
       userEmail: 'someone@example.com',
       workspaces: ['/Users/someone/secret-project'],
       pairedDevices: 3,
@@ -235,6 +241,7 @@ check('nothing beyond product and protocol version is carried out of a peer’s 
   )
   assert.ok(payload)
   assert.deepEqual(Object.keys(payload).sort(), ['product', 'protocolVersions', 'transportVersion'])
+  assert.equal(payload.transportVersion, 2)
   assert.equal(JSON.stringify(payload).includes('someone@example.com'), false)
   assert.equal(JSON.stringify(payload).includes('secret-project'), false)
 })

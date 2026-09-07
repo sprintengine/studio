@@ -11,12 +11,14 @@ import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME, type GatewayAud
 import { createTailnetDeviceStore, TAILNET_DEVICES_FILENAME, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import {
   createTailnetGatewayServer,
+  TAILNET_CAPABILITIES,
   TAILNET_HEALTH_PATH,
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  TAILNET_TRANSPORT_VERSION,
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
@@ -829,6 +831,11 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     const identity = await call(harness.port, 'GET', TAILNET_IDENTITY_PATH, { token: device.deviceToken })
     assert.equal(identity.status, 200)
     assert.equal((identity.body as { deviceId: string }).deviceId, device.deviceId)
+    // Identity says the same wire facts health does, for a client that paired
+    // long ago and is asking again on a Studio that may since have moved on.
+    const identityBody = identity.body as Record<string, unknown>
+    assert.equal(identityBody.transportVersion, TAILNET_TRANSPORT_VERSION)
+    assert.deepEqual(identityBody.capabilities, ['events', 'sliced-frames'])
 
     // The pairing code is one-time: replaying it does not mint a second device.
     const replayed = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -899,9 +906,16 @@ export async function testHealthEndpointLeaksNothingBeyondProductAndProtocol(): 
     const answer = await call(harness.port, 'GET', TAILNET_HEALTH_PATH)
     assert.equal(answer.status, 200)
     const body = answer.body as Record<string, unknown>
-    assert.deepEqual(Object.keys(body).sort(), ['product', 'protocolVersions', 'transportVersion'])
+    assert.deepEqual(Object.keys(body).sort(), ['capabilities', 'product', 'protocolVersions', 'transportVersion'])
     assert.equal(body.product, STUDIO_MCP_SERVER_NAME)
     assert.deepEqual(body.protocolVersions, [...SUPPORTED_MCP_PROTOCOL_VERSIONS])
+    // What the wire speaks IS a prospective client's business: it is the whole
+    // reason the route is unauthenticated. Version 2 and the feature list say
+    // it outright, so a phone need not probe for the change feed.
+    assert.equal(body.transportVersion, 2)
+    assert.equal(TAILNET_TRANSPORT_VERSION, 2)
+    assert.deepEqual(body.capabilities, ['events', 'sliced-frames'])
+    assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
     // Nothing about this machine, its user, its workspaces, or its devices.
     assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)
   } finally {

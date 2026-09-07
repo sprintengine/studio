@@ -20,6 +20,7 @@ import {
 } from '../mcp-dispatch'
 import { isAllowedTailnetBindAddress } from './tailnet-interface'
 import {
+  TAILNET_CAPABILITIES,
   TAILNET_HEALTH_PATH,
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
@@ -29,6 +30,7 @@ import {
   TAILNET_EVENTS_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  TAILNET_TRANSPORT_VERSION,
   TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
@@ -84,10 +86,11 @@ export {
   TAILNET_WS_TICKET_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  // The wire's own version and feature list live beside the paths; re-exported
+  // here so a caller that already imports the server keeps one import.
+  TAILNET_CAPABILITIES,
+  TAILNET_TRANSPORT_VERSION,
 } from './tailnet-routes'
-
-/** Version of THIS transport's envelope, separate from the MCP protocol version. */
-export const TAILNET_TRANSPORT_VERSION = 1
 
 /** The advisory connection-metadata declaration; only the stateful WebSocket can hold it. */
 const CONNECT_METHOD = 'sprintengine.studio/connect'
@@ -484,6 +487,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       writeJson(response, 200, {
         product: STUDIO_MCP_SERVER_NAME,
         transportVersion: TAILNET_TRANSPORT_VERSION,
+        capabilities: [...TAILNET_CAPABILITIES],
         protocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
       })
       return
@@ -508,6 +512,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         deviceName: outcome.device.name,
         deviceToken: outcome.deviceToken,
         scopes: outcome.device.scopes,
+        // What it just paired with, in the exchange it already made: a client
+        // learns the wire it is on without a second call to health.
+        transportVersion: TAILNET_TRANSPORT_VERSION,
+        capabilities: [...TAILNET_CAPABILITIES],
       })
       return
     }
@@ -538,6 +546,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         scopes: device.scopes,
         serverInfo: { name: options.serverName, version: options.serverVersion },
         transportVersion: TAILNET_TRANSPORT_VERSION,
+        capabilities: [...TAILNET_CAPABILITIES],
         protocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
       })
       return
