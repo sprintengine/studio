@@ -1153,6 +1153,13 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(rowOf(settleId).settledAt, bornAt + 4 * DAY, 'the sweep stamps settledAt')
   assert.equal(rowOf(settleId).settledOverride ?? null, null, 'the sweep records no hand decision')
 
+  // Wanting the person (a prompt landed after the sweep's reading): a
+  // sweep-settled row wakes for it.
+  reconcile(bornAt + 5 * DAY, [], [settleId])
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'a sweep-settled row that wants the person wakes')
+  reconcile(bornAt + 5 * DAY)
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'and settles again once nothing wants them')
+
   // Busy again: it wakes.
   reconcile(bornAt + 5 * DAY, [settleId])
   assert.equal(rowOf(settleId).settledAt ?? null, null, 'a busy resting row wakes')
@@ -1166,6 +1173,10 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(rowOf(settleId).settledOverride, 'active', 'and holds the row active')
   reconcile(bornAt + 30 * DAY)
   assert.equal(rowOf(settleId).settledAt ?? null, null, 'the sweep honours the hold, however old the row')
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, true)
+  reconcile(bornAt + 30 * DAY, [], [settleId])
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'a hand Settle survives a row that wants the person')
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, false)
 
   // Typing spends the hold, and the next sweep applies the usual rule.
   useWorkspaceStore.getState().recordWorkspaceTerminalActivity(settleId, bornAt + 30 * DAY)

@@ -1,66 +1,12 @@
 import type { Workspace } from '../types/workspace'
-import { MONOTONIC_WORKSPACE_CLOCKS } from '../../../shared/workspace-sync'
-
-// A workspace folds into its folder's "Show more" disclosure once it has gone
-// this long without being worked on. Kept as a single constant on purpose — the
-// fold is intentionally simple (recency only), with no per-user configuration.
-export const WORKSPACE_STALE_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000 // 2 days
-
-// Even inside the recency window, a folder shows at most this many rows at
-// rest; the overflow joins the fold (newest first, ahead of the stale rows).
-// Pinned rows never count against the cap — they must always be visible.
-export const WORKSPACE_RECENT_ROW_CAP = 10
+import { MONOTONIC_WORKSPACE_CLOCKS, workspaceFieldMayApply } from '../../../shared/workspace-sync'
 
 // "Last worked on" is the most recent of when the workspace was created and when
 // the user last typed into one of its terminals (lastTerminalActivityAt, fed from
 // lastInputAt — not terminal output, so reopening a workspace never refreshes it).
-// Both already live on the workspace record, so the fold needs no new persisted state.
+// The rest rule (`workspaceSettle.ts`) builds on this, adding the agent's turn end.
 export function workspaceLastWorkedAt(workspace: Workspace): number {
   return Math.max(workspace.createdAt, workspace.lastTerminalActivityAt ?? 0)
-}
-
-export function isWorkspaceStale(workspace: Workspace, now: number): boolean {
-  return now - workspaceLastWorkedAt(workspace) >= WORKSPACE_STALE_THRESHOLD_MS
-}
-
-export type WorkspaceRecencyPartition = {
-  recent: Workspace[]
-  stale: Workspace[]
-}
-
-// Splits a folder's workspaces into the rows shown eagerly and the rows tucked
-// behind "Show more", preserving the incoming order within each group.
-// Two rules decide the eager set:
-//  1. Recency window: only rows worked within WORKSPACE_STALE_THRESHOLD_MS.
-//  2. Row cap: at most WORKSPACE_RECENT_ROW_CAP rows even inside the window —
-//     the overflow moves to the FRONT of the fold (it is newer than the stale
-//     rows behind it), so paging the fold reads in recency order.
-// `isPinned` keeps a workspace visible regardless of age or cap — the sidebar
-// passes the active, starred, and busy (working/failed/needs-input) workspaces,
-// which must never hide.
-export function partitionWorkspacesByRecency(
-  workspaces: Workspace[],
-  now: number,
-  isPinned: (workspace: Workspace) => boolean,
-  recentRowCap: number = WORKSPACE_RECENT_ROW_CAP
-): WorkspaceRecencyPartition {
-  const recent: Workspace[] = []
-  const overflow: Workspace[] = []
-  const stale: Workspace[] = []
-  for (const workspace of workspaces) {
-    if (isPinned(workspace)) {
-      // Pinned rows always show, even past the cap — hiding the active, a
-      // starred, or a busy workspace is never acceptable tidiness.
-      recent.push(workspace)
-    } else if (isWorkspaceStale(workspace, now)) {
-      stale.push(workspace)
-    } else if (recent.length < recentRowCap) {
-      recent.push(workspace)
-    } else {
-      overflow.push(workspace)
-    }
-  }
-  return { recent, stale: [...overflow, ...stale] }
 }
 
 // Workspaces touched within this window all count as "just now" for ordering, so
@@ -75,8 +21,8 @@ export const RECENT_ACTIVITY_TIE_WINDOW_MS = 30 * 60 * 1000 // 30 minutes
 // Opening an idle workspace flips it "live" (its agents come back to life), but
 // that transient blip is not work and must not move the row; only genuine work
 // — creation or terminal input, via workspaceLastWorkedAt — sets position.
-// Liveness still drives the status dot and pins busy rows visible
-// (partitionWorkspacesByRecency); it just never reorders them.
+// Liveness still drives the status dot and holds busy rows out of the Settled
+// shelf (`workspaceSettle.ts`); it just never reorders them.
 function activitySortKey(workspace: Workspace, now: number): number {
   const workedAt = workspaceLastWorkedAt(workspace)
   return now - workedAt < RECENT_ACTIVITY_TIE_WINDOW_MS ? now : workedAt
@@ -154,12 +100,9 @@ export function keepLaterWorkspaceClocks(
 ): Workspace {
   let merged: Workspace | null = null
   for (const clock of MONOTONIC_WORKSPACE_CLOCKS) {
-    const mine = existing[clock]
-    const theirs = incoming[clock]
-    if (typeof mine !== 'number') continue
-    if (typeof theirs === 'number' && theirs >= mine) continue
+    if (workspaceFieldMayApply(existing as unknown as Record<string, unknown>, clock, incoming[clock])) continue
     merged = merged ?? { ...incoming }
-    merged[clock] = mine
+    merged[clock] = existing[clock]
   }
   return merged ?? incoming
 }

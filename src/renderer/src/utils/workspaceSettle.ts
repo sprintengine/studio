@@ -85,10 +85,13 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
  *    keystroke does) and blocks settling an active one.
  *  - `held`: the row wants the person — blocked on a prompt, or wearing the
  *    unseen "finished while you were away" mark. A thing to look at, not
- *    activity: it blocks settling, and it never wakes a row the person has
- *    already chosen to settle. A prompt is a persistent state that was
- *    already true when Settle was chosen, so treating it as a wake would undo
- *    every Settle within a tick until the prompt is answered.
+ *    activity: it blocks settling, and it wakes a row the SWEEP settled (a
+ *    row that wants the person does not belong in the shelf unless the
+ *    person put it there — the sweep can only have settled it on a reading
+ *    taken before the sessions were known). It never wakes a hand Settle: a
+ *    prompt is a persistent state that was already true when Settle was
+ *    chosen, so treating it as a wake would undo every Settle within a tick
+ *    until the prompt is answered.
  *  - `active`: the row someone is looking at in some window. Being looked at
  *    is not activity either: selecting a settled row to read it keeps it
  *    settled, and an active row that has gone quiet is simply never settled
@@ -104,7 +107,10 @@ export function decideWorkspaceSettlement(input: {
   held: boolean
 }): SettlementDecision {
   const { workspace, now, active, busy, held } = input
-  if (isSettledWorkspace(workspace)) return busy ? 'wake' : 'none'
+  if (isSettledWorkspace(workspace)) {
+    if (busy) return 'wake'
+    return held && workspace.settledOverride == null ? 'wake' : 'none'
+  }
   if (active || busy || held) return 'none'
   return shouldAutoSettleWorkspace(workspace, now) ? 'settle' : 'none'
 }

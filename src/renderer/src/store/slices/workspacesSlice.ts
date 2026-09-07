@@ -91,8 +91,11 @@ const activityClockSyncedAt = new Map<WorkspaceId, number>()
 // every window applies them locally — but only the window a workspace is
 // routed to SPEAKS for it to main. Otherwise M windows send M identical
 // commands for one turn end and main commits, rebuilds and re-broadcasts each.
+// A row no window routes (a registry whose window entry was dropped) is the
+// primary window's to speak for, so nothing is left with no reporter.
 function thisWindowSpeaksFor(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): boolean {
-  return findWorkspaceWindow(state, workspaceId)?.id === getCurrentWorkspaceWindowIdForSlice()
+  const owner = findWorkspaceWindow(state, workspaceId)?.id ?? PRIMARY_WORKSPACE_WINDOW_ID
+  return owner === getCurrentWorkspaceWindowIdForSlice()
 }
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
@@ -988,8 +991,12 @@ export function createWorkspacesSlice(
     // unseen finished mark) — because those verdicts are derived from live
     // sessions the store does not hold; every window's active workspace is
     // exempt here so the sweep can never settle what someone is looking at.
-    // Every window runs it and applies the same decisions; only the window a
-    // row is routed to reports them. The rule itself is
+    // Every window runs it, but a window decides only for the rows it is
+    // routed — `heldIds` carries this window's own unseen marks, so two
+    // windows can disagree about a row, and a decision applied locally but
+    // never reported would leave that window at odds with main until the
+    // next snapshot reset it. The routed window decides, applies and
+    // reports; the others learn from main's broadcast. The rule itself is
     // `decideWorkspaceSettlement`.
     reconcileWorkspaceSettlement: ({ now, busyIds, heldIds }) => {
       // Decide against the current state and write only when a row moves,
@@ -999,8 +1006,9 @@ export function createWorkspacesSlice(
         current.activeWorkspaceId,
         ...current.workspaceWindows.map((windowState) => windowState.activeWorkspaceId),
       ])
-      const patches: [WorkspaceId, WorkspaceFieldsPatch, boolean][] = []
+      const patches: [WorkspaceId, WorkspaceFieldsPatch][] = []
       for (const ws of current.workspaces) {
+        if (!thisWindowSpeaksFor(current, ws.id)) continue
         const decision = decideWorkspaceSettlement({
           workspace: ws,
           now,
@@ -1010,7 +1018,7 @@ export function createWorkspacesSlice(
         })
         if (decision === 'none') continue
         const patch = decision === 'settle' ? settleWorkspacePatch(ws, now, null) : wakeWorkspacePatch(null)
-        patches.push([ws.id, patch, thisWindowSpeaksFor(current, ws.id)])
+        patches.push([ws.id, patch])
       }
       if (patches.length === 0) return
       set((state) => {
@@ -1019,9 +1027,7 @@ export function createWorkspacesSlice(
           if (ws) Object.assign(ws, patch)
         }
       })
-      for (const [id, patch, speaks] of patches) {
-        if (speaks) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
-      }
+      for (const [id, patch] of patches) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
     // Monotonic: `lastTerminalActivityAt` only moves forward, and is fed from the

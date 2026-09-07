@@ -200,6 +200,8 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
   return {
     getLiveSnapshot: () => liveSessions,
     getSemanticSnapshot: () => semanticSessions,
+    /** True once main has answered at least once — before that, "no sessions" is "not asked yet". */
+    hasSnapshot: () => hasLiveSnapshot,
     refresh,
     subscribeLive: (listener: () => void) => subscribe(liveListeners, listener),
     subscribeLiveSnapshot,
@@ -211,6 +213,7 @@ const terminalSessionsStore = createTerminalSessionsStore()
 
 export const getLiveTerminalSessionsSnapshot = terminalSessionsStore.getLiveSnapshot
 export const getTerminalSessionsSnapshot = terminalSessionsStore.getSemanticSnapshot
+export const hasTerminalSessionsSnapshot = terminalSessionsStore.hasSnapshot
 export const refreshTerminalSessions = terminalSessionsStore.refresh
 export const subscribeLiveTerminalSessions = terminalSessionsStore.subscribeLive
 export const subscribeLiveTerminalSessionSnapshots = terminalSessionsStore.subscribeLiveSnapshot

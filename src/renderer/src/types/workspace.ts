@@ -1072,7 +1072,7 @@ export type Workspace = {
   settledAt?: number | null
   // A hand decision about rest that outranks the sweep. `'settled'` is a
   // manual Settle; `'active'` is a manual Un-settle, which holds the row in
-  // the active list until new activity (typing, a turn) clears it — otherwise
+  // the active list until new input into it clears it — otherwise
   // the sweep would settle it straight back on its next tick. The sweep never
   // touches a row carrying either value.
   settledOverride?: 'settled' | 'active' | null

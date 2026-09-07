@@ -106,6 +106,27 @@ export type WorkspaceSyncCommand =
  */
 export const MONOTONIC_WORKSPACE_CLOCKS = ['lastTerminalActivityAt', 'lastTurnEndedAt'] as const
 
+/** True unless writing `value` into `key` would roll an activity clock back. */
+export function workspaceFieldMayApply(record: Record<string, unknown>, key: string, value: unknown): boolean {
+  if (!(MONOTONIC_WORKSPACE_CLOCKS as readonly string[]).includes(key)) return true
+  const current = record[key]
+  return typeof current !== 'number' || (typeof value === 'number' && value >= current)
+}
+
+/**
+ * Apply a field patch in place. The one implementation of the patch contract
+ * — absent key = no opinion, explicit null = cleared, a clock only advances —
+ * shared by main's reducer and the renderer's inbound path, so the two can
+ * never disagree about what a patch did.
+ */
+export function applyWorkspaceFieldsPatch(record: Record<string, unknown>, patch: WorkspaceFieldsPatch): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (!workspaceFieldMayApply(record, key, value)) continue
+    record[key] = value
+  }
+}
+
 /**
  * The registry fields a user edits through `workspace.update_fields`. An absent
  * key means "this window has no opinion" and never clears main's copy; an
@@ -353,18 +374,7 @@ function applyWorkspaceFields(
 ): void {
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
-  // An absent key is "no opinion" and is skipped; an explicit null is the
-  // user clearing the field and is written through — except that an activity
-  // clock only moves forward (MONOTONIC_WORKSPACE_CLOCKS).
-  const record = workspace as Record<string, unknown>
-  for (const [key, value] of Object.entries(payload.patch)) {
-    if (value === undefined) continue
-    if ((MONOTONIC_WORKSPACE_CLOCKS as readonly string[]).includes(key)) {
-      const current = record[key]
-      if (typeof current === 'number' && (typeof value !== 'number' || value < current)) continue
-    }
-    record[key] = value
-  }
+  applyWorkspaceFieldsPatch(workspace as Record<string, unknown>, payload.patch)
 }
 
 function applyWorkspaceAgentPatch(

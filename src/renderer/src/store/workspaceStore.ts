@@ -123,6 +123,7 @@ import {
   normalizeWorkspaceForPartialize,
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
+import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
@@ -1587,15 +1588,11 @@ function initWorkspaceSyncClient(): void {
       }))),
     applyWorkspaceFieldsUpdated: (apply) =>
       applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {
+        // The shared patch contract: absent = no opinion, null = cleared, a
+        // clock only advances (`applyWorkspaceFieldsPatch`).
         const next = { ...workspace } as Record<string, unknown>
-        // An absent key is "no opinion" and is skipped; an explicit null is the
-        // user clearing the field and is written through.
-        for (const [key, value] of Object.entries(apply.patch)) {
-          if (value === undefined) continue
-          next[key] = value
-        }
-        // A clock another window read earlier never rolls this one back.
-        return keepLaterWorkspaceClocks(workspace, next as Workspace)
+        applyWorkspaceFieldsPatch(next, apply.patch)
+        return next as Workspace
       })),
     applyWorkspaceAgentUpdated: (apply) =>
       applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {

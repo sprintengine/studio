@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
@@ -73,7 +74,7 @@ import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../uti
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import {
-  partitionWorkspacesByRecency,
+  sortWorkspacesByActivity,
   sortWorkspacesByAttention,
   type WorkspaceAttentionTier,
 } from '../../utils/workspaceRecency'
@@ -235,9 +236,6 @@ export function resolveGroups(
   return { keys, headers }
 }
 
-// Folded (older/history) rows reveal in pages of this size — pressing the
-// "Show N older" row repeatedly pages through the remainder.
-const FOLD_PAGE_SIZE = 5
 
 const DRAG_MIME_WORKSPACE = 'application/x-multicode-workspace'
 const DRAG_MIME_FOLDER = 'application/x-multicode-folder'
@@ -529,60 +527,46 @@ function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
   return runtimeState !== 'canceled' && runtimeState !== 'complete'
 }
 
-// The one fold idiom for older rows: hidden rows reveal FOLD_PAGE_SIZE at a
-// time ("Show 5 more" → 5 more → …), and whenever anything extra is revealed a
-// "Show fewer" affordance snaps the fold back to the at-rest view.
-function ShowOlderRow({
-  hiddenTotal,
-  revealed,
+// The Settled shelf's fold row (settled-chats, 2026-09-07): the one line a
+// folder shows for its resting chats — "Settled", and how many — collapsed by
+// default, in the fold-row idiom the older-rows disclosure used to carry. The
+// section rule applies (design-system/components/section): a heading earns
+// its place by separating one group from another, so the row renders only
+// when the folder has settled rows to separate from its active ones.
+function SettledShelfRow({
+  count,
+  expanded,
   controlsId,
-  onShowMore,
-  onShowFewer,
+  onToggle,
 }: {
-  hiddenTotal: number
-  revealed: number
+  count: number
+  expanded: boolean
   controlsId: string
-  onShowMore: () => void
-  onShowFewer: () => void
+  onToggle: () => void
 }) {
-  const remaining = hiddenTotal - revealed
-  const rowClass =
-    `flex h-control-xs cursor-pointer select-none items-center gap-1.5 rounded-md text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
   return (
     <div className="mx-1.5 my-0.5 flex items-center gap-1">
-      {remaining > 0 ? (
-        <button
-          type="button"
-          onClick={onShowMore}
-          aria-expanded={revealed > 0}
-          aria-controls={controlsId}
-          // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file)
-          className={`${rowClass} min-w-0 flex-1 pl-[30px] pr-1.5`}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={controlsId}
+        // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file)
+        className={`flex h-control-xs min-w-0 flex-1 cursor-pointer select-none items-center gap-1.5 rounded-md pl-[30px] pr-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+            expanded ? '' : '-rotate-90'
+          }`}
         >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-hidden="true"
-            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
-              revealed > 0 ? '' : '-rotate-90'
-            }`}
-          >
-            <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="truncate tabular-nums">{`Show ${Math.min(FOLD_PAGE_SIZE, remaining)} more`}</span>
-        </button>
-      ) : null}
-      {revealed > 0 ? (
-        <button
-          type="button"
-          onClick={onShowFewer}
-          aria-controls={controlsId}
-          // design-tokens-allow: alignment — the same 30px fold-row indent as the Show-more button above, when this button stands alone
-          className={`${rowClass} shrink-0 px-2 ${remaining > 0 ? '' : 'flex-1 pl-[30px]'}`}
-        >
-          Show fewer
-        </button>
-      ) : null}
+          <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="truncate">Settled</span>
+        <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+      </button>
     </div>
   )
 }
@@ -1092,6 +1076,7 @@ export default function WorkspaceSidebar({
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
+  const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
   const addWorkspaceFromStore = useWorkspaceStore((s) => s.addWorkspace)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
@@ -1242,15 +1227,19 @@ export default function WorkspaceSidebar({
   // the Extensions home — which uses the same resolver — listed it.
   const now = useRelativeNow()
 
-  // The rest sweep (settled-chats, 2026-09-07): on mount, on the 30 s tick the
-  // idle labels ride, and whenever an agent's activity flips — so a resting
-  // row whose agent starts working wakes at once, not a tick later. This is
-  // the one place that knows every blocker: what is working (activity, so it
+  // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
+  // labels ride, and whenever an agent's activity flips — so a resting row
+  // whose agent starts working wakes at once, not a tick later. This is the
+  // one place that knows every blocker: what is working (activity, so it
   // wakes a resting row and holds an active one), and what wants the person
   // (a prompt, or the unseen finished mark — a thing to look at, which holds
-  // a row out of the shelf but never wakes one). The store owns the rule and
-  // the record; see `reconcileWorkspaceSettlement`.
+  // a row out of the shelf and wakes one the sweep settled, never one the
+  // person did). Not before main has listed the sessions once: until then
+  // every row reads idle, and a chat parked at a prompt for days would settle
+  // on the mount and wake a beat later. The store owns the rule and the
+  // record; see `reconcileWorkspaceSettlement`.
   useEffect(() => {
+    if (!hasTerminalSessionsSnapshot()) return
     const busyIds = new Set<WorkspaceId>()
     const heldIds = new Set<WorkspaceId>(unseenDoneIds)
     for (const [id, activity] of Object.entries(activityByWorkspaceId)) {
@@ -1258,12 +1247,12 @@ export default function WorkspaceSidebar({
       else if (activity === 'needs-input') heldIds.add(id)
     }
     useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
-  }, [now, activityByWorkspaceId, unseenDoneIds])
+  }, [now, activityByWorkspaceId, unseenDoneIds, terminalSessions])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
-  // How many folded (stale) rows each folder has revealed via "Show N older" —
-  // paged in FOLD_PAGE_SIZE steps rather than an all-or-nothing toggle.
-  const [revealedStaleFolders, setRevealedStaleFolders] = useState<Record<string, number>>({})
+  // Which folders have their Settled shelf open. Session-only and closed by
+  // default: the shelf is where rows go to stop asking for attention.
+  const [expandedSettledFolders, setExpandedSettledFolders] = useState<Record<string, boolean>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
   const [remoteCollapsed, setRemoteCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
@@ -1476,14 +1465,11 @@ export default function WorkspaceSidebar({
   // stitches against the full `workspaces` array so a hidden workspace keeps its
   // place in the persisted order. Cross-workspace search now lives in the
   // global-search palette (T6), not a sidebar box.
-  // Resting rows (`settledAt`, settled-chats 2026-09-07) are out of the rail
-  // for now exactly as the retired archive stamp kept them out; the folder's
-  // Settled shelf that shows them lands with the sweep that fills it.
+  // Resting rows (`settledAt`, settled-chats 2026-09-07) stay in the rail:
+  // each folder shows them in its Settled shelf (renderFolderBody), so a chat
+  // that has come to rest is one glance away rather than gone.
   const railWorkspaces = useMemo(
-    () =>
-      workspaces.filter(
-        (workspace) => !isHiddenFromRail(workspace) && !isSettledWorkspace(workspace)
-      ),
+    () => workspaces.filter((workspace) => !isHiddenFromRail(workspace)),
     [workspaces]
   )
 
@@ -1544,10 +1530,12 @@ export default function WorkspaceSidebar({
   // finished, then running, then at rest — and inside each band by how long ago
   // each was worked on. This supersedes manual drag position within the Starred
   // section.
+  // A starred row never settles on its own, but a person can settle one by
+  // hand; rest means rest, so it then shows in its folder's shelf alone.
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByAttention(
-        railWorkspaces.filter((workspace) => isStarred(workspace.highlight)),
+        railWorkspaces.filter((workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace)),
         attentionTierOf
       ),
     [railWorkspaces, attentionTierOf]
@@ -1558,23 +1546,6 @@ export default function WorkspaceSidebar({
     for (const ws of workspaces) map.set(ws.id, ws)
     return map
   }, [workspaces])
-
-  // A workspace stays out of the per-folder "Show older" fold while it is the
-  // active one, starred, or busy — a workspace waiting on input or running a
-  // live agent must never hide itself, even if its last terminal output was
-  // days ago. A row that just finished is the same case: it is idle by then, so
-  // only its unseen-done mark keeps it out of the fold. Without this, a long
-  // run that started days after you last typed would land its green row
-  // straight into the disclosure nobody opens.
-  const isWorkspacePinned = useCallback(
-    (workspace: Workspace) => {
-      if (workspace.id === activeWorkspaceId) return true
-      if (isStarred(workspace.highlight)) return true
-      if (unseenDoneIds.has(workspace.id)) return true
-      return (activityByWorkspaceId[workspace.id] ?? 'idle') !== 'idle'
-    },
-    [activeWorkspaceId, activityByWorkspaceId, unseenDoneIds]
-  )
 
   // Seed / repair the single tab stop. When no row owns it (first paint) or the
   // owning row has left the DOM (folder collapsed, workspace closed), hand it to
@@ -1592,7 +1563,7 @@ export default function WorkspaceSidebar({
     groups,
     starredWorkspaces,
     collapsedFolders,
-    revealedStaleFolders,
+    expandedSettledFolders,
     starredCollapsed,
     activeWorkspaceId,
     globalSurfaceActive,
@@ -1964,6 +1935,8 @@ export default function WorkspaceSidebar({
       keyPrefix?: string
       /** The band's rows lead with the machine glyph; its tooltip is where the machine is named. */
       remoteMachine?: string
+      /** A row in its folder's Settled shelf: title and the hover actions, nothing that asks for a look. */
+      settled?: boolean
     }
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
@@ -2024,7 +1997,9 @@ export default function WorkspaceSidebar({
     // line. (The poll above already asks about live rows only; the gate here
     // keeps the render honest even mid-transition.)
     const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId)
-    const rowLines = rowIsLive
+    // A settled row is the one-liner by construction: rest is the point, and
+    // a checkout's branch and ±lines are not facts about a chat at rest.
+    const rowLines = rowIsLive && !options?.settled
       ? terminalLinesOf({
           workspace,
           sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
@@ -2094,7 +2069,13 @@ export default function WorkspaceSidebar({
         </span>
       </>
     )
-    const statusSeat = (
+    const statusSeat = options?.settled ? (
+      // A settled row keeps the seat for its hover actions and nothing else:
+      // no dot, no glyph, no idle clock — the shelf already says it is resting.
+      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+        {rowActionsOverlay}
+      </span>
+    ) : (
       <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
         <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
           {runGlyph && runGlyphLabel ? (
@@ -2268,6 +2249,10 @@ export default function WorkspaceSidebar({
                 // This is also what kept the mark honest on an attention row,
                 // where text-strong cancelled the warn ink the row was wearing.
                 resident ? 'font-semibold' : ''
+              } ${
+                // Muted ink for a row at rest; selection's ink lift still wins
+                // when it is the row you are in.
+                options?.settled && !active ? 'text-[color:var(--text-muted)]' : ''
               }`}
             />
             {resident ? <span className="sr-only"> (agents resident)</span> : null}
@@ -2275,6 +2260,7 @@ export default function WorkspaceSidebar({
                 in words, since no state may be carried by colour alone. */}
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
             {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
+            {options?.settled ? <span className="sr-only"> (settled)</span> : null}
           </span>
         )}
 
@@ -2367,10 +2353,13 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // Renders a folder's workspace rows. Rows untouched for 5+ days collapse
-  // behind a single "Show N older" disclosure at the bottom of the folder,
-  // Cursor-style. Manual order is preserved within both the recent and folded
-  // groups. `folderBodyId` lets the folder header's toggle button own an
+  // Renders a folder's workspace rows: the active rows in attention order,
+  // then — only when the folder has any — its Settled shelf (settled-chats,
+  // 2026-09-07): one fold row carrying the count, closed by default, over the
+  // resting rows in compact form, most recently worked first. The shelf
+  // replaces the old "Show N older" recency fold: a chat now rests by the
+  // settle rule (`utils/workspaceSettle.ts`), never by a fold that hid it.
+  // `folderBodyId` lets the folder header's toggle button own an
   // aria-controls pointing at the body it expands/collapses.
   const renderFolderBody = (
     group: FolderGroup,
@@ -2382,46 +2371,46 @@ export default function WorkspaceSidebar({
     // header's aria-controls always resolves to a real node.
     if (folderCollapsed) return <div id={folderBodyId} hidden />
 
-    const { recent, stale } = partitionWorkspacesByRecency(visibleWorkspaces, now, isWorkspacePinned)
+    // The row you are in always has a row: a settled chat you selected (or
+    // settled from its own menu) keeps its place in the active list until you
+    // leave it, and drops into the shelf then. Reading it never wakes it.
+    const isShelved = (workspace: Workspace) =>
+      isSettledWorkspace(workspace) && workspace.id !== activeWorkspaceId
+    const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace))
+    const settledRows = sortWorkspacesByActivity(visibleWorkspaces.filter(isShelved), now)
 
-    // A disclosure that hides a single row saves no space — the toggle row just
-    // replaces the row it would hide — so only fold when there are at least two
-    // stale workspaces. A folder with a single workspace is therefore never
-    // folded; it just shows in place.
-    if (stale.length < 2) {
+    if (settledRows.length === 0) {
       return (
         <div id={folderBodyId}>
-          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+          {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         </div>
       )
     }
 
-    const revealed = Math.min(revealedStaleFolders[group.key] ?? 0, stale.length)
-    const olderListId = `ws-older-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+    const expanded = expandedSettledFolders[group.key] === true
+    const shelfId = `ws-settled-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
 
     return (
       <div id={folderBodyId}>
-        {recent.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        <div
-          id={olderListId}
-          role="group"
-          aria-label={`Older workspaces in ${group.displayName}`}
-          hidden={revealed === 0}
-        >
-          {stale.slice(0, revealed).map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        </div>
-        <ShowOlderRow
-          hiddenTotal={stale.length}
-          revealed={revealed}
-          controlsId={olderListId}
-          onShowMore={() =>
-            setRevealedStaleFolders((prev) => ({
-              ...prev,
-              [group.key]: Math.min((prev[group.key] ?? 0) + FOLD_PAGE_SIZE, stale.length),
-            }))
+        {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        <SettledShelfRow
+          count={settledRows.length}
+          expanded={expanded}
+          controlsId={shelfId}
+          onToggle={() =>
+            setExpandedSettledFolders((prev) => ({ ...prev, [group.key]: !expanded }))
           }
-          onShowFewer={() => setRevealedStaleFolders((prev) => ({ ...prev, [group.key]: 0 }))}
         />
+        <div
+          id={shelfId}
+          role="group"
+          aria-label={`Settled chats in ${group.displayName}`}
+          hidden={!expanded}
+        >
+          {expanded
+            ? settledRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { settled: true }))
+            : null}
+        </div>
       </div>
     )
   }
@@ -2928,6 +2917,11 @@ export default function WorkspaceSidebar({
               })
               return
             }
+            if (action === 'toggle-settle') {
+              setWorkspaceSettled(workspace.id, !isSettledWorkspace(workspace))
+              setContextMenu(null)
+              return
+            }
             if (action === 'clear-color') {
               if (isStarred(workspace.highlight)) {
                 setWorkspaceHighlight(workspace.id, { color: null })
@@ -3157,6 +3151,7 @@ type ContextMenuAction =
   | 'delete'
   | 'cancel-sprint'
   | 'toggle-star'
+  | 'toggle-settle'
   | 'clear-color'
 
 // Workspace-row context menu. Generic menu chrome (surface, clamped
@@ -3184,6 +3179,7 @@ function WorkspaceContextMenu({
   const showCancelSprint = isCancelableSprintEngineWorkspace(workspace)
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
   const starred = isStarred(workspace.highlight)
+  const settled = isSettledWorkspace(workspace)
   const currentColor = workspace.highlight?.color ?? null
 
   return (
@@ -3221,6 +3217,12 @@ function WorkspaceContextMenu({
       >
         {starred ? 'Unstar' : 'Star'}
       </MenuItem>
+      {/* Rest by hand (settled-chats, 2026-09-07). Un-settle also holds the
+          row out of the sweep until it sees new activity. A row born on a
+          paired machine is the Remote band's, which has no shelf. */}
+      {workspace.remoteOrigin ? null : (
+        <MenuItem onClick={() => onSelect('toggle-settle')}>{settled ? 'Un-settle' : 'Settle'}</MenuItem>
+      )}
       <MenuSwatchRow
         label="Highlight color"
         value={currentColor}

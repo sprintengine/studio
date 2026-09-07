@@ -148,6 +148,11 @@ assert.equal(
   'none',
   'the unseen mark is a thing to look at, not activity: it never undoes a hand Settle'
 )
+assert.equal(
+  decide(ws({ settledAt: NOW - DAY }), { held: true }),
+  'wake',
+  'but a row the SWEEP settled that wants the person comes back — it was settled on a reading taken too early'
+)
 assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settle holds against the sweep')
 
 // The two transitions as field patches. A rest decision carries the input
