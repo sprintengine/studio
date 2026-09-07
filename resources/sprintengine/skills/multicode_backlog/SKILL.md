@@ -6,13 +6,15 @@
 
 <what-to-do>
 
-Backlog items are durable work records: markdown files under `backlog/` (epics
-under `backlog/epics/`), each file's frontmatter the source of truth for its
-lifecycle. Field names and their valid values come from the `backlog.*` MCP tool
+Backlog items are durable work records: markdown files filed under the epic they
+belong to — `backlog/<epic-slug>/<item>.md` — or `backlog/unfiled/` when they
+have no epic. Epic definitions stay at `backlog/epics/<epic-slug>.md`. Each
+file's frontmatter is the source of truth for its lifecycle. Field names and their valid values come from the `backlog.*` MCP tool
 schemas — read them there, not from this skill. Use those tools for mutations so
 timestamps and links stay app-owned; without them, edit frontmatter directly and
 drop the `updated:` line rather than inventing a timestamp.
-`.multi-code/backlog/items.json` is app-owned: never edit it, never compute ids.
+`.multi-code/backlog/` is app-owned: never edit it, never compute ids. Its
+`cache/` folder is gitignored and re-derivable — nothing there is worth keeping.
 
 The Backlog panel reads status from the item file, so keeping it current is
 part of the work, not optional bookkeeping. Set `in_progress` before
