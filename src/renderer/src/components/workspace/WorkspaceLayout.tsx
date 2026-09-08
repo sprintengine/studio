@@ -56,7 +56,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
-import { ContextMenu, FOCUS_RING_CLASS, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
+import { ContextMenu, IconButton, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -1482,8 +1482,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       if (!hostsAgents) return
       values.stickyButtons.push(
         <Tooltip key="new-agent" content="New agent" placement="bottom">
-          <button
-            type="button"
+          {/* `GHOST_TONE.quiet` is this control's rest ink exactly —
+              `--text-disabled`, lifting on `--bg-hover` — which is what keeps a
+              sticky control from competing with the tab labels beside it. */}
+          <IconButton
+            tone="quiet"
             aria-label="New agent"
             onClick={(event) => {
               // The strip's own click handler would select whatever tab sits
@@ -1491,12 +1494,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               event.stopPropagation()
               onNewAgentTab()
             }}
-            className={`interactive grid h-7 w-[26px] place-items-center rounded text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="icon-xs">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
             </svg>
-          </button>
+          </IconButton>
         </Tooltip>,
       )
     },

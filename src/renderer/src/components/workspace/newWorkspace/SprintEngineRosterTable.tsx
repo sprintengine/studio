@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { CliModelPickerButton, RoleAvatar, Select, type SelectItem } from '../../ui'
+import { CliModelPickerButton, RoleAvatar, RowButton, Select, type SelectItem } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -119,8 +119,13 @@ export function SprintEngineRosterTable({
                 : 'hover:bg-[color:var(--bg-hover)]'
             }`}
           >
-            <button
-              type="button"
+            {/* `flush`: the row half that draws no surface of its own — the
+                wrapping div above owns both the hover fill and the selected
+                fill, and this is one of two targets inside it. That is the
+                density's whole reason for existing, and it brings the inset
+                focus ring the half needs. */}
+            <RowButton
+              density="flush"
               aria-pressed={isAdded}
               disabled={countDisabled}
               aria-label={
@@ -135,11 +140,7 @@ export function SprintEngineRosterTable({
               onClick={() => {
                 if (!countDisabled) onSetCount(role, isAdded ? 0 : 1)
               }}
-              className="
-                flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors
-                focus-visible:focus-ring-inset
-                disabled:cursor-not-allowed
-              "
+              className="min-w-0 flex-1"
             >
               <RoleAvatar role={role} registry={registry} size="md" ariaLabel="" className={isAdded ? undefined : 'opacity-55'} />
               <span className="min-w-0 flex-1">
@@ -159,7 +160,7 @@ export function SprintEngineRosterTable({
                   + Add
                 </span>
               ) : null}
-            </button>
+            </RowButton>
             {controls}
           </div>
         )

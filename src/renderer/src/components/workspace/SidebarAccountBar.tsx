@@ -1,6 +1,5 @@
 import React from 'react'
-import { IconButton, OutlineButton, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
-import { MENU_ITEM_CLASS } from '../ui/menuClasses'
+import { IconButton, MenuItem, OutlineButton, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
@@ -102,18 +101,12 @@ function AccountMenuItem({ onSelect, children }: { onSelect: () => void; childre
     next?.focus()
   }
   return (
-    <button
-      type="button"
-      role="menuitem"
-      data-account-item="true"
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
-      // The shared menu row (MC-2103). It was a `px-3` row at `text-body` with
-      // the OUTSET ring, which a full-bleed row's own surface border clips.
-      className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
-    >
+    // The kit's menu row. It passes `data-*` through now — this surface's own
+    // roving-focus query selects on `data-account-item` — which is the one
+    // thing that kept this a raw button element wearing `MENU_ITEM_CLASS`.
+    <MenuItem data-account-item="true" onClick={onSelect} onKeyDown={onKeyDown}>
       {children}
-    </button>
+    </MenuItem>
   )
 }
 

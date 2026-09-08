@@ -18,7 +18,7 @@
 // Two clusters, one column: the Backlog switch toggles the pane's Backlog tab
 // (open it, bring it forward, or close it), the pane switch the pane itself.
 
-import { Tooltip } from '../ui'
+import { IconButton, Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
 import type { WorkspaceId, WorkspacePaneTabKind } from '../../types/workspace'
@@ -154,28 +154,24 @@ export function PanelSwitches({
         setPaneOpen(activeWorkspaceId, !paneOpen)
       }
     }
-    // app-no-drag: interactive control inside the title bar's drag region.
-    // Active is the neutral selection fill, not an accent underline: the accent
-    // is reserved for the one primary action per view (design-system
-    // foundations/principles.md § Restraint).
-    const buttonClass = `app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-sm focus-visible:focus-ring ${
-      active
-        ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-        : 'bg-transparent text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
-    }`
     return (
       <Tooltip key={panel.key} content={tooltip} placement="bottom">
-        <button
-          type="button"
+        {/* The kit's icon toggle. `pressed` IS this switch's active state — the
+            neutral selection fill, not an accent underline, because the accent
+            is reserved for the one primary action per view (principles.md §
+            Restraint) — and it supplies `aria-pressed` as `false` while off,
+            which is what a toggle owes a screen reader. `app-no-drag` is the
+            drag-region opt-out this control needs inside the title bar. */}
+        <IconButton
+          pressed={active}
           onClick={toggle}
-          aria-pressed={active}
           aria-label={label}
-          className={buttonClass}
+          className="app-no-drag"
           // The pane's own close control hands focus back here (WorkspacePane).
           {...(panel.target.kind === 'pane' ? { 'data-pane-switch': '' } : {})}
         >
           <Icon className="size-icon-sm" />
-        </button>
+        </IconButton>
       </Tooltip>
     )
   }

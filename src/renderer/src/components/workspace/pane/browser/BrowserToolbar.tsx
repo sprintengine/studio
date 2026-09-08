@@ -2,8 +2,7 @@ import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } f
 
 import type { BrowserTabState } from '../../../../../../shared/browser'
 import { normalizeBrowserUrlInput } from '../../../../../../shared/browser'
-import { IconButton, Tooltip } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { IconButton, Input, Tooltip } from '../../../ui'
 
 // The browser tab's one band of chrome (panel-header geometry, 34px): back ·
 // forward · reload/stop · the address field · the right cluster. Loading is a
@@ -103,9 +102,13 @@ export const BrowserToolbar = forwardRef<BrowserToolbarHandle, BrowserToolbarPro
           </IconButton>
         </Tooltip>
       )}
-      <input
+      {/* `xs` is the kit's dense step: 26px, so the address bar is the same
+          height as the icon buttons flanking it. */}
+      <Input
         ref={inputRef}
         type="text"
+        size="xs"
+        fullWidth={false}
         value={value}
         onChange={(event) => setDraft(event.currentTarget.value)}
         onFocus={(event) => event.currentTarget.select()}
@@ -126,11 +129,7 @@ export const BrowserToolbar = forwardRef<BrowserToolbarHandle, BrowserToolbarPro
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="off"
-        className={[
-          'mx-1 h-control-xs min-w-0 flex-1 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
-          'px-2 font-mono text-meta text-[color:var(--text-default)] placeholder:text-[color:var(--text-disabled)]',
-          FOCUS_RING_CLASS,
-        ].join(' ')}
+        className="mx-1 min-w-0 flex-1 font-mono"
       />
       <Tooltip content="Open in system browser" placement="bottom">
         <IconButton onClick={onOpenExternal} aria-label="Open in system browser" disabled={!hasPage}>

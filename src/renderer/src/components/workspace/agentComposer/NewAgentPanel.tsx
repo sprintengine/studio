@@ -28,19 +28,21 @@ import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
+  CardButton,
+  ChipButton,
   CliModelPopoverSurface,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
-  FOCUS_RING_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   MENU_DIVIDER_CLASS,
-  MENU_ITEM_CLASS,
-  MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
   Input,
   InlineSkillPicker,
+  MenuItem,
+  MenuOption,
   Popover,
   PrimaryButton,
+  Textarea,
   setModelPermissionPreset,
   StarGlyph,
   Tooltip,
@@ -1191,8 +1193,14 @@ export default function NewAgentPanel({
                 floor to a ceiling, then scrolls — a box that showed two lines
                 of a six-line prompt was hiding what the person was about to
                 send. Same treatment as the automation editor's prompt field. */}
-            <textarea
+            {/* `composer` is the kit's hosted multiline field: no box of its
+                own, because `COMPOSER_SURFACE_CLASS` around it draws the
+                border, the ground and the ring, and `field-sizing-content`
+                between the caller's floor and ceiling. */}
+            <Textarea
               ref={promptRef}
+              variant="composer"
+              resize="none"
               value={prompt}
               rows={2}
               onPaste={(event) => {
@@ -1211,7 +1219,7 @@ export default function NewAgentPanel({
               placeholder={placeholder}
               disabled={isTerminalLaunch}
               aria-label="What this agent should do"
-              className="field-sizing-content max-h-[280px] min-h-[44px] w-full flex-1 resize-none overflow-y-auto bg-transparent font-mono text-body leading-6 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)]"
+              className="max-h-[280px] min-h-[44px] flex-1 overflow-y-auto font-mono text-body"
             />
           </div>
 
@@ -1227,15 +1235,20 @@ export default function NewAgentPanel({
                 popupRole="menu"
                 placement="bottom-start"
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <button
+                  // The kit's chip. `outline` is the variant that stays findable
+                  // on a busy strip; the accent-soft ground it used to wear is
+                  // gone, because a solid-ish accent on a standing chip is the
+                  // budget spent on a state display rather than on the view's
+                  // one primary action (principles.md → The accent budget).
+                  <ChipButton
                     ref={ref}
-                    type="button"
+                    variant="outline"
+                    tone="neutral"
                     onClick={togglePopover}
                     // Named, not left to its contents: the chip is a mark plus a
                     // truncated label, and it is the only way to the model,
                     // effort and permissions the picker holds.
                     aria-label={`Engine: ${engineNames.modelLabel ?? engineNames.cliLabel}`}
-                    className={`interactive inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                     {...triggerProps}
                   >
                     <CliIcon cli={launchCli} className="icon-xs" />
@@ -1248,7 +1261,7 @@ export default function NewAgentPanel({
                       <span className="text-[color:var(--text-subtle)]">· {reasoning}</span>
                     ) : null}
                     <ChevronGlyph />
-                  </button>
+                  </ChipButton>
                 )}
               >
                 {/* Reasoning effort is a property OF the model, so it lives in
@@ -1318,7 +1331,6 @@ export default function NewAgentPanel({
                   mcpServers={composer.mcpServers}
                   onMcpServersChange={composer.setMcpServers}
                   placement="bottom-start"
-                  triggerClassName={GHOST_CHIP_CLASS}
                 />
               </>
             ) : null}
@@ -1330,13 +1342,17 @@ export default function NewAgentPanel({
                 {/* Sized to what is typed, not a fixed field: a chip that
                     reserves 128px for a three-letter branch is what pushed this
                     row onto a second line. */}
-                <input
+                <Input
+                  variant="seamless"
+                  fullWidth={false}
                   value={composer.worktreeName}
-                  size={Math.max(composer.worktreeName.length || 12, 3)}
                   onChange={(event) => composer.setWorktreeName(event.currentTarget.value)}
                   placeholder="branch name"
                   aria-label="Worktree name — leave empty to derive from the agent’s name"
-                  className="max-w-[160px] bg-transparent text-meta outline-none placeholder:text-[color:var(--text-disabled)]"
+                  // `field-sizing-content` in place of the `size` attribute the
+                  // kit's `size` prop takes the name of: the box tracks what is
+                  // typed rather than a character count guessed per render.
+                  className="field-sizing-content min-w-[8ch] max-w-[160px] text-meta"
                 />
                 <CloseIconButton
                   onClick={() => composer.setWorktreeName(null)}
@@ -1366,16 +1382,15 @@ export default function NewAgentPanel({
                 placement="bottom-start"
                 surfaceClassName={`w-[264px] ${MENU_LIST_CLASS}`}
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <button
+                  <ChipButton
                     ref={ref}
-                    type="button"
+                    variant="outline"
                     aria-label="More launch options"
                     onClick={togglePopover}
-                    className={`${GHOST_CHIP_CLASS} px-2`}
                     {...triggerProps}
                   >
                     ⋯
-                  </button>
+                  </ChipButton>
                 )}
               >
                 <MoreMenu
@@ -1470,9 +1485,6 @@ export default function NewAgentPanel({
 
 // ── Pieces ─────────────────────────────────────────────────────────────────
 
-const GHOST_CHIP_CLASS =
-  'interactive inline-flex items-center gap-1 rounded border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring'
-
 function ChevronGlyph() {
   return (
     <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -1560,27 +1572,22 @@ function MachineScopePicker({
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          data-machine-trigger="true"
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
+        // The kit's ghost chip: `px-1.5 py-0.5` on the line box, and the
+        // `subtle` tone's `--text-default` hover ink, both of which this
+        // scope-line trigger already spelled.
+        <ChipButton ref={ref} onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
           {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
           {selected ? selected.machineName : 'This device'}
           <ChevronGlyph />
-        </button>
+        </ChipButton>
       )}
     >
       {/* The surface is the menu; these are its rows. The leading slot is
           all-or-nothing per the menu spec, so This device renders an empty slot
           the width of the machine glyph rather than sliding its label left. */}
-      <button
-        type="button"
+      <MenuOption
         role="menuitemradio"
-        aria-checked={selected === null}
+        selected={selected === null}
         data-machine-option="true"
         tabIndex={selected === null ? 0 : -1}
         onKeyDown={(event) => rowKey(event, () => { onSelect(null); setOpen(false) })}
@@ -1588,11 +1595,10 @@ function MachineScopePicker({
           onSelect(null)
           setOpen(false)
         }}
-        className={`${MENU_ITEM_CLASS} ${selected === null ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+        icon={<span aria-hidden="true" className="icon-xs shrink-0" />}
       >
-        <span aria-hidden="true" className="icon-xs shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-left">This device</span>
-      </button>
+        This device
+      </MenuOption>
       {machines.map((machine) => {
         const state = availabilityOf(machine)
         const pickable = chosen(machine)
@@ -1614,36 +1620,29 @@ function MachineScopePicker({
                 ? 'Asking what it holds…'
                 : null
         return (
-          <button
+          <MenuOption
             key={machine.id}
-            type="button"
             role="menuitemradio"
-            aria-checked={selected?.id === machine.id}
+            selected={selected?.id === machine.id}
+            stacked={Boolean(hint)}
             disabled={!pickable}
             data-machine-option="true"
             data-machine-availability={state.state}
             tabIndex={selected?.id === machine.id ? 0 : -1}
             onKeyDown={(event) => rowKey(event, activate)}
             onClick={activate}
-            className={`${hint ? MENU_ITEM_STACKED_CLASS : MENU_ITEM_CLASS} ${
-              !pickable
-                ? 'text-[color:var(--text-disabled)]'
-                : selected?.id === machine.id
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-default)]'
-            }`}
+            icon={<RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />}
+            trailing={
+              hint ? null : (
+                <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
+              )
+            }
           >
-            <RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />
-            <span className="min-w-0 flex-1 text-left">
-              <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.machineName}</span>
-              {hint ? (
-                <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-              ) : null}
-            </span>
-            {hint ? null : (
-              <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
-            )}
-          </button>
+            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.machineName}</span>
+            {hint ? (
+              <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
+            ) : null}
+          </MenuOption>
         )
       })}
     </Popover>
@@ -1689,16 +1688,10 @@ function RemoteProjectPicker({
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
+        <ChipButton ref={ref} onClick={togglePopover} {...triggerProps}>
           {label}
           <ChevronGlyph />
-        </button>
+        </ChipButton>
       )}
     >
       <>
@@ -1726,30 +1719,23 @@ function RemoteProjectPicker({
           </div>
         ) : (
           visibleWorkspaces.map((workspace) => (
-            <button
+            <MenuOption
               key={workspace.id}
-              type="button"
               role="menuitemradio"
-              aria-checked={target.picked?.id === workspace.id}
+              selected={target.picked?.id === workspace.id}
+              stacked
               onClick={() => {
                 onPick(workspace)
                 setOpen(false)
               }}
-              className={`${MENU_ITEM_STACKED_CLASS} ${
-                target.picked?.id === workspace.id
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-default)]'
-              }`}
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-body font-medium">{workspace.name}</span>
-                {workspace.folderPath ? (
-                  <span className="mt-0.5 block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-                    {workspace.folderPath}
-                  </span>
-                ) : null}
-              </span>
-            </button>
+              <span className="block truncate text-body font-medium">{workspace.name}</span>
+              {workspace.folderPath ? (
+                <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
+                  {workspace.folderPath}
+                </span>
+              ) : null}
+            </MenuOption>
           ))
         )}
       </>
@@ -1787,23 +1773,16 @@ function RemoteCheckoutPicker({
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          data-checkout-trigger="true"
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
+        <ChipButton ref={ref} onClick={togglePopover} data-checkout-trigger="true" {...triggerProps}>
           {label}
           <ChevronGlyph />
-        </button>
+        </ChipButton>
       )}
     >
-      <button
-        type="button"
+      <MenuOption
         role="menuitemradio"
-        aria-checked={!isWorktree}
+        selected={!isWorktree}
+        stacked
         data-checkout-option="true"
         tabIndex={!isWorktree ? 0 : -1}
         onKeyDown={(event) => rowKey(event, () => { onChoose({ mode: 'current' }); setOpen(false) })}
@@ -1811,23 +1790,20 @@ function RemoteCheckoutPicker({
           onChoose({ mode: 'current' })
           setOpen(false)
         }}
-        className={`${MENU_ITEM_STACKED_CLASS} ${!isWorktree ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
       >
-        <span className="min-w-0 flex-1">
-          <span className="block text-body font-medium">Current checkout</span>
-          <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">
-            {target.checkout?.branch
-              ? `The project as it is on ${target.connection.machineName}, on ${target.checkout.branch}`
-              : `The project as it is on ${target.connection.machineName}`}
-          </span>
+        <span className="block text-body font-medium">Current checkout</span>
+        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
+          {target.checkout?.branch
+            ? `The project as it is on ${target.connection.machineName}, on ${target.checkout.branch}`
+            : `The project as it is on ${target.connection.machineName}`}
         </span>
-      </button>
+      </MenuOption>
       {/* `disabled`, per the menu spec: the row stays listed and dimmed with
           its reason, and the arrow walk skips it (the preset menu's idiom). */}
-      <button
-        type="button"
+      <MenuOption
         role="menuitemradio"
-        aria-checked={isWorktree}
+        selected={isWorktree}
+        stacked
         disabled={worktreeReason !== null}
         data-checkout-option="true"
         tabIndex={isWorktree ? 0 : -1}
@@ -1841,21 +1817,12 @@ function RemoteCheckoutPicker({
           onChoose({ mode: 'worktree', baseRef: null })
           setOpen(false)
         }}
-        className={`${MENU_ITEM_STACKED_CLASS} ${
-          worktreeReason
-            ? 'text-[color:var(--text-disabled)]'
-            : isWorktree
-              ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-default)]'
-        }`}
       >
-        <span className="min-w-0 flex-1">
-          <span className="block text-body font-medium">New worktree</span>
-          <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">
-            {worktreeReason ?? 'A fresh checkout there, branched from the branch you pick'}
-          </span>
+        <span className="block text-body font-medium">New worktree</span>
+        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
+          {worktreeReason ?? 'A fresh checkout there, branched from the branch you pick'}
         </span>
-      </button>
+      </MenuOption>
     </Popover>
   )
 }
@@ -1908,18 +1875,11 @@ function RemoteBranchSegment({
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          data-branch-trigger="true"
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-micro text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-          {...triggerProps}
-        >
+        <ChipButton ref={ref} onClick={togglePopover} data-branch-trigger="true" className="font-mono" {...triggerProps}>
           <BranchGlyph />
           {baseRef ? `From ${baseRef}` : 'Select branch'}
           <ChevronGlyph />
-        </button>
+        </ChipButton>
       )}
     >
       <>
@@ -1953,11 +1913,10 @@ function RemoteBranchSegment({
           </div>
         ) : (
           branches.map((entry) => (
-            <button
+            <MenuOption
               key={entry.name}
-              type="button"
               role="menuitemradio"
-              aria-checked={entry.name === baseRef}
+              selected={entry.name === baseRef}
               data-branch-option="true"
               tabIndex={entry.name === baseRef ? 0 : -1}
               onKeyDown={(event) =>
@@ -1970,19 +1929,17 @@ function RemoteBranchSegment({
                 onChooseBase(entry.name)
                 setOpen(false)
               }}
-              className={`${MENU_ITEM_CLASS} ${
-                entry.name === baseRef
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-default)]'
-              }`}
+              className="font-mono"
+              trailing={
+                entry.current ? (
+                  <span className="shrink-0 font-sans text-micro text-[color:var(--text-disabled)]">checked out</span>
+                ) : entry.name === checkout?.defaultBranch ? (
+                  <span className="shrink-0 font-sans text-micro text-[color:var(--text-disabled)]">trunk</span>
+                ) : null
+              }
             >
-              <span className="min-w-0 flex-1 truncate text-left font-mono">{entry.name}</span>
-              {entry.current ? (
-                <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">checked out</span>
-              ) : entry.name === checkout?.defaultBranch ? (
-                <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">trunk</span>
-              ) : null}
-            </button>
+              {entry.name}
+            </MenuOption>
           ))
         )}
       </>
@@ -2089,15 +2046,22 @@ function MoreMenu({
             }`}
           >
             <div className="overflow-hidden">
-              <input
+              {/* `quiet` is the field a floating surface hosts: a transparent
+                  ground and a `border.subtle` hairline, because `bg.field`
+                  inside an already-grounded menu reads as a panel nested in a
+                  panel. `content` gives the height back to the menu's own
+                  rhythm. */}
+              <Input
                 ref={worktreeRef}
+                variant="quiet"
+                size="content"
                 value={worktreeName ?? ''}
                 onChange={(event) => onChangeWorktree(event.currentTarget.value)}
                 placeholder="Branch name — blank uses the agent’s"
                 aria-label="Worktree branch name"
                 aria-hidden={worktreeName === null}
                 tabIndex={worktreeName === null ? -1 : 0}
-                className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+                className="mx-2 mb-1 w-[calc(100%-1rem)] text-meta"
               />
             </div>
           </div>
@@ -2131,18 +2095,22 @@ function MenuValueRow({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
+    // The kit's action row, with `expanded` — the prop that says a row is a
+    // DOOR rather than a choice — and the current value plus the chevron in the
+    // trailing slot. Full-bleed like its sibling rows (menu spec): the inset
+    // rounded fill is the card-in-a-card the spec retires.
+    <MenuItem
       onClick={onClick}
-      aria-expanded={expanded || undefined}
-      // Full-bleed like its sibling rows (menu spec): the inset rounded fill
-      // is the card-in-a-card the spec retires.
-      className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)]`}
+      expanded={expanded || undefined}
+      trailing={
+        <>
+          <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
+          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
+        </>
+      }
     >
-      <span className="min-w-0 flex-1">{label}</span>
-      <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
-      <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
-    </button>
+      {label}
+    </MenuItem>
   )
 }
 
@@ -2195,36 +2163,28 @@ function MenuRow({
   // rounded fill this row shipped with is the card-in-a-card the spec retires
   // by name. `aria-disabled`, not `disabled`: a dimmed row here can still
   // route somewhere useful (the Chat row opens provider Settings).
-  const shape = hint ? MENU_ITEM_STACKED_CLASS : MENU_ITEM_CLASS
   return (
-    <button
-      type="button"
+    <MenuOption
       role="menuitemradio"
-      aria-checked={selected}
+      selected={selected}
+      stacked={Boolean(hint)}
       aria-disabled={disabled || undefined}
       onClick={onClick}
-      className={`${shape} ${
-        disabled
-          ? 'text-[color:var(--text-disabled)]'
-          : selected
-            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-default)]'
-      }`}
+      trailing={
+        selected && !disabled ? (
+          <CheckIcon className={`${hint ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`} />
+        ) : null
+      }
     >
       {/* The hint WRAPS rather than truncating. These sentences are the whole
           explanation — "connect one in S…" and "works the…" told nobody
           anything, and a tooltip to recover a sentence the surface had room
           for is a worse answer than two lines. */}
-      <span className="min-w-0 flex-1">
-        <span className={hint ? 'block text-body font-medium' : 'block'}>{label}</span>
-        {hint ? (
-          <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-        ) : null}
-      </span>
-      {selected && !disabled ? (
-        <CheckIcon className={`${hint ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`} />
+      <span className={hint ? 'block text-body font-medium' : 'block'}>{label}</span>
+      {hint ? (
+        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
       ) : null}
-    </button>
+    </MenuOption>
   )
 }
 
@@ -2238,17 +2198,22 @@ function SuggestionCard({
   onLaunch: () => void
 }) {
   return (
-    <button
-      type="button"
+    // The kit's tile: a block button whose content is a composition rather than
+    // a label. `bordered` keeps the hairline at rest, so hover moves the ground
+    // and nothing else — a grid that reflows under the pointer is the defect
+    // the tile spec rules out. The inset stays with the caller, because a
+    // tile's padding is a composition decision.
+    <CardButton
+      variant="bordered"
       onClick={onLaunch}
       disabled={disabled}
-      className={`interactive rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2.5 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING_CLASS}`}
+      className="px-3 py-2.5"
     >
       <div className="text-body font-medium text-[color:var(--text-strong)]">{entry.title}</div>
       <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{entry.description}</p>
       <span className="mt-1.5 inline-block rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
         {entry.outcome}
       </span>
-    </button>
+    </CardButton>
   )
 }

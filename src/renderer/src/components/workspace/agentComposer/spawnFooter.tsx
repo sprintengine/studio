@@ -1,9 +1,8 @@
 import React from 'react'
 
-import { Popover, Tooltip, roveMenuFocus, setModelPermissionPreset, useModelPermissionPreset } from '../../ui'
+import { ChipButton, Popover, Tooltip, roveMenuFocus, setModelPermissionPreset, useModelPermissionPreset } from '../../ui'
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import {
   AGENT_SPAWN_PERMISSION_OPTIONS,
   focusActivePresetRow,
@@ -72,27 +71,31 @@ export function FooterMenu({
         // handlers by cloning its child, and a component that does not forward
         // them swallows the tooltip silently.
         const button = (
-          <button
+          // The kit's chip. The two tinted tones travel as `tint` — the
+          // prop that paints an ink and a 12%-of-the-same ground, which is
+          // exactly what `--tone-warn/12` and `--accent-primary-soft` were —
+          // rather than as a className, so there is no second `bg-` for a
+          // stylesheet to choose between. `quiet` takes the default subtle
+          // tone and its `--bg-hover` lift.
+          <ChipButton
             ref={ref}
-            type="button"
+            tint={
+              tone === 'warn'
+                ? 'var(--tone-warn)'
+                : tone === 'accent'
+                  ? 'var(--accent-primary)'
+                  : undefined
+            }
             aria-label={ariaLabel}
             onClick={togglePopover}
-            className={[
-              'interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2 text-meta',
-              tone === 'warn'
-                ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-                : tone === 'accent'
-                  ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]',
-              FOCUS_RING_CLASS,
-            ].join(' ')}
+            className="shrink-0"
             {...triggerProps}
           >
             {label}
             {chevron ? (
               <ChevronDownIcon className="size-icon-xs shrink-0 text-[color:var(--text-disabled)]" />
             ) : null}
-          </button>
+          </ChipButton>
         )
         return tooltip ? (
           <Tooltip content={tooltip} placement="top">

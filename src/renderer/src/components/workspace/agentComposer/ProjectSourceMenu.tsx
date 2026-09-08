@@ -2,12 +2,13 @@ import React from 'react'
 
 import type { GitHubRepoSummary } from '../../../../../shared/electron-api'
 import {
-  FOCUS_RING_CLASS,
   Input,
+  LinkButton,
+  MenuItem,
   MENU_DIVIDER_CLASS,
   MENU_GROUP_LABEL_CLASS,
-  MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
+  MenuOption,
   PrimaryButton,
 } from '../../ui'
 import { GitHubRepoPicker, toRepoListState, type GitHubRepoListState } from '../newWorkspace/GitHubRepoPicker'
@@ -133,13 +134,11 @@ export function ProjectSourceMenu({
   if (step === 'git') {
     return (
       <div className="flex w-[340px] flex-col gap-2 p-2">
-        <button
-          type="button"
-          onClick={() => setStep('projects')}
-          className={`inline-flex items-center gap-1.5 self-start rounded-sm px-1 py-0.5 text-meta text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
-        >
+        {/* The kit's text link in its `quiet` ink — the back affordance is a
+            word, not a control with a box. */}
+        <LinkButton ink="quiet" underline="never" onClick={() => setStep('projects')} className="self-start">
           <span aria-hidden="true">←</span> Import from Git
-        </button>
+        </LinkButton>
         <GitHubRepoPicker
           listState={repoList}
           filter={repoFilter}
@@ -185,28 +184,21 @@ export function ProjectSourceMenu({
   const visibleRecent = recentOptions.filter(matches)
 
   const projectRow = (option: ProjectSourceOption) => (
-    <button
+    <MenuOption
       key={option.path}
-      type="button"
       role="menuitemradio"
-      aria-checked={option.path === selectedPath}
+      selected={option.path === selectedPath}
+      stacked
       onClick={() => {
         onSelect(option.path)
         onClose()
       }}
-      className={`${MENU_ITEM_STACKED_CLASS} ${
-        option.path === selectedPath
-          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)]'
-      }`}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-body font-medium">{option.label}</span>
-        <span className="mt-0.5 block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-          {option.path}
-        </span>
+      <span className="block truncate text-body font-medium">{option.label}</span>
+      <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
+        {option.path}
       </span>
-    </button>
+    </MenuOption>
   )
 
   // The hosting Popover surface is the `role="menu"`; this is the list layer
@@ -233,43 +225,37 @@ export function ProjectSourceMenu({
           all-or-nothing leading slot, per the menu spec. The projects grow
           below the separator; these two never move. */}
       {onBrowse ? (
-        <button
-          type="button"
-          role="menuitem"
+        <MenuItem
           onClick={() => {
             onBrowse()
             onClose()
           }}
-          className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)]`}
+          icon={
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
+              <path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M8 7.5v3M6.5 9h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          }
         >
-          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
-            <path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" stroke="currentColor" strokeWidth="1.4" />
-            <path d="M8 7.5v3M6.5 9h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-          <span className="min-w-0 flex-1">
-            <span className="block text-body font-medium">Browse…</span>
-            <span className="mt-0.5 block text-meta text-[color:var(--text-subtle)]">Pick a folder on disk.</span>
-          </span>
-        </button>
+          <span className="block text-body font-medium">Browse…</span>
+          <span className="block text-meta text-[color:var(--text-subtle)]">Pick a folder on disk.</span>
+        </MenuItem>
       ) : null}
       {onClone ? (
-      <button
-        type="button"
-        role="menuitem"
+      <MenuItem
         aria-haspopup="true"
         onClick={openGitStep}
-        className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)]`}
+        icon={
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
+            <path d="M6.5 9.5a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 1 0-3.7-3.7l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M9.5 6.5a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 1 0 3.7 3.7l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        }
+        trailing={<span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>}
       >
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
-          <path d="M6.5 9.5a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 1 0-3.7-3.7l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          <path d="M9.5 6.5a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 1 0 3.7 3.7l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-        <span className="min-w-0 flex-1">
-          <span className="block text-body font-medium">Import from Git</span>
-          <span className="mt-0.5 block text-meta text-[color:var(--text-subtle)]">Clone a repository and open it here.</span>
-        </span>
-        <span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
-      </button>
+        <span className="block text-body font-medium">Import from Git</span>
+        <span className="block text-meta text-[color:var(--text-subtle)]">Clone a repository and open it here.</span>
+      </MenuItem>
       ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       {visible.map(projectRow)}

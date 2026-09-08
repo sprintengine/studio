@@ -9,7 +9,9 @@ import { EXTENSIONS_BROWSE_DEEPLINK } from '../../settings/extensionsRoute'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import {
-  FOCUS_RING_CLASS,
+  ChipButton,
+  Input,
+  LinkButton,
   MENU_GROUP_LABEL_CLASS,
   MENU_ITEM_STACKED_CLASS,
   Popover,
@@ -135,8 +137,7 @@ export type SkillsAndMcpsPickerProps = {
   mcpServers: AgentComposerConnector[]
   onMcpServersChange: (next: AgentComposerConnector[]) => void
   placement?: PopoverPlacement
-  triggerClassName?: string
-  /** A custom trigger (a menu row, say); the default is the ghost chip. */
+  /** A custom trigger (a menu row, say); the default is the kit's chip. */
   renderTrigger?: PopoverProps['renderTrigger']
 }
 
@@ -148,7 +149,6 @@ export function SkillsAndMcpsPicker({
   mcpServers,
   onMcpServersChange,
   placement = 'bottom-start',
-  triggerClassName = '',
   renderTrigger,
 }: SkillsAndMcpsPickerProps) {
   const [open, setOpen] = useState(false)
@@ -340,11 +340,14 @@ export function SkillsAndMcpsPicker({
       renderTrigger={
         renderTrigger
         ?? (({ ref, triggerProps, togglePopover }) => (
-          <button ref={ref} type="button" onClick={togglePopover} className={triggerClassName} {...triggerProps}>
+          // The kit's chip, which is what both hosts were passing a chrome
+          // string to draw: the `triggerClassName` escape hatch is gone with
+          // it, because a trigger the kit can draw does not need one.
+          <ChipButton ref={ref} variant="outline" onClick={togglePopover} {...triggerProps}>
             <StarGlyph filled={false} className="icon-xs" />
             Skills &amp; MCPs
             {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}
-          </button>
+          </ChipButton>
         ))
       }
     >
@@ -354,8 +357,12 @@ export function SkillsAndMcpsPicker({
             <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
             <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-          <input
+          {/* `seamless`: the bordered row around it is the box, so the field
+              spends no border, ground, radius or ring of its own. */}
+          <Input
             ref={inputRef}
+            variant="seamless"
+            fullWidth={false}
             autoFocus
             type="search"
             aria-controls={listId}
@@ -368,7 +375,7 @@ export function SkillsAndMcpsPicker({
             onKeyDown={onKeyDown}
             placeholder="Search skills and MCPs…"
             aria-label="Search skills and MCPs"
-            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+            className="min-w-0 flex-1 px-1 py-1 text-body"
           />
         </div>
         <div ref={listRef} id={listId} role="listbox" aria-multiselectable="true" aria-label="Skills and MCP servers" className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -420,16 +427,18 @@ export function SkillsAndMcpsPicker({
         </div>
         <div className="flex items-center justify-between border-t border-[color:var(--border-subtle)] px-2.5 py-1.5">
           <span className="text-micro text-[color:var(--text-subtle)]">↑↓ choose · ⏎ toggle · esc close</span>
-          <button
-            type="button"
+          {/* The kit's text link: accent ink, underlined on hover, and no box
+              at all — an action set in a footer line, which is the whole reason
+              this was four utilities cancelling a button. */}
+          <LinkButton
             onClick={() => {
               setOpen(false)
               openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })
             }}
-            className={`interactive text-micro text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+            className="text-micro"
           >
             Manage extensions →
-          </button>
+          </LinkButton>
         </div>
       </div>
     </Popover>

@@ -361,9 +361,12 @@ async function main(): Promise<void> {
     assert.ok(chip, 'the permission chip is named for the preset it carries')
     assert.ok((chip?.textContent ?? '').includes('Bypass'), 'and reads Bypass when that is the preset')
     // Bypass is the value that removes a safeguard, so it is the one that also
-    // changes colour rather than only its text.
+    // changes colour rather than only its text. The chip carries that colour as
+    // the kit's `tint` — an ink plus a 12%-of-the-same ground, applied inline so
+    // it cannot meet the variant's own `bg-`/`hover:bg-` at equal specificity —
+    // so the tone reads from the style attribute rather than the class list.
     assert.ok(
-      (chip?.className ?? '').includes('tone-warn'),
+      (chip?.getAttribute('style') ?? '').includes('--tone-warn'),
       'and wears the warn tone, not the ordinary accent',
     )
     // The two settings about the row above are the same kind of control, on the

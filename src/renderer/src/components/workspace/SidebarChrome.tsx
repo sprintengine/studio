@@ -29,31 +29,21 @@
 
 import React from 'react'
 import SprintEngineWordmark from '../brand/SprintEngineWordmark'
-import { IconButton, Popover, Tooltip } from '../ui'
-import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { GhostButton, IconButton, MenuItem, Popover, Tooltip } from '../ui'
+import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { APP_RAIL_WIDTH, TRAFFIC_LIGHT_RESERVE } from './AppRail'
 
-// The row's icon buttons. `control-xs` is the system's icon-button step
-// (principles.md, "Space and size"), and with four of them sharing the row with
-// the wordmark it is also the only step that fits.
+// The row's icon buttons are the kit's `IconButton` at its default `sm` step —
+// `size.control.xs`, the system's icon-button step (principles.md, "Space and
+// size"), and with four of them sharing the row with the wordmark it is also
+// the only step that fits.
 //
-// The ink lives on the two variants, never layered over a shared default: two
-// `text-[color:…]` utilities on one element are resolved by Tailwind's own
-// stylesheet order, not by the order they appear in the attribute, so appending
-// `text-strong` to a base that already says `text-subtle` silently loses. The
-// base therefore sets no colour at all.
-//
-// The focus ring is spelled as the literal utility, FIRST, on each variant rather than once on the base: the
-// conformance guard reads a template literal from its first literal chunk, so a ring behind an interpolation or two template
-// levels deep read as missing to it, and a guard that cannot see the ring is a
-// guard that will not notice when it goes.
-const BRAND_ROW_BUTTON_BASE =
-  'app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-md bg-transparent transition-colors hover:bg-[color:var(--bg-hover)]'
-const BRAND_ROW_BUTTON = `focus-visible:focus-ring ${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]`
-// For a control whose panel is open: strong at rest and on hover, so hovering
-// the open state never reads as dimming it.
-const BRAND_ROW_BUTTON_STRONG = `focus-visible:focus-ring ${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-strong)]`
+// The ink is a TONE, never a className: `subtle` is this row's pair
+// (`--text-subtle` at rest lifting to `--bg-hover` + `--text-default`), and
+// `strong` is the open-panel one that holds its ink flat while only the ground
+// moves. Both used to be local constants here, spelled with the focus-ring
+// literal first so the conformance guard could see it; the kit carries all of
+// that now, so the constants are gone.
 
 type SidebarChromeProps<MenuItem extends string> = {
   isMac: boolean
@@ -80,18 +70,22 @@ type SidebarChromeProps<MenuItem extends string> = {
 function CollapseButton({ onToggle }: { onToggle: () => void }) {
   return (
     <Tooltip content="Collapse sidebar" placement="bottom">
-      <button
-        type="button"
+      {/* `aria-pressed` stays an explicit attribute rather than the `pressed`
+          prop: the fact is true, but the neutral selection fill `pressed`
+          paints is not what this control wears — the strong ink IS its open
+          state. An attribute after the props still wins. */}
+      <IconButton
+        tone="strong"
         onClick={onToggle}
         aria-label="Collapse sidebar"
         aria-pressed={true}
-        className={BRAND_ROW_BUTTON_STRONG}
+        className="app-no-drag"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 3V13" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -102,12 +96,12 @@ function CollapseButton({ onToggle }: { onToggle: () => void }) {
 function SearchButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Search" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Search" className={BRAND_ROW_BUTTON}>
+      <IconButton tone="subtle" onClick={onOpen} aria-label="Search" className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -124,14 +118,18 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
 function BrandButton({ onNewChat, visibility }: { onNewChat: () => void; visibility: string }) {
   return (
     <Tooltip content="New chat" placement="bottom">
-      <button
-        type="button"
+      {/* The labelled ghost at `xs`: `h-control-xs px-2`, the transparent
+          ground and the `--bg-hover` lift, exactly what this row spelled. The
+          tone's ink never reaches the mark — the wordmark paints its own two
+          colours — so the button is the ground and the mark is the label. */}
+      <GhostButton
+        size="xs"
         onClick={onNewChat}
         aria-label="New chat"
-        className={`app-no-drag interactive h-control-xs items-center rounded-md bg-transparent px-2 transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${visibility}`}
+        className={`app-no-drag ${visibility}`}
       >
         <SprintEngineWordmark />
-      </button>
+      </GhostButton>
     </Tooltip>
   )
 }
@@ -140,7 +138,7 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
   const label = direction === 'back' ? 'Back' : 'Forward'
   return (
     <Tooltip content={label} placement="bottom">
-      <button type="button" onClick={onClick} aria-label={label} className={BRAND_ROW_BUTTON}>
+      <IconButton tone="subtle" onClick={onClick} aria-label={label} className="app-no-drag">
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
             d={direction === 'back' ? 'M10 3.5L5.5 8L10 12.5' : 'M6 3.5L10.5 8L6 12.5'}
@@ -150,7 +148,7 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -198,21 +196,18 @@ export function AppMenuButton<MenuItem extends string>({
       )}
     >
       {menuItems.map((label) => (
-        <button
+        // The kit's menu row. Its `onClick` now receives the event, which is the
+        // one thing that kept this a raw button element: the win/linux app menu
+        // positions the native popup from the clicked row's rect.
+        <MenuItem
           key={label}
-          type="button"
-          role="menuitem"
           onClick={(event) => {
             setMenuOpen(false)
             onShowMenu(event, label)
           }}
-          // The same rows AppTitleBar's fallback draws, and they were the same
-          // hand-roll — at `text-heading` here and `text-body` there, which is
-          // how one menu came in two sizes (MC-2103).
-          className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
         >
           {label}
-        </button>
+        </MenuItem>
       ))}
     </Popover>
   )

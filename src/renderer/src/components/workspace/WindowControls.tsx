@@ -4,8 +4,8 @@
 // IPC calls out.
 
 import React from 'react'
+import { CaptionButton } from '../ui/Buttons'
 import { Tooltip } from '../ui/Tooltip'
-import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 
 // The three caption buttons are `w-10` each, so this is the width of the strip
 // they occupy. They float at the window's absolute top-right corner over
@@ -50,23 +50,16 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
   return (
     <div className="app-no-drag flex shrink-0 items-stretch" aria-label="Window controls">
       <Tooltip content="Minimize" placement="bottom">
-        <button
-          type="button"
-          onClick={minimizeWindow}
-          className={`inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:bg-[color:var(--bg-hover)] focus:text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
-          aria-label="Minimize window"
-        >
+        <CaptionButton onClick={minimizeWindow} aria-label="Minimize window">
           <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3.5 8H12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-        </button>
+        </CaptionButton>
       </Tooltip>
 
       <Tooltip content={isMaximized ? 'Restore' : 'Maximize'} placement="bottom">
-        <button
-          type="button"
+        <CaptionButton
           onClick={toggleWindowSize}
-          className={`inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:bg-[color:var(--bg-hover)] focus:text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
           aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
         >
           {isMaximized ? (
@@ -79,21 +72,17 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
               <path d="M4 4H12V12H4V4Z" stroke="currentColor" strokeWidth="1.2" />
             </svg>
           )}
-        </button>
+        </CaptionButton>
       </Tooltip>
 
+      {/* `tone="close"` carries the Windows-native hover red, which now lives in
+          the kit with its own design-tokens-allow. */}
       <Tooltip content="Close" placement="bottom">
-        <button
-          type="button"
-          onClick={closeWindow}
-          // design-tokens-allow: Windows 11 OS-native close-button hover red; tokenising would replace the system-expected red with the Multicode tone palette
-          className={`inline-flex w-10 items-center justify-center text-[color:var(--text-muted)] transition-colors hover:bg-[#c42b1c] hover:text-white focus:bg-[#c42b1c] focus:text-white ${FOCUS_RING_INSET_CLASS}`}
-          aria-label="Close window"
-        >
+        <CaptionButton tone="close" onClick={closeWindow} aria-label="Close window">
           <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-        </button>
+        </CaptionButton>
       </Tooltip>
     </div>
   )

@@ -64,12 +64,14 @@ import {
 import { backlogRowPaintClass } from '../../backlog/backlogRowPaint'
 import { matchesBacklogQuery } from '../globalSurface/backlog/backlogSurfaceModel'
 import {
+  ChipButton,
   CloseIconButton,
   GhostButton,
   IconButton,
   InboxSearchInput,
-  INLINE_TITLE_EDIT_CLASS,
   InlineNotice,
+  Input,
+  LinkButton,
   LIST_CURSOR_MARK_CLASS,
   MENU_LIST_CLASS,
   MenuItem,
@@ -1129,7 +1131,15 @@ export default function NewSprintDialog({
               <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {renaming ? (
-                    <input
+                    // `inline` is `INLINE_TITLE_EDIT_CLASS` promoted to a
+                    // variant: quiet at rest, revealing the field chrome on
+                    // hover or focus, so the head of the pane reads as a
+                    // heading rather than a form field wearing one. The type
+                    // step stays with the caller — the variant deliberately
+                    // spells none, because the surface decides it.
+                    <Input
+                      variant="inline"
+                      fullWidth={false}
                       autoFocus
                       defaultValue={runName ?? ''}
                       aria-label="Run name"
@@ -1148,28 +1158,30 @@ export default function NewSprintDialog({
                         setNameOverride(event.currentTarget.value)
                         setRenaming(false)
                       }}
-                      // The kit's in-place title edit. This spelled its own box
-                      // at Tailwind's default 4px radius, off the 3/7/9 ramp,
-                      // and drew a resting border where the automation editor's
-                      // identical idiom draws none (MC-2114).
-                      className={`${INLINE_TITLE_EDIT_CLASS} min-w-0 flex-1 font-mono text-heading font-medium text-[color:var(--text-strong)]`}
+                      className="min-w-0 flex-1 font-mono text-heading font-medium text-[color:var(--text-strong)]"
                     />
                   ) : runName ? (
                     <>
                       <h2 className="min-w-0 truncate font-mono text-heading font-medium text-[color:var(--text-strong)]">
                         {runName}
                       </h2>
-                      <button
-                        type="button"
+                      {/* `inline` is the icon step whose box comes from the mark
+                          plus a 2px inset — a 26px square in a title row would
+                          set the row's height — and it pads out to the 24px
+                          hit-target floor with a transparent overlay. `quiet` is
+                          its `--text-disabled` rest ink. */}
+                      <IconButton
+                        size="inline"
+                        tone="quiet"
                         aria-label="Rename this run"
                         onClick={() => setRenaming(true)}
-                        className="shrink-0 rounded p-0.5 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                        className="shrink-0"
                       >
                         <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                           <path d="M11.2 2.8l2 2L6 12H4v-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
                           <path d="M2.5 14h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity=".5" />
                         </svg>
-                      </button>
+                      </IconButton>
                     </>
                   ) : (
                     <h2 className="text-heading font-semibold text-[color:var(--text-subtle)]">
@@ -1194,14 +1206,16 @@ export default function NewSprintDialog({
                         <p className="text-meta text-[color:var(--text-strong)]">
                           “{doorDraft.goal.trim()}”
                         </p>
-                        <button
-                          type="button"
+                        {/* The kit's text link in its `quiet` ink: `--text-muted`
+                            lifting to `--text-strong`, with the standing underline
+                            that keeps a quiet link findable inside a sentence. */}
+                        <LinkButton
+                          ink="quiet"
                           disabled={!folderPath}
                           onClick={() => setCreatingItem(true)}
-                          className="text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:no-underline disabled:text-[color:var(--text-disabled)] focus-visible:focus-ring"
                         >
                           {folderPath ? 'Write it down' : 'Open a project to write it down'}
-                        </button>
+                        </LinkButton>
                       </div>
                     ) : (
                       <p className="text-meta text-[color:var(--text-muted)]">
@@ -1314,13 +1328,9 @@ export default function NewSprintDialog({
                       <span className="ml-auto shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
                         {staffedRoles.length} role{staffedRoles.length === 1 ? '' : 's'}
                       </span>
-                      <button
-                        type="button"
-                        onClick={openRosterScreen}
-                        className="shrink-0 text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                      >
+                      <LinkButton ink="quiet" onClick={openRosterScreen} className="shrink-0">
                         Configure…
-                      </button>
+                      </LinkButton>
                     </div>
                     <div className="flex flex-col gap-1.5 px-3 py-2">
                       {staffedRoles.length === 0 ? (
@@ -1361,17 +1371,14 @@ export default function NewSprintDialog({
           {screen === 'roster' ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex shrink-0 items-center gap-3 px-4 pb-2 pt-3">
-                <button
-                  ref={backButtonRef}
-                  type="button"
-                  onClick={closeRosterScreen}
-                  className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                >
-                  <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                {/* `underline="never"`: the chevron is the affordance, and a
+                    standing underline would run under it. */}
+                <LinkButton ref={backButtonRef} ink="quiet" underline="never" onClick={closeRosterScreen}>
+                  <svg viewBox="0 0 16 16" fill="none" className="icon-xs mr-1.5 inline-block align-text-bottom" aria-hidden="true">
                     <path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   Back to the sprint
-                </button>
+                </LinkButton>
                 <span className="text-heading font-semibold text-[color:var(--text-strong)]">Rosters</span>
               </div>
               <p className="max-w-[64ch] shrink-0 px-4 pb-3 text-meta text-[color:var(--text-muted)]">
@@ -1387,13 +1394,9 @@ export default function NewSprintDialog({
           <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--border-subtle)] px-4 py-3">
             {screen === 'sprint' ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => void pickSourceFile()}
-                  className="text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                >
+                <LinkButton ink="quiet" onClick={() => void pickSourceFile()}>
                   Choose a file instead…
-                </button>
+                </LinkButton>
                 <span className="flex-1" />
                 <span className="text-micro text-[color:var(--text-subtle)]">{footSummary}</span>
                 <PrimaryButton disabled={!canStart} onClick={() => void start()}>
@@ -1493,13 +1496,10 @@ function ProjectChip({
       surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
-          {...triggerProps}
-        >
+        // The same chip the composer's project scope wears: content height on
+        // the line box, with the `outline` variant's hairline so it stays
+        // findable on the dialog's header strip.
+        <ChipButton ref={ref} variant="outline" onClick={togglePopover} {...triggerProps}>
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
             <path
               d="M2 4.5C2 3.7 2.7 3 3.5 3H6l1.5 1.5h5c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5h-9C2.7 13.5 2 12.8 2 12V4.5z"
@@ -1508,8 +1508,8 @@ function ProjectChip({
             />
           </svg>
           <span className="truncate">{label}</span>
-          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">▾</span>
-        </button>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">▾</span>
+        </ChipButton>
       )}
     >
       <div onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}>
@@ -1704,16 +1704,12 @@ function SourceChip({
         ) : null}
         <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{title}</span>
         {tail ? <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{tail}</span> : null}
-        <button
-          type="button"
-          aria-label={`Remove ${title}`}
-          onClick={onRemove}
-          className="shrink-0 rounded p-0.5 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-        >
+        {/* The rename glyph's step, in the `subtle` tone this one rests at. */}
+        <IconButton size="inline" tone="subtle" aria-label={`Remove ${title}`} onClick={onRemove} className="shrink-0">
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
             <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-        </button>
+        </IconButton>
       </div>
       {note ? <span className="pb-0.5 text-micro text-[color:var(--text-muted)]">{note}</span> : null}
     </div>

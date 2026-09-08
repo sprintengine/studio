@@ -2,8 +2,9 @@
 // this hookless module free of the barrel's whole component graph.
 import type React from 'react'
 import { Tooltip } from '../../ui/Tooltip'
+import { ChipButton } from '../../ui/ChipButton'
 import { DefaultChip } from '../../ui/DefaultChip'
-import { MENU_ITEM_STACKED_CLASS } from '../../ui/menuClasses'
+import { MenuOption } from '../../ui/MenuOption'
 import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
 import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
 
@@ -80,22 +81,20 @@ export function PermissionPresetChips({
         const active = option.value === value
         const isBypass = option.value === 'bypass'
         return (
+          // The kit's chip toggle. `pressed` carries the thrown fill AND the
+          // `aria-pressed` this row already stated, and the tone decides which
+          // fill: `warn` keeps its own tint, because a thrown Bypass that went
+          // neutral would stop saying what it says. The tone is warn only while
+          // thrown — an unpicked Bypass chip is as quiet as its neighbours.
           <Tooltip key={option.value} content={option.title} placement="bottom">
-            <button
-              type="button"
-              aria-pressed={active}
+            <ChipButton
+              tone={active && isBypass ? 'warn' : 'subtle'}
+              pressed={active}
               disabled={disabled}
               onClick={() => onChange(option.value)}
-              className={`rounded-sm px-2 py-0.5 text-micro font-medium transition-colors focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-50 ${
-                active
-                  ? isBypass
-                    ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-                    : 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-              }`}
             >
               {PRESET_CHIP_LABEL[option.value]}
-            </button>
+            </ChipButton>
           </Tooltip>
         )
       })}
@@ -256,36 +255,41 @@ export function PermissionPresetMenuRows({
         const reason = disabledReasons?.[option.value] ?? null
         const rowDisabled = disabled || reason !== null
         return (
-          <button
+          // The kit's value row in its stacked shape. Bypass's warn ink moves
+          // onto the row's OWN title span rather than staying on the button: as
+          // a caller className it met the primitive's resting and selected inks
+          // at equal specificity, and which one painted was stylesheet order.
+          <MenuOption
             key={option.value}
-            type="button"
             role="menuitemradio"
-            aria-checked={active}
+            selected={active}
+            stacked
             data-preset-option="true"
             tabIndex={active ? 0 : -1}
             disabled={rowDisabled}
             onKeyDown={(event) => menuRadioRowKeyDown(event, PRESET_ROW_SELECTOR, () => onSelect(option.value))}
             onClick={() => onSelect(option.value)}
-            className={`${MENU_ITEM_STACKED_CLASS} ${
-              active ? 'bg-[color:var(--bg-selected)]' : ''
-            } ${isBypass ? 'text-[color:var(--tone-warn)]' : active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}
+            icon={<span className="mt-0.5 inline-flex shrink-0"><PresetGlyph preset={option.value} /></span>}
+            trailing={
+              active ? (
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]">
+                  <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : null
+            }
           >
-            <span className="mt-0.5 inline-flex shrink-0"><PresetGlyph preset={option.value} /></span>
-            <span className="min-w-0 flex-1">
-              <span className={`flex items-center gap-1.5 text-body font-medium ${isBypass ? '' : 'text-[color:var(--text-strong)]'}`}>
-                <span className="min-w-0 truncate">{option.label}</span>
-                {option.value === 'none' ? <DefaultChip /> : null}
-              </span>
-              <span className="mt-0.5 block text-meta leading-snug text-[color:var(--text-subtle)]">
-                {reason ?? option.summary}
-              </span>
+            <span
+              className={`flex items-center gap-1.5 text-body font-medium ${
+                isBypass ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-strong)]'
+              }`}
+            >
+              <span className="min-w-0 truncate">{option.label}</span>
+              {option.value === 'none' ? <DefaultChip /> : null}
             </span>
-            {active ? (
-              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]">
-                <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : null}
-          </button>
+            <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
+              {reason ?? option.summary}
+            </span>
+          </MenuOption>
         )
       })}
     </>
@@ -309,18 +313,12 @@ export function SpawnDebugToggle({
       placement="bottom"
       wrapperClassName="ml-auto inline-flex"
     >
-      <button
-        type="button"
-        aria-pressed={active}
-        onClick={() => onChange(!active)}
-        className={`rounded-sm px-2 py-0.5 text-micro font-medium transition-colors focus-visible:focus-ring ${
-          active
-            ? 'bg-[color:var(--tone-error)]/12 text-[color:var(--tone-error-on-tint)]'
-            : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
-        }`}
-      >
+      {/* The permission chips' toggle, in the error tone: a thrown DEBUG keeps
+          its own tint, because a state that went neutral would stop saying what
+          it says. Quiet until thrown, so it does not shout from the row. */}
+      <ChipButton tone={active ? 'error' : 'subtle'} pressed={active} onClick={() => onChange(!active)}>
         DEBUG
-      </button>
+      </ChipButton>
     </Tooltip>
   )
 }

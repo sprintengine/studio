@@ -1,4 +1,4 @@
-import { Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, TruncatedText } from '../../ui'
+import { Field, GhostButton, InlineNotice, Input, RowButton, TruncatedText } from '../../ui'
 import type { GitHubRepoListResult, GitHubRepoSummary } from '../../../../../shared/electron-api'
 import { filterGitHubRepos } from './githubClone'
 
@@ -76,18 +76,15 @@ export function GitHubRepoPicker({
 
       {listState.status === 'ready' ? (
         <>
-          <input
+          {/* The kit's field at its `sm` step — the ramp height an input and
+              the select beside it share. The 32px box this drew was off the
+              26/30/34 ramp entirely. */}
+          <Input
             value={filter}
             onChange={(event) => onChangeFilter(event.target.value)}
             placeholder="Filter repositories…"
             spellCheck={false}
             autoComplete="off"
-            className={`
-              block h-8 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5
-              text-meta text-[color:var(--text-strong)] transition-colors
-              placeholder:text-[color:var(--text-disabled)]
-              hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
-            `}
           />
           {visibleRepos.length === 0 ? (
             <p className="px-0.5 text-micro text-[color:var(--text-subtle)]">
@@ -100,17 +97,19 @@ export function GitHubRepoPicker({
               {visibleRepos.map((repo) => {
                 const selected = repo.fullName === selectedFullName
                 return (
-                  <button
+                  // The kit's inset row. `selected` paints the neutral
+                  // selection canon; `aria-current` is withheld because a
+                  // listbox option states its state in `aria-selected`, which
+                  // the caller passes.
+                  <RowButton
                     key={repo.fullName}
-                    type="button"
+                    density="row"
+                    selected={selected}
+                    aria-current={undefined}
                     role="option"
                     aria-selected={selected}
                     onClick={() => onSelectRepo(repo)}
-                    className={`
-                      flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors
-                      focus-visible:focus-ring
-                      ${selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'}
-                    `}
+                    className="pl-2.5 pr-2.5"
                   >
                     <span className="shrink-0 text-body font-medium text-[color:var(--text-strong)]">
                       {repo.fullName}
@@ -125,7 +124,7 @@ export function GitHubRepoPicker({
                         className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-muted)]"
                       />
                     ) : null}
-                  </button>
+                  </RowButton>
                 )
               })}
             </div>
@@ -140,7 +139,11 @@ export function GitHubRepoPicker({
         </span>
         <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
       </div>
-      <input
+      {/* The error edge rides `aria-invalid` inside the primitive, so the
+          conditional border class this carried is gone: an attribute variant
+          out-specifies both the resting border and the hover lift, which a
+          plain conditional class does not. */}
+      <Input
         value={urlDraft}
         onChange={(event) => onChangeUrlDraft(event.target.value)}
         placeholder="https://github.com/owner/repo"
@@ -148,13 +151,7 @@ export function GitHubRepoPicker({
         autoComplete="off"
         aria-label="Repository URL"
         aria-invalid={urlError ? true : undefined}
-        className={`
-          block h-8 w-full rounded-md border bg-[color:var(--bg-surface)] px-2.5
-          font-mono text-meta text-[color:var(--text-strong)] transition-colors
-          placeholder:text-[color:var(--text-disabled)]
-          hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
-          ${urlError ? 'border-[color:var(--tone-error)]' : 'border-[color:var(--border-default)]'}
-        `}
+        className="font-mono"
       />
       {urlError ? <p className="px-0.5 text-micro leading-4 text-[color:var(--tone-error)]">{urlError}</p> : null}
     </div>

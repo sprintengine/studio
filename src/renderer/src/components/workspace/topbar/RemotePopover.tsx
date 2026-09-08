@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { CloseIconButton, GhostButton, IconButton, OutlineButton, PanelHeader, RefreshIcon, Tooltip } from '../../ui'
+import { CloseIconButton, GhostButton, IconButton, LinkButton, OutlineButton, PanelHeader, RefreshIcon, Tooltip } from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useTerminalSessions } from '../../../hooks/useTerminalSessions'
@@ -217,9 +217,12 @@ function DrivenTerminalLine({ sessionId }: { sessionId: string }) {
     <div className="flex min-w-0 items-center pl-6 pt-0.5 text-micro">
       {target ? (
         <Tooltip content={`Open ${view.label}`} placement="bottom">
-          <button
-            type="button"
-            className="interactive min-w-0 max-w-full truncate rounded-[3px] text-left text-[color:var(--accent-primary)] hover:underline focus-visible:focus-ring"
+          {/* The kit's text link: accent ink, underlined on hover, no box at
+              all. `size="inherit"` keeps the strip's own `text-micro` — a link
+              set in a line takes that line's type. */}
+          <LinkButton
+            size="inherit"
+            className="min-w-0 max-w-full"
             onClick={() => {
               // The reveal activates the workspace, which is what clears a door
               // or modal surface standing over the layout (agentTabReveal).
@@ -229,7 +232,7 @@ function DrivenTerminalLine({ sessionId }: { sessionId: string }) {
             }}
           >
             {label}
-          </button>
+          </LinkButton>
         </Tooltip>
       ) : (
         <span className="min-w-0 truncate text-[color:var(--text-subtle)]">{label}</span>

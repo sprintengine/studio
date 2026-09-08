@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { RowButton } from '../ui/RowButton'
 import { Tooltip } from '../ui/Tooltip'
 
 // Top-nav row (New chat, Automations, Sprints, Connectors, and any door a
@@ -49,21 +49,22 @@ export function SidebarNavButton({
 }) {
   const highlighted = Boolean(active) || Boolean(dropActive)
   const button = (
-    <button
-      type="button"
+    // The kit's row at the sidebar's navigation rhythm. `selected` paints the
+    // canonical selection — the neutral fill plus the 2px inset edge every other
+    // chosen row in the product draws — for BOTH the active door and the
+    // transient drop target, while the explicit `aria-current` after it keeps a
+    // drop highlight out of the navigation state (it is a hover, not a place).
+    // The type stays here because `RowButton` deliberately spells none.
+    <RowButton
+      density="nav"
+      selected={highlighted}
       onClick={onClick}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       aria-current={active ? 'true' : undefined}
       aria-label={collapsed ? ariaLabel : undefined}
-      className={`relative flex h-control-sm w-full items-center rounded-md text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
-        collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
-      } ${
-        highlighted
-          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      }`}
+      className={`relative text-heading font-medium ${collapsed ? 'justify-center' : ''}`}
     >
       {icon}
       {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
@@ -74,7 +75,7 @@ export function SidebarNavButton({
           <span className="ml-auto flex shrink-0 pl-1">{indicator}</span>
         )
       ) : null}
-    </button>
+    </RowButton>
   )
   if (collapsed) {
     return (

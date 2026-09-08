@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 
+import { RowButton } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { buildAgentCliCatalog, installableCliSummary } from './newWorkspace/cliRuntimeOptions'
 
@@ -75,11 +76,11 @@ export function CliInstallCta() {
   const openInstall = useOpenCliInstall()
   const summary = useInstallableCliSummary()
   return (
-    <button
-      type="button"
-      onClick={openInstall}
-      className="mt-5 flex w-full items-center gap-3 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-3 py-3 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
-    >
+    // The kit's row: a full-width, left-aligned control whose CHILDREN are the
+    // layout — a glyph, two lines and a trailing chevron. `row` is the inset
+    // density, since the call to action sits inside a padded empty state
+    // rather than reaching its container's edges.
+    <RowButton density="row" onClick={openInstall} className="mt-5">
       <CliInstallIcon className="size-icon-md shrink-0 text-[color:var(--accent-primary)]" />
       <span className="min-w-0">
         <span className="block text-body font-semibold text-[color:var(--text-strong)]">
@@ -90,7 +91,7 @@ export function CliInstallCta() {
         ) : null}
       </span>
       <ChevronRightIcon className="ml-auto h-4 w-4 shrink-0 text-[color:var(--text-subtle)]" />
-    </button>
+    </RowButton>
   )
 }
 
@@ -99,17 +100,19 @@ export function CliInstallCta() {
 export function CliInstallRosterRow({ onNavigate }: { onNavigate?: () => void }) {
   const openInstall = useOpenCliInstall()
   return (
-    <button
-      type="button"
+    // `bleed`: the row reaches the picker list's own edges, so it draws no
+    // radius and takes the inset focus ring an edge-touching row needs.
+    <RowButton
+      density="bleed"
       onClick={() => {
         openInstall()
         onNavigate?.()
       }}
-      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-body text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+      className="pl-2.5 text-body"
     >
       <CliInstallIcon className="icon-sm shrink-0 text-[color:var(--accent-primary)]" />
       Install an agent CLI
       <ChevronRightIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-[color:var(--text-subtle)]" />
-    </button>
+    </RowButton>
   )
 }

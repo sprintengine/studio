@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, MENU_ITEM_STACKED_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, PanelHeader, Popover, PrimaryButton, roveMenuFocus, StarGlyph, TruncatedText } from '../../ui'
+import { ChipButton, CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_WITHIN_INPUT_CLASS, IconButton, Input, MENU_LIST_CLASS, MenuDivider, MenuItem, MenuOption, PanelHeader, Popover, PrimaryButton, roveMenuFocus, RowButton, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
@@ -216,8 +216,14 @@ export default function AgentComposer({
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
               <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
-            <input
+            {/* `seamless` is the kit's field for exactly this composition: no
+                box of its own, because the wrapper above IS the box. It brings
+                the ground, the ink and the placeholder tier, and keeps the
+                `outline-none` the wrapper's ring depends on. */}
+            <Input
               ref={searchRef}
+              variant="seamless"
+              fullWidth={false}
               value={composer.query}
               onChange={(event) => composer.setQuery(event.currentTarget.value)}
               onKeyDown={onSearchKeyDown}
@@ -225,7 +231,7 @@ export default function AgentComposer({
               aria-label="Search agents"
               aria-controls="agent-composer-roster"
               aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-              className="min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)]"
+              className="min-w-0 flex-1 text-body"
             />
           </div>
 
@@ -341,14 +347,18 @@ export default function AgentComposer({
                 >
                   <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
                   {skill.name}
-                  <button
-                    type="button"
+                  {/* `ink` is the tone for a bare glyph inside something that
+                      already has a fill: `--text-subtle` lifting to
+                      `--text-default`, and NO ground at any state, so the chip
+                      does not grow a second box inside itself. */}
+                  <IconButton
+                    size="inline"
+                    tone="ink"
                     onClick={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
                     aria-label={`Remove skill ${skill.name}`}
-                    className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
-                  </button>
+                  </IconButton>
                 </span>
               ))}
               {composer.mcpServers.map((server) => (
@@ -358,14 +368,14 @@ export default function AgentComposer({
                 >
                   <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={16} />
                   {server.name}
-                  <button
-                    type="button"
+                  <IconButton
+                    size="inline"
+                    tone="ink"
                     onClick={() => composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))}
                     aria-label={`Remove MCP server ${server.name}`}
-                    className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
-                  </button>
+                  </IconButton>
                 </span>
               ))}
               {/* The one picker the New chat composer uses: install and add
@@ -381,7 +391,6 @@ export default function AgentComposer({
                 mcpServers={composer.mcpServers}
                 onMcpServersChange={composer.setMcpServers}
                 placement="top-start"
-                triggerClassName={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
               />
             </div>
           ) : null}
@@ -459,17 +468,19 @@ function ProjectScopeChip({
       surfaceClassName={`w-[300px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
+        // The kit's chip, which is what this is called and what it is: a
+        // content-height pill naming one thing, with the hairline the
+        // `outline` variant draws so it stays findable on the header strip.
+        <ChipButton
           ref={ref}
-          type="button"
+          variant="outline"
           onClick={togglePopover}
-          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
           {...triggerProps}
         >
           <FolderGlyph className="icon-xs shrink-0" />
           <span className="truncate">{folderLabel ?? 'Choose project'}</span>
-          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">▾</span>
-        </button>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">▾</span>
+        </ChipButton>
       )}
     >
       <div onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}>
@@ -480,30 +491,29 @@ function ProjectScopeChip({
             // two-line menu row, with the item's ring, hover and disabled
             // treatment. `data-menu-item` + `tabIndex={-1}` make it a stop for
             // the surface's roving focus, as `MenuItem` is.
-            <button
+            <MenuOption
               key={option.path}
-              type="button"
               role="menuitemradio"
-              aria-checked={current}
+              selected={current}
+              stacked
               data-menu-item="true"
               tabIndex={-1}
               onClick={() => {
                 onSelectProject(option.path)
                 setOpen(false)
               }}
-              className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+              icon={<FolderGlyph className="icon-xs mt-0.5 shrink-0 text-[color:var(--text-muted)]" />}
+              trailing={
+                current ? (
+                  <svg className="icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : null
+              }
             >
-              <FolderGlyph className="icon-xs mt-0.5 shrink-0 text-[color:var(--text-muted)]" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-meta">{option.label}</span>
-                <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
-              </span>
-              {current ? (
-                <svg className="icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
-                  <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              ) : null}
-            </button>
+              <span className="block truncate text-meta">{option.label}</span>
+              <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
+            </MenuOption>
           )
         })}
         {options.length > 0 ? <MenuDivider /> : null}
@@ -544,25 +554,32 @@ function ComposerRosterRow({
   onConfirm: () => void
 }) {
   return (
-    <button
-      type="button"
+    // The kit's full-bleed row: no radius (an inset rounded fill inside a padded
+    // pane reads as a card in a card) and an inset focus ring, because the row
+    // touches the pane's edge. `selected` paints the neutral selection canon;
+    // `aria-current` is withheld because a listbox option states its state in
+    // `aria-selected`, which the caller passes.
+    <RowButton
+      density="bleed"
+      selected={selected}
+      aria-current={undefined}
       id={id}
       role="option"
       aria-selected={selected}
       tabIndex={-1}
       onClick={onSelect}
       onDoubleClick={onConfirm}
-      className={`grid w-full grid-cols-[20px_1fr] items-center gap-2 py-1.5 pl-2.5 pr-2 text-left transition-colors ${
-        selected
-          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
-      }`}
+      className="pl-2.5"
     >
-      <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>
+      <span
+        className={`flex w-5 shrink-0 justify-center ${
+          selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
+        }`}
+      >
         {icon}
       </span>
-      <TruncatedText as="span" text={label} className="text-body" />
-    </button>
+      <TruncatedText as="span" text={label} className="min-w-0 flex-1 text-body" />
+    </RowButton>
   )
 }
 
@@ -574,18 +591,18 @@ function ComposerRosterRow({
 // destination (the module manager, not the marketplace directly).
 function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpenMarketplace}
-      aria-label="Get specialist roles"
-      className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
-    >
-      <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-      <TruncatedText as="span" text="Get specialist roles" className="text-body" />
+    // The roster row's shape, so the discovery entry sits in the same list
+    // rhythm as the options above it — same density, same inset, same glyph
+    // column — while staying outside the listbox's roving selection.
+    <RowButton density="bleed" onClick={onOpenMarketplace} aria-label="Get specialist roles" className="pl-2.5">
+      <span className="flex w-5 shrink-0 justify-center">
+        <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+      </span>
+      <TruncatedText as="span" text="Get specialist roles" className="min-w-0 flex-1 text-body" />
       <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </button>
+    </RowButton>
   )
 }
 

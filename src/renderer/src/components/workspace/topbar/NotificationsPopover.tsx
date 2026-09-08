@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { EmptyState, FOCUS_RING_CLASS, GhostButton, LifecycleGlyph, OutlineButton, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
+import { ChipButton, EmptyState, GhostButton, LifecycleGlyph, OutlineButton, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -188,21 +188,20 @@ export function NotificationsPopover({
                   const active = activeLevels.includes(level)
                   const glyph = LEVEL_GLYPH[level]
                   return (
-                    <button
+                    // The kit's chip toggle: content height on the filter
+                    // strip's own line, and `pressed` paints the neutral
+                    // selection fill this spelled by hand while supplying the
+                    // `aria-pressed` it also stated.
+                    <ChipButton
                       key={level}
-                      type="button"
-                      aria-pressed={active}
+                      tone="neutral"
+                      pressed={active}
                       aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
                       onClick={() => toggleLevel(level)}
-                      className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-micro font-semibold transition-colors ${FOCUS_RING_CLASS} ${
-                        active
-                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                      }`}
                     >
                       {glyph ? <LifecycleGlyph state={glyph} live={false} /> : null}
                       {label}
-                    </button>
+                    </ChipButton>
                   )
                 })}
                 <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" />

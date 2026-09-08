@@ -377,20 +377,13 @@ function SavedRostersMenu({
       surfaceClassName={`w-[248px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstMenuItem}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          onClick={togglePopover}
-          className="
-            inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-meta font-medium text-[color:var(--text-muted)]
-            transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-            focus-visible:focus-ring
-          "
-          {...triggerProps}
-        >
+        // The kit's labelled ghost at `xs`: `h-control-xs px-2 text-meta`, and
+        // `GHOST_TONE.neutral` is this trigger's ink pair to the token —
+        // `--text-muted` lifting to `--bg-hover` + `--text-strong`.
+        <GhostButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
           {triggerLabel}
           <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-        </button>
+        </GhostButton>
       )}
     >
       {editing !== 'idle' ? (

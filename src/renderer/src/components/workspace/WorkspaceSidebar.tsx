@@ -25,12 +25,14 @@ import {
 import {
   ContextMenu,
   Field,
+  IconButton,
   Input,
   LifecycleGlyph,
   MenuDivider,
   AgentWorkingDots,
   MenuItem,
   MenuSwatchRow,
+  RowButton,
   StarGlyph,
   StatusDot,
   Tooltip,
@@ -610,13 +612,17 @@ function SettledShelfRow({
 }) {
   return (
     <div className="mx-1.5 my-0.5 flex items-center gap-1">
-      <button
-        type="button"
+      {/* The kit's nav row. Only the alignment inset stays with the caller —
+          a `pl-*` out-specifies the density's `px-2` in Tailwind's own
+          ordering — along with the type step, which `RowButton` deliberately
+          does not spell. */}
+      <RowButton
+        density="nav"
         onClick={onToggle}
         aria-expanded={expanded}
         aria-controls={controlsId}
         // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file); flush drops to 10px, which is the same sum for a flat-stream row
-        className={`flex h-control-xs min-w-0 flex-1 cursor-pointer select-none items-center gap-1.5 rounded-md ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+        className={`min-w-0 flex-1 select-none ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta`}
       >
         <svg
           viewBox="0 0 16 16"
@@ -630,7 +636,7 @@ function SettledShelfRow({
         </svg>
         <span className="truncate">Settled</span>
         <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
-      </button>
+      </RowButton>
     </div>
   )
 }
@@ -2294,8 +2300,7 @@ export default function WorkspaceSidebar({
             move. */}
         <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
           <Tooltip content="More actions">
-            <button
-              type="button"
+            <IconButton
               onClick={(event) => {
                 event.stopPropagation()
                 setContextMenu({
@@ -2304,7 +2309,7 @@ export default function WorkspaceSidebar({
                   y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                 })
               }}
-              className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              tone="quiet"
               aria-label="Workspace actions"
             >
               <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
@@ -2312,7 +2317,7 @@ export default function WorkspaceSidebar({
                 <circle cx="8" cy="8" r="1.2" />
                 <circle cx="12.5" cy="8" r="1.2" />
               </svg>
-            </button>
+            </IconButton>
           </Tooltip>
           {/* The one-click seat is rest, not removal (settled-chats,
               2026-09-07). It used to be the ✕, which terminates the row's
@@ -2340,29 +2345,27 @@ export default function WorkspaceSidebar({
               rule the menu's Settle entry follows. */}
           {workspace.remoteOrigin ? (
             <Tooltip content="Close workspace">
-              <button
-                type="button"
-                onClick={(event) => {
+              <IconButton
+                  onClick={(event) => {
                   event.stopPropagation()
                   handleClose(workspace.id)
                 }}
-                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                tone="quiet"
                 aria-label={`Close ${workspace.name}`}
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                   <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 </svg>
-              </button>
+              </IconButton>
             </Tooltip>
           ) : options?.settled ? (
             <Tooltip content="Un-settle">
-              <button
-                type="button"
-                onClick={(event) => {
+              <IconButton
+                  onClick={(event) => {
                   event.stopPropagation()
                   setWorkspaceSettled(workspace.id, false)
                 }}
-                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                tone="quiet"
                 aria-label={`Un-settle ${workspace.name}`}
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
@@ -2380,17 +2383,16 @@ export default function WorkspaceSidebar({
                     strokeLinecap="round"
                   />
                 </svg>
-              </button>
+              </IconButton>
             </Tooltip>
           ) : (
             <Tooltip content="Settle">
-              <button
-                type="button"
-                onClick={(event) => {
+              <IconButton
+                  onClick={(event) => {
                   event.stopPropagation()
                   settleWorkspaceById(workspace.id)
                 }}
-                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                tone="quiet"
                 aria-label={`Settle ${workspace.name}`}
               >
                 {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
@@ -2405,7 +2407,7 @@ export default function WorkspaceSidebar({
                     strokeLinejoin="round"
                   />
                 </svg>
-              </button>
+              </IconButton>
             </Tooltip>
           )}
         </span>
@@ -2666,8 +2668,16 @@ export default function WorkspaceSidebar({
             header (`FolderIdentityIcon`). Mode identity still reads from the
             row accent, the trailing run glyph, and the inline sprint mark. */}
         {renamingId === workspace.id ? (
-          <input
+          // The kit's field, spliced into a row that has already decided its
+          // height: `size="none"` spends no ramp step, so the inset and the
+          // row's own type step stay here as layout. `variant="default"` is
+          // the right ground — `--bg-field` IS `--bg-surface-raised` on an
+          // opaque window — and brings the border, the radius, the hover edge
+          // lift and the one focus ring with it.
+          <Input
             ref={renameInputRef}
+            size="none"
+            fullWidth={false}
             value={renameValue}
             onChange={(event) => setRenameValue(event.target.value)}
             onBlur={commitRename}
@@ -2677,7 +2687,7 @@ export default function WorkspaceSidebar({
               if (event.key === 'Escape') setRenamingId(null)
               event.stopPropagation()
             }}
-            className={`min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0 text-heading text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className="min-w-0 flex-1 px-1.5 py-0 text-heading"
           />
         ) : (
           titleCluster
@@ -2958,7 +2968,9 @@ export default function WorkspaceSidebar({
             event.preventDefault()
             setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
           }}
-          className={`group/folder relative flex h-control-xs select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
+          // `min-h-control-sm`, not a fixed 26px: the fold row inside is the
+          // kit's nav row now, and its floor is the sidebar's control step.
+          className={`group/folder relative flex min-h-control-sm select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
             group.missing ? 'text-[color:var(--tone-warn)]' : ''
           }`}
         >
@@ -2983,16 +2995,18 @@ export default function WorkspaceSidebar({
             placement="bottom"
             wrapperClassName="flex h-full min-w-0 flex-1"
           >
-          <button
-            type="button"
+          {/* The kit's nav row. The missing-folder hover tint is gone rather
+              than carried over: it was a second `hover:text-[color:var(--…)]`
+              at equal specificity, so which ink painted was stylesheet order.
+              The `Missing` chip beside the name is what states that fact. */}
+          <RowButton
+            density="nav"
             onClick={() =>
               setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))
             }
             aria-expanded={!collapsed}
             aria-controls={folderBodyId}
-            className={`flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pl-4 text-left transition-colors hover:text-[color:var(--text-default)] ${
-              group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
-            } ${FOCUS_RING_CLASS}`}
+            className="min-w-0 flex-1 pl-4"
           >
             {/* One icon slot, Cursor-style: the folder's identity at
                 rest — the project's own logo when its repo has one, the
@@ -3026,7 +3040,7 @@ export default function WorkspaceSidebar({
             <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
               {group.displayName}
             </span>
-          </button>
+          </RowButton>
           </Tooltip>
           {group.missing ? (
             <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
@@ -3035,8 +3049,7 @@ export default function WorkspaceSidebar({
             </span>
           ) : null}
           <Tooltip content="Folder actions">
-            <button
-              type="button"
+            <IconButton
               onClick={(event) => {
                 event.stopPropagation()
                 setFolderMenu({
@@ -3045,7 +3058,8 @@ export default function WorkspaceSidebar({
                   y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                 })
               }}
-              className={`ml-1 inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+              tone="quiet"
+              className="ml-1 opacity-0 transition-opacity group-hover/folder:opacity-100 focus-visible:opacity-100"
               aria-label={`Folder actions: ${group.displayName}`}
             >
               <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
@@ -3053,7 +3067,7 @@ export default function WorkspaceSidebar({
                 <circle cx="8" cy="8" r="1.2" />
                 <circle cx="12.5" cy="8" r="1.2" />
               </svg>
-            </button>
+            </IconButton>
           </Tooltip>
         </header>
         {renderFolderBody(group, visibleWorkspaces, collapsed, folderBodyId)}
@@ -3182,23 +3196,24 @@ export default function WorkspaceSidebar({
             tab-extract drop target. */}
         <div className="flex items-stretch gap-px">
           <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
-            <button
-              type="button"
+            {/* The same nav row `SidebarNavButton` draws, and `selected` is the
+                drop highlight — a transient target, so `aria-current` is
+                explicitly withheld: this row is not somewhere you are. */}
+            <RowButton
+              density="nav"
+              selected={tabDropTarget?.kind === 'new'}
+              aria-current={undefined}
               onClick={onNewChat}
               onDragOver={handleTabDragOverNew}
               onDragLeave={handleTabDragLeaveNew}
               onDrop={handleTabDropOnNew}
-              className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
-                tabDropTarget?.kind === 'new'
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-              }`}
+              className="min-w-0 flex-1 text-heading font-medium"
             >
               <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
               <span className="min-w-0 flex-1 truncate">
                 {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
               </span>
-            </button>
+            </RowButton>
           </Tooltip>
         </div>
       </div>
@@ -3243,12 +3258,14 @@ export default function WorkspaceSidebar({
       >
         {starredWorkspaces.length > 0 ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
-            <button
-              type="button"
+            {/* The kit's nav row. `group/folder` is the hover scope the icon
+                slot below reads, and the insets are the tree's own grid. */}
+            <RowButton
+              density="nav"
               onClick={() => setStarredCollapsed((prev) => !prev)}
               aria-expanded={!starredCollapsed}
               aria-controls="ws-starred-body"
-              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className="group/folder relative select-none pl-4 pr-2"
             >
               {/* One icon slot, Cursor-style: the star at rest, the collapse
                   chevron swapped in on hover — no dedicated chevron column, so
@@ -3272,7 +3289,7 @@ export default function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
-            </button>
+            </RowButton>
             <div id="ws-starred-body" hidden={starredCollapsed}>
               {!starredCollapsed
                 ? starredWorkspaces.map((workspace) =>
@@ -3289,12 +3306,13 @@ export default function WorkspaceSidebar({
             Remote glyph add, forget, and revoke. */}
         {remoteItems.length > 0 ? (
           <section className="relative pt-1" aria-label="Remote sessions">
-            <button
-              type="button"
+            {/* Starred's row, same shape. */}
+            <RowButton
+              density="nav"
               onClick={() => setRemoteCollapsed((prev) => !prev)}
               aria-expanded={!remoteCollapsed}
               aria-controls="ws-remote-body"
-              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className="group/folder relative select-none pl-4 pr-2"
             >
               {/* Starred's one-slot idiom: the machine glyph at rest, the
                   collapse chevron swapped in on hover. */}
@@ -3314,7 +3332,7 @@ export default function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                 Remote
               </span>
-            </button>
+            </RowButton>
             <div id="ws-remote-body" hidden={remoteCollapsed}>
               {/* One flat list in activity order, no machine lines and no
                   "No sessions open" (owner ruling 2026-09-05): the glyph on

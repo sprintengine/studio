@@ -3,7 +3,7 @@ import React from 'react'
 import { basename } from '../../../utils/paths'
 import { showToast } from '../../../store/toastStore'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { FOCUS_RING_CLASS, Popover } from '../../ui'
+import { ChipButton, Popover } from '../../ui'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import {
   ProjectSourceMenu,
@@ -132,25 +132,21 @@ export function ProjectScopePicker({
       popupRole="menu"
       placement="bottom-start"
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
+        // Exactly the machine trigger's box, because it is now literally the
+        // same component: the scope line is one row of sibling chips, and the
+        // kit's chip is what they are all made of.
+        <ChipButton
           ref={ref}
-          type="button"
           onClick={togglePopover}
           // A stable hook for the passes that reach the folder through this
           // control.
           data-project-trigger="true"
-          // Exactly the machine trigger's box: the scope line is one row of
-          // sibling chips, so a `mt-1` left over from when this was the only
-          // control on its own line pushed it half a step below the machine
-          // dropdown, and a bare `rounded` was an untokenized radius next to
-          // its siblings' control radius.
-          className={`interactive inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
           {...triggerProps}
         >
           {label}
           {branch ? ` · ${branch}` : ''}
           <ChevronGlyph />
-        </button>
+        </ChipButton>
       )}
     >
       {/* Search + sources (remote-sessions-ux / project-selector-sources):

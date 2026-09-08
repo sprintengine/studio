@@ -17,7 +17,7 @@
 
 import { useState } from 'react'
 
-import { FOCUS_RING_CLASS, MENU_ROW_CLASS, Popover, Tooltip } from '../../ui'
+import { MenuOption, Popover, TriggerButton, Tooltip } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
 import {
   SPRINT_CONNECTORS_EMPTY,
@@ -54,24 +54,23 @@ export function SprintConnectorsRowView({ row }: { row: SprintConnectorsRow }): 
         ariaLabel={SPRINT_CONNECTORS_ROW_LABEL}
         popupRole="menu"
         placement="bottom-end"
-        className="shrink-0"
+        className="min-w-[168px] shrink-0"
         surfaceClassName="max-h-[280px] w-[300px] overflow-y-auto p-1"
         renderTrigger={({ ref, triggerProps, togglePopover }) => (
-          <button
+          // The comment above says this "wears the `ui/Select` trigger's
+          // geometry"; `TriggerButton` IS that geometry, lent out. `open`
+          // paints the state the hand-rolled version had no branch for. The
+          // minimum measure moved to the Popover's own wrapper, because the
+          // primitive fills its track — one `w-*` on the element, not two.
+          <TriggerButton
             ref={ref}
-            type="button"
+            open={open}
             // The name carries the VALUE as well as the label: an `aria-label`
             // of "Connectors" alone would replace the summary this button
             // renders, leaving a screen reader with the control but not its
             // answer.
             aria-label={`${SPRINT_CONNECTORS_ROW_LABEL} — ${summary}`}
             onClick={togglePopover}
-            className={[
-              'interactive inline-flex h-control-sm min-w-[168px] items-center justify-between gap-2',
-              'rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-body',
-              'text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
-              FOCUS_RING_CLASS,
-            ].join(' ')}
             {...triggerProps}
           >
             <span className="min-w-0 flex-1 truncate">{summary}</span>
@@ -92,7 +91,7 @@ export function SprintConnectorsRowView({ row }: { row: SprintConnectorsRow }): 
                 strokeLinejoin="round"
               />
             </svg>
-          </button>
+          </TriggerButton>
         )}
       >
         {row.connectors.length === 0 ? (
@@ -107,21 +106,21 @@ export function SprintConnectorsRowView({ row }: { row: SprintConnectorsRow }): 
               </p>
             ) : null}
             {row.connectors.map((connector) => (
-              <button
+              <MenuOption
                 key={connector.id}
-                type="button"
                 role="menuitemcheckbox"
-                aria-checked={connector.enabled}
+                selected={connector.enabled}
                 // A multi-toggle: the picker stays open so a run's whole set is
                 // chosen in one visit.
                 onClick={() => row.onToggle(connector.id)}
-                className={`${MENU_ROW_CLASS} w-full cursor-pointer text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                trailing={
+                  connector.enabled ? (
+                    <CheckIcon className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+                  ) : null
+                }
               >
-                <span className="min-w-0 flex-1 truncate text-left">{connector.name}</span>
-                {connector.enabled ? (
-                  <CheckIcon className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
-                ) : null}
-              </button>
+                {connector.name}
+              </MenuOption>
             ))}
           </>
         )}

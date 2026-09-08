@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 import type { LocalServer } from '../../../../../../shared/browser'
-import { EmptyState } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { EmptyState, RowButton } from '../../../ui'
 
 // A browser tab with nowhere to go yet: the start page. Two groups, headings
 // only — the rows are the explanation: the dev servers this workspace's
@@ -54,7 +53,6 @@ function hostOf(url: string): string {
   }
 }
 
-const ROW_CLASS = `flex h-control-sm w-full items-center gap-3 rounded-[7px] px-3 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`
 
 type BrowserStartPageProps = {
   workspaceId: string
@@ -88,10 +86,12 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
             <h3 className="px-3 pb-1 text-micro font-medium text-[color:var(--text-subtle)]">Local servers</h3>
           ) : null}
           {servers!.map((server) => (
-            <button key={server.url} type="button" onClick={() => onOpen(server.url)} className={ROW_CLASS}>
+            // The kit's row at the navigation rhythm — the shape the local
+            // `ROW_CLASS` constant spelled, now the primitive's.
+            <RowButton key={server.url} density="nav" onClick={() => onOpen(server.url)}>
               <span className="font-mono text-meta text-[color:var(--text-strong)]">localhost:{server.port}</span>
               <span className="min-w-0 truncate text-meta text-[color:var(--text-muted)]">{server.command}</span>
-            </button>
+            </RowButton>
           ))}
         </section>
       ) : null}
@@ -101,9 +101,9 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
             <h3 className="px-3 pb-1 text-micro font-medium text-[color:var(--text-subtle)]">Recent</h3>
           ) : null}
           {recentUrls.map((url) => (
-            <button key={url} type="button" onClick={() => onOpen(url)} className={ROW_CLASS}>
+            <RowButton key={url} density="nav" onClick={() => onOpen(url)}>
               <span className="min-w-0 truncate font-mono text-meta text-[color:var(--text-default)]">{hostOf(url)}</span>
-            </button>
+            </RowButton>
           ))}
         </section>
       ) : null}

@@ -5,7 +5,7 @@ import {
 } from '../../../../../shared/design-system/attach'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../../shared/design-system/bundle-scaffold'
 import type { DesignSystemLibraryEntry } from '../../../../../shared/design-system/library'
-import { GhostButton } from '../../ui'
+import { CardButton, GhostButton } from '../../ui'
 import { pathJoin } from '../../../utils/paths'
 
 // Attach-a-design-system section of the wizard's Advanced setup, shared by
@@ -246,17 +246,16 @@ function AttachChoiceRow({
   onSelect: () => void
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={active}
+    // The kit's tile: a block button whose content is a composition rather
+    // than a label. `selected` paints the canon — the neutral fill, the ink
+    // lift and the inset selection edge — and supplies the `aria-pressed` this
+    // wrote by hand. The inset stays with the caller, because a tile's padding
+    // is a composition decision.
+    <CardButton
+      variant="bordered"
+      selected={active}
       onClick={onSelect}
-      className={`
-        flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors
-        focus-visible:focus-ring
-        ${active
-          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
-          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)]'}
-      `}
+      className="w-full items-start gap-0.5 px-3 py-2"
     >
       <span
         className={`min-w-0 max-w-full truncate text-meta text-[color:var(--text-strong)] ${
@@ -272,6 +271,6 @@ function AttachChoiceRow({
       >
         {detail}
       </span>
-    </button>
+    </CardButton>
   )
 }

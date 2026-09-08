@@ -7,8 +7,7 @@ import {
   rotateViewport,
   type BrowserViewport,
 } from '../../../../../../shared/browser-devices'
-import { IconButton, Select, Tooltip } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { IconButton, Input, Select, Tooltip } from '../../../ui'
 
 // The device toolbar: a second, dismissable band under the browser toolbar
 // (the one case the panel-header rule allows a second band — off by default,
@@ -62,8 +61,13 @@ function SizeField({
     if (next !== value) onCommit(next)
   }
   return (
-    <input
+    // `xs` is the kit's dense numeric step — `h-control-xs px-2 text-meta` —
+    // added for exactly this case: a 30px field would be the tallest thing in a
+    // toolbar of 26px icon buttons.
+    <Input
       type="text"
+      size="xs"
+      fullWidth={false}
       inputMode="numeric"
       value={draft}
       onChange={(event) => setDraft(event.currentTarget.value)}
@@ -78,11 +82,7 @@ function SizeField({
         }
       }}
       aria-label={label}
-      className={[
-        'h-control-xs w-[60px] rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
-        'px-2 text-center font-mono text-meta tabular-nums text-[color:var(--text-default)]',
-        FOCUS_RING_CLASS,
-      ].join(' ')}
+      className="w-[60px] text-center font-mono tabular-nums"
     />
   )
 }

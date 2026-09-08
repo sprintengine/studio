@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 
 import CliIcon from '../CliIcon'
-import { Badge, IconButton, Skeleton, StatusDot, Tooltip, TruncatedText, type Tone } from '../ui'
+import { Badge, ChipButton, IconButton, MediaButton, Skeleton, StatusDot, Tooltip, TruncatedText, type Tone } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AgentCli } from '../../types/workspace'
@@ -172,12 +172,16 @@ function AttachmentThumbnail({
   onOpen: ((attachmentId: string) => void) | undefined
 }) {
   return (
-    <button
-      type="button"
+    // The kit's one button whose SURFACE is content. It draws the hairline, the
+    // radius, the `overflow-hidden` that gives the image the control's corners,
+    // the press scale and the focus ring, and no ground or ink at all — which is
+    // right, because the picture is the button's face.
+    <MediaButton
       // 46×34 is the thumbnail's own aspect box, not spacing: a pasted
       // screenshot is landscape, and this is the smallest box that still reads
-      // as one. No token names a media size.
-      className={`inline-flex h-[34px] w-[46px] shrink-0 items-center justify-center overflow-hidden rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-hover)] text-[color:var(--text-subtle)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      // as one. No token names a media size, so the frame stays with the caller
+      // — which is exactly the contract the primitive documents.
+      className="h-[34px] w-[46px] shrink-0"
       aria-label={`Open ${attachment.label}`}
       onClick={(event) => {
         event.stopPropagation()
@@ -189,10 +193,14 @@ function AttachmentThumbnail({
         <img src={attachment.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
       ) : (
         // No thumbnail yet — the glyph stands in rather than a blank box, so a
-        // decode still in flight does not read as a broken image.
-        <ImageGlyph />
+        // decode still in flight does not read as a broken image. The centring
+        // lives on a span because the primitive is `block`: its child is
+        // normally one image that fills it.
+        <span className="flex h-full w-full items-center justify-center text-[color:var(--text-subtle)]">
+          <ImageGlyph />
+        </span>
       )}
-    </button>
+    </MediaButton>
   )
 }
 
@@ -208,9 +216,16 @@ function AttachmentChip({
   // that says so instead of a button that does nothing.
   const openable = attachment.path !== null && onOpen !== undefined
   const chip = (
-    <button
-      type="button"
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-hover)] px-1.5 py-0.5 font-mono text-micro leading-4 text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-70 disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-hover)] disabled:hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+    // The kit's chip: content height (the line box), `px-1.5 py-0.5`, `gap-1`
+    // and `radius.chip`, all of which this spelled by hand. `outline` is the
+    // variant with the hairline it needs to be findable on the message row, and
+    // `neutral` is the ink of a chip whose label is the row's own information
+    // rather than a qualifier. The mono face stays a caller class — a path is
+    // mono, and the primitive spells no font family.
+    <ChipButton
+      variant="outline"
+      tone="neutral"
+      className="max-w-full font-mono leading-4"
       aria-label={openable ? `Open ${attachment.label}` : `${attachment.label} — no readable path`}
       onClick={(event) => {
         event.stopPropagation()
@@ -220,7 +235,7 @@ function AttachmentChip({
     >
       <FileGlyph className="icon-xs shrink-0" />
       <span className="truncate">{attachment.label}</span>
-    </button>
+    </ChipButton>
   )
   // The chip shows a basename; where the file has a path, the kit's Tooltip
   // shows which one — the app's own answer for a control that needs a hint,
@@ -481,8 +496,9 @@ const MAX_ROSTER_DISCS = 6
  * bordered strip of word labels, and this is a row of discs — but its CONTRACT
  * is the exact fit and is taken wholesale from
  * `design-system/components/segmented-control`: `role="radiogroup"` with real
- * `<button role="radio">` children, one tab stop for the group, roving
- * `tabindex`, arrows wrapping, and SELECTION FOLLOWS FOCUS. That last clause is
+ * `role="radio"` button children — the kit's `IconButton` in its `circle`
+ * shape, which is the disc — one tab stop for the group, roving `tabindex`,
+ * arrows wrapping, and SELECTION FOLLOWS FOCUS. That last clause is
  * the spec's own, and it is allowed here for the spec's own reason: the values
  * are cheap and reversible — arrowing reads a conversation, it does not start
  * one.
@@ -549,9 +565,20 @@ function AgentRoster({
       {shown.map((agent, index) => {
         const showing = agent.sessionId === shownSessionId
         return (
-          <button
+          // The kit's 22px icon step (`icon.size.lg`) in its `circle` shape: the
+          // `radius.pill` hairline in `--border-default` lifting to
+          // `--border-strong`, which is the disc this drew by hand. `pressed`
+          // paints the NEUTRAL selection fill — per
+          // design-system/components/segmented-control, "an accent-filled
+          // segment would spend the one solid accent on a state display" — and
+          // the role, its `aria-checked` and the roving `tabIndex` all pass
+          // through, because a disc in a radiogroup is the caller's semantics,
+          // not the primitive's.
+          <IconButton
             key={agent.sessionId}
-            type="button"
+            size="2xs"
+            shape="circle"
+            pressed={showing}
             role="radio"
             aria-checked={agent.sessionId === pinnedSessionId}
             // The name, never the initials: "DS" tells a screen reader nothing,
@@ -563,16 +590,7 @@ function AgentRoster({
             onFocus={() => onPreview?.(agent.sessionId)}
             onClick={() => onPin?.(agent.sessionId)}
             onKeyDown={(event) => onKeyDown(event, index)}
-            className={`relative grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full border text-micro font-medium ${FOCUS_RING_CLASS} ${
-              // Selection is NEUTRAL, per design-system/components/segmented-control:
-              // "an accent-filled segment would spend the one solid accent on a
-              // state display". The mockup draws the live disc in accent-soft;
-              // the system's own ruling on what selection looks like wins, and
-              // the conformance lint enforces it.
-              showing
-                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-            }`}
+            className="shrink-0 font-medium"
           >
             <span aria-hidden="true">{agent.initials}</span>
             {agent.status ? (
@@ -583,7 +601,7 @@ function AgentRoster({
                 <StatusDot tone={agent.status.tone} pulse={agent.status.pulse} />
               </span>
             ) : null}
-          </button>
+          </IconButton>
         )
       })}
       {remainder > 0 ? (

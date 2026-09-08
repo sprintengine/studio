@@ -14,7 +14,6 @@ import {
   Badge,
   ChangePulse,
   EmptyState,
-  FOCUS_RING_CLASS,
   IconButton,
   MENU_GROUP_LABEL_CLASS,
   MENU_LIST_CLASS,
@@ -26,6 +25,7 @@ import {
   StarGlyph,
   StatusDot,
   Tooltip,
+  TriggerButton,
   TruncatedText,
 } from '../ui'
 import {
@@ -553,7 +553,15 @@ export function WorkspaceActions({
         ) : null}
 
         {workspaceActionsEnabled && activeWorkspace && activeWorkspaceViews ? (
-          <div ref={viewMenuRef} className="relative inline-flex">
+          /*
+           * The trigger condenses to an icon-only 30px square below ~1000px so
+           * the right cluster gives way before the hoisted workspace name is
+           * squeezed out at narrow widths; the label and chevron re-appear at
+           * >= 1000px. The WIDTH lives here rather than on the control because
+           * `TriggerButton` fills its track — one `w-*` on the element, not two
+           * for a stylesheet to choose between.
+           */
+          <div ref={viewMenuRef} className="relative inline-flex w-control-sm min-[1000px]:w-auto">
             <Popover
               open={viewMenuOpen}
               onOpenChange={(next) => {
@@ -571,22 +579,17 @@ export function WorkspaceActions({
               onOpenAutoFocus={focusFirstViewMenuItem}
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
                 <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
-                  <button
+                  {/* The kit's popover trigger. `open` is the state this
+                      spelled by hand and paints it identically —
+                      `--border-strong` over `--bg-selected` with `--text-strong`
+                      ink — and the field variant is the `--bg-surface-raised`
+                      ground and `--border-default` edge it rested on. The
+                      tooltip and `aria-label` carry the meaning in the icon-only
+                      state. */}
+                  <TriggerButton
                     ref={ref}
-                    type="button"
+                    open={viewMenuOpen}
                     onClick={togglePopover}
-                    /*
-                     * Condenses to an icon-only 32px square below ~1000px so the
-                     * right cluster gives way before the hoisted workspace name is
-                     * squeezed out at narrow widths (the label + chevron re-appear
-                     * at >= 1000px). The tooltip + aria-label carry the meaning, so
-                     * the icon-only state stays accessible.
-                     */
-                    className={`interactive inline-flex size-control-sm items-center justify-center gap-1.5 rounded-sm border transition-colors min-[1000px]:w-auto min-[1000px]:justify-start min-[1000px]:px-2.5 ${FOCUS_RING_CLASS} ${
-                      viewMenuOpen
-                        ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                        : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                    }`}
                     aria-label="Toggle workspace panels"
                     {...triggerProps}
                   >
@@ -599,7 +602,7 @@ export function WorkspaceActions({
                     <svg className={`hidden icon-xs transition-transform min-[1000px]:block ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                  </button>
+                  </TriggerButton>
                 </Tooltip>
               )}
             >

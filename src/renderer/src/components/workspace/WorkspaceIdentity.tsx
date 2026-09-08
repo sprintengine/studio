@@ -11,7 +11,7 @@
 // draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { FOCUS_RING_CLASS, OutlineButton, OverflowMenu, SplitButton, StarGlyph, Tooltip, type OverflowMenuItem, type SplitButtonItem } from '../ui'
+import { GhostButton, IconButton, OutlineButton, OverflowMenu, SplitButton, StarGlyph, Tooltip, type OverflowMenuItem, type SplitButtonItem } from '../ui'
 import type { CursorAnchor } from '../ui/CursorErrorPopover'
 
 // The "Open in editor" failure card, anchored at the cursor. It exists only
@@ -580,12 +580,18 @@ export function WorkspaceIdentity({
         style={highlightHex ? { boxShadow: `inset 0 -1.5px 0 ${highlightHex}` } : undefined}
       >
         <Tooltip content={starred ? 'Unstar workspace' : 'Star workspace'} placement="bottom">
-          <button
-            type="button"
+          {/* The kit's 22px icon step (`icon.size.lg`), which is what the
+              hand-written `h-[22px] w-[22px]` was, and it pads out to the
+              24px hit-target floor with a transparent overlay rather than
+              growing the drawn square. `aria-pressed` stays an attribute: the
+              `pressed` prop would add the neutral selection fill, and the star
+              glyph is already the whole state display. */}
+          <IconButton
+            size="2xs"
             onClick={() => setWorkspaceHighlight(activeWorkspace.id, { starred: !starred })}
             aria-pressed={starred}
             aria-label={starred ? 'Unstar workspace' : 'Star workspace'}
-            className={`app-no-drag interactive group/star flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-sm hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+            className="app-no-drag group/star shrink-0"
           >
             <StarGlyph
               filled={starred}
@@ -596,7 +602,7 @@ export function WorkspaceIdentity({
                   : 'text-[color:var(--text-subtle)] group-hover/star:text-[color:var(--text-default)]'
               }`}
             />
-          </button>
+          </IconButton>
         </Tooltip>
         <Tooltip
           content={onToggleSidebar ? (sidebarCollapsed ? 'Open sidebar' : 'Close sidebar') : activeWorkspace.name}
@@ -604,18 +610,24 @@ export function WorkspaceIdentity({
           wrapperClassName="flex min-w-0"
         >
           {onToggleSidebar ? (
-            <button
-              type="button"
+            // The kit's one size that spends no height: the name rides the
+            // identity line rather than setting it. Ink stays on the span —
+            // the tone's `text-*` never reaches it — so the button is the
+            // ground and the name is the label.
+            <GhostButton
+              size="inline"
               onClick={onToggleSidebar}
               aria-label={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
-              className={`app-no-drag interactive flex min-w-0 items-center rounded-sm px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+              className="app-no-drag min-w-0"
             >
               <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
-            </button>
+            </GhostButton>
           ) : (
-            <span className="flex min-w-0 items-center px-1.5 py-0.5">
+            // The non-interactive twin keeps the control's inset so the name
+            // does not shift when there is no sidebar to toggle.
+            <span className="flex min-w-0 items-center px-1">
               <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
@@ -664,18 +676,19 @@ export function WorkspaceIdentity({
       {chipsInline && folderPath ? (
         filesPanelEnabled ? (
           <Tooltip content={folderPath} placement="bottom" wrapperClassName="flex min-w-0 shrink-[100]">
-            <button
-              type="button"
+            <GhostButton
+              size="inline"
               onClick={toggleFilesPanel}
               aria-label={`Toggle file explorer, ${folderPath}`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className="app-no-drag min-w-0"
             >
               <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               {showChipWords ? <span className="min-w-0 truncate">{projectName}</span> : null}
-            </button>
+            </GhostButton>
           </Tooltip>
         ) : (
-          <span className="flex min-w-0 shrink-[100] items-center gap-1 text-meta text-[color:var(--text-muted)]">
+          // The twin takes the control's gap so the two chips keep one rhythm.
+          <span className="flex min-w-0 shrink-[100] items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             {showChipWords ? <span className="min-w-0 truncate">{projectName}</span> : null}
           </span>
@@ -688,11 +701,13 @@ export function WorkspaceIdentity({
             placement="bottom"
             wrapperClassName="flex min-w-0 shrink-[10]"
           >
-            <button
-              type="button"
+            {/* The same inline ghost the files chip takes; the tone's
+                `--text-muted` rest ink is the one this chip already spelled. */}
+            <GhostButton
+              size="inline"
               onClick={toggleGitPanel}
               aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${followingSpoken}${gitChangeSpoken}`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className="app-no-drag min-w-0"
             >
               {followedMark}
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
@@ -700,11 +715,11 @@ export function WorkspaceIdentity({
                 <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
               ) : null}
               {gitCountBadge}
-            </button>
+            </GhostButton>
           </Tooltip>
         ) : (
           <Tooltip content={branchTooltip} placement="bottom" wrapperClassName="flex min-w-0 shrink-[10]">
-            <span className="flex min-w-0 items-center gap-1 text-meta text-[color:var(--text-muted)]">
+            <span className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
               {followedMark}
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               {showChipWords ? <span className="min-w-0 truncate">{branchName ?? 'detached'}</span> : null}

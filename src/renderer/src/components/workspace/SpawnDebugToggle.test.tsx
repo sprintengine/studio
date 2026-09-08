@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
+import { ChipButton } from '../ui/ChipButton'
 import { SpawnDebugToggle } from './agentComposer/agentSpawnShared'
 
 let failures = 0
@@ -20,9 +21,11 @@ function run(name: string, fn: () => void): void {
 }
 
 // SpawnDebugToggle is a pure, hookless function component, so invoking it
-// directly returns its element tree (a Tooltip wrapping the <button>). That
-// lets us exercise the controlled toggle's render, aria, classes, and click
-// behaviour without a DOM or the store/window-bound parent menu.
+// directly returns its element tree (a Tooltip wrapping the kit's `ChipButton`).
+// That lets us exercise the controlled toggle's props, state and click behaviour
+// without a DOM or the store/window-bound parent menu. What it is DRAWN with is
+// the kit's business, so the chrome assertions read the rendered markup instead
+// of a className string the call site no longer writes.
 function tooltipElement(active: boolean, onChange: (next: boolean) => void): ReactElement {
   return SpawnDebugToggle({ active, onChange }) as ReactElement
 }
@@ -30,33 +33,45 @@ function buttonOf(el: ReactElement): ReactElement {
   return el.props.children as ReactElement
 }
 
-run('renders a keyboard-operable native button labelled "DEBUG"', () => {
+run('is the kit chip, labelled "DEBUG" and left in the tab order', () => {
   const button = buttonOf(tooltipElement(false, () => {}))
-  assert.equal(button.type, 'button', 'a native <button> is inherently keyboard-focusable and toggleable')
-  assert.equal(button.props.type, 'button', 'type="button" so it never submits a form')
+  assert.equal(button.type, ChipButton, 'the toggle is the kit chip, not a hand-rolled control')
   assert.equal(button.props.children, 'DEBUG', 'state is carried by a literal label, not color alone')
   assert.equal(button.props.disabled, undefined, 'the toggle is always operable')
   assert.equal(button.props.tabIndex, undefined, 'no negative tabIndex — it stays in the tab order')
+  assert.match(
+    renderToStaticMarkup(<SpawnDebugToggle active={false} onChange={() => {}} />),
+    /<button type="button"/,
+    'the chip renders a native <button>, which is inherently keyboard-focusable and toggleable',
+  )
 })
 
-run('inactive: aria-pressed=false with the greyed Default/Auto idiom and no error fill', () => {
+run('inactive: pressed=false, the quiet tone, and no error fill', () => {
   const button = buttonOf(tooltipElement(false, () => {}))
-  assert.equal(button.props['aria-pressed'], false, 'off state is announced via aria-pressed')
-  assert.match(button.props.className, /text-\[color:var\(--text-disabled\)\]/, 'inactive uses the greyed disabled ink')
-  assert.match(button.props.className, /hover:text-\[color:var\(--text-muted\)\]/, 'inactive hover matches Default/Auto')
-  assert.ok(!button.props.className.includes('bg-[color:var(--tone-error)]'), 'no error fill when off')
+  assert.equal(button.props.pressed, false, 'off state is announced via the chip’s aria-pressed')
+  assert.equal(button.props.tone, 'subtle', 'inactive takes the chip’s quietest ink')
+  const markup = renderToStaticMarkup(<SpawnDebugToggle active={false} onChange={() => {}} />)
+  assert.match(markup, /text-\[color:var\(--text-subtle\)\]/, 'inactive uses the quiet ink')
+  assert.match(markup, /hover:text-\[color:var\(--text-default\)\]/, 'inactive lifts on hover rather than filling')
+  assert.ok(!markup.includes('--tone-error-soft'), 'no error fill when off')
 })
 
-run('active: aria-pressed=true with the error-tone fill', () => {
+run('active: pressed=true with the error-tone fill', () => {
   const button = buttonOf(tooltipElement(true, () => {}))
-  assert.equal(button.props['aria-pressed'], true, 'on state is announced via aria-pressed')
-  assert.match(button.props.className, /bg-\[color:var\(--tone-error\)\]\/12/, 'active uses the error-tone soft fill')
-  assert.match(button.props.className, /text-\[color:var\(--tone-error-on-tint\)\]/, 'active label uses the deeper on-tint error ink that clears AA on the soft fill')
+  assert.equal(button.props.pressed, true, 'on state is announced via the chip’s aria-pressed')
+  assert.equal(button.props.tone, 'error', 'a thrown DEBUG keeps its own tint rather than going neutral')
+  const markup = renderToStaticMarkup(<SpawnDebugToggle active onChange={() => {}} />)
+  assert.match(markup, /bg-\[color:var\(--tone-error-soft\)\]/, 'active uses the error-tone soft fill')
+  assert.match(markup, /text-\[color:var\(--tone-error-on-tint\)\]/, 'active label uses the deeper on-tint error ink that clears AA on the soft fill')
 })
 
 run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', () => {
   const el = tooltipElement(false, () => {})
-  assert.match(buttonOf(el).props.className, /focus-visible:focus-ring/, 'keyboard focus is visible, not suppressed')
+  assert.match(
+    renderToStaticMarkup(<SpawnDebugToggle active={false} onChange={() => {}} />),
+    /focus-visible:focus-ring/,
+    'keyboard focus is visible, not suppressed',
+  )
   assert.match(String(el.props.content), /Auto/, 'the tooltip notes the Auto preset')
   assert.match(String(el.props.content), /Bypass/, 'the tooltip notes the Bypass preset')
 })
