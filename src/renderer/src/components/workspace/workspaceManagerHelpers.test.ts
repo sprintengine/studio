@@ -29,7 +29,7 @@ function main(): void {
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
   assertConversationSessionsSurfaceInSessionItems()
-  assertWizardPtySessionsSurfaceWithHumanLabel()
+  assertAgentlessPtySessionsSurfaceWithHumanLabel()
   assertWorkspacelessSessionsStillSurface()
   assertDetachedBucketsTrailRealWorkspaces()
   assertSidebarOrderGroupsWorktreesUnderTheirProject()
@@ -181,22 +181,22 @@ function assertWorkspacelessSessionsStillSurface(): void {
   assert.equal(idless[0]?.group.label, 'Other sessions')
 }
 
-// Wizard specialists on the PTY fallback transport spawn with workspaceId and
-// agentName in the snapshot but no workspace.agents record. They must surface
-// as labeled rows, and a conversation session for the same agent id must win
-// over a stale PTY twin instead of duplicating the row.
-function assertWizardPtySessionsSurfaceWithHumanLabel(): void {
+// An agent spawned outside this window carries workspaceId and agentName in the
+// snapshot but has no workspace.agents record. It must surface as a labeled row,
+// and a conversation session for the same agent id must win over a stale PTY
+// twin instead of duplicating the row.
+function assertAgentlessPtySessionsSurfaceWithHumanLabel(): void {
   const workspace = {
-    id: 'ws-wizard',
-    name: 'Design System Studio',
+    id: 'ws-detached',
+    name: 'Detached Agent Host',
     agents: {},
   } as unknown as Workspace
-  const wizardPtySnap = {
-    sessionId: 'pty-wizard-1',
+  const agentlessPtySnap = {
+    sessionId: 'pty-detached-1',
     processAlive: true,
     kind: 'agent',
-    workspaceId: 'ws-wizard',
-    agentId: 'guided-brief-design-system',
+    workspaceId: 'ws-detached',
+    agentId: 'agent-no-record',
     agentName: 'Design System Designer',
     cli: 'claude-code',
     activity: { kind: 'working', since: 10 },
@@ -204,38 +204,40 @@ function assertWizardPtySessionsSurfaceWithHumanLabel(): void {
     lastInputAt: null,
   } as unknown as TerminalSessionSnapshot
 
-  const items = getSessionItems([workspace], [wizardPtySnap], [])
-  assert.equal(items.length, 1, 'wizard PTY session with workspaceId surfaces')
+  const items = getSessionItems([workspace], [agentlessPtySnap], [])
+  assert.equal(items.length, 1, 'a PTY session with a workspaceId but no AgentState surfaces')
   assert.equal(items[0]?.label, 'Design System Designer', 'labels from snapshot agentName, not the raw agent id')
   assert.equal(items[0]?.status, 'working')
-  assert.equal(items[0]?.agentId, 'guided-brief-design-system')
+  assert.equal(items[0]?.agentId, 'agent-no-record')
 
   // Retained crash: the failed row keeps its human label too.
   const failedSnap = {
-    ...(wizardPtySnap as unknown as Record<string, unknown>),
+    ...(agentlessPtySnap as unknown as Record<string, unknown>),
     processAlive: false,
     activity: { kind: 'failed', at: 30, exitCode: 1 },
   } as unknown as TerminalSessionSnapshot
   const failedItems = getSessionItems([workspace], [failedSnap], [])
-  assert.equal(failedItems.length, 1, 'crashed wizard session is retained')
+  assert.equal(failedItems.length, 1, 'the crashed session is retained')
   assert.equal(failedItems[0]?.status, 'failed')
   assert.equal(failedItems[0]?.label, 'Design System Designer')
 
   // Same agent id on both transports: the conversation row wins, no duplicate.
   const conversationTwin: ConversationSessionSummary = {
-    sessionId: 'conv-wizard-1',
-    workspaceId: 'ws-wizard',
-    agentId: 'guided-brief-design-system',
+    sessionId: 'conv-detached-1',
+    workspaceId: 'ws-detached',
+    agentId: 'agent-no-record',
     providerId: 'claude-agent',
     modelId: 'sonnet',
     status: 'active',
     createdAt: 40,
     updatedAt: 50,
   }
-  const merged = getSessionItems([workspace], [wizardPtySnap], [conversationTwin])
+  const merged = getSessionItems([workspace], [agentlessPtySnap], [conversationTwin])
   assert.equal(merged.length, 1, 'stale PTY twin is deduplicated against the conversation session')
-  assert.equal(merged[0]?.sessionId, 'conv-wizard-1', 'the conversation row is the one kept')
-  assert.equal(merged[0]?.label, 'Design System Designer')
+  assert.equal(merged[0]?.sessionId, 'conv-detached-1', 'the conversation row is the one kept')
+  // A conversation summary carries no agentName, and this agent has no
+  // workspace.agents record, so its own id is the honest label.
+  assert.equal(merged[0]?.label, 'agent-no-record')
 }
 
 // Conversation (chat) agents have no PTY snapshot; their runtime summaries
@@ -271,22 +273,22 @@ function assertConversationSessionsSurfaceInSessionItems(): void {
   assert.equal(getSessionItems([workspace], [], [summary('failed')])[0]?.status, 'failed')
   assert.equal(getSessionItems([workspace], [], [summary('stopped')]).length, 0, 'stopped sessions drop out')
 
-  // Wizard specialist sessions have no AgentState entry but must stay visible
-  // in the session manager, with a readable role label.
-  const wizardSummary: ConversationSessionSummary = {
-    sessionId: 'conv-wizard',
+  // A conversation session with no AgentState entry must stay visible in the
+  // session manager; with no name to read, its own agent id is the label.
+  const agentlessSummary: ConversationSessionSummary = {
+    sessionId: 'conv-agentless',
     workspaceId: 'ws-1',
-    agentId: 'guided-brief-strategist',
+    agentId: 'conversation-only-agent',
     providerId: 'claude-agent',
     modelId: 'sonnet',
     status: 'awaiting_approval',
     createdAt: 10,
     updatedAt: 20,
   }
-  const wizardItems = getSessionItems([workspace], [], [wizardSummary])
-  assert.equal(wizardItems.length, 1, 'agent-less conversation session still surfaces')
-  assert.equal(wizardItems[0]?.label, 'Product Strategist')
-  assert.equal(wizardItems[0]?.status, 'needs-input')
+  const agentlessItems = getSessionItems([workspace], [], [agentlessSummary])
+  assert.equal(agentlessItems.length, 1, 'agent-less conversation session still surfaces')
+  assert.equal(agentlessItems[0]?.label, 'conversation-only-agent')
+  assert.equal(agentlessItems[0]?.status, 'needs-input')
 }
 
 function snap(partial: {

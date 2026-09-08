@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { FilePreviewPane, FOCUS_RING_INSET_CLASS, GhostButton, InboxRow, InboxSearchInput, InlineNotice, PanelHeader, Section, SidePane, Tooltip } from '../../ui'
 import { BacklogRowContent, BacklogRowHoverCard } from '../../backlog/BacklogRow'
-import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
+import { HtmlArtifactFrame } from '../../htmlArtifact/HtmlArtifactFrame'
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
 import { joinFilePath, parentPath } from '../../../utils/paths'

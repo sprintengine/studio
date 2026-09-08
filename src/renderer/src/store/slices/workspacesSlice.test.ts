@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { GuidedBriefRuntimeState, LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
-import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
+import type { LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
@@ -422,44 +421,6 @@ const secondFolderHostId = useWorkspaceStore.getState().addWorkspace(standardTem
 assert.notEqual(secondFolderHostId, firstHostId)
 useWorkspaceStore.getState().removeWorkspace(firstHostId)
 useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
-
-const guidedBriefState: GuidedBriefRuntimeState = {
-  workspaceRoot: '/Users/example/guided',
-  workspaceName: 'Guided Project',
-  idea: 'Build a guided workspace regression test.',
-  hasUi: 'yes',
-  wantsProductDiscussion: true,
-  wantsArchitectureDiscussion: true,
-  wantsFrontendDiscussion: true,
-  guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude-code' },
-  buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
-  buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude-code', developer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
-  buildCliPermissionPreset: 'manual',
-  buildStartRunner: false,
-  buildAutoApproveArtifacts: false,
-  stage: 'strategist-working',
-  acceptedProductBrief: null,
-  acceptedArchitecturePlan: null,
-  acceptedUiDirection: null,
-  acceptedMockups: [],
-  activeMockupPath: null,
-  strategistSessionId: null,
-  architectSessionId: null,
-  designerSessionId: null,
-}
-const guidedBriefId = useWorkspaceStore.getState().addWorkspace(createGuidedBriefTemplate(), {
-  name: guidedBriefState.workspaceName,
-  folderPath: guidedBriefState.workspaceRoot,
-  mode: 'guided-brief',
-  guidedBriefState,
-})
-state = useWorkspaceStore.getState()
-const guidedWorkspace = state.workspaces.find((workspace) => workspace.id === guidedBriefId)
-assert.ok(guidedWorkspace, 'guided brief workspace is added through the store')
-assert.equal(guidedWorkspace?.mode, 'guided-brief')
-assert.equal(guidedWorkspace?.guidedBriefState?.idea, guidedBriefState.idea)
-assert.equal(guidedWorkspace?.folderPath, guidedBriefState.workspaceRoot)
-assert.equal(state.activeWorkspaceId, guidedBriefId, 'guided brief workspace is activated')
 
 const sprintEngineState = createInitialSprintEngineState({
   name: 'Runtime Choice Team',

@@ -18,10 +18,6 @@ import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import {
-  guidedBriefLayoutModel,
-  normalizeGuidedBriefState,
-} from './guidedBriefSlice'
-import {
   normalizeRecentWorkspaceFolders,
   normalizeSprintEngineRunSettings,
   sprintEngineRunSettingsKey,
@@ -358,7 +354,6 @@ interface WorkspacesSliceActions {
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-      guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
       // Externally-triggered creation (the automation executor's hidden host):
       // it must not dismiss whatever the operator is reading, so a background
@@ -1220,8 +1215,6 @@ export function createWorkspacesSlice(
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
         const isSprintEngine = template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState)
-        const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
-        const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const isReview = explicitMode === REVIEW_WORKSPACE_MODE || template.id === 'review-mode'
         const targetWindowId =
@@ -1397,41 +1390,36 @@ export function createWorkspacesSlice(
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
-          mode: isGuidedBrief
-            ? 'guided-brief'
-            : isAutomationsHost
-              ? AUTOMATIONS_HOST_WORKSPACE_MODE
-              : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
-                ? REVIEWS_HOST_WORKSPACE_MODE
-                : isReview
-                  ? REVIEW_WORKSPACE_MODE
-                  // Module-contributed workspace types: the explicit mode
-                  // from buildModuleTypeCreation IS the identity every
-                  // mode-derived surface (panel scopes, run glyphs, the
-                  // not-installed state, creation re-resolution) keys on —
-                  // dropping it to 'standard' silently strips all of them.
-                  : explicitMode ?? 'standard',
+          mode: isAutomationsHost
+            ? AUTOMATIONS_HOST_WORKSPACE_MODE
+            : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
+              ? REVIEWS_HOST_WORKSPACE_MODE
+              : isReview
+                ? REVIEW_WORKSPACE_MODE
+                // Module-contributed workspace types: the explicit mode
+                // from buildModuleTypeCreation IS the identity every
+                // mode-derived surface (panel scopes, run glyphs, the
+                // not-installed state, creation re-resolution) keys on —
+                // dropping it to 'standard' silently strips all of them.
+                : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
           templateId: template.id,
-          layoutModel: isGuidedBrief ? guidedBriefLayoutModel() : standardLayout,
+          layoutModel: standardLayout,
           agents,
           worktreeState: deps.defaultWorkspaceWorktreeState(),
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
           sprintEngineState,
-          guidedBriefState,
           sprintEngineRoleCliDefaults,
           sprintEngineAutoState,
           createdAt: Date.now(),
         }
-        const newWorkspace: Workspace = sprintWorkspace
-          ? { ...sprintWorkspace, guidedBriefState }
-          : standardWorkspace
+        const newWorkspace: Workspace = sprintWorkspace ?? standardWorkspace
         // New workspaces appear at the top of their folder's block (newest
         // first), matching the recency-ordered sidebar. A brand-new folder
         // lands at the head of the registry so its group renders first. Manual

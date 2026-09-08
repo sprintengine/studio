@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { AgentState, AppSettings, LayoutTemplate, Workspace } from '../types/workspace'
+import type { AgentState, LayoutTemplate, Workspace } from '../types/workspace'
 import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
@@ -861,78 +861,46 @@ assert.equal(
   )
 }
 
-// ── Pre-flip conversation-transport opt-in in a CURRENT-version envelope ────
-// MC-1802 / store v67: the Design Wizard conversation transport is opt-in only,
-// but the pre-flip default was `true`, so persist wrote it to every existing
-// profile. Both envelopes below are stamped with the CURRENT version, so the
-// v67 migration never runs — merge() has to clear the inherited `true` on its
-// own, and must leave an opt-in recorded after the reset stamp alone.
+// ── A retired Design Wizard setting in a CURRENT-version envelope ───────────
+// The Design Wizard was deleted 2026-09-08 and its `guidedBriefConversationSessions`
+// opt-in went with it. A profile written by an older build still carries the
+// key, and its envelope is stamped with the CURRENT version, so the migrate
+// ladder never revisits it — merge()'s normalizeAppSettings is what has to drop
+// it, exactly as it does for every other retired key.
 {
   const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
-  const registryEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-  const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
-  assert.equal(
-    Math.max(registryEnvelope.version, settingsEnvelope.version),
-    WORKSPACE_STORE_VERSION,
-    'the seeded envelopes are at the current store version, so this exercises merge and not migrate',
-  )
+  const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as {
+    state: { appSettings?: Record<string, unknown> }
+    version: number
+  }
   const persistedAppSettings = (settingsEnvelope.state.appSettings ?? {}) as Record<string, unknown>
-  const seedAppSettings = (appSettings: Record<string, unknown>): void => {
-    stored['multicode-app-settings'] = JSON.stringify({
-      state: { ...settingsEnvelope.state, appSettings },
-      version: WORKSPACE_STORE_VERSION,
-    })
-  }
-  const besidesTransportOptIn = (settings: AppSettings): Partial<AppSettings> => {
-    const {
-      guidedBriefConversationSessions: _enabled,
-      guidedBriefConversationSessionsOptInReset: _reset,
-      ...rest
-    } = settings
-    return rest
-  }
-
-  // A pre-flip profile predates the stamp entirely; the live envelope already
-  // carries one, so drop it to reproduce what is actually on users' disks.
-  const {
-    guidedBriefConversationSessions: _persistedEnabled,
-    guidedBriefConversationSessionsOptInReset: _persistedReset,
-    ...preFlipAppSettings
-  } = persistedAppSettings
-
-  seedAppSettings(preFlipAppSettings)
-  await useWorkspaceStore.persist.rehydrate()
-  const settingsBeforeReset = useWorkspaceStore.getState().appSettings
-
-  seedAppSettings({ ...preFlipAppSettings, guidedBriefConversationSessions: true })
-  await useWorkspaceStore.persist.rehydrate()
-  const settingsAfterReset = useWorkspaceStore.getState().appSettings
-  assert.equal(
-    settingsAfterReset.guidedBriefConversationSessions,
-    false,
-    'merge resets a persisted opt-in that predates the reset stamp',
-  )
-  assert.equal(
-    settingsAfterReset.guidedBriefConversationSessionsOptInReset,
-    true,
-    'merge stamps the profile so the reset is one-time',
-  )
-  assert.deepEqual(
-    besidesTransportOptIn(settingsAfterReset),
-    besidesTransportOptIn(settingsBeforeReset),
-    'no other persisted setting changes value as a side effect of the reset',
-  )
-
-  seedAppSettings({
-    ...preFlipAppSettings,
-    guidedBriefConversationSessions: true,
-    guidedBriefConversationSessionsOptInReset: true,
+  stored['multicode-app-settings'] = JSON.stringify({
+    state: {
+      ...settingsEnvelope.state,
+      appSettings: {
+        ...persistedAppSettings,
+        guidedBriefConversationSessions: true,
+        guidedBriefConversationSessionsOptInReset: true,
+      },
+    },
+    version: WORKSPACE_STORE_VERSION,
   })
   await useWorkspaceStore.persist.rehydrate()
+  const settings = useWorkspaceStore.getState().appSettings as Record<string, unknown>
   assert.equal(
-    useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
-    true,
-    'an opt-in recorded after the reset survives the next hydration',
+    'guidedBriefConversationSessions' in settings,
+    false,
+    'merge drops the retired Design Wizard transport opt-in',
+  )
+  assert.equal(
+    'guidedBriefConversationSessionsOptInReset' in settings,
+    false,
+    'merge drops its one-time reset stamp with it',
+  )
+  assert.equal(
+    settings.lastSelectedCli,
+    persistedAppSettings.lastSelectedCli,
+    'no other persisted setting changes as a side effect',
   )
 }
 

@@ -96,7 +96,6 @@ the registry to point at:
 | `SprintEngineWorkspaceTypeIcon` | Three-node crew triangle |
 | `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
-| `GuidedBriefWorkspaceTypeIcon` | Brief speech bubble with text lines |
 
 ### Status and priority (24-grid, parameterized, self-labelling)
 

@@ -17,7 +17,6 @@ import type {
   AgentCli,
   AgentId,
   SprintEngineRoleCliDefaults,
-  SprintEngineRoleCounts,
   SprintEngineRoleSettings,
   SprintEngineRosterSessions,
   SprintEngineRunSettings,
@@ -102,7 +101,6 @@ export type { ReviewWorkspaceState }
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
-export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
 // Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
 // single-surface type: one non-closeable review tab, its change set persisted on
 // disk under `.multi-code/review/<workspaceId>/`.
@@ -111,7 +109,6 @@ export const REVIEW_WORKSPACE_MODE = 'review'
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
   | typeof SPRINT_ENGINE_WORKSPACE_MODE
-  | typeof GUIDED_BRIEF_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
   | typeof REVIEWS_HOST_WORKSPACE_MODE
   | typeof REVIEW_WORKSPACE_MODE
@@ -537,22 +534,6 @@ export type AppSettings = {
    */
   terminalKeepRecentAlive: number
   /**
-   * Opt-in: when on, Design Wizard specialists on Claude run as conversation
-   * sessions (structured question cards, streamed chat) instead of raw
-   * terminals. Off by default — every other role and CLI takes the terminal
-   * transport regardless.
-   */
-  guidedBriefConversationSessions: boolean
-  /**
-   * Whether the one-time store-v67 reset of {@link guidedBriefConversationSessions}
-   * has been applied to this profile. The pre-opt-in default was `true`, so a
-   * stored `true` cannot be told apart from an old default; the reset clears it
-   * once and stamps this flag, after which a stored `true` is an explicit
-   * choice and survives. Never surfaced in settings UI. See MC-1802 and
-   * normalizeAppSettings.
-   */
-  guidedBriefConversationSessionsOptInReset: boolean
-  /**
    * Keep the app running when its last window closes, on every platform
    * (MC-2156). Off by default, which is byte-for-byte the pre-MC-2156 rule:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a
@@ -572,115 +553,6 @@ export type AgentConfigAdoptionResult =
   | { status: 'adopting' }
   | { status: 'adopted'; mcpServerCount: number; skillCount: number; warnings: string[] }
   | { status: 'failed'; message: string }
-
-export type GuidedBriefHasUi = 'yes' | 'no'
-
-// Guided Brief ships three presets. `full-brief` is the classic strategist →
-// architect → designer → handoff flow. `frontend-design` is surfaced to users
-// as "Design only": a design-only studio that forces the UI path, skips
-// the product and architecture discussions, and starts on the designer stage.
-// `design-system` reuses that design-only studio but authors a portable
-// design-system bundle (see resources/design-system/templates/USAGE.md)
-// instead of one app's mockups. All presets stay inside the `guided-brief`
-// workspace mode rather than becoming their own `WorkspaceMode`.
-export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
-
-// Where a design-system studio starts. `null`/absent is the blank scaffold;
-// otherwise the designer agent's opening move is extracting the de-facto
-// design language from the named source (a user-picked product folder, or the
-// built-in example design system resolved by the main process). The path
-// is machine-local by design — it is read live by the designer session on this
-// machine and never travels inside the portable bundle.
-export type DesignSystemSeedSource = {
-  kind: 'source-folder' | 'brand-demo'
-  path: string
-}
-
-type GuidedBriefRoleCliDefaults = {
-  product: AgentCli
-  architect: AgentCli
-  frontend: AgentCli
-}
-
-// Explicit per-role launch model for the guided-brief discussions. A string is
-// an explicit model id; null or an absent role means "CLI default" (no model
-// flag passed). Mirrors SprintEngineRoleModelOverrides for the guided roles.
-export type GuidedBriefRoleModelOverrides = Partial<Record<keyof GuidedBriefRoleCliDefaults, string | null>>
-
-export type GuidedBriefStage =
-  | 'strategist-working'
-  | 'strategist-ready'
-  | 'architect-working'
-  | 'architect-ready'
-  | 'designer-working'
-  | 'designer-ready'
-  | 'handoff'
-
-export type GuidedBriefAcceptedArtifact = {
-  kind: 'product' | 'mockup'
-  title: string
-  hash: string
-  path: string
-}
-
-// One interview decision the user resolved during a guided-brief stage,
-// recorded from the specialist's structured GUIDED_DECISION stream so the
-// build handoff can carry the real decision record.
-export type GuidedBriefRecordedDecision = {
-  role: 'product' | 'architect' | 'frontend'
-  id: string
-  question?: string
-  label: string
-}
-
-export type GuidedBriefRuntimeState = {
-  workspaceRoot: string
-  workspaceName: string
-  idea: string
-  hasUi: GuidedBriefHasUi
-  // Which Guided Brief preset this runtime was created from. Absent on legacy
-  // states; normalization defaults it to `full-brief`.
-  preset?: GuidedBriefPreset
-  wantsProductDiscussion: boolean
-  wantsArchitectureDiscussion: boolean
-  wantsFrontendDiscussion: boolean
-  guidedRoleCliDefaults: GuidedBriefRoleCliDefaults
-  // Explicit per-role launch models for the guided discussions. Absent on
-  // legacy states; normalization defaults it to {} (all roles use CLI default).
-  guidedRoleModelOverrides?: GuidedBriefRoleModelOverrides
-  buildRoleCounts: SprintEngineRoleCounts
-  buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  buildCliPermissionPreset: SprintEngineCliPermissionPreset
-  buildStartRunner: boolean
-  buildAutoApproveArtifacts: boolean
-  stage: GuidedBriefStage
-  acceptedProductBrief: GuidedBriefAcceptedArtifact | null
-  acceptedArchitecturePlan: GuidedBriefAcceptedArtifact | null
-  acceptedUiDirection: GuidedBriefAcceptedArtifact | null
-  acceptedMockups: GuidedBriefAcceptedArtifact[]
-  // Optional agent-produced HTML overviews of the brief/plan (a view of the
-  // markdown, never a second source of truth). Absent on legacy states.
-  acceptedProductOverview?: GuidedBriefAcceptedArtifact | null
-  acceptedArchitectureOverview?: GuidedBriefAcceptedArtifact | null
-  activeMockupPath: string | null
-  // Path of the design artifact currently selected in the Multicode Design
-  // studio preview, relative to the workspace root. Absent on legacy states;
-  // normalization defaults it to `null`.
-  activeDesignArtifactPath?: string | null
-  // Interview decisions resolved across all specialist stages, deduped by
-  // role + question id. Absent on legacy states; normalization defaults it
-  // to an empty array.
-  guidedDecisions?: GuidedBriefRecordedDecision[]
-  // Design-system preset only: the source the studio was seeded from, carried
-  // into the designer session's opening prompt. Absent/null on legacy states
-  // and on blank-start studios; always null for the other presets.
-  designSystemSeedSource?: DesignSystemSeedSource | null
-  // Persisted so the renderer reattaches to the same PTY across HMR / refresh
-  // instead of spawning a fresh strategist, architect, or designer.
-  strategistSessionId: string | null
-  architectSessionId: string | null
-  designerSessionId: string | null
-}
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
@@ -996,7 +868,6 @@ export type Workspace = {
   // at persist so an app restart never replays the spawns.
   sprintEngineInitialSpawnAgentIds?: AgentId[]
   sprintEngineAutoState: SprintEngineAutoState
-  guidedBriefState?: GuidedBriefRuntimeState | null
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null

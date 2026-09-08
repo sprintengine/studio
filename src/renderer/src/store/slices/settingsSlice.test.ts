@@ -34,7 +34,6 @@ import {
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
 import { consumePendingExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
-import { guidedBriefTransportForCli } from '../../components/workspace/guidedBrief/types'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -883,8 +882,8 @@ assert.equal(useWorkspaceStore.getState().sidebarCollapsed, true)
 
 // --- Sprint Engine role enablement (T3) -----------------------------------
 // Bundled non-architect role can be toggled off; the change persists in
-// settings so future workspace and guided-brief roster construction can
-// filter it out.
+// settings so future workspace and sprint roster construction can filter it
+// out.
 store.setSprintEngineRoleEnabled('frontend', false)
 assert.equal(
   useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.enabled.frontend,
@@ -1492,110 +1491,24 @@ assert.deepEqual(
   'toggling still records the disabled pack',
 )
 
-// --- Design Wizard transport default (T12) ---------------------------------
-// The default profile ships opt-out: conversation sessions are off, so a Claude
-// design specialist takes the terminal path. Pins the acceptance criterion end
-// to end — the hydrated default feeds the transport selector.
-const defaultConversationEnabled =
-  normalizeAppSettings({}, []).guidedBriefConversationSessions === true
+// --- Retired Design Wizard transport setting --------------------------------
+// The Design Wizard was deleted 2026-09-08 and its `guidedBriefConversationSessions`
+// opt-in went with it. A profile written by an older build still carries the key;
+// normalizeAppSettings rebuilds the blob from known fields, so it is dropped
+// rather than carried forward — the same treatment every other retired key gets.
+const staleTransportProfile = normalizeAppSettings(
+  { guidedBriefConversationSessions: true, guidedBriefConversationSessionsOptInReset: true } as never,
+  [],
+)
 assert.equal(
-  defaultConversationEnabled,
+  'guidedBriefConversationSessions' in staleTransportProfile,
   false,
-  'guidedBriefConversationSessions defaults to off (opt-out)',
+  'the retired Design Wizard transport opt-in is dropped at hydration',
 )
 assert.equal(
-  guidedBriefTransportForCli('claude-code', {
-    conversationSessionsEnabled: defaultConversationEnabled,
-    hasWorkspaceId: true,
-  }),
-  'terminal',
-  "transportForCli('claude-code') === 'terminal' at default settings",
-)
-
-// One-time reset (MC-1802, store v67): the pre-opt-in default was `true`, so
-// persist wrote it to every existing profile. An un-stamped stored `true` is
-// therefore indistinguishable from that old default and is cleared — the whole
-// installed base returns to the terminal path until someone opts in.
-const preFlipProfile = normalizeAppSettings({ guidedBriefConversationSessions: true }, [])
-assert.equal(
-  preFlipProfile.guidedBriefConversationSessions,
+  'guidedBriefConversationSessionsOptInReset' in staleTransportProfile,
   false,
-  'a persisted true written before the opt-in flip is reset',
-)
-assert.equal(
-  preFlipProfile.guidedBriefConversationSessionsOptInReset,
-  true,
-  'normalizing stamps the profile so the reset runs exactly once',
-)
-assert.equal(
-  normalizeAppSettings(preFlipProfile, []).guidedBriefConversationSessions,
-  false,
-  're-normalizing the reset profile leaves it off (the reset is not re-applied to a value nobody set)',
-)
-
-// Post-reset the stamp rides in the same settings object, so an opt-in recorded
-// after it is explicit by construction and survives every later hydration.
-assert.equal(
-  normalizeAppSettings(
-    { guidedBriefConversationSessions: true, guidedBriefConversationSessionsOptInReset: true },
-    [],
-  ).guidedBriefConversationSessions,
-  true,
-  'a profile that opts in after the reset keeps conversation sessions on',
-)
-assert.equal(
-  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
-  'conversation',
-  'a user who opted in gets the conversation transport for Claude',
-)
-for (const stored of [undefined, false, 1 as unknown as boolean, 'true' as unknown as boolean]) {
-  assert.equal(
-    normalizeAppSettings(
-      { guidedBriefConversationSessions: stored, guidedBriefConversationSessionsOptInReset: true },
-      [],
-    ).guidedBriefConversationSessions,
-    false,
-    `a non-true stored value (${String(stored)}) resolves to off`,
-  )
-}
-assert.equal(
-  normalizeAppSettings({}, []).guidedBriefConversationSessionsOptInReset,
-  true,
-  'a fresh profile is stamped without ever having been on',
-)
-
-// Non-Claude CLIs and workspace-less runs never take the conversation path,
-// even when the opt-in is on.
-assert.equal(
-  guidedBriefTransportForCli('codex', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
-  'terminal',
-  'non-Claude CLIs always take the terminal path',
-)
-assert.equal(
-  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: false }),
-  'terminal',
-  'a workspace-less run takes the terminal path',
-)
-
-// The explicit setter records the user's choice verbatim, and stores exactly
-// `true` only for an explicit enable.
-const transportStore = useWorkspaceStore.getState()
-transportStore.setGuidedBriefConversationSessions(true)
-assert.equal(
-  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
-  true,
-  'setGuidedBriefConversationSessions(true) opts in',
-)
-assert.equal(
-  normalizeAppSettings(useWorkspaceStore.getState().appSettings, []).guidedBriefConversationSessions,
-  true,
-  'the opt-in survives the next hydration (the stamp travels with the setting)',
-)
-transportStore.setGuidedBriefConversationSessions(false)
-assert.equal(
-  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
-  false,
-  'setGuidedBriefConversationSessions(false) opts out',
+  'its one-time reset stamp is dropped with it',
 )
 
 // The two review keys that used to live here moved onto review's own app-level

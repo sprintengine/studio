@@ -175,16 +175,6 @@ const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storePath: 'appSettings.terminalKeepRecentAlive',
     storeSetter: 'setTerminalKeepRecentAlive',
   },
-  {
-    id: 'guided-brief-conversation-sessions',
-    label: 'Design specialists as chat sessions',
-    help: 'Experimental. Claude specialists get question cards instead of a terminal.',
-    scope: 'app',
-    group: 'agents',
-    field: { type: 'switch' },
-    storePath: 'appSettings.guidedBriefConversationSessions',
-    storeSetter: 'setGuidedBriefConversationSessions',
-  },
   // Learn center — tips startup toggle.
   {
     id: 'learning-show-tips-on-startup',

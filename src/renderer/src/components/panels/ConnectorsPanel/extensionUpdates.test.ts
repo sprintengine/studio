@@ -35,8 +35,8 @@ function checkedResult(entries: MarketplaceUpdateStateEntry[]): MarketplaceUpdat
   const banner = deriveManageUpdateBanner(
     checkedResult([
       {
-        id: 'design-wizard',
-        displayName: 'Design Wizard',
+        id: 'acme-design-kit',
+        displayName: 'Acme Design Kit',
         availability: { state: 'update-available', installedVersion: 1, latestVersion: 2 },
       },
     ]),
@@ -45,7 +45,7 @@ function checkedResult(entries: MarketplaceUpdateStateEntry[]): MarketplaceUpdat
   assert.equal(banner.kind, 'updates')
   assert.ok(banner.kind === 'updates')
   const copy = manageUpdateBannerCopy(banner.updates)
-  assert.equal(copy.strong, 'Design Wizard')
+  assert.equal(copy.strong, 'Acme Design Kit')
   assert.match(copy.text, /v1 → v2/)
   assert.equal(copy.actionLabel, 'Update to v2')
   // Never the bare phrase the ruling forbids.
@@ -142,7 +142,7 @@ console.log('ok - no read yet draws nothing')
 {
   const plugins = [
     { id: 'cursor', provides: ['cli'] },
-    { id: 'design-wizard', provides: ['module'] },
+    { id: 'acme-design-kit', provides: ['module'] },
     { id: 'combo', provides: ['cli', 'module'] },
   ] as unknown as MarketplacePluginEntry[]
   const excluded = cliOnlyRegistryIds(plugins)

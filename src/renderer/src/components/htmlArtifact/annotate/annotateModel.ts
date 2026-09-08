@@ -1,7 +1,7 @@
 // Parent-side annotate-mode model (MC-1468 part 2). Pure decisions the frame UI
 // renders from — availability, sandbox selection, batch edits, geometry — kept
 // free of DOM/React imports so they are unit-testable in the node harness
-// (guidedBriefFlow.test.ts) like the rest of the substrate.
+// harness like the rest of the substrate.
 
 import { frameRectToPageRect, type AnnotateSelectMessage } from './bridge'
 import type { AnnotationRect, MockupAnnotation } from './types'
@@ -150,7 +150,7 @@ export function composerPlacement(
 }
 
 /** "3 notes" — the tray count, mirrored by the numbered pins. */
-export function annotateCountLabel(count: number): string {
+function annotateCountLabel(count: number): string {
   return `${count} note${count === 1 ? '' : 's'}`
 }
 

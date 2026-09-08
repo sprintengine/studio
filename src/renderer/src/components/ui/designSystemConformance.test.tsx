@@ -1305,14 +1305,14 @@ async function main(): Promise<void> {
     // four bands survived three sweeps — each was outside the four directories
     // below and so read as done without being done (MC-2138). The four added
     // here are that item's: the kit's own `FilePreviewPane` and the
-    // `WorkspacePanel` shell, the knowledge-graph preview drawer, and the two
-    // guided-brief bands, which drew their rule in a SURFACE token.
+    // `WorkspacePanel` shell, the knowledge-graph preview drawer, and the HTML
+    // artifact frame's bands, which drew their rule in a SURFACE token.
     const SWEPT = [
       'components/panels',
       'components/memory',
       'components/ui',
+      'components/htmlArtifact',
       'components/workspace/agentComposer',
-      'components/workspace/guidedBrief',
       'components/workspace/newSprint',
       'components/workspace/topbar',
       'review/canvas',

@@ -8,7 +8,6 @@ import {
   createLayoutSlice,
   healRetiredRailLayout,
   stripRetiredModuleTabsFromLayout,
-  hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
   isLegacySprintEngineLayout,
@@ -19,8 +18,6 @@ import {
   stripSettingsTabsFromLayout,
   stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
-import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
-import { guidedBriefLayoutModel } from './guidedBriefSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'layout-test',
@@ -175,6 +172,7 @@ const retiredModuleLayout: IJsonModel = {
         type: 'tabset',
         children: [
           { type: 'tab', name: 'Board', component: 'switchboard-workspace' },
+          { type: 'tab', name: 'Design Wizard', component: 'guided-brief' },
           { type: 'tab', name: 'Notes', component: 'editor' },
         ],
       },
@@ -198,73 +196,12 @@ function findTab(model: IJsonModel, component: string): Record<string, unknown> 
 const strippedRetired = stripRetiredModuleTabsFromLayout(retiredModuleLayout) as IJsonModel
 assert.equal(modelContainsComponent(strippedRetired, 'switchboard-workspace'), false)
 assert.equal(modelContainsComponent(strippedRetired, 'watchtower-panel'), false)
+// The Design Wizard was deleted 2026-09-08; a profile that dragged its tab into
+// another workspace's layout would otherwise render an unresolvable surface.
+assert.equal(modelContainsComponent(strippedRetired, 'guided-brief'), false)
 assert.ok(findTab(strippedRetired, 'editor'), 'the rest of the layout survives the strip')
 // Nothing to strip is a no-op by reference, so it is safe on every hydration.
 assert.equal(stripRetiredModuleTabsFromLayout(canonicalLayout), canonicalLayout)
-
-// Existing guided-brief layouts migrate to enableTabStrip: false on the tabset
-// that wraps the panel, matching Sprint Engine. Other tabsets
-// the user may have rearranged are left alone.
-const guidedBriefLayoutForStripMigration: IJsonModel = {
-  global: { tabEnableClose: false },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: 100,
-        children: [
-          { type: 'tab', name: 'Guided Brief', component: 'guided-brief' },
-          { type: 'tab', name: 'idea-seed.md', component: 'file-editor', config: { filePath: '/tmp/idea-seed.md' } },
-        ],
-      },
-      {
-        type: 'tabset',
-        weight: 0,
-        children: [
-          { type: 'tab', name: 'Notes', component: 'editor' },
-        ],
-      },
-    ],
-  },
-}
-const guidedBriefStripHidden = hideGuidedBriefTabStrip(guidedBriefLayoutForStripMigration) as IJsonModel
-const gbTabset = findTabset(guidedBriefStripHidden, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
-})!
-const gbEditorTabset = findTabset(guidedBriefStripHidden, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'editor')
-})!
-const guidedBriefRootTab = findTab(guidedBriefStripHidden, 'guided-brief')!
-const guidedBriefFileTab = findTab(guidedBriefStripHidden, 'file-editor')!
-assert.equal(gbTabset.enableTabStrip, false)
-assert.equal(gbEditorTabset.enableTabStrip, undefined)
-assert.equal(guidedBriefRootTab.enableClose, false)
-assert.equal(guidedBriefFileTab.enableClose, true)
-
-// Canonical guided-brief layout + template ship with the hidden tab strip.
-const canonicalGuidedBriefLayout = guidedBriefLayoutModel()
-const canonicalGbTabset = findTabset(canonicalGuidedBriefLayout, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
-})!
-assert.equal(canonicalGbTabset.enableTabStrip, false)
-const canonicalGuidedBriefTab = findTab(canonicalGuidedBriefLayout, 'guided-brief')!
-assert.equal(canonicalGuidedBriefLayout.global?.tabEnableClose, true)
-assert.equal(canonicalGuidedBriefTab.enableClose, false)
-
-const guidedBriefTemplate = createGuidedBriefTemplate()
-const templateGbTabset = findTabset(guidedBriefTemplate.layout, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'guided-brief')
-})!
-assert.equal(templateGbTabset.enableTabStrip, false)
-const templateGuidedBriefTab = findTab(guidedBriefTemplate.layout, 'guided-brief')!
-assert.equal(guidedBriefTemplate.layout.global?.tabEnableClose, true)
-assert.equal(templateGuidedBriefTab.enableClose, false)
 
 // Nav-rail strip migration: a tabset holding only the Knowledge Graph switch
 // loses its strip; a tabset mixing a nav switch with the editor keeps its

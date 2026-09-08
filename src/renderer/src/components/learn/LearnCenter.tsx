@@ -23,7 +23,6 @@ const CATEGORY_FILTERS: ReadonlyArray<TabItem<CategoryFilter>> = [
   { id: 'all', label: 'All' },
   { id: 'workspace', label: LEARNING_CATEGORY_LABELS.workspace },
   { id: 'agents', label: LEARNING_CATEGORY_LABELS.agents },
-  { id: 'guided-brief', label: LEARNING_CATEGORY_LABELS['guided-brief'] },
   { id: 'sprintengine', label: LEARNING_CATEGORY_LABELS.sprintengine },
   { id: 'git', label: LEARNING_CATEGORY_LABELS.git },
   { id: 'knowledge', label: LEARNING_CATEGORY_LABELS.knowledge },

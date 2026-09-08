@@ -1,7 +1,6 @@
 export type LearningCategory =
   | 'workspace'
   | 'agents'
-  | 'guided-brief'
   | 'sprintengine'
   | 'git'
   | 'knowledge'
@@ -50,7 +49,6 @@ export type LearningItem = {
 export const LEARNING_CATEGORY_LABELS: Record<LearningCategory, string> = {
   workspace: 'Workspaces',
   agents: 'Agents',
-  'guided-brief': 'Design Wizard',
   sprintengine: 'Sprint',
   git: 'Git',
   knowledge: 'Knowledge Graph',

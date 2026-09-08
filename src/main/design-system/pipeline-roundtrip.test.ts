@@ -15,8 +15,9 @@ import {
   type LibraryPaths,
 } from './library-registry'
 
-// Layer 1 of the Design Wizard verification harness (MC-1506): the whole
-// design-system pipeline a real designer run rides, minus the agent. It scaffolds
+// The whole design-system pipeline a real authoring run rides, minus the agent
+// (MC-1506; the Design Wizard it was first written for was deleted 2026-09-08,
+// but the pipeline it walks is the design system's own). It scaffolds
 // the bundle skeleton from the shipped templates, overlays the known-good example
 // bundle's authored sources as if an agent had written them, then walks
 // lint -> derived-file regeneration -> register -> library read-back against the
@@ -25,9 +26,8 @@ import {
 // end. The app-local release pipeline this used to walk was removed 2026-07-30;
 // the library is a registry of paths, so the bundle is pointed at where it is.
 //
-// Deliberately NOT here (see backlog/2026-07-07-wizard-verification-harness.md):
-// driving a live agent (nondeterministic, needs subscription auth on runners).
-// Layer 2 is the stage-signal contract net; layer 3 the manual review checklist.
+// Deliberately NOT here: driving a live agent (nondeterministic, needs
+// subscription auth on runners).
 
 // The production fork binding is Electron utilityProcess; the harness runs the
 // bundle's real lint + generator scripts under a plain child_process fork (same

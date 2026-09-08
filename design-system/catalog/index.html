@@ -12278,10 +12278,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
       <path d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="currentColor" fill-opacity="0.18"/>
     </symbol>
-    <symbol id="g-ws-guided-brief" viewBox="0 0 24 24" fill="none">
-      <path d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
-      <path d="M9 9.25H15M9 12H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-    </symbol>
 
     <!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) -->
     <symbol id="g-role-generic" viewBox="0 0 24 24" fill="none">
@@ -12507,7 +12503,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">standard</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-guided-brief"/></svg><span class="demo-name">guided-brief</span></span>
     </div>
   </div>
 
@@ -12675,7 +12670,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>| Export | Meaning | |---|---| | <code>PlusIcon</code> | Create. The system's single *add* mark — a second plus on the same surface reads as the same action | | <code>MinusIcon</code> | Remove / decrement | | <code>CloseIcon</code> | Dismiss (the 24-grid sibling of <code>glyphs/close.svg</code>) | | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>ArrowRightIcon</code> | Forward navigation, go-to | | <code>CopyIcon</code> | Copy to clipboard | | <code>CommentIcon</code> | Comment thread (empty speech bubble) | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because the plus means create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character |</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Export | Mark | |---|---| | <code>StandardWorkspaceTypeIcon</code> | Terminal-in-frame — the generic fallback | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>GuidedBriefWorkspaceTypeIcon</code> | Brief speech bubble with text lines |</p>
+<p>| Export | Mark | |---|---| | <code>StandardWorkspaceTypeIcon</code> | Terminal-in-frame — the generic fallback | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; |</p>
 <h5>Status and priority (24-grid, parameterized, self-labelling)</h5>
 <p>| Export | Meaning | |---|---| | <code>PriorityIcon(priority)</code> | Backlog priority as signal bars: urgent (filled disc + <code>!</code>), high / medium / low (3-bar fill), none (three dashes). Carries <code>role=&quot;img&quot;</code> + label itself | | <code>StatusIcon(status)</code> | The 11 task folder states of <code>FOLDER_STATUSES</code>: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while <code>_in_progress</code>), done disc-check, canceled slash ring |</p>
 <p>These two are the 24-grid cousins of <code>LifecycleGlyph</code>. One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a lifecycle/status glyph, never both.</p>
@@ -12909,10 +12904,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;path d=&quot;M19.5 12a7.5 7.5 0 1 1-3.4-6.28&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
       &lt;path d=&quot;M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linejoin=&quot;round&quot; fill=&quot;currentColor&quot; fill-opacity=&quot;0.18&quot;/&gt;
     &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-ws-guided-brief&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;path d=&quot;M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M9 9.25H15M9 12H13&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.6&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
 
     &lt;!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) --&gt;
     &lt;symbol id=&quot;g-role-generic&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
@@ -13138,7 +13129,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-standard&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;standard&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-sprintengine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;sprintengine&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-automations&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;automations&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-guided-brief&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;guided-brief&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 

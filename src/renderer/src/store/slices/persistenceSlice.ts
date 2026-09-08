@@ -12,11 +12,6 @@ import type {
 import { normalizeSprintEngineState } from '../../utils/sprintengine'
 import { defaultEditorState, normalizeAgentCli, normalizeAgentState } from './agentsSlice'
 import {
-  ensureGuidedBriefLayoutModel,
-  normalizeGuidedBriefState,
-} from './guidedBriefSlice'
-import {
-  hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
   migrateSprintEngineLayout,
@@ -718,18 +713,9 @@ export function migratePersistedWorkspaceState(
       layoutModel: stripSettingsTabsFromLayout(ws.layoutModel) as Workspace['layoutModel'],
     }))
   }
-  if (version < 44) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const guidedBriefState = normalizeGuidedBriefState(ws.guidedBriefState)
-      if (ws.mode !== 'guided-brief' && !guidedBriefState) return ws
-      return {
-        ...ws,
-        mode: 'guided-brief',
-        guidedBriefState,
-        layoutModel: ensureGuidedBriefLayoutModel(ws.layoutModel),
-      }
-    })
-  }
+  // v44 healed guided-brief workspaces (mode + runtime state + layout). The
+  // Design Wizard was retired 2026-09-08, so the rung is gone: a persisted
+  // 'guided-brief' row is now dropped outright by dropRetiredModeWorkspaces.
   if (version < 45) {
     // v45 splits non-workspace state into APP_SETTINGS_STORAGE_KEY and adds an
     // explicit workspaceRegistryEmptyState record to the registry envelope.
@@ -794,16 +780,9 @@ export function migratePersistedWorkspaceState(
       sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
     }))
   }
-  if (version < 52) {
-    // The guided brief panel owns its own step nav, so the FlexLayout tab
-    // strip on the tabset that wraps the 'guided-brief' tab is redundant
-    // chrome. Stamp enableTabStrip: false onto existing layouts without
-    // touching custom arrangements, matching the Sprint Engine pattern.
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const next = hideGuidedBriefTabStrip(ws.layoutModel)
-      return next ? { ...ws, layoutModel: next } : ws
-    })
-  }
+  // v52 hid the FlexLayout tab strip around the 'guided-brief' tab. Retired
+  // with the Design Wizard (2026-09-08); the tab component itself is stripped
+  // from persisted layouts by stripRetiredModuleTabsFromLayout.
   if (version < 53) {
     // Normalize automation state (the normalizer also drops any legacy
     // transient spawn bookkeeping).
@@ -970,15 +949,13 @@ export function migratePersistedWorkspaceState(
     }
   }
   if (version < 67) {
-    // The Design Wizard conversation transport became opt-in only, but the
-    // pre-flip default was `true` and persist had already written it to every
-    // existing profile — so the whole installed base kept taking the
-    // Claude-only conversation path without ever choosing it. Reset the
-    // persisted opt-in once and stamp the profile: a stored `true` cannot be
-    // told apart from the old default, and re-enabling it is a single toggle.
-    // normalizeAppSettings owns the rule (persist merge runs it on every
-    // hydration, which is what catches current-version envelopes this ladder
-    // never revisits); this step just gives clean upgrades the same result.
+    // Re-run the app-settings normalizer over an upgrading profile. It was
+    // added to reset a conversation-transport opt-in whose pre-flip default had
+    // already been written to every profile; that setting retired with the
+    // Design Wizard (2026-09-08) and normalizeAppSettings now simply drops the
+    // stale key, along with every other retired one. The rung stays because
+    // normalizeAppSettings owns the rule and this gives clean upgrades the same
+    // result as the merge path.
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }

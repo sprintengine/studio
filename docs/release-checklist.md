@@ -66,6 +66,17 @@ of the first release that ships it, then delete the line.
   custom shortcut saved for that command stopped firing when the panel was
   removed; opening Settings -> Shortcuts now drops the saved binding. There is no
   replacement shortcut - the Sprints door opens from the sidebar.
+- Design Wizard (the guided brief), 2026-09-08: the workspace that put you in an
+  interview with product, architect and frontend specialists and minted a
+  `guided-brief` workspace is removed outright. There is no replacement flow.
+  A workspace saved in that mode is DROPPED from the Projects list on first load
+  - everything it wrote is on disk and untouched (`product/`, `architecture/`,
+  `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
+  chat to keep working on those files. The Settings -> Agents toggle "Design
+  specialists as chat sessions" is gone and its saved value is dropped. The
+  Design door, design-system bundles, the library, attach and the bundle lint are
+  unaffected - they were never part of the wizard. Three Learn Center cards under
+  a "Design Wizard" category are gone with it.
 
 ## Tag And Build
 

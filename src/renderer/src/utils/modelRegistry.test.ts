@@ -369,7 +369,7 @@ function navTabsets(model: Model): TabsetJson[] {
           weight: 100,
           enableTabStrip: false,
           children: [
-            { type: 'tab', name: 'Guided Brief', component: 'guided-brief', enableClose: false },
+            { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
           ],
         },
       ],

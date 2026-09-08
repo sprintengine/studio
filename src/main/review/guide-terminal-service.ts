@@ -51,7 +51,7 @@ import {
 // (MC-1782). It is attached at spawn, so this module never states any of it.
 export const REVIEW_GUIDE_SKILL_ID = 'review-guide'
 // Session-manager label for the guide's terminal.
-export const REVIEW_GUIDE_AGENT_NAME = 'Review guide'
+const REVIEW_GUIDE_AGENT_NAME = 'Review guide'
 // Where the skill always lands, whatever the CLI: the harness-neutral copy the
 // builtin skill manager installs alongside any native ones. Named in the join
 // prompt for CLIs whose plugin declares no native skill invocation, so the guide
@@ -415,7 +415,7 @@ export class ReviewGuideTerminalService {
       // The guide reads the change, the surrounding code, and the knowledge
       // graph, then calls the review tools — unattended. On the default preset
       // it stalls at the first approval prompt with nobody watching, so it runs
-      // with the same preset the Design Wizard's unattended specialists use.
+      // on the unattended preset.
       cliPermissionPreset: 'bypass',
       ...(cliModel?.trim() ? { cliModel: cliModel.trim() } : {}),
       // Installs the skill into this CLI's native skill dir before launch, so

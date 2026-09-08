@@ -493,49 +493,28 @@ assert.equal(migratedRoadmapOnly.workspaces.length, 0, 'roadmap-only account mig
 assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
 
 
-// v67: the Design Wizard conversation transport is opt-in only, but the
-// pre-flip default was `true` and persist had written it to every existing
-// profile — so the flip alone left the whole installed base on the Claude-only
-// conversation transport (MC-1802). The migration resets every persisted `true`
-// and stamps the profile; an opt-in recorded after the stamp is explicit and is
-// left alone.
-const v66PreFlipOptIn = {
+// v67 reset a Design Wizard conversation-transport opt-in whose pre-flip
+// default had been written to every profile. The Design Wizard was deleted
+// 2026-09-08 and the setting with it, so the rung now only re-runs
+// normalizeAppSettings — which drops the stale key like every other retired
+// one and leaves the rest of the blob alone.
+const v66StaleTransportKey = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
   activeWorkspaceId: 'ws-standard',
   appSettings: { guidedBriefConversationSessions: true, lastSelectedCli: 'codex' },
 }
-const migratedTransportReset = migratePersistedWorkspaceState(v66PreFlipOptIn, 66) as {
+const migratedTransportReset = migratePersistedWorkspaceState(v66StaleTransportKey, 66) as {
   appSettings: AppSettings
 }
 assert.equal(
-  migratedTransportReset.appSettings.guidedBriefConversationSessions,
+  'guidedBriefConversationSessions' in migratedTransportReset.appSettings,
   false,
-  'v67 resets a persisted opt-in that predates the flip',
-)
-assert.equal(
-  migratedTransportReset.appSettings.guidedBriefConversationSessionsOptInReset,
-  true,
-  'v67 stamps the profile so the reset runs exactly once',
+  'the retired Design Wizard transport key is dropped, not carried forward',
 )
 assert.equal(
   migratedTransportReset.appSettings.lastSelectedCli,
   'codex',
   'v67 leaves other persisted settings alone',
-)
-
-const v66PostResetOptIn = {
-  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
-  activeWorkspaceId: 'ws-standard',
-  appSettings: {
-    guidedBriefConversationSessions: true,
-    guidedBriefConversationSessionsOptInReset: true,
-  },
-}
-assert.equal(
-  (migratePersistedWorkspaceState(v66PostResetOptIn, 66) as { appSettings: AppSettings })
-    .appSettings.guidedBriefConversationSessions,
-  true,
-  'an opt-in recorded after the reset survives the ladder',
 )
 
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile

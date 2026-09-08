@@ -125,4 +125,9 @@ electron.vite.config.*.mjs
 # are install-time output, not source: the templates live under resources/.
 .grok/hooks/multicode-agent-state.json
 .opencode/plugin/multicode-agent-state.js
+
+# Leftover app metadata from the retired Design Wizard (deleted 2026-09-08):
+# its idea seed and inspiration drops. Nothing writes here any more, and the
+# files on an existing workspace are deliberately left alone, so the ignore
+# stays until those workspaces are gone.
 .guided-brief/

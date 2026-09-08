@@ -1716,8 +1716,8 @@ export type TerminalSessionSnapshot = {
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata. The session-manager label for agent
-  // sessions whose agentId has no workspace.agents record (e.g. the Design
-  // Wizard's guided-brief-* specialists).
+  // sessions whose agentId has no workspace.agents record (e.g. an agent main
+  // spawned without this window's knowledge).
   agentName?: string
   terminalId?: string
   // The agent's session id within its own CLI/harness (the id used to resume the
@@ -4023,7 +4023,7 @@ export type ElectronApi = {
   regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
-  /** Run a bundle's own scripts/lint.mjs on demand (the guided-brief studio's validating preview — the author's contribution gate). */
+  /** Run a bundle's own scripts/lint.mjs on demand (the bundle author's contribution gate). */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
   /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
   readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>

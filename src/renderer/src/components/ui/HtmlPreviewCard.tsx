@@ -3,10 +3,9 @@ import { WarningIcon } from '../AppIcons'
 import { TruncatedText } from './TruncatedText'
 
 // Shared card primitive: a small live render of one HTML file on disk + title +
-// mono path meta + click-through. The live render reuses the same scripts-off
-// sandbox policy as the full HtmlArtifactFrame — the helper is defined here, in
-// the shared component home, and re-exported from the Design Wizard preview so
-// the sandbox behaviour is defined once and never forked. First consumer is the
+// mono path meta + click-through. The live render holds the same scripts-off
+// sandbox policy the full HtmlArtifactFrame does — scripts off, and never
+// `allow-same-origin`. First consumer is the
 // design-system component gallery (MC-1509); it is built reviewer-neutral so the
 // backlog mockup-attachments surface (MC-1485) can reuse the same card.
 //
@@ -15,11 +14,12 @@ import { TruncatedText } from './TruncatedText'
 // includes the file's mtime, so only cards whose file actually changed remount.
 
 /**
- * The iframe sandbox token for a generated-HTML preview. Scripts are off by
- * default; the interactive opt-in only ever adds `allow-scripts` and never
- * `allow-same-origin`, so generated HTML never receives same-origin privileges.
+ * The iframe sandbox token for this card's inert thumbnail. Scripts are off and
+ * `allow-same-origin` is never granted, so generated HTML never receives
+ * same-origin privileges. The interactive frame's own opt-in lives beside it,
+ * in `htmlArtifact/annotate/annotateModel.ts`, under the same rule.
  */
-export function htmlArtifactFrameSandbox(allowScripts: boolean): string {
+function htmlArtifactFrameSandbox(allowScripts: boolean): string {
   return allowScripts ? 'allow-scripts' : ''
 }
 

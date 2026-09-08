@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  GUIDED_BRIEF_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
   REVIEW_WORKSPACE_MODE,
@@ -31,7 +30,6 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // lists every run from disk. Their workspaces stay as the residency for the
   // run's agent terminals, but never as a Projects-list row.
   [SPRINT_ENGINE_WORKSPACE_MODE]: true,
-  [GUIDED_BRIEF_WORKSPACE_MODE]: false,
   // Automations moved to an instance-level surface (the sidebar door), so their
   // host workspaces are rail-hidden background runtime containers — never a
   // Projects-list row, switch target, or palette result.
@@ -69,8 +67,6 @@ run('isSprintRunWorkspace is true only for the sprint-run mode', () => {
       `unexpected isSprintRunWorkspace for ${mode}`,
     )
   }
-  // The Design Wizard is a sibling mode, not a run: it keeps its Projects row.
-  assert.equal(isHiddenFromRail({ mode: GUIDED_BRIEF_WORKSPACE_MODE }), false)
 })
 
 // Item 1807: rail-hidden-ness is one rule in `shared/workspace-mode.ts` because

@@ -110,7 +110,6 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 // because they take an onClose callback the generic host panel contract omits.
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
-const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
 // aside was retired (browser-pane epic). Store v73 strips their tabs from
@@ -524,7 +523,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   // factory's default case by their owning module's enablement, so a disabled
   // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
   // hides its button. Only the panels with bespoke props (file-editor, explorer, the
-  // sprintengine fixed-view/summary fallbacks, guided-brief, git-conflict) need
+  // sprintengine fixed-view/summary fallbacks, git-conflict) need
   // an explicit gated arm below; those read enablement from this single
   // overrides object.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
@@ -569,7 +568,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // Arms below are only for components the host can't serve generically:
       // the shell's own chrome (agent, terminal) and panels that take bespoke props
       // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
-      // paths, the sprintengine fixed-view/summary fallbacks, guided-brief).
+      // paths, the sprintengine fixed-view/summary fallbacks).
       // Every plain `{ workspaceId }` host panel — editor, content-search, git,
       // sprintengine, memory-graph — falls
       // through to `default`, which renders it gated by its owning module.
@@ -657,24 +656,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               />
             ))
             : DISABLED_SURFACE
-        case 'guided-brief':
-          // The Design Wizard is its own module (MC-1860). Its declared
-          // dependsOn ['sprint-engine'] means disabling Sprint Engine cascades
-          // here too. An existing guided-brief workspace whose module is off
-          // gets the labeled not-installed surface (MC-1532 pattern) rather
-          // than the generic panel fallback — the workspace IS this one pane.
-          return selectModuleEnabled(moduleOverrides, 'design-wizard')
-            ? timedPanel(
-              'GuidedBriefWorkspacePanel',
-              <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
-            )
-            : (
-              <ModuleNotInstalledSurface
-                label="Design Wizard"
-                installed
-                onOpenMarketplace={() => openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })}
-              />
-            )
         case 'sprintengine-run-summary':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineRunSummaryPanel', (

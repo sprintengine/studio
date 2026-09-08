@@ -10,9 +10,8 @@ export type WizardProgressProps = {
   /**
    * Optional count of completed steps. When omitted, every step before
    * `active` is treated as done (the simple-wizard default). Set this when
-   * the active step itself may still be working — e.g., the guided-brief
-   * flow keeps the active dash highlighted while the prior dashes mark
-   * actually-completed sub-stages.
+   * the active step itself may still be working, so the active dash stays
+   * highlighted while the prior dashes mark actually-completed sub-stages.
    */
   done?: number
   /** Optional accessible label override. Defaults to `Step <n> of <total>`. */

@@ -40,7 +40,6 @@ import type {
   SprintEngineRosterSession,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
-  SprintEngineSkillMap,
   SprintEngineSource,
   SprintEngineSourceBundleStateItem,
   SprintEngineState,
@@ -86,7 +85,7 @@ import {
   normalizeSprintEngineVcs,
   sprintEngineAwaitingMergeLabel,
 } from './vcs'
-export { deriveSprintEngineRepoMergeRollup, normalizeSprintEngineVcs }
+export { deriveSprintEngineRepoMergeRollup }
 export { isPullRequestWatchable, isRunPullRequestWatchable } from './vcs'
 export type { SprintEngineRepoMergeRollup } from './vcs'
 import type {
@@ -423,7 +422,7 @@ export const sprintEngineTaskCommentTypeLabels: Record<SprintEngineTaskCommentTy
 // raw `SprintEngineRoleId` from projection or registry data — use
 // `getSprintEngineRoleLabel(roleId, metadata?)` so custom and unknown
 // configured roles fall back to a registry label or a safe humanized id.
-export const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
+const sprintEngineRoleLabels: Record<SprintEngineRole, string> = {
   architect: 'Architect',
   product: 'Product Strategist',
   developer: 'Developer',
@@ -475,7 +474,7 @@ function isSprintEngineTaskCommentType(value: unknown): value is SprintEngineTas
 // Bundled-role accent table. Renderer surfaces must NEVER index this with a
 // raw `SprintEngineRoleId` — use `getSprintEngineRoleAccent` so custom roles
 // fall back to a neutral chrome tone.
-export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
+const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
   architect: '#d4a757',
   product: '#e879a7',
   developer: '#c7ccd4',
@@ -493,34 +492,7 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
 // the same fallback tone instead of inventing one per call site.
 export const sprintEngineNeutralRoleAccent = '#7a8190'
 
-// Maps a SpecialistAction.soulRole string to the canonical bundled
-// SprintEngineRole so any panel showing specialists
-// can render the same icon disc + role accent + role label that Sprint
-// Engine uses. This mapping is intentionally scoped to non-registry
-// specialist compatibility: it converts a fixed-set legacy specialist
-// identifier into a bundled Sprint Engine role for icon/accent reuse and
-// must not be used to coerce registry-discovered role ids. Returns null
-// for specialists with no bundled Sprint Engine equivalent (devops,
-// blog_writer); callers should fall back to the specialist's own icon and
-// short label.
-const SOUL_ROLE_TO_SPRINT_ENGINE_ROLE: Record<string, SprintEngineRole> = {
-  architect: 'architect',
-  product: 'product',
-  developer: 'developer',
-  frontend: 'frontend',
-  ui_ux_reviewer: 'ui_ux_reviewer',
-  tester: 'tester',
-  security: 'security',
-  performance: 'performance',
-  production_readiness_reviewer: 'production_readiness_reviewer',
-  cross_platform: 'cross_platform',
-}
-
-export function soulRoleToSprintEngineRole(soulRole: string): SprintEngineRole | null {
-  return SOUL_ROLE_TO_SPRINT_ENGINE_ROLE[soulRole] ?? null
-}
-
-export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, string> = {
+const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, string> = {
   architect_plan: 'Architect Plan',
   product_strategy: 'Product Strategy',
   requirements: 'Requirements',
@@ -589,7 +561,7 @@ export function getUserDisabledSprintEngineRoleIds(
 }
 
 // Build the ordered, selectable Sprint Engine role list shared by the new
-// workspace roster table and the guided-brief handoff roster. Bundled roles
+// workspace roster table and the sprint handoff roster. Bundled roles
 // come first (in their canonical order), custom registry roles follow
 // alphabetically. Manifest-disabled registry roles and user-disabled roles
 // are filtered out — including `architect`, which stopped being protected when
@@ -724,17 +696,6 @@ const sprintEngineTaskBoardColumnSet: readonly SprintEngineTaskBoardColumn[] = [
   'canceled',
 ]
 
-export const sprintEngineTaskActivityLabels: Record<SprintEngineTaskActivityType, string> = {
-  comment: 'Comment',
-  status_change: 'Status',
-  claim: 'Claim',
-  evidence: 'Evidence',
-  feedback: 'Feedback',
-  needs_input: 'Needs Input',
-  artifact: 'Artifact',
-  system: 'System',
-}
-
 function isSprintEngineTaskActivityType(value: unknown): value is SprintEngineTaskActivityType {
   return sprintEngineTaskActivityTypes.includes(value as SprintEngineTaskActivityType)
 }
@@ -745,7 +706,7 @@ function isSprintEngineTaskBoardColumn(value: unknown): value is SprintEngineTas
 
 // Only the materialized ready queue is claimable. A task in `review` is owned by
 // its implementer through `done`, so it is never free work.
-export function isSprintEngineTaskClaimableColumn(column: SprintEngineTaskBoardColumn | null | undefined): boolean {
+function isSprintEngineTaskClaimableColumn(column: SprintEngineTaskBoardColumn | null | undefined): boolean {
   return column === 'ready'
 }
 
@@ -1647,25 +1608,6 @@ export function createEmptySprintEngineRoleCounts(): SprintEngineRoleCounts {
   }
 }
 
-export function createDefaultSprintEngineSkills(): SprintEngineSkillMap {
-  return {
-    architect: ['Deep repo analysis', 'Planning', 'Task decomposition', 'Dependency mapping'],
-    product: ['Market research', 'Competitor analysis', 'Audience fit', 'Product positioning'],
-    developer: ['Implementation', 'Refactoring', 'Integration work', 'Testing'],
-    frontend: ['Interface design', 'Interaction design', 'Responsive layouts', 'UI implementation'],
-    ui_ux_reviewer: ['UI/UX review', 'Brand alignment', 'Responsive QA', 'Visual artifact checks'],
-    tester: ['Regression checks', 'Acceptance review', 'Validation'],
-    security: ['Threat modeling', 'Security review', 'Hardening', 'Abuse-case analysis'],
-    performance: ['Latency review', 'Memory and CPU analysis', 'Bundle/runtime cost', 'Measurement quality'],
-    production_readiness_reviewer: ['Release readiness', 'Deployment config', 'Data safety', 'Rollback and observability'],
-    cross_platform: ['OS compatibility', 'Browser/device coverage', 'Path and shell portability', 'Packaging checks'],
-  }
-}
-
-export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): number {
-  return Object.values(roleCounts).reduce((total, count) => total + Math.max(0, count), 0)
-}
-
 // MC-1450 retired per-role quantities: `roleCounts` is now the persisted
 // encoding of an enabled-role SET — every value normalizes to 0 or 1 (legacy
 // presets/workspaces with counts > 1 collapse to "enabled"). Under MC-1444's
@@ -1717,8 +1659,8 @@ export function sprintEngineRoleKey(role: SprintEngineRoleId | undefined): strin
 // `ROLELESS_WORKER_ID_PREFIX` in `sprintengine_core/tool/constants.py`: the app
 // is the id authority and Python's `worker_role` recognises exactly these two
 // shapes, so a drift here makes a roleless worker read as an unknown role.
-export const sprintEngineCoordinatorAgentId: AgentId = 'coordinator'
-export const sprintEngineRolelessWorkerIdPrefix = 'agent'
+const sprintEngineCoordinatorAgentId: AgentId = 'coordinator'
+const sprintEngineRolelessWorkerIdPrefix = 'agent'
 
 /** The one seat that plans a run, adjudicates its plan gate, and triages it. */
 export type SprintEngineCoordinatorSeat = {
@@ -1844,7 +1786,7 @@ export function sprintEngineTaskRoutesToCoordinator(
  * "Agent 2"), which is the only honest source left — it has no role and,
  * deliberately, no persona. Never "Unknown role": absent is known.
  */
-export function sprintEngineAgentRowLabel(
+function sprintEngineAgentRowLabel(
   agentId: AgentId,
   role: SprintEngineRoleId | undefined,
   registry?: SprintEngineRoleRegistry | null,
@@ -1939,7 +1881,7 @@ export function buildSprintEngineAgentRoster(
 // selection staffs it. Claiming an architect the run never staffed would be a
 // lie about its legal role set. The roster IS the user's configuration — a role
 // they did not staff must not become plannable, or the architect will schedule
-// work nobody asked for (the design-wizard-premium regression).
+// work nobody asked for (the premium-polish regression).
 //
 // An EMPTY result is meaningful and must be persisted as an explicit `[]`: it
 // is a roleless run, which the engine distinguishes from a legacy run that
@@ -2042,12 +1984,12 @@ const SPRINT_ENGINE_FOCUS_WORKER_ROLES: SprintEngineRole[] = [
   'security',
 ]
 
-export type SprintEngineRuntimeAgentEffectiveStatus =
+type SprintEngineRuntimeAgentEffectiveStatus =
   | SprintEngineRuntimeAgent['status']
   | 'idle'
   | 'exited'
 
-export type SprintEngineFocusAgent = {
+type SprintEngineFocusAgent = {
   agentId: AgentId
   /** Absent on a roleless run's agents (MC-2057). */
   role?: SprintEngineRoleId
@@ -2233,10 +2175,6 @@ export function orderSprintEngineBoardColumnTasks(
     .map(({ task }) => task)
 }
 
-export function getSprintEngineTaskSourceType(task: Pick<SprintEngineTask, 'source'>): SprintEngineTaskSourceType {
-  return task.source?.type ?? 'local'
-}
-
 export function getReviewableSprintEngineArtifacts(artifacts: SprintEngineArtifact[]): SprintEngineArtifact[] {
   // Unknown kinds stay reviewable: the user must be able to see and manually
   // approve an artifact a task's needs_input points at even when this build
@@ -2254,7 +2192,7 @@ export function isSprintEngineArtifactAutoApprovableKind(kind: string): boolean 
 // mirrors the Python `artifact_absolute_path` resolution (which lands both
 // forms at `<teamDir>/<rest>`) without filesystem access, so renderer and
 // main-process gates agree on which artifacts point at the same file.
-export function normalizeSprintEngineArtifactFileKey(path: string): string {
+function normalizeSprintEngineArtifactFileKey(path: string): string {
   const segments = path
     .trim()
     .replace(/\\/g, '/')
@@ -2270,7 +2208,7 @@ export function normalizeSprintEngineArtifactFileKey(path: string): string {
   return segments.join('/')
 }
 
-export function isSameSprintEngineArtifactFile(left: string, right: string): boolean {
+function isSameSprintEngineArtifactFile(left: string, right: string): boolean {
   const leftKey = normalizeSprintEngineArtifactFileKey(left)
   return leftKey !== '' && leftKey === normalizeSprintEngineArtifactFileKey(right)
 }
@@ -2281,7 +2219,7 @@ export function isSameSprintEngineArtifactFile(left: string, right: string): boo
 // of the candidate is excluded — it is not an independent review gate, so it
 // must not veto approval of its real sibling. The candidate itself stays in the
 // set, keeping the "no blocking artifact waiting" guard meaningful.
-export function getSprintEngineAutoApprovalBlockingSiblings(
+function getSprintEngineAutoApprovalBlockingSiblings(
   artifact: SprintEngineArtifact,
   artifactsForTask: SprintEngineArtifact[]
 ): SprintEngineArtifact[] {
@@ -2344,30 +2282,6 @@ export function getSprintEngineArtifactAutoApprovalEligibility(
     label: '',
     reason: 'Unknown artifact type.',
   }
-}
-
-export function getAutoApprovableReadySprintEngineArtifacts(
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'artifacts'>
-): SprintEngineArtifact[] {
-  const reviewArtifacts = getReviewableSprintEngineArtifacts(sprintEngineState.artifacts)
-  const reviewArtifactsByTaskId = getSprintEngineArtifactsByTaskId(reviewArtifacts)
-  const tasksById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
-
-  return reviewArtifacts.filter((artifact) => {
-    if (!getSprintEngineArtifactAutoApprovalEligibility(artifact).eligible) return false
-
-    const task = tasksById.get(artifact.taskId)
-    if (!task || task.status !== 'needs_input') return false
-
-    // Mirrors the main-process auto-approval gate: only auto-approvable kinds
-    // count as blockers (an unknown-kind sibling awaiting manual review does not
-    // veto), and a stale same-file duplicate of this artifact is excluded so it
-    // cannot deadlock approval of its real sibling.
-    return sprintEngineAutoApprovalBlockingSiblingsAllReviewable(
-      artifact,
-      reviewArtifactsByTaskId[task.id] ?? []
-    )
-  })
 }
 
 export function getSprintEngineArtifactsByTaskId(
@@ -2445,7 +2359,7 @@ export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineR
 // hand that run an architect seat it never staffed (MC-2050). A list whose every
 // entry is blank or not a string empties the same way, which is the same
 // statement: the run enabled no role this reader can name.
-export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngineRoleId[] | null {
+function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngineRoleId[] | null {
   if (!Array.isArray(value)) return null
   const seen = new Set<SprintEngineRoleId>()
   const result: SprintEngineRoleId[] = []
@@ -2463,7 +2377,7 @@ export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngi
 // ("agents on this run don't review their own work") and must survive, so this
 // returns null only when the key is absent or not an array. Unknown phase names
 // are dropped; the engine is the authority and rejects them at write time.
-export function normalizeSprintEngineDefaultPhases(value: unknown): SprintEngineTaskPhase[] | null {
+function normalizeSprintEngineDefaultPhases(value: unknown): SprintEngineTaskPhase[] | null {
   if (!Array.isArray(value)) return null
   return value.filter((phase): phase is SprintEngineTaskPhase =>
     sprintEngineTaskPhases.includes(phase as SprintEngineTaskPhase)
@@ -3036,14 +2950,6 @@ export function getOpenSprintEngineFeedbackFindings(
     const status = finding.status ?? 'open'
     return status !== 'fixed' && status !== 'rejected'
   })
-}
-
-export function hasOpenSprintEngineFeedback(
-  feedback: SprintEngineTaskFeedback | undefined,
-): boolean {
-  if (!feedback) return false
-  return getOpenSprintEngineFeedbackIssues(feedback).length > 0
-    || getOpenSprintEngineFeedbackFindings(feedback).length > 0
 }
 
 /**

@@ -21,10 +21,14 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
   'design',
+  // RETIRED, still reserved: the Design Wizard (the guided brief) was deleted
+  // 2026-09-08. Its id stays here so a third-party module can never install
+  // under a built-in name people recognise. Same rule as 'switchboard'.
   'design-wizard',
   'dev-tools',
   'git',
   'memory-graph',
+  // RETIRED, still reserved (see 'design-wizard' above).
   'switchboard',
   'sprint-engine',
   'review',
@@ -102,7 +106,7 @@ export type CapabilityManifest = {
 // (awaiting approval), 'invalid' (tampered signature; blocked).
 export type ModuleTrustStatus = 'trusted' | 'signed' | 'unsigned' | 'invalid'
 
-export type ThirdPartyModuleLaunchStatus =
+type ThirdPartyModuleLaunchStatus =
   | 'trusted_executable'
   | 'trusted_manifest_only'
   | 'blocked_unsigned'
@@ -115,7 +119,7 @@ export type ThirdPartyModuleLaunchStatus =
 // the module's trust status is not load-eligible; 'error' — declared and
 // trusted, but the entry is rejected (escapes the module root or the bundle
 // file is missing); 'available' — declared, trusted, contained, servable.
-export type ThirdPartyRendererEntryAvailability = 'none' | 'blocked' | 'error' | 'available'
+type ThirdPartyRendererEntryAvailability = 'none' | 'blocked' | 'error' | 'available'
 
 export type ThirdPartyRendererEntryView = {
   availability: ThirdPartyRendererEntryAvailability
@@ -144,7 +148,7 @@ export const THIRD_PARTY_RENDERER_ENTRIES_CHANNEL = 'modules:third-party:rendere
 // from disk. `code` is the ESM bundle source; the renderer loader evaluates it
 // via dynamic import of a blob URL — content over IPC keeps delivery free of
 // any file:// / custom-protocol surface.
-export type ThirdPartyRendererEntry = {
+type ThirdPartyRendererEntry = {
   id: string
   manifest: CapabilityManifest
   code: string

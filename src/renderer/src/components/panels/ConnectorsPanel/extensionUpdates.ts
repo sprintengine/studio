@@ -2,7 +2,7 @@
 // banner (MC-1873). The owner ruling pins the shape: staleness is ONE calm
 // banner above the affected group, never an in-row badge and never a stack —
 // several pending updates collapse to a single line. Copy always carries the
-// version delta ("Design Wizard update · v1 → v2"), never a bare "Update
+// version delta ("Acme Design Kit update · v1 → v2"), never a bare "Update
 // available". Versions are plain integers (never semver), rendered as `v{n}`.
 //
 // Honesty rules, mirrored from the engine half (update-state.ts):

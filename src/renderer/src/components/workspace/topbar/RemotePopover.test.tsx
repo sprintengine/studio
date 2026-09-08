@@ -641,7 +641,7 @@ run('off the tailnet the popover says nothing in its header and grays every mach
 run('what a phone is driving is resolved to a name, and an unplaceable session still gets a line', () => {
   const sessions = [
     { sessionId: 's-agent', workspaceId: 'ws1', agentId: 'a1', agentName: 'launch-checks' },
-    { sessionId: 's-loose', agentName: 'guided-brief-7' },
+    { sessionId: 's-loose', agentName: 'roaming-agent-7' },
   ]
   const named = drivenTerminalView('s-agent', sessions, () => 'Fix the login bug')
   assert.equal(named.label, 'Fix the login bug', 'the workspace agent’s own name wins')
@@ -651,7 +651,7 @@ run('what a phone is driving is resolved to a name, and an unplaceable session s
     'launch-checks',
     'else the session manager’s label'
   )
-  assert.deepEqual(drivenTerminalView('s-loose', sessions, () => null), { label: 'guided-brief-7', target: null })
+  assert.deepEqual(drivenTerminalView('s-loose', sessions, () => null), { label: 'roaming-agent-7', target: null })
   assert.deepEqual(drivenTerminalView('s-gone', sessions, () => null), { label: 'a terminal', target: null })
 })
 

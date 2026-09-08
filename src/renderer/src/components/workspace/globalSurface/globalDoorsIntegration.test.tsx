@@ -273,8 +273,7 @@ async function main(): Promise<void> {
   // and are doors again (Extensions drawer ruling: a destination the shell's
   // own chrome offers routes the card region, it does not float over it). What
   // is left in the modal registry is Reviews, opened from the workspace pane
-  // strip. Design is owned by its OWN bundled `design` module, not by
-  // `design-wizard` (MC-1860).
+  // strip. Design is owned by its OWN bundled `design` module.
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()

@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { BacklogDetail } from '../panels/BacklogPanel'
 import { FilePreviewPane } from '../ui/FilePreviewPane'
-import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
+import { HtmlArtifactFrame } from '../htmlArtifact/HtmlArtifactFrame'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { deriveBacklogDependencies } from '../../utils/backlogDependencies'
 import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'

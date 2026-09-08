@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { FOCUS_RING_CLASS, OutlineButton } from '../../../ui'
+import { FOCUS_RING_CLASS, OutlineButton } from '../../ui'
 import {
   annotateSubmitLabel,
   annotationDisplayRect,

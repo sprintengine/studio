@@ -9,7 +9,7 @@ import { JSDOM } from 'jsdom'
 // restart. This drives the real InstalledExtensionsInventory in a DOM against
 // a stubbed window.api:
 //   • fixture registry serves latest=2 over installed v1 → banner with the
-//     delta ("Design Wizard update · v1 → v2", action "Update to v2");
+//     delta ("Acme Design Kit update · v1 → v2", action "Update to v2");
 //   • the action routes through updateMarketplacePluginFromRegistry and the
 //     surface settles to current (banner gone) with no remount;
 //   • CLI rows offer Update with no version-delta claim (cliUpdate, never the
@@ -68,11 +68,11 @@ const calls: Record<string, unknown[]> = {
   updateStatesReads: [],
 }
 
-const designWizardManifest = {
-  id: 'design-wizard',
-  displayName: 'Design Wizard',
+const acmeKitManifest = {
+  id: 'acme-design-kit',
+  displayName: 'Acme Design Kit',
   version: 1,
-  summary: 'Design systems from a wizard',
+  summary: 'A third-party design kit',
   source: 'third-party',
   defaultEnabled: true,
 }
@@ -80,7 +80,7 @@ const designWizardManifest = {
 const api: Record<string, unknown> = {
   platform: 'darwin',
   listThirdPartyModules: async () => ({
-    modules: [{ manifest: { ...designWizardManifest, version: installedVersion }, trust: 'trusted' }],
+    modules: [{ manifest: { ...acmeKitManifest, version: installedVersion }, trust: 'trusted' }],
     rejected: [],
   }),
   pluginsList: async () => ({
@@ -111,8 +111,8 @@ const api: Record<string, unknown> = {
         registryState: 'offline',
         entries: [
           {
-            id: 'design-wizard',
-            displayName: 'Design Wizard',
+            id: 'acme-design-kit',
+            displayName: 'Acme Design Kit',
             availability: { state: 'unknown', installedVersion, reason: 'registry-unreachable' },
           },
         ],
@@ -132,8 +132,8 @@ const api: Record<string, unknown> = {
       fetchedAt: '2026-08-01T00:00:00Z',
       entries: [
         {
-          id: 'design-wizard',
-          displayName: 'Design Wizard',
+          id: 'acme-design-kit',
+          displayName: 'Acme Design Kit',
           availability: { state, installedVersion, latestVersion: aheadOfRegistry ? 1 : 2 },
         },
       ],
@@ -149,7 +149,7 @@ const api: Record<string, unknown> = {
     return {
       ok: true,
       id: input.entry.id,
-      displayName: 'Design Wizard',
+      displayName: 'Acme Design Kit',
       version: 2,
       trust: 'trusted',
       loadEligible: true,
@@ -174,11 +174,11 @@ domWindow.api = new Proxy(api, {
         : async () => ({ ok: false, message: 'not stubbed' }),
 })
 
-const designWizardEntry = {
-  id: 'design-wizard',
-  name: 'Design Wizard',
+const acmeKitEntry = {
+  id: 'acme-design-kit',
+  name: 'Acme Design Kit',
   publisher: { name: 'Multicode Labs', verified: true },
-  summary: 'Design systems from a wizard',
+  summary: 'A third-party design kit',
   category: 'Design',
   icon: '',
   latest: 2,
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
           mcpServers: [],
           moduleOverrides: {},
           workspaceRoot: '/repo',
-          registryPlugins: [designWizardEntry, cursorEntry] as never,
+          registryPlugins: [acmeKitEntry, cursorEntry] as never,
           mcpSettings: { syncEnabled: false, servers: {} } as never,
           cliAvailability: cliAvailability as never,
           onCliUpdated: () => {
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
   const first = await mount()
   await settle()
   const bannerText = first.host.textContent ?? ''
-  assert.match(bannerText, /Design Wizard update · v1 → v2/)
+  assert.match(bannerText, /Acme Design Kit update · v1 → v2/)
   const updateButton = findButton(first.host, /^Update to v2$/)
   assert.ok(updateButton, 'the banner offers "Update to v2"')
   // The forbidden bare phrase appears nowhere.
@@ -265,12 +265,12 @@ async function main(): Promise<void> {
   assert.equal(calls.verify.length, 1, 'update verifies before installing (trust re-check)')
   assert.equal(calls.updateEntry.length, 1)
   const updateInput = calls.updateEntry[0] as { entry: { id: string }; trustGranted?: boolean }
-  assert.equal(updateInput.entry.id, 'design-wizard')
+  assert.equal(updateInput.entry.id, 'acme-design-kit')
   assert.equal(updateInput.trustGranted, false, 'a verified update never fabricates a trust grant')
   const settled = first.host.textContent ?? ''
   assert.doesNotMatch(settled, /update · v1 → v2/, 'the banner is gone once the row is current')
-  assert.match(settled, /Design Wizard updated to v2\./)
-  assert.match(settled, /Design Wizard/, 'the module row is still listed')
+  assert.match(settled, /Acme Design Kit updated to v2\./)
+  assert.match(settled, /Acme Design Kit/, 'the module row is still listed')
   console.log('ok - update routes through updateFromRegistry and settles current without a remount')
 
   // ── 3. CLI rows: Update with no version-delta claim ────────────────────────

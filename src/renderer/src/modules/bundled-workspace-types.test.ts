@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { getRendererHost, selectModuleEnabled } from './index'
-import { createGuidedBriefTemplate } from './design-wizard-workspace-types'
 import { createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
 import {
@@ -47,77 +46,31 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
       },
     },
   },
-  'guided-brief': {
-    id: 'guided-brief-mode',
-    name: 'Design Wizard',
-    description: 'Plan, mockups, and build handoff before implementation.',
-    previewSlots: [
-      { label: 'Brief', x: 4, y: 4, w: 140, h: 102, type: 'editor' },
-      { label: 'Strategist', x: 148, y: 4, w: 148, h: 48, type: 'agent' },
-      { label: 'Mockup', x: 148, y: 58, w: 148, h: 48, type: 'editor' },
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            enableTabStrip: false,
-            children: [
-              { type: 'tab', name: 'Design Wizard', component: 'guided-brief', enableClose: false },
-            ],
-          },
-        ],
-      },
-    },
-  },
 }
 
 assert.deepEqual(createSprintEngineTemplate(sprintEngineConfig), expectedTemplates.sprintengine)
-assert.deepEqual(createGuidedBriefTemplate(), expectedTemplates['guided-brief'])
 
 const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['sprintengine', 'automations-host', 'guided-brief'],
-  'bundled workspace types keep picker order; the review workspace type retired (MC-1708 — reviews are an instance-level surface) and the roadmap type retired (MC-1692)',
+  ['sprintengine', 'automations-host'],
+  'bundled workspace types keep picker order; the review workspace type retired (MC-1708 — reviews are an instance-level surface), the roadmap type retired (MC-1692), and the guided-brief type retired with the Design Wizard (2026-09-08)',
 )
-// guided-brief moved onto its own design-wizard module (MC-1860), so a raw
-// module-id predicate no longer takes it down with sprint-engine…
-assert.deepEqual(
-  host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine').map((definition) => definition.id),
-  ['automations-host', 'guided-brief'],
-  'guided-brief is owned by design-wizard, not sprint-engine (MC-1860)',
-)
-// …but real enablement resolves the dependency graph: design-wizard declares
-// dependsOn ['sprint-engine'], so disabling Sprint Engine cascades and hides
-// the Design Wizard by DECLARED dependency (its build handoff creates a
-// plan-sourced Sprint Engine run).
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => selectModuleEnabled({ 'sprint-engine': false }, moduleId)).map((definition) => definition.id),
   ['automations-host'],
-  'disabling sprint-engine cascades to design-wizard via dependsOn',
-)
-// Disabling design-wizard removes only the guided-brief type; Sprint Engine
-// keeps its board and workspace type fully working.
-assert.deepEqual(
-  host.getWorkspaceTypes((moduleId) => selectModuleEnabled({ 'design-wizard': false }, moduleId)).map((definition) => definition.id),
-  ['sprintengine', 'automations-host'],
-  'disabling design-wizard removes guided-brief from creation and leaves sprint-engine intact',
+  'disabling sprint-engine removes its workspace type',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
-  ['sprintengine', 'guided-brief'],
+  ['sprintengine'],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
 assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('review'), undefined, 'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('roadmap'), undefined, 'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type')
-assert.equal(host.getWorkspaceTypeModule('guided-brief'), 'design-wizard', 'the Design Wizard workspace type is owned by its own module (MC-1860)')
+assert.equal(host.getWorkspaceTypeModule('guided-brief'), undefined, 'the guided-brief workspace type retired with the Design Wizard (2026-09-08); its module id stays reserved but registers nothing')
 assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'automations-host is owned by the automations module')
 assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
 
@@ -129,7 +82,7 @@ assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id
 assert.equal(host.getWorkspaceType('automations-host')?.hiddenFromPicker, true, 'automations-host is hidden from the creation picker')
 
 assert.deepEqual(
-  ['sprintengine', 'automations-host', 'guided-brief'].map((id) => {
+  ['sprintengine', 'automations-host'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -161,14 +114,6 @@ assert.deepEqual(
       description: 'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
       accentToken: '--accent-primary',
       creationStepsId: 'automations',
-    },
-    {
-      id: 'guided-brief',
-      moduleId: 'design-wizard',
-      label: 'Design Wizard',
-      description: 'Describe your idea in plain words. We turn it into a plan, screens, and a build — no setup needed.',
-      accentToken: '--accent-primary',
-      creationStepsId: 'guided-brief',
     },
   ],
   'registered metadata matches the existing mode picker and top-bar copy',

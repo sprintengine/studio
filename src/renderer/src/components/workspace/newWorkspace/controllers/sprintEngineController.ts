@@ -8,7 +8,6 @@ import { rendererSprintEngineWorkspaceCreationPort } from '../../../../utils/spr
 // sprints headlessly). This controller is the wizard's wrapper over it: it adds
 // the layout template `OnCreateArgs` carries, which is a window concern.
 import {
-  SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
   buildSprintEngineEffectiveSpawnAtStartRoles,
   clampSprintEngineMaxParallelAgents,
   runSprintEngineNewTeamCreation as composeAndInitSprintEngineNewTeam,
@@ -23,10 +22,7 @@ import type {
   SprintEnginePlanSourcedPorts,
 } from './types'
 
-export {
-  SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
-  buildSprintEngineEffectiveSpawnAtStartRoles,
-}
+export { buildSprintEngineEffectiveSpawnAtStartRoles }
 
 class SprintEnginePlanSourcedError extends Error {
   constructor(public readonly code:
@@ -110,8 +106,8 @@ export async function runSprintEnginePlanSourcedCreation(
   }
 
   // Advanced setup runs BEFORE the first mutation (MC-2124), so a refusal
-  // leaves no half-configured run behind — the same ordering the guided-brief
-  // path uses, and the reason the seam returns a message instead of throwing.
+  // leaves no half-configured run behind — the reason the seam returns a
+  // message instead of throwing.
   if (ports.persistAdvancedSetup) {
     const advancedSetupError = await ports.persistAdvancedSetup(input.folderPath)
     if (advancedSetupError) {

@@ -204,8 +204,7 @@ import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 // five-tab creation modal whose Workspace tab minted the old Editor-plus-one-
 // agent layout — is gone: New chat searches the projects, browses the disk,
 // imports from Git and picks the engine, which is everything the wizard asked
-// for. Sprints are created from the Sprints door; Design Wizard gets a door
-// when it ships, not a creation entry before.
+// for. Sprints are created from the Sprints door.
 //
 // One surface, two destinations (MC-2147): pressing "+" retypes a tab into the
 // agent's terminal; New chat creates a solo workspace in the picked project.
@@ -370,7 +369,6 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
     && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds
     && left.sprintEngineAutoState === right.sprintEngineAutoState
-    && left.guidedBriefState === right.guidedBriefState
     && left.highlight === right.highlight
     && left.createdAt === right.createdAt
     && left.lastTerminalActivityAt === right.lastTerminalActivityAt
@@ -4289,10 +4287,9 @@ export default function WorkspaceManager() {
     // the defensive floor, not a silent fallback path.
     if (item.group.kind !== 'workspace') return
     const workspace = item.group.workspace
-    // Wizard specialist rows (guided-brief-*) carry an agentId that has no
-    // workspace.agents record; updateAgent would fabricate one and
-    // focusOrAddAgentTab would open a pane for it. For those rows activation
-    // is plain workspace focus only.
+    // A session row can carry an agentId that has no workspace.agents record;
+    // updateAgent would fabricate one and focusOrAddAgentTab would open a pane
+    // for it. For those rows activation is plain workspace focus only.
     //
     // A review guide is the opposite case: it is an ordinary agent terminal
     // that main spawned without this window's knowledge, so it has no record

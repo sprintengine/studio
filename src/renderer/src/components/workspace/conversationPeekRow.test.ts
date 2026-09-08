@@ -271,12 +271,12 @@ run('an agent the renderer has no record for is still named and still runs somet
   const identity = rowConversationPeekIdentity({
     workspace: { name: 'Headless launch', agents: {} },
     sessions: [
-      session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'guided-brief-1', cli: 'codex' }),
+      session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'roaming-agent-1', cli: 'codex' }),
     ],
     status: peekStatusOf('idle', ''),
   })
-  assert.equal(identity?.roster[0]?.name, 'guided-brief-1', 'the session’s own label stands in')
-  assert.equal(identity?.roster[0]?.initials, 'GB')
+  assert.equal(identity?.roster[0]?.name, 'roaming-agent-1', 'the session’s own label stands in')
+  assert.equal(identity?.roster[0]?.initials, 'RA')
   assert.equal(identity?.roster[0]?.cli, 'codex', 'the session knows what it is running')
   assert.equal(identity?.roster[0]?.model, null, 'and claims no model it was never told')
 })

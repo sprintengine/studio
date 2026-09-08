@@ -122,8 +122,8 @@ import {
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
-import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
-import type { MockupAnnotation } from '../workspace/guidedBrief/annotate/types'
+import { HtmlArtifactFrame } from '../htmlArtifact/HtmlArtifactFrame'
+import type { MockupAnnotation } from '../htmlArtifact/annotate/types'
 import { sprintEngineSeedPreviewKind } from './sprintEngineBoard/sprintEngineStartedFrom'
 import { basename, parentPath } from '../../utils/paths'
 

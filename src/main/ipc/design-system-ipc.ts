@@ -47,13 +47,11 @@ function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
 
 // Regenerates design-system derived files (tokens.css, catalog/index.html) by
 // forking the bundle's own generator scripts in a utility process. Triggered
-// on designer-turn completion in the guided-brief studio and callable on
-// demand (attach reuses it). A root with no bundle resolves ok
+// on demand (attach reuses it). A root with no bundle resolves ok
 // with zero bundles, so non-design-system flows are untouched.
 //
 // Scaffolding stamps the bundle layout from resources/design-system/templates
-// into a workspace for the Design Wizard's design-system preset; it never
-// overwrites an existing bundle.
+// into the folder the user picked; it never overwrites an existing bundle.
 export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   ipcMain.handle(
     'design-system:regenerate-derived',
@@ -84,9 +82,8 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         templatesDir: resolveDesignSystemTemplatesDir(),
       }),
   )
-  // On-demand bundle lint: the guided-brief studio's validating preview, which
-  // forks the bundle's own scripts/lint.mjs. It is the author's contribution
-  // gate — no viewer surface calls it.
+  // On-demand bundle lint: forks the bundle's own scripts/lint.mjs. It is the
+  // author's contribution gate — no viewer surface calls it.
   ipcMain.handle(
     'design-system:lint-bundle',
     (_event, bundleDir: unknown): Promise<DesignSystemBundleLintRunResult> => {

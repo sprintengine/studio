@@ -12,7 +12,6 @@ const EXPECTED_ICON_PATH: Record<string, string> = {
   // The frond's stem — SprintEngine's mode wears the product's own mark
   // (`brand/SprintEngineFrond`), the same one the mobile app carries.
   sprintengine: 'M 303.12,855.85',
-  'guided-brief': 'M5 6.25C5 5.42',
 }
 
 function iconHtml(mode: Workspace['mode']): string {
@@ -54,14 +53,6 @@ assert.equal(
   resolveEnabledWorkspaceType('sprintengine', { 'sprint-engine': false }),
   undefined,
   'disabled sprint-engine module resolves to no definition (generic degradation)',
-)
-// guided-brief is owned by the design-wizard module (MC-1860), which declares
-// dependsOn ['sprint-engine'] — disabling sprint-engine cascades through the
-// enablement resolver and still degrades guided-brief.
-assert.equal(
-  resolveEnabledWorkspaceType('guided-brief', { 'sprint-engine': false }),
-  undefined,
-  'disabling sprint-engine also degrades guided-brief',
 )
 
 // AC1: top-bar view sets live on the registry; no bundled type contributes one

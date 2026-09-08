@@ -20,7 +20,6 @@ const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
   sprintEngineState: null,
   sprintEngineContext: null,
   sprintEngineAutoState: undefined,
-  guidedBriefState: null,
   sprintEngineRoleCliDefaults: undefined,
   memory: undefined,
   worktreeState: undefined,
@@ -441,17 +440,19 @@ assert.equal(
   )
 }
 
-// dropRetiredModeWorkspaces — the `roadmap` (v65, MC-1692) and `multiloop` (v66)
-// workspace modes retired. Every list-entry path (migration, merge, recovery,
-// cross-window sync) filters them so a dev-HMR version-stamp cannot resurrect a
-// row in a mode nothing can render.
+// dropRetiredModeWorkspaces — the `roadmap` (v65, MC-1692), `multiloop` (v66)
+// and `guided-brief` (2026-09-08, the deleted Design Wizard) workspace modes
+// retired. Every list-entry path (migration, merge, recovery, cross-window
+// sync) filters them so a dev-HMR version-stamp cannot resurrect a row in a
+// mode nothing can render.
 {
   const roadmap = baseWorkspace({ id: 'ws-roadmap', mode: 'roadmap', folderPath: '/Users/example/project' })
   const multiloop = baseWorkspace({ id: 'ws-multiloop', mode: 'multiloop', folderPath: '/Users/example/other' })
+  const guidedBrief = baseWorkspace({ id: 'ws-guided', mode: 'guided-brief', folderPath: '/Users/example/design' })
   const standard = baseWorkspace({ id: 'ws-standard', mode: 'standard' })
   const sprint = baseWorkspace({ id: 'ws-sprint', mode: 'sprintengine' })
   assert.deepEqual(
-    dropRetiredModeWorkspaces([standard, roadmap, multiloop, sprint]).map((w) => w.id),
+    dropRetiredModeWorkspaces([standard, roadmap, multiloop, guidedBrief, sprint]).map((w) => w.id),
     ['ws-standard', 'ws-sprint'],
     'every retired-mode row is dropped, others kept in order',
   )

@@ -11,7 +11,7 @@
  * (`Boolean(value) && typeof value === 'object'` vs `typeof value === 'object'
  * && value !== null`). They all agreed; this is what they collapsed to. Two
  * predicates did NOT agree and kept their own definitions:
- * `guidedBrief/annotate/bridge.ts` (arrays allowed) and
+ * `htmlArtifact/annotate/bridge.ts` (arrays allowed) and
  * `skills/plugin-install-store.ts` (a record of a specific shape).
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {

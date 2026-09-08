@@ -1028,14 +1028,6 @@ export const defaultAppSettings = (): AppSettings => ({
   hasAdoptedAgentConfig: false,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
-  // Design Wizard specialists run on terminals by default. The conversation
-  // transport is an experimental opt-in; hydration only turns it on for a
-  // stored `true` recorded after the one-time reset (see normalizeAppSettings),
-  // so a fresh profile lands here on the terminal path.
-  guidedBriefConversationSessions: false,
-  // A fresh profile has no pre-opt-in `true` to reset, so it starts stamped:
-  // the first opt-in it records is explicit and survives every hydration.
-  guidedBriefConversationSessionsOptInReset: true,
   // Off is the pre-MC-2156 rule exactly; keeping a process alive is a choice
   // the user has to make, never one an upgrade makes for them.
   keepRunningInBackground: false,
@@ -1125,21 +1117,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     hasAdoptedAgentConfig: settings?.hasAdoptedAgentConfig ?? workspaces.length > 0,
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
-    // Opt-in only: on solely when the stored value is exactly `true` AND this
-    // profile has already been through the one-time reset (MC-1802). The
-    // pre-opt-in default was `true`, which persist wrote to every existing
-    // profile's disk state, so an un-stamped `true` is indistinguishable from
-    // that old default and is cleared; the profile is stamped here, so any
-    // opt-in recorded afterwards is explicit and survives. A fresh profile
-    // (undefined) or any non-`true` value resolves to the terminal path.
-    // Enforced in the normalizer rather than only in the v67 migration because
-    // persist merge() calls this on every hydration, and a current-version
-    // envelope (dev HMR, backup recovery) never re-enters the migrate ladder
-    // ([[zustand-migration-hmr-version-stamp]]).
-    guidedBriefConversationSessions:
-      settings?.guidedBriefConversationSessionsOptInReset === true
-      && settings?.guidedBriefConversationSessions === true,
-    guidedBriefConversationSessionsOptInReset: true,
     // Only an explicit stored `true` keeps the app alive past its last window;
     // anything else (fresh profile, corrupt value) reads as off.
     keepRunningInBackground: settings?.keepRunningInBackground === true,
@@ -1385,7 +1362,6 @@ export interface SettingsSliceActions {
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
-  setGuidedBriefConversationSessions: (enabled: boolean) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -2077,16 +2053,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setTerminalKeepRecentAlive: (count) =>
       set((state) => {
         state.appSettings.terminalKeepRecentAlive = normalizeTerminalKeepRecentAlive(count)
-      }),
-
-    setGuidedBriefConversationSessions: (enabled) =>
-      set((state) => {
-        // Record the user's explicit choice verbatim. The reset stamp travels
-        // with it so the choice is self-carrying: hydration honors a stored
-        // `true` only alongside the stamp, and this is the one place a `true`
-        // is written on purpose rather than inherited from the old default.
-        state.appSettings.guidedBriefConversationSessions = enabled === true
-        state.appSettings.guidedBriefConversationSessionsOptInReset = true
       }),
 
     setKeepRunningInBackground: (enabled) =>

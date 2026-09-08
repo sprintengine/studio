@@ -234,23 +234,6 @@ export function AutomationsWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
-// The Guided Brief identity glyph is the brief/conversation speech-bubble that
-// the new-workspace mode card has always shown. Kept here as the single
-// registry-owned icon so the mode picker and the top bar render the same mark.
-export function GuidedBriefWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z"
-        stroke="currentColor"
-        strokeWidth={iconStroke}
-        strokeLinejoin="round"
-      />
-      <path d="M9 9.25H15M9 12H13" stroke="currentColor" strokeWidth={iconStroke - 0.1} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function StandardWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { htmlArtifactFrameSandbox, Skeleton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { Skeleton, Tooltip, TruncatedText } from '../ui'
 import {
   anchorFromSelect,
   addAnnotation,
@@ -20,23 +20,17 @@ import {
   type ScrollOffset,
 } from './annotate/bridge'
 import type { AnnotationRect, MockupAnnotation } from './annotate/types'
-import { basename } from './paths'
-import type { DesignerMockupFile } from './useDesignerSession'
+import { basename } from '../../utils/paths'
 
-// The scripts-off sandbox policy is defined once in the shared HtmlPreviewCard
-// home (ui/) and reused here — re-exported so existing importers of the helper
-// (and the sandbox unit tests) keep resolving it from this module.
-export { htmlArtifactFrameSandbox }
-
-type Props = {
-  mockups: DesignerMockupFile[]
-  watchDirectoryPath: string
-  // Opt-in Preview/Source toggle for the "Started from" seed preview. Default
-  // off keeps the Design Wizard usage unchanged.
-  enableSourceView?: boolean
-  // Opt-in annotate mode, forwarded to the frame (see HtmlArtifactFrame).
-  onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
-}
+// The generated-HTML artifact viewer: one file on disk, live-rendered in a
+// scripts-off sandbox, with device widths, zoom, an optional source view, and
+// the annotate mode sprint reviewers mark screens up with. It lives here, on
+// its own, rather than beside any one consumer: the Backlog mockup surfaces and
+// the Sprint Engine board/inspector all render the same frame.
+//
+// The scripts-off sandbox policy is `annotate/annotateModel.ts`'s
+// `annotateFrameSandbox`, which never adds `allow-same-origin`; the shared
+// HtmlPreviewCard thumbnail spells the same rule for its own inert frame.
 
 // The preview never shows an undesigned void: every non-rendered situation maps
 // to one of four designed states derived from a real file signal (MC-1505).
@@ -79,8 +73,8 @@ function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
   return PREVIEW_ZOOMS[(index + 1) % PREVIEW_ZOOMS.length]
 }
 
-// The Source view is an opt-in mode (default off) so the Design Wizard preview
-// is unchanged. When it is off the frame behaves exactly as before: no toggle,
+// The Source view is an opt-in mode (default off), so a host that does not ask
+// for it is unchanged: no toggle,
 // always the rendered iframe, all preview controls. Source only exists to read
 // the raw HTML text, so it hides the preview-only controls (viewport, zoom,
 // allow-scripts) that shape the rendered iframe and never itself run scripts.
@@ -94,7 +88,7 @@ export type HtmlArtifactView = {
   showsPreviewControls: boolean
 }
 
-export function resolveHtmlArtifactView(
+function resolveHtmlArtifactView(
   enableSourceView: boolean,
   viewMode: HtmlArtifactViewMode,
 ): HtmlArtifactView {
@@ -114,7 +108,7 @@ const HTML_ARTIFACT_VIEW_MODES: ReadonlyArray<{ id: HtmlArtifactViewMode; label:
   { id: 'source', label: 'Source' },
 ]
 
-export function browserOpenFailureMessage(
+function browserOpenFailureMessage(
   relativePath: string,
   failure: 'missing' | 'handler',
   error?: unknown,
@@ -151,13 +145,13 @@ export function humanizeFileTitle(name: string): string {
  * literal text above the document. Strip it from the rendered document only —
  * Source view and the on-disk file keep the real bytes.
  */
-export function stripHtmlFrontmatter(content: string): string {
+function stripHtmlFrontmatter(content: string): string {
   const match = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content)
   return match ? content.slice(match[0].length) : content
 }
 
 /** The `<title>` text of an HTML document, whitespace-collapsed; null when absent or empty. */
-export function pageTitleFromHtml(html: string): string | null {
+function pageTitleFromHtml(html: string): string | null {
   const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
   if (!match) return null
   const text = match[1].replace(/\s+/g, ' ').trim()
@@ -169,7 +163,7 @@ export function pageTitleFromHtml(html: string): string | null {
  * content is loaded and has one, otherwise the humanized filename. The path is
  * shown demoted beneath it, never as the primary label.
  */
-export function htmlPreviewTitle(relativePath: string, content: string | null): string {
+function htmlPreviewTitle(relativePath: string, content: string | null): string {
   const fromDocument = content ? pageTitleFromHtml(content) : null
   return fromDocument ?? humanizeFileTitle(relativePath)
 }
@@ -846,7 +840,7 @@ type PreviewStateGlyph = 'deleted' | 'error'
  * shape (not color) carries the meaning, so it survives grayscale. `skeleton`
  * swaps the glyph for a shimmer stack for the generating/loading states.
  */
-export function PreviewState({
+function PreviewState({
   glyph,
   tone = 'neutral',
   title,
@@ -929,71 +923,6 @@ function PreviewSkeletonLines() {
         <Skeleton className="h-24 w-full rounded bg-[color:var(--bg-surface-raised)]" />
         <Skeleton className="h-3 w-2/5 rounded bg-[color:var(--bg-surface-raised)]" />
       </span>
-    </div>
-  )
-}
-
-export function MockupPreviewPane({
-  mockups,
-  watchDirectoryPath,
-  enableSourceView = false,
-  onSubmitAnnotations,
-}: Props) {
-  const [activeRelativePath, setActiveRelativePath] = useState<string | null>(null)
-
-  const activeMockup = useMemo(
-    () => mockups.find((m) => m.relativePath === activeRelativePath) ?? mockups[0] ?? null,
-    [mockups, activeRelativePath],
-  )
-
-  useEffect(() => {
-    if (!activeMockup && mockups[0]) {
-      setActiveRelativePath(mockups[0].relativePath)
-    }
-  }, [activeMockup, mockups])
-
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <header className="flex min-w-0 flex-col leading-tight">
-        <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
-          Your screens
-        </span>
-        <span className="truncate text-meta text-[color:var(--text-muted)]">
-          {mockups.length} screen{mockups.length === 1 ? '' : 's'} ready
-        </span>
-      </header>
-
-      {mockups.length > 0 ? (
-        <Tabs<string>
-          ariaLabel="Mockup screens"
-          items={mockups.map((mockup, index): TabItem<string> => ({
-            id: mockup.relativePath,
-            label: `${String(index + 1).padStart(2, '0')} · ${humanizeFileTitle(mockup.name)}`,
-          }))}
-          value={activeMockup?.relativePath ?? mockups[0]?.relativePath ?? ''}
-          onChange={(id) => setActiveRelativePath(id)}
-        />
-      ) : null}
-
-      {activeMockup ? (
-        <HtmlArtifactFrame
-          absolutePath={activeMockup.absolutePath}
-          relativePath={activeMockup.relativePath}
-          watchDirectoryPath={watchDirectoryPath}
-          enableSourceView={enableSourceView}
-          onSubmitAnnotations={onSubmitAnnotations}
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 text-center">
-          <span className="text-meta font-semibold text-[color:var(--text-strong)]">
-            No mockups yet
-          </span>
-          <span className="text-meta leading-5 text-[color:var(--text-muted)]">
-            The designer will write screens into the workspace’s{' '}
-            <span className="font-mono">mockups/</span> folder.
-          </span>
-        </div>
-      )}
     </div>
   )
 }

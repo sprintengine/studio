@@ -16,13 +16,10 @@ const DesignGlobalSurface = React.lazy(
 
 // The `design` renderer module (epic `design-door`, item 2002).
 //
-// **This is not the Design Wizard.** Owner ruling 2026-07-30: the Design door and
-// the Design Wizard (`design-wizard`, MC-1860) are entirely separate things and
-// must not be conflated. The Wizard is an authoring flow that PRODUCES design
-// systems; this door RENDERS systems you already have, from wherever they came.
-// They share the design-system bundle substrate (`src/shared/design-system/`) as
-// a dependency, which is not a reason to share an identity — so this module has
-// no coupling to MC-1860 and does not wait on it.
+// The Design Wizard — a separate feature that AUTHORED design systems through a
+// specialist interview — was deleted 2026-09-08. This door was never part of it:
+// it RENDERS systems you already have, from wherever they came, and seeds new
+// bundles from the shipped templates.
 //
 export const designRendererModule: RendererModule = {
   manifest: {

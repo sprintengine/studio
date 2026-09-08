@@ -1,5 +1,5 @@
 // A workspace's kind. `'standard'` is the only mode shared contracts pin by
-// name; every other mode (sprintengine, review, guided-brief, …) is renderer-
+// name; every other mode (sprintengine, review, automations-host, …) is renderer-
 // owned and flows through shared boundaries as an open string. Lifted here from
 // `renderer/src/types/workspace.ts` so shared contracts (e.g. `automation.ts`,
 // the main-process automation surface) can name the type without importing the

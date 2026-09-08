@@ -150,8 +150,8 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   // Open the pre-creation New Chat panel scoped to the active workspace's
   // folder — the create control. The one way in (owner, 2026-09-04): the split
-  // "New…" half and its create menu (Workspace / Sprint / Design Wizard /
-  // the retired task board) are gone with the New workspace hub; sprints start from the
+  // "New…" half and its create menu (Workspace / Sprint / the retired task
+  // board) are gone with the New workspace hub; sprints start from the
   // Sprints door.
   onNewChat: () => void
   // Scope a new chat to a specific project folder (workspace-row context menu).

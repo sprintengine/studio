@@ -80,7 +80,7 @@ export type ConversationStartSessionInput = {
   // e.g. wizard designer sessions).
   permissionPreset?: ConversationPermissionPreset
   // Tools auto-allowed without an approval card. Lets unattended flows (the
-  // Design Wizard) run file writes without stalling while interactive tools
+  // long-running authoring sessions) run file writes without stalling while interactive tools
   // (AskUserQuestion) still surface as cards — unlike bypass, which would
   // silence them entirely.
   allowedTools?: string[]
@@ -180,7 +180,7 @@ export type ConversationToolOutputPayload = {
 // them and the chat UI renders them the same way.
 export type ConversationApprovalKind = 'tool' | 'question' | 'plan'
 
-export type ConversationQuestionOption = {
+type ConversationQuestionOption = {
   label: string
   description?: string
 }
@@ -226,11 +226,6 @@ export type ConversationListSessionsResult =
   | { ok: true; sessions: ConversationSessionSummary[] }
   | { ok: false; message: string }
 
-export type ConversationProviderTestInput = {
-  providerId: string
-  modelId?: string
-}
-
 export type ConversationProviderTestState =
   | 'missing_key'
   | 'invalid_key'
@@ -241,7 +236,7 @@ export type ConversationProviderTestState =
   | 'model_error'
   | 'malformed_response'
 
-export type ConversationProviderTestStatus = {
+type ConversationProviderTestStatus = {
   providerId: string
   state: ConversationProviderTestState
   message: string

@@ -136,7 +136,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // the skills and connector pickers) takes `MENU_ITEM_CLASS`, which spells no
   // radius at all; and four header bands that drew themselves at their own
   // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
-  // knowledge-graph drawer, both guided-brief bands — gave up their local
+  // knowledge-graph drawer, both HTML-artifact bands — gave up their local
   // buttons for `ui/PanelHeader` and the kit primitives inside it.
   // The 2026-08-06 radius drop — workspace 174 → 169 — is MC-2122's spawn
   // consolidation: `AgentComposerPopover` was deleted outright and its
@@ -155,7 +155,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // with the retired New workspace hub (8535af0c9). Nothing was swept for
     // this axis; these are three deletions the ratchet is now banking, because
     // headroom left unspent is where the next regression hides.
-    'components/workspace': 37,
+    // 37 → 29, 2026-09-08: the Design Wizard was deleted. Eight of those are
+    // the HTML artifact frame's, which survived it and moved to
+    // `components/htmlArtifact` below — the same off-ramps at a new address,
+    // not a win — and the wizard's own panes took the rest with them.
+    'components/workspace': 29,
     // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
     // with its door (a70ba0931).
     // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
@@ -178,6 +182,9 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // 3 → 2, 2026-09-08: the dead `ActionFeedback` / `__preview__` primitives
     // went with the knip sweep; banked, not left as headroom.
     'components/ui': 2,
+    // New directory, 2026-09-08: a MOVE out of `components/workspace` when the
+    // HTML artifact frame left the deleted Design Wizard's folder.
+    'components/htmlArtifact': 8,
   },
   // `utils/highlight.ts` is 14 of the 17: per-language terminal highlight rings,
   // each a tuned inset glow in the language's own hue. They are content colour
@@ -198,13 +205,20 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // tier it was already sitting on. What remains on this axis is in-flow depth
   // inside a pane, not overlay layering.
   z: {
-    'components/workspace': 6,
+    // 6 → 5, 2026-09-08: the annotate overlay's in-flow layer changed address
+    // when the HTML artifact frame moved out of the deleted Design Wizard's
+    // folder (see `components/htmlArtifact` below). Banked, not headroom.
+    'components/workspace': 5,
     // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
     // app's one toast region (remote-sessions-ux / toast-host-region).
     // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted
     // with its door (a70ba0931).
     'components/panels': 8,
     'components/ui': 1,
+    // New directory, 2026-09-08 — a MOVE out of `components/workspace`, not a
+    // regression: the annotate overlay left the deleted Design Wizard's folder
+    // with the rest of the HTML artifact frame. See the icon axis note below.
+    'components/htmlArtifact': 1,
     'components/memory': 1,
     'components/auxWindows': 1,
   },
@@ -240,9 +254,21 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // (the sidebar rows and the Home glyph already carry "who is waiting"), and
     // `AttentionQueuePopover`'s hand-spelled tray glyph went with it. Banked
     // here rather than left as headroom for the next off-ramp.
-    'components/workspace': 20,
+    // workspace 20 → 12, 2026-09-08: the Design Wizard was deleted. Six of the
+    // eight are the HTML artifact frame's, which survived the wizard and moved
+    // to `components/htmlArtifact` (see its entry below) — the same off-ramps
+    // at a new address, not a win. The other two went with the wizard's own
+    // panes. Banked either way, so the next regression shows up as one.
+    'components/workspace': 12,
     'components/panels': 12,
     'components/ui': 14,
+    // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
+    // was deleted; the generated-HTML artifact frame and its annotate mode
+    // survived it (the Backlog mockup surfaces and the Sprint Engine
+    // board/inspector are its real consumers) and moved out of the wizard's
+    // folder to `components/htmlArtifact`. Its off-ramps changed address out of
+    // `components/workspace`, which drops by the same amount below.
+    'components/htmlArtifact': 6,
     'components/backlog': 3,
     'components/settings': 1,
   },

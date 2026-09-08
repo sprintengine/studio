@@ -107,9 +107,7 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
 //
 // Scope: this gates the user-facing Sprint Engine surfaces — the board panel,
 // the `sprintengine` workspace mode, and the always-mounted auto-run supervisor
-// + state synchronizer. The Design Wizard's `guided-brief` mode moved onto its
-// own `design-wizard` module (MC-1860), which reaches Sprint Engine through a
-// declared `dependsOn` instead of riding this module. The Sprint Engine
+// + state synchronizer. The Sprint Engine
 // MCP hub stays foundational on the main side (lazily started only on a managed
 // run), and the `roles` settings tab stays available like the knowledge-graph
 // tab does for the memory-graph module.
@@ -169,8 +167,7 @@ export const sprintEngineRendererModule: RendererModule = {
     // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
     // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
     // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project
-    // workspace. The Design Wizard type belongs to `design-wizard` (MC-1860), so
-    // this only registers the Sprint Engine type.
+    // workspace. So this only registers the Sprint Engine type.
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

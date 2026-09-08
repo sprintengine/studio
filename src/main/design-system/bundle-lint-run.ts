@@ -5,8 +5,7 @@ import type { DesignSystemBundleLintRunResult } from '../../shared/design-system
 import type { BundleScriptFork } from './derived-file-runner'
 
 // On-demand run of a bundle's own scripts/lint.mjs, forked like every other
-// bundle script. This is the author's contribution gate — the guided-brief
-// studio's validating preview is its only caller, and no read-only surface
+// bundle script. This is the author's contribution gate — no read-only surface
 // runs it. Exit contract of the template lint: 0 clean, 1 findings on stdout,
 // anything else is misconfiguration.
 export async function runDesignSystemBundleLint(

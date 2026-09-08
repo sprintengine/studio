@@ -11,8 +11,8 @@ import {
   type DesignSystemScaffoldResult,
 } from '../../shared/design-system/bundle-scaffold'
 
-// Scaffolds the design-system bundle layout for the Design Wizard's
-// design-system preset: stamps the governance templates (USAGE.md, AGENTS.md,
+// Scaffolds the design-system bundle layout for a new bundle: stamps the
+// governance templates (USAGE.md, AGENTS.md,
 // scripts/*.mjs) from resources/design-system/templates verbatim, creates the
 // authored-content directories, and writes a fresh manifest. Authored content
 // (tokens, principles, components, patterns, glyphs) is the designer agent's
@@ -51,7 +51,7 @@ export function kebabCaseBundleName(value: string): string {
 
 function manifestSummary(raw: string): string {
   const collapsed = raw.replace(/\s+/g, ' ').trim()
-  if (!collapsed) return 'Design system authored in the Multicode Design Wizard.'
+  if (!collapsed) return 'Design system authored in Multicode.'
   return collapsed.length > 160 ? `${collapsed.slice(0, 159).trimEnd()}…` : collapsed
 }
 
@@ -69,7 +69,7 @@ function buildManifestJson(name: string, summary: string): string {
       'catalog/index.html': 'scripts/build-catalog.mjs',
     },
     provenance: {
-      authoredBy: 'multicode-design-wizard',
+      authoredBy: 'multicode',
       sourceLibraryId: null,
       sourceLibraryVersion: null,
       releasedAt: null,

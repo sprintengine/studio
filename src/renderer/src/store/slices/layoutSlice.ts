@@ -132,7 +132,16 @@ export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
 // still names them in its persisted layout, and the model registry no longer
 // resolves them, so a surviving tab would render an empty surface — drop them
 // on hydration the same way the rail-to-pane move drops its tabs.
-const RETIRED_MODULE_TAB_COMPONENTS = ['switchboard-workspace', 'switchboard-board', 'watchtower-panel']
+const RETIRED_MODULE_TAB_COMPONENTS = [
+  'switchboard-workspace',
+  'switchboard-board',
+  'watchtower-panel',
+  // The Design Wizard (`design-wizard` module) was deleted 2026-09-08. Its
+  // workspace layout was a single sticky 'guided-brief' tab, so the row itself
+  // is dropped by dropRetiredModeWorkspaces; this covers a profile where the
+  // tab was dragged into some other workspace's layout.
+  'guided-brief',
+]
 
 export function stripRetiredModuleTabsFromLayout(layoutModel: unknown): unknown {
   return RETIRED_MODULE_TAB_COMPONENTS.reduce(
@@ -199,58 +208,6 @@ export function hideSprintEngineBoardTabStrip(
   const layout = layoutModel.layout
   if (!layout) return layoutModel
   const nextLayout = hideSprintEngineBoardTabStripInNode(layout)
-  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
-}
-
-function tabsetContainsGuidedBrief(record: Record<string, unknown>): boolean {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => {
-    if (!child || typeof child !== 'object') return false
-    const childRecord = child as Record<string, unknown>
-    return childRecord.type === 'tab' && childRecord.component === 'guided-brief'
-  })
-}
-
-function hideGuidedBriefTabStripInNode(node: unknown): unknown {
-  if (!node || typeof node !== 'object') return node
-  const record = node as Record<string, unknown>
-
-  if (record.type === 'tab' && record.component === 'guided-brief') {
-    return { ...record, enableClose: false }
-  }
-
-  if (record.type === 'tab' && record.component === 'file-editor') {
-    return { ...record, enableClose: true }
-  }
-
-  if (record.type === 'tabset' && tabsetContainsGuidedBrief(record)) {
-    const rawChildren = Array.isArray(record.children) ? record.children : []
-    return {
-      ...record,
-      enableTabStrip: false,
-      children: rawChildren.map((child) => hideGuidedBriefTabStripInNode(child)),
-    }
-  }
-
-  const rawChildren = record.children
-  if (!Array.isArray(rawChildren)) return record
-
-  const nextChildren = rawChildren.map((child) => hideGuidedBriefTabStripInNode(child))
-  return { ...record, children: nextChildren }
-}
-
-// The guided brief panel owns the visible chrome (step nav, conversation /
-// preview / brief panes), so the FlexLayout tab strip on the tabset that
-// hosts it is redundant. Also repair older Guided Brief layouts that disabled
-// close globally: the root guided-brief tab stays sticky, but document
-// file-editor tabs must remain closeable.
-export function hideGuidedBriefTabStrip(
-  layoutModel: IJsonModel | null | undefined
-): IJsonModel | null | undefined {
-  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
-  const layout = layoutModel.layout
-  if (!layout) return layoutModel
-  const nextLayout = hideGuidedBriefTabStripInNode(layout)
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 

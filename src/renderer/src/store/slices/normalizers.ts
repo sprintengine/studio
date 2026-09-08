@@ -1,7 +1,6 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
-import { normalizeGuidedBriefState } from './guidedBriefSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import { normalizeSprintEngineAutoState } from './runStateSlice'
 import {
@@ -25,7 +24,11 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 project's `backlog/roadmaps/`) is untouched; the surface reads it.
 //   `multiloop` — store v66: the feature was removed outright. Any loop state on
 //                 disk under the project folder is untouched.
-const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop']
+//   `guided-brief` — 2026-09-08: the Design Wizard was deleted outright. The
+//                 files it wrote into the project (product/, architecture/,
+//                 mockups/, design-system/) are untouched; only the workspace
+//                 row, which nothing can render any more, is dropped.
+const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief']
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
@@ -255,7 +258,6 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     // key mirrors the field above and is stripped; every OTHER module's entry
     // is durable state and persists verbatim.
     moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
-    guidedBriefState: normalizeGuidedBriefState(launchSafeWorkspace.guidedBriefState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
     backlogState: normalizeWorkspaceBacklogState(launchSafeWorkspace.backlogState),

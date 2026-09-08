@@ -76,6 +76,8 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
   'design',
+  // Retired but still reserved (Design Wizard, deleted 2026-09-08) — like
+  // 'switchboard' below, the id stays claimed so nothing can impersonate it.
   'design-wizard',
   'dev-tools',
   'git',

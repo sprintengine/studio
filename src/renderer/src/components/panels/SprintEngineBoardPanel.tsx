@@ -154,8 +154,8 @@ import {
   type SprintEnginePreviewedArtifact,
 } from './sprintEngineBoard/useSprintEngineBoardArtifactActions'
 import { useSprintEngineBoardTerminalActions } from './sprintEngineBoard/useSprintEngineBoardTerminalActions'
-import { sprintAnnotationFeedback } from '../workspace/guidedBrief/annotate/serialize'
-import type { MockupAnnotation } from '../workspace/guidedBrief/annotate/types'
+import { sprintAnnotationFeedback } from '../htmlArtifact/annotate/serialize'
+import type { MockupAnnotation } from '../htmlArtifact/annotate/types'
 import {
   clampInspectorPaneWidth,
   loadInspectorPaneWidth,

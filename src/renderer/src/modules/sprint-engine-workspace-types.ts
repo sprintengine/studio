@@ -59,7 +59,4 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
   // instance-global door in the sidebar (the `roadmap` capability module's
   // sidebar-nav contribution), not a per-project workspace you mint from the
   // picker. Its board panel + sidebar door live in `roadmap-module.ts`.
-  // The Design Wizard's `guided-brief` workspace type moved onto its own
-  // `design-wizard` module (MC-1860, `design-wizard-workspace-types.ts`),
-  // which declares its Sprint Engine dependency instead of riding this module.
 }

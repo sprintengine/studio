@@ -20,8 +20,8 @@ import {
 } from './bundle-scaffold'
 
 // Scaffolds against the real repo templates (the same files the packaged app
-// carries as extraResources), so template drift breaks this test instead of
-// the wizard.
+// carries as extraResources), so template drift breaks this test instead of a
+// real authoring run.
 const templatesDir = join(process.cwd(), 'resources', 'design-system', 'templates')
 
 const tests: Array<{ name: string; body: () => Promise<void> }> = []
@@ -70,7 +70,7 @@ run('stamps the full bundle layout with templates verbatim and a parseable manif
     assert.deepEqual(manifest.contents.components, [], 'no sample content is seeded')
     assert.equal(manifest.derived['foundations/tokens.css'], 'scripts/build-tokens.mjs')
     assert.equal(manifest.derived['catalog/index.html'], 'scripts/build-catalog.mjs')
-    assert.equal(manifest.provenance.authoredBy, 'multicode-design-wizard')
+    assert.equal(manifest.provenance.authoredBy, 'multicode')
     assert.ok(
       !existsSync(join(bundleDir, 'foundations', 'tokens.tokens.json')),
       'tokens are designer-authored, never scaffolded',

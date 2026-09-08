@@ -11,9 +11,9 @@ import {
   Tooltip,
   TruncatedText,
 } from '../ui'
-import { HtmlPreviewCard } from '../ui/HtmlPreviewCard'
+import { HtmlPreviewCard } from '../ui'
 import { basename, joinFilePath } from '../../utils/paths'
-import { humanizeFileTitle } from '../workspace/guidedBrief/MockupPreviewPane'
+import { humanizeFileTitle } from '../htmlArtifact/HtmlArtifactFrame'
 import type { BacklogItem } from '../../utils/backlog'
 import {
   backlogMockupResolutionCandidates,

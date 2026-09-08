@@ -5,9 +5,8 @@
 // chat and runs structured JSON tasks, and it surfaces in the Sessions popover
 // like any workspace agent because it wraps a real ConversationRuntime session
 // (which enters the `getSessionItems` projection keyed on (workspaceId,
-// agentId)). The Design Wizard grew ~1k lines of bespoke plumbing to do this;
-// this service is the platform extraction, with the Review guide as its first
-// consumer.
+// agentId)). This service is the platform extraction of plumbing that used to
+// be written per feature, with the Review guide as its first consumer.
 //
 // Semantics that must hold (each a lesson learned elsewhere):
 //   - Conversation-runtime owned. Sessions are created through the runtime; a
@@ -43,7 +42,7 @@ import type {
 // passes its shared ConversationRuntime; contract tests pass a ConversationRuntime
 // built with an authored ConversationProviderAdapter, so this is the real path,
 // not a mock of the runtime.
-export type CompanionConversationRuntime = {
+type CompanionConversationRuntime = {
   startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult>
   sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
@@ -57,9 +56,9 @@ export type CompanionConversationRuntime = {
 // (the Sessions popover reads the same values) plus `absent` — not present in
 // the projection, i.e. never spawned or already disposed. There is deliberately
 // no new AgentSessionStatus enum.
-export type CompanionAgentStatus = ConversationSessionStatus | 'absent'
+type CompanionAgentStatus = ConversationSessionStatus | 'absent'
 
-export type CompanionAgentSpec = {
+type CompanionAgentSpec = {
   workspaceId: string
   /** Stable, module-chosen id (e.g. 'review-guide'); the projection key. */
   agentId: string
@@ -80,9 +79,9 @@ export type CompanionAgentSpec = {
   systemPrompt: string
 }
 
-export type CompanionValidateResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }
+type CompanionValidateResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }
 
-export type CompanionRunStructuredOptions<T> = {
+type CompanionRunStructuredOptions<T> = {
   prompt: string
   validate: (raw: unknown) => CompanionValidateResult<T>
   /** Validator errors are fed back to the agent and the turn retried. Default 1. */
@@ -90,9 +89,9 @@ export type CompanionRunStructuredOptions<T> = {
   onPhase?: (phase: string) => void
 }
 
-export type Unsubscribe = () => void
+type Unsubscribe = () => void
 
-export type CompanionAgentHandle = {
+type CompanionAgentHandle = {
   readonly workspaceId: string
   readonly agentId: string
   status(): CompanionAgentStatus
@@ -122,7 +121,7 @@ export class CompanionValidationError extends Error {
 }
 
 // Thrown when the underlying turn fails (turn_failed) during a structured run.
-export class CompanionTurnError extends Error {
+class CompanionTurnError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'CompanionTurnError'

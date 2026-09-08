@@ -39,7 +39,6 @@ import type {
   MemoryGraphSettings,
   WorkspaceHighlight,
   McpServerConfig,
-  GuidedBriefRuntimeState,
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
 import type { LaunchedAgentProjection } from '../utils/launchedAgentProjection'
@@ -47,7 +46,6 @@ import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalo
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
-import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
 import { createSettingsSlice, normalizeAppSettings, type ChatListView, type SidebarSection } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
@@ -297,7 +295,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
-  setGuidedBriefConversationSessions: (enabled: boolean) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -344,7 +341,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-      guidedBriefState?: GuidedBriefRuntimeState | null
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear (MC-1833).
       background?: boolean
@@ -425,7 +421,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   ) => void
   setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  setGuidedBriefState: (workspaceId: WorkspaceId, guidedBriefState: GuidedBriefRuntimeState | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
     role: SprintEngineRoleId
@@ -1228,7 +1223,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createLayoutSlice(set),
       ...createAgentsSlice(set),
       ...createRunStateSlice(set),
-      ...createGuidedBriefSlice(set),
       ...createWorktreesSlice(set),
       ...createMemorySlice(set),
       ...createPluginsSlice(set),

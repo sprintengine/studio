@@ -1,7 +1,6 @@
 import type {
   AgentCli,
   AgentId,
-  GuidedBriefRuntimeState,
   LayoutTemplate,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
@@ -31,7 +30,6 @@ export type OnCreateArgs = {
   sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
   sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-  guidedBriefState?: GuidedBriefRuntimeState | null
   mode?: WorkspaceMode
 }
 
@@ -130,9 +128,8 @@ export type SprintEnginePlanSourcedInput = {
 
 export type SprintEnginePlanSourcedPorts = {
   pathExists: PathExists
-  // Advanced-setup preflight (MC-2124), the same seam and the same contract the
-  // guided-brief path has (`GuidedBriefStartBuildPorts.persistAdvancedSetup`):
-  // it returns the actionable failure message rather than throwing, and it runs
+  // Advanced-setup preflight (MC-2124): it returns the actionable failure
+  // message rather than throwing, and it runs
   // BEFORE any run/workspace mutation so a failure fails closed — creation
   // aborts instead of producing a run whose agents lack the tools app settings
   // declare. Returns null on success or when there was nothing to write.

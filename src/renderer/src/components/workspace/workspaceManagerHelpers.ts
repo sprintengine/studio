@@ -11,7 +11,6 @@ import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
 } from '../../hooks/useTerminalSessions'
-import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/agentLabels'
 import type { Workspace } from '../../types/workspace'
 import type { SessionGroup, SessionItem } from './WorkspaceActions'
 import type {
@@ -20,7 +19,7 @@ import type {
 } from '../../../../shared/conversation-runtime'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
-export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
+type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
 
 // Honest per-session status for the session manager, from the session's
 // lifecycle/hook phase (`session.agentState` — every agent carries one from
@@ -140,7 +139,7 @@ export function deriveSessionStatus(
 // Conversation-agent status → session-manager vocabulary. `stopped` sessions
 // drop out of the list entirely (null); a pending approval/question card is
 // the conversation equivalent of an awaiting-input hook phase.
-export const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, SessionStatus | null> = {
+const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, SessionStatus | null> = {
   starting: 'working',
   ready: 'idle',
   active: 'working',
@@ -154,7 +153,7 @@ export const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, Sess
 // Shared with the wizard's session adapters so both transports label from
 // one map.
 function conversationAgentFallbackLabel(agentId: string): string {
-  return GUIDED_BRIEF_AGENT_LABELS[agentId] ?? agentId
+  return agentId
 }
 
 // Attention-first comparator for rows within a workspace group: needs-input →
@@ -252,9 +251,9 @@ export function getSessionItems(
       findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId)
       ?? workspaces.find((candidate) => candidate.id === summary.workspaceId)
       ?? null
-    // Wizard specialist sessions (guided-brief-*) have no AgentState entry —
-    // like their terminal twins, they must still be visible in the session
-    // manager, so the agent lookup is a label source, not a gate.
+    // A conversation session can outlive (or precede) its AgentState entry —
+    // it must still be visible in the session manager, so the agent lookup is
+    // a label source, not a gate.
     const agent = workspace?.agents[summary.agentId]
     return [
       {
@@ -284,8 +283,8 @@ export function getSessionItems(
   })
 
   // A specialist can leave a stale PTY session behind and run again on the
-  // conversation transport under the same agent id (both transports share the
-  // guided-brief-* ids). The conversation summary is the current run — drop
+  // conversation transport under the same agent id (both transports share one
+  // agent id). The conversation summary is the current run — drop
   // the terminal twin instead of listing the agent twice. This is the one
   // remaining terminal-branch drop, and the agent it drops is still on screen:
   // its conversation row represents it.
