@@ -5,8 +5,10 @@ import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../uti
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
-import { createStudioTerminal } from '../../utils/createStudioTerminal'
+import { createStudioTerminal, terminalSurfaceLinkRoots, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
+import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalOscLinkHandler } from '../../utils/terminalOscLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -23,6 +25,8 @@ import {
 import { waitForMonoFontReady } from '../../utils/fonts'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
+import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
+import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 
 interface Props {
   workspaceId: string
@@ -42,9 +46,18 @@ export default function PlainTerminalPanel({
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
-  // A failed file drop, anchored to the pointer that raised it so the error
-  // surfaces next to the cursor instead of a corner toast.
-  const [dropError, setDropError] = useState<{ message: string; x: number; y: number } | null>(null)
+  // A failed file drop or a dead link, anchored to the pointer that raised it so
+  // the error surfaces next to the cursor instead of a corner toast.
+  const [cursorError, setCursorError] = useState<{ message: string; x: number; y: number } | null>(null)
+  // A clicked link awaiting a destination (MC-1899), exactly as an agent pane
+  // does it: the click opens a chooser rather than firing one hard-wired action.
+  const [linkMenu, setLinkMenu] = useState<{
+    target: TerminalLinkTarget
+    x: number
+    y: number
+    line?: number
+    column?: number
+  } | null>(null)
   const {
     folderPath: savedFolderPath,
     folderReadyPath,
@@ -72,12 +85,62 @@ export default function PlainTerminalPanel({
     if (!cwdOverride && savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
-    // A shell pane carries its workspace root but no execution root: unlike an
-    // agent, nothing here resolves a cwd of its own. It registers no file-link
-    // provider today — see [[terminal-relative-links-dropped]] — so the roots
-    // are carried, not yet read.
+    // A shell pane carries its workspace root and no launch-time execution root:
+    // unlike an agent, nothing here resolves a cwd of its own up front. The live
+    // one arrives over the wire instead — see the OSC 7 handler below.
+    const terminalSurface: TerminalSurface = {
+      kind: 'shell',
+      workspaceRoot: folderReadyPath ?? savedFolderPath ?? null,
+    }
+    // Read here rather than off `studioTerminal` because the OSC 8 handler is a
+    // CONSTRUCTION option (xterm's OscLinkProvider reads `options.linkHandler`),
+    // so this surface's permission to resolve a local path must be known before
+    // the terminal exists. Same function the factory calls.
+    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
+    const inspectPath = async (path: string): Promise<{ exists: boolean; isDirectory: boolean }> => {
+      try {
+        const stat = await window.api.statPath(path)
+        return { exists: true, isDirectory: stat.isDirectory }
+      } catch {
+        return { exists: false, isDirectory: false }
+      }
+    }
+    const openFileLinkMenu = (
+      { resolvedPath, isDirectory, line, column }: {
+        resolvedPath: string
+        isDirectory: boolean
+        line?: number
+        column?: number
+      },
+      anchor: { x: number; y: number },
+    ): void => {
+      setLinkMenu({
+        target: {
+          kind: 'file',
+          resolvedPath,
+          isDirectory,
+          workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+        },
+        x: anchor.x,
+        y: anchor.y,
+        line,
+        column,
+      })
+    }
     const studioTerminal = createStudioTerminal({
-      surface: { kind: 'shell', workspaceRoot: folderReadyPath ?? savedFolderPath ?? null },
+      surface: terminalSurface,
+      linkHandler: createTerminalOscLinkHandler({
+        allowLocalPaths: surfaceLinkRoots !== null,
+        inspectPath,
+        onActivateFile: openFileLinkMenu,
+        onActivateUrl: (url, anchor) => {
+          setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
+        },
+        onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+      }),
+      onWebLink: (event, uri) => {
+        setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
+      },
     })
     const term = studioTerminal.terminal
     registerTerminalInstance(sessionId, term)
@@ -110,6 +173,28 @@ export default function PlainTerminalPanel({
       return true
     })
     term.open(container)
+
+    // Non-null for every shell surface; the guard is what keeps a surface that
+    // must not resolve local paths (fleet) from ever registering this provider.
+    const fileLinkDisposable = surfaceLinkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
+      terminal: term,
+      workspaceRoot: surfaceLinkRoots.workspaceRoot,
+      executionRoot: surfaceLinkRoots.executionRoot,
+      inspectPath,
+      onActivate: openFileLinkMenu,
+      onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+      // A matched path that never became a link leaves no trace on screen, so
+      // count it — a workspace with no configured folder drops every relative
+      // path in the pane and looks identical to a pane containing none.
+      onDrop: terminalDiagnostics.recordFileLinkDrop,
+    })) : null
+
+    // Loaded AFTER the file-link provider on purpose: xterm resolves link
+    // providers in registration order and the earlier one's links suppress the
+    // later one's on the same row, so a path that is also a valid URL fragment
+    // must reach the file provider first.
+    studioTerminal.loadWebLinks()
+
     fitTerminal()
     focusTerminal()
     let disposed = false
@@ -320,6 +405,7 @@ export default function PlainTerminalPanel({
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      fileLinkDisposable?.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
@@ -373,7 +459,7 @@ export default function PlainTerminalPanel({
 
     const dropAnchor = { x: event.clientX, y: event.clientY }
     const showDropError = (message: string) =>
-      setDropError({ message, x: dropAnchor.x, y: dropAnchor.y })
+      setCursorError({ message, x: dropAnchor.x, y: dropAnchor.y })
 
     // Normally unreachable — the refusal above ends the drag — but it is what
     // stops a skill that did reach here falling through to the file path and
@@ -423,12 +509,26 @@ export default function PlainTerminalPanel({
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
         ) : null}
-        {dropError ? (
+        {cursorError ? (
           <CursorErrorPopover
-            key={`${dropError.x},${dropError.y},${dropError.message}`}
-            message={dropError.message}
-            anchor={{ x: dropError.x, y: dropError.y }}
-            onDismiss={() => setDropError(null)}
+            key={`${cursorError.x},${cursorError.y},${cursorError.message}`}
+            message={cursorError.message}
+            anchor={{ x: cursorError.x, y: cursorError.y }}
+            onDismiss={() => setCursorError(null)}
+          />
+        ) : null}
+        {linkMenu ? (
+          <TerminalLinkMenu
+            workspaceId={workspaceId}
+            target={linkMenu.target}
+            x={linkMenu.x}
+            y={linkMenu.y}
+            line={linkMenu.line}
+            column={linkMenu.column}
+            onClose={() => setLinkMenu(null)}
+            // A failed destination reports through the same pointer-anchored
+            // error surface the link click already used, at the click point.
+            onError={(message) => setCursorError({ message, x: linkMenu.x, y: linkMenu.y })}
           />
         ) : null}
         {folderBlocked && folderMissing ? (
