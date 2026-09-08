@@ -90,13 +90,17 @@ export default function AuxWindowApp() {
     return (
       <Suspense fallback={<AuxLoading />}>
         <DiffViewerWindow
-          // Remount on each distinct target so a retarget (new file / scope, or a
-          // different repo) lands its focus cleanly; an identical request reuses
-          // the instance and the main process just re-focuses the OS window.
-          key={`${params.repoRoot}::${params.focusPath ?? ''}::${params.scope ?? ''}`}
+          // Keyed on the REPOSITORY alone. A retarget to another file in the
+          // same repo flows in as props and the viewer walks its own cursor
+          // there; keying on the file remounted Monaco under the diff widget on
+          // every Git row click — the flash the pane tab was careful to avoid
+          // (see WorkspacePaneBody). A different repository is a different file
+          // list, and that does start over.
+          key={params.repoRoot}
           repoRoot={params.repoRoot}
           focusPath={params.focusPath ?? null}
           focusKind={focusKind}
+          workspaceId={params.workspaceId ?? null}
         />
       </Suspense>
     )

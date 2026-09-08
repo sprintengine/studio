@@ -494,6 +494,33 @@ export default function WorkspaceManager() {
       }
     })
   }, [])
+  // The same hand-off for a diff (git-commit-window T3): the diff window's
+  // "Show in the app" closes itself and broadcasts this. The window that holds
+  // the workspace opens the pane's Diff tab on the repository the window was
+  // reading — never a root re-derived from the workspace — brings that
+  // workspace forward so the tab is actually on screen, and flips the sticky
+  // preference home. The preference is written HERE rather than in the diff
+  // window because this window's store is the one that owns the settings
+  // envelope; the aux window's copy is as old as the window.
+  useEffect(() => {
+    if (typeof window.api.onDockDiffToWorkspace !== 'function') return
+    return window.api.onDockDiffToWorkspace(({ workspaceId, repoRoot, focusPath, focusKind }) => {
+      const state = useWorkspaceStore.getState()
+      if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) return
+      // Windows that do not hold this workspace no-op, exactly as the docked
+      // file does. An unregistered window list (the single-window default)
+      // holds everything.
+      const held = state.workspaceWindows.find((entry) => entry.id === workspaceWindowId)?.workspaceIds
+      if (held && !held.includes(workspaceId)) return
+      const opened = state.openPaneTab(workspaceId, {
+        kind: 'diff',
+        diff: { repoRoot, focusPath, focusKind },
+      })
+      if (!opened) return
+      state.setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
+      state.setDiffOpensInWindow(false)
+    })
+  }, [workspaceWindowId])
   // Main-owned automation mode intent (MC-1567): subscribe to authoritative
   // broadcasts and run the one-time per-run hydration sweep. Idempotent across
   // windows (main accepts the first hydration only).

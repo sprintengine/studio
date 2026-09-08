@@ -137,6 +137,27 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     }
   })
 
+  // The diff window's "Show in the app": same broadcast shape as a docked
+  // file. Only the window whose model owns the workspace acts; the others
+  // no-op, so no window ownership has to be tracked here.
+  ipcMain.handle('window:dock-diff', (event, input: {
+    workspaceId?: unknown
+    repoRoot?: unknown
+    focusPath?: unknown
+    focusKind?: unknown
+  }) => {
+    const workspaceId = typeof input?.workspaceId === 'string' ? input.workspaceId : ''
+    const repoRoot = typeof input?.repoRoot === 'string' ? input.repoRoot : ''
+    if (!workspaceId || !repoRoot) return
+    const focusPath = typeof input?.focusPath === 'string' && input.focusPath ? input.focusPath : null
+    const focusKind = input?.focusKind === 'staged' || input?.focusKind === 'unstaged' ? input.focusKind : null
+    const sender = BrowserWindow.fromWebContents(event.sender)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win === sender || win.isDestroyed()) continue
+      win.webContents.send('workspace:dock-diff', { workspaceId, repoRoot, focusPath, focusKind })
+    }
+  })
+
   ipcMain.handle('window:open-aux-window', (_event, input: {
     kind?: unknown
     singletonKey?: unknown

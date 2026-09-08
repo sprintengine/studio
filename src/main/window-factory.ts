@@ -296,6 +296,15 @@ const auxWindows = new Map<string, BrowserWindow>()
 
 type AuxWindowKind = 'diff' | 'file'
 
+// The OS window's name. Set at construction so the window has one from the
+// instant it exists — in the taskbar, in the window switcher, in Mission
+// Control. The diff renderer narrows it to `Commit: <file>` as soon as it knows
+// which file it is showing (the page owns the title once it sets one).
+const AUX_WINDOW_TITLES: Record<AuxWindowKind, string> = {
+  diff: 'Diff',
+  file: 'Editor',
+}
+
 type CreateAuxWindowOptions = {
   kind: AuxWindowKind
   singletonKey: string
@@ -320,6 +329,7 @@ export function openAuxWindow({
 
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
+    title: AUX_WINDOW_TITLES[kind],
     width: safeBounds?.width ?? 1100,
     height: safeBounds?.height ?? 720,
     ...(safeBounds ? { x: safeBounds.x, y: safeBounds.y } : {}),

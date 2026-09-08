@@ -2460,6 +2460,16 @@ export type DockFileToWorkspaceInput = {
   name: string
 }
 
+// The diff window handing its diff back to the app (git-commit-window T3).
+// Broadcast like a docked file: the window that owns the workspace opens the
+// pane's Diff tab on this repository and flips the sticky preference home.
+export type DockDiffToWorkspaceInput = {
+  workspaceId: string
+  repoRoot: string
+  focusPath: string | null
+  focusKind: 'staged' | 'unstaged' | null
+}
+
 export type OpenExternalResult =
   | { ok: true }
   | { ok: false; message: string }
@@ -3504,6 +3514,8 @@ export type ElectronApi = {
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
   dockFileToWorkspace: (input: DockFileToWorkspaceInput) => Promise<void>
   onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void) => () => void
+  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput) => Promise<void>
+  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspaceInput) => void) => () => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void

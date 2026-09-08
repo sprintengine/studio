@@ -19,6 +19,7 @@ import { EmptyState, IconButton, InlineNotice, NextDifferenceGlyph, PreviousDiff
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { openDiffWindow } from './openDiffWindow'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
 // The diff viewer: the changed-file list, a read-only Monaco DiffEditor, and
 // hunk navigation that flows across files. Two hosts render it — the
@@ -27,6 +28,12 @@ import { openDiffWindow } from './openDiffWindow'
 // the window draws a title bar with the traffic-light inset and closes on
 // Escape; the pane draws a panel-header band with an "Open in separate
 // window" action and scopes its arrow keys to itself.
+//
+// Those two band actions are also the sticky preference's only writers
+// (git-commit-window T3): opening a diff in the window says "this is where
+// diffs go", showing it in the app says the opposite, and the next Git row
+// obeys that remembered choice. There is no drag-a-tab-out gesture in
+// the pane strip for any kind, so the buttons ARE the gesture.
 
 export type DiffViewerVariant = 'window' | 'pane'
 
@@ -34,6 +41,13 @@ type Props = {
   repoRoot: string
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
+  /**
+   * The workspace this diff belongs to. The pane host knows it outright; the
+   * window host carries it as a URL param so "Show in the app" can name the
+   * pane it hands the diff back to. Null in a window opened before the param
+   * existed — the action hides rather than guessing a workspace.
+   */
+  workspaceId?: string | null
   variant?: DiffViewerVariant
   /** Pane host only: the canonical count of the view, for the tab strip; null once the viewer is gone. */
   onItemCountChange?: (count: number | null) => void
@@ -185,6 +199,23 @@ function OpenInWindowButton({ onClick }: { onClick: () => void }) {
   )
 }
 
+// The window's way home: the same diff in the pane's Diff tab, and the sticky
+// preference flipped so the next one opens there too. Its neighbour is Escape,
+// which only closes the window and decides nothing — the tooltip says so,
+// because "close" and "put it back" are different intentions.
+function ShowInAppButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip content="Show in the app (Esc just closes this window)" placement="bottom">
+      <IconButton onClick={onClick} aria-label="Show in the app" className="app-no-drag">
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10 3v10" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </IconButton>
+    </Tooltip>
+  )
+}
+
 // The aux window's empty states were their own dialect (MC-2115): bare centred
 // mono text, no CTA, and copy a person is meant to READ rendered in
 // `--text-disabled` — the ink of a dead control. They are the kit's `EmptyState`
@@ -266,6 +297,7 @@ export function DiffViewer({
   repoRoot,
   focusPath,
   focusKind,
+  workspaceId = null,
   variant = 'window',
   onItemCountChange,
   branchSteps = false,
@@ -490,12 +522,48 @@ export function DiffViewer({
     // there, so it opens on the unstaged view of the same file rather than
     // carrying a scope the window cannot honour.
     const scope = target?.kind === 'branch' ? 'unstaged' : target?.kind
+    // Asking for the window IS the preference: from here on a Git row opens
+    // one, until the window's "Show in the app" says otherwise.
+    useWorkspaceStore.getState().setDiffOpensInWindow(true)
     void openDiffWindow({
+      ...(workspaceId ? { workspaceId } : {}),
       repoRoot,
       focusPath: target?.path ?? focusPath ?? '',
       scope: scope ?? focusKind ?? 'unstaged',
     })
-  }, [currentItem, focusKind, focusPath, items, repoRoot])
+  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
+
+  // The window's half of the flip. The preference is NOT written here: this
+  // window's store was hydrated when it opened, and writing the settings
+  // envelope from it would push a snapshot of that moment over whatever the
+  // workspace window has changed since. The workspace window flips it as it
+  // opens the tab (WorkspaceManager), exactly as docking a file back does.
+  const showInApp = useCallback(() => {
+    if (!workspaceId) return
+    const target = currentItem ?? items[0]
+    const kind = target?.kind === 'branch' ? 'unstaged' : target?.kind
+    void (async () => {
+      await window.api.dockDiffToWorkspace({
+        workspaceId,
+        repoRoot,
+        focusPath: target?.path ?? focusPath ?? null,
+        focusKind: kind ?? focusKind ?? null,
+      })
+      // Closed only after the hand-off is on its way: a window that vanishes
+      // first leaves the person with neither the window nor the tab.
+      await window.api.windowClose()
+    })()
+  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
+
+  // The OS window's name follows the file, editor-style: `Commit: <file>` in
+  // the window switcher while the band keeps the path. The pane host never
+  // touches the document title — it does not own the window.
+  useEffect(() => {
+    if (variant !== 'window') return
+    const relative = currentItem?.relativePath
+    const fileName = relative ? relative.split('/').filter(Boolean).pop() ?? relative : null
+    document.title = fileName ? `Commit: ${fileName}` : 'Diff'
+  }, [currentItem?.relativePath, variant])
 
   const bandClass =
     variant === 'window'
@@ -562,6 +630,7 @@ export function DiffViewer({
           <ChevronButton direction="up" disabled={items.length === 0} onClick={() => navigate('prev')} />
           <ChevronButton direction="down" disabled={items.length === 0} onClick={() => navigate('next')} />
           {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
+          {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
         </div>
       </div>
 
