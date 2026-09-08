@@ -231,18 +231,10 @@ const CORE_SETTINGS_MODAL_SURFACE = {
   label: 'Settings',
   Component: SettingsModalSurface,
 } as const
-// The Diff popout (the pane-to-popup mechanism, 2026-09-05): the pane's Diff
-// tab floated at workbench width. Core like Settings — it is the shell's own
-// pane growing a bigger view of itself, not a module's surface — and never
-// listed as a trigger: the pane strip's "Open in a popup" is its one way in,
-// after latching the target (pane/diffPopoutTarget.ts).
-const DiffPopoutSurface = React.lazy(() => import('./pane/DiffPopoutSurface'))
-const CORE_DIFF_MODAL_SURFACE = {
-  id: 'diff',
-  moduleId: 'core',
-  label: 'Diff',
-  Component: DiffPopoutSurface,
-} as const
+// The Diff popout — the pane's Diff tab floated in a workbench modal — was a
+// third host for one viewer and is gone (git-commit-window T3, 2026-09-09). A
+// diff opens in its own OS window or in the pane's tab; the `diff` modal
+// surface id is unclaimed again.
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens in the card region, with the Extensions drawer standing
 // beside it. A DOOR, shaped like a registered global surface so the mount path
@@ -1023,7 +1015,6 @@ export default function WorkspaceManager() {
   const activeModalSurfaceEntry = useMemo(() => {
     if (!activeModalSurface) return null
     if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
-    if (activeModalSurface === 'diff') return CORE_DIFF_MODAL_SURFACE
     return resolveActiveModalSurface(
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
@@ -4769,8 +4760,7 @@ export default function WorkspaceManager() {
             — in the shipped Modal shell: workbench width, panel layout, the
             flat darkening scrim (NEVER backdrop-filter — terminals render at
             60fps behind it), FocusTrap, Escape/scrim close, focus restored to
-            the element that opened it. Settings, the Diff popout and Reviews
-            live here — pick-and-close tasks over work that stays put; every
+            the element that opened it. Settings and Reviews live here — pick-and-close tasks over work that stays put; every
             destination the shell's own chrome offers is a door in the mount
             above (Extensions drawer ruling, 2026-09-05). With no bar/rail slot providers
             in scope, GlobalSurfaceShell renders its documented inline fallback

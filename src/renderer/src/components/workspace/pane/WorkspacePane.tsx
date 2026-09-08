@@ -10,8 +10,6 @@ import type {
 } from '../../../types/workspace'
 import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
 import { PANE_KINDS, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
-import { dispatchDiffPopoutTarget, type DiffPopoutTarget } from './diffPopoutTarget'
-import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
@@ -36,18 +34,6 @@ function RestoreGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <path d="M13 3 9.5 6.5M9.5 3v3.5H13M3 13l3.5-3.5M6.5 13V9.5H3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// A window lifting off the strip: the popup the active tab opens into. Distinct
-// from the maximise arrows (which grow the pane in place) and from the viewer's
-// own "separate window" glyph (which leaves the window entirely).
-function PopoutGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M3 5.5V12a1 1 0 0 0 1 1h6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <rect x="5.5" y="3" width="7.5" height="7.5" rx="1" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )
 }
@@ -162,29 +148,6 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
 
   const menuTabIndex = tabMenu ? tabs.findIndex((tab) => tab.id === tabMenu.tabId) : -1
 
-  // The active tab's popout target, when the tab has one. A Diff tab pops out
-  // as the same viewer on the same repository, opened on the same file — the
-  // worktree the workspace is mounted on, never the parent checkout a run
-  // workspace's folderPath names (the WorkspaceIdentity rule, as the pane body
-  // applies it).
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
-  const diffRepoRoot = useWorkspaceStore((s) => {
-    const ws = s.workspaces.find((w) => w.id === workspaceId)
-    if (!ws) return null
-    return resolveWorkspaceWorktree(ws)?.gitRoot ?? ws.folderPath ?? null
-  })
-  const popoutTarget: DiffPopoutTarget | null =
-    activeTab?.kind === 'diff' && diffRepoRoot
-      ? { repoRoot: diffRepoRoot, focusPath: activeTab.diff?.focusPath ?? null, focusKind: activeTab.diff?.focusKind ?? null }
-      : null
-  const openPopout = useCallback(() => {
-    if (!popoutTarget) return
-    // Latch first, then open: the modal may mount a tick later and drains the
-    // latch then; an already-open popout takes the live event instead.
-    dispatchDiffPopoutTarget(popoutTarget)
-    openModalSurface('diff')
-  }, [openModalSurface, popoutTarget])
-
   return (
     <section
       aria-label={workspaceName ? `${workspaceName} pane` : 'Workspace pane'}
@@ -226,17 +189,6 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
         </TabsScroller>
         <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
           <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} />
-          {/* The pane-to-popup mechanism (2026-09-05): the active tab, floated
-              at workbench width over the page. Offered only for the kinds
-              that read badly in a column — Diff today — so the strip does not
-              grow a control every tab ignores. */}
-          {popoutTarget ? (
-            <Tooltip content="Open in a popup" placement="bottom">
-              <IconButton onClick={openPopout} aria-label="Open in a popup">
-                <PopoutGlyph className="icon-sm" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
           <Tooltip content={maximised ? 'Restore pane' : 'Maximise pane'} placement="bottom">
             <IconButton
               onClick={() => setMaximised(!maximised)}

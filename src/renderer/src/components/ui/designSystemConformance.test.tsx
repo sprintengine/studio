@@ -1128,10 +1128,11 @@ async function main(): Promise<void> {
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
       // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
-      // The modal-surface host: Settings and the Diff popout mount through this
-      // one Modal. Plugins, Automations and Design were modals here from
+      // The modal-surface host: Settings and Reviews mount through this one
+      // Modal. Plugins, Automations and Design were modals here from
       // 2026-09-01 until the Extensions drawer ruling (2026-09-05) made them
-      // card-region surfaces again.
+      // card-region surfaces again; the Diff popout was here too until the
+      // diff got its own OS window (git-commit-window T3, 2026-09-09).
       'components/workspace/WorkspaceManager.tsx': /<Modal\b/,
     }
     for (const [file, pattern] of Object.entries(shells)) {
