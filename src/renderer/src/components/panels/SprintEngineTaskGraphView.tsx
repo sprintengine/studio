@@ -6,7 +6,7 @@
 // Pure layout helpers (buildTaskGraphLayout, edge style, etc.) live in the
 // sibling ./sprintEngineTaskGraph module and are imported here. The brand
 // exception that permits role-tinted accents on a card and a graph node is
-// documented in knowledge/brand/aesthetic-north-star.md.
+// documented in design-system/foundations/principles.md.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {

@@ -622,8 +622,8 @@ const legacyBackupAppSettings = {
   projectKnowledgeRoots: {
     '/Users/dev/workspace/multicode': 'knowledge',
     '/Users/dev/workspace/multicode-mobile': '../multicode/knowledge',
-    '/Users/dev/workspace/multicode-website': '../multicode/knowledge',
-    '/Users/dev/workspace/sprintengine-website': '../multicode/knowledge',
+    '/Users/dev/workspace/docs-site': '../multicode/knowledge',
+    '/Users/dev/workspace/marketing-site': '../multicode/knowledge',
   },
   recentWorkspaceFolders: [
     '/Users/dev/workspace/multicode',

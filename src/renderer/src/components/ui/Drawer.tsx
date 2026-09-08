@@ -134,7 +134,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
   }, [lifecycle])
 
   // Escape close. Two yields keep "Escape reaches only the topmost surface"
-  // true (knowledge/brand/primitives.md): a transient child (popover, menu)
+  // true: a transient child (popover, menu)
   // that already handled Escape marks the event, and a surface stacked ABOVE
   // this drawer must win even though the drawer's window listener registered
   // first — the drawer yields by state rather than by listener order.

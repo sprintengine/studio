@@ -9,6 +9,7 @@ import { relaySummaryByteLength, relayResultSummaryMaxBytes, summarizeCommandRes
 import { dispatchSnapshotRequest } from './snapshot-request'
 import { MobileSprintEngineSnapshotService } from '../sprintengine/snapshot'
 import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
+import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
@@ -52,7 +53,7 @@ async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<v
   const state = await bridge.getState()
   bridge.shutdown()
 
-  assert.equal(state.relayUrl, 'https://multiauth-production.up.railway.app')
+  assert.equal(state.relayUrl, DEFAULT_MOBILE_RELAY_URL)
 }
 
 async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {

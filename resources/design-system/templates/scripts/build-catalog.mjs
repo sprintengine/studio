@@ -8,8 +8,7 @@
 //   node scripts/build-catalog.mjs           # from the bundle root
 //   node scripts/build-catalog.mjs <bundle>  # explicit bundle root
 //
-// Emission contract (knowledge/multicode/design-system-bundle.md in the
-// authoring repo; stable per design-system.json schemaVersion):
+// Emission contract (USAGE.md; stable per design-system.json schemaVersion):
 //   - one HTML file, zero external references: tokens.css, component CSS,
 //     demo markup, and SVG glyphs are inlined at generation time. No <script>
 //     tags — the target preview is a sandboxed srcDoc iframe with scripts off,

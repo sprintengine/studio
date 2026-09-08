@@ -23,7 +23,7 @@ const status: TailnetRemoteStatus = {
 const request: FleetPairRequestView = {
   requestId: 'tpr_1',
   endpoint: '100.1.1.2:8471',
-  machineName: 'dev-macbook-air',
+  machineName: 'sam-macbook-air',
   comparisonCode: '481972',
   expiresAt: '2026-09-04T21:05:00.000Z',
   reverseOffered: false,
@@ -36,10 +36,10 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
 
 {
   const notice = tailnetNotice(
-    payload({ kind: 'pair-request', phase: 'received', requestId: 'r1', deviceName: 'MacBook Air', peerNode: 'dev-macbook-air' })
+    payload({ kind: 'pair-request', phase: 'received', requestId: 'r1', deviceName: 'MacBook Air', peerNode: 'sam-macbook-air' })
   )
   assert.ok(notice)
-  assert.equal(notice.title, 'Pair request from dev-macbook-air')
+  assert.equal(notice.title, 'Pair request from sam-macbook-air')
   assert.doesNotMatch(notice.body, /\d{6}/u, 'the code never rides on a banner')
   assert.equal(
     tailnetNotice(payload({ kind: 'pair-request', phase: 'approved', requestId: 'r1', deviceName: 'x', peerNode: null })),
@@ -51,11 +51,11 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
 
 {
   const approved = fleetNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request })
-  assert.equal(approved?.title, 'Paired with dev-macbook-air')
+  assert.equal(approved?.title, 'Paired with sam-macbook-air')
   const both = fleetNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request: { ...request, reverseOffered: true } })
   assert.match(both?.body ?? '', /Both ways/u)
-  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title, 'dev-macbook-air declined')
-  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title, 'dev-macbook-air did not answer in time')
+  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title, 'sam-macbook-air declined')
+  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title, 'sam-macbook-air did not answer in time')
   assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'waiting', request }), null, 'waiting has the card')
   assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'cancelled', request }), null)
   assert.equal(fleetNotice({ kind: 'machine-paired', revision: 1, connection: {} as never }), null, 'the pair-request approved banner covers it')

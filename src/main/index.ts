@@ -69,8 +69,7 @@ registerWorkflowIpc(ipcMain, services)
 // agent-runtime core module seeds the shared services (terminal runtime, auth,
 // token stores) that the optional modules consume via the service bridge; the
 // resolver orders it first because every dependent declares
-// `dependsOn: ['agent-runtime']`. See
-// future-plans/2026-05-28-feature-level-pluggable-architecture.md.
+// `dependsOn: ['agent-runtime']`. See docs/module-authors/drop-in-extensions.md.
 const moduleOverrides = readModuleEnablementOverrides()
 const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())

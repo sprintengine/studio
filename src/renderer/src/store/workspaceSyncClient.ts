@@ -13,8 +13,7 @@ import type { AgentCli, AgentId, AgentState, Workspace, WorkspaceId, WorkspaceWi
 // does not import a store slice, keeping the module dependency graph acyclic.
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 
-// Renderer-side adapter for the main-mediated workspace sync bus (see
-// future-plans/2026-05-31-event-based-multi-window-sync.md). It keeps
+// Renderer-side adapter for the main-mediated workspace sync bus. It keeps
 // WorkspaceManager and the store free of IPC mechanics: it dispatches scoped
 // commands (active selection, workspace move, window close, placement), applies
 // the accepted/broadcast events to the local store, and tracks the last applied

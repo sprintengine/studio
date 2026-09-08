@@ -477,8 +477,8 @@ def test_electron_roster_runner_uses_local_automation_mode_only() -> None:
     assert "deriveAutomationMode(autoState)" in cycle_source
     assert "const runnerActive = automationMode !== 'manual'" in cycle_source
     assert "async function ensureDurableAutoMode" not in cycle_source, (
-        "ensureDurableAutoMode was removed; see knowledge/multicode/sprint-engine.md "
-        "and src/renderer/src/utils/sprintengineAutomation.ts for the rationale."
+        "ensureDurableAutoMode was removed; see "
+        "src/renderer/src/utils/sprintengineAutomation.ts for the rationale."
     )
     assert "sprintEngineState.runner?.mode" not in cycle_source, (
         "The cycle must not read the legacy runner.mode field. The new field is "

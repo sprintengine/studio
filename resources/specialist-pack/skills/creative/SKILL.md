@@ -75,7 +75,7 @@ Hard rules for rendered video:
 
 # Digital Twin — Reuse The Real Product
 
-The strongest product landing-page video is a **digital twin**: the real product UI rebuilt *inside* the composition so it animates, stays on-brand, and shows live-looking state — not a flat screenshot. Twin = proof; stock mockup = decoration. Default to a twin for any hero, feature, or "how it works" scene where the product is the story. `src/remotion/SprintEngineProductHero.tsx` is the precursor: hand-rebuilt app shell, inline styles, hardcoded hex — drifts the moment the real UI changes. Reuse its composition config and layout intent, not its detached styling.
+The strongest product landing-page video is a **digital twin**: the real product UI rebuilt *inside* the composition so it animates, stays on-brand, and shows live-looking state — not a flat screenshot. Twin = proof; stock mockup = decoration. Default to a twin for any hero, feature, or "how it works" scene where the product is the story. Beware the usual precursor: a hand-rebuilt app shell with inline styles and hardcoded hex drifts the moment the real UI changes. Reuse a precursor's composition config and layout intent, never its detached styling.
 
 **Likeness = tokens + data, never imported app code.** This is an Electron app: renderer components are wired to IPC (`window.api`), Zustand stores, React context, timers, and scroll/observer hooks; Remotion's browser-only bundler has none of that, so importing a live product component fails or renders empty. Reuse the product's *identity* — real design tokens (color, radii, spacing, type scale), real copy, production-realistic data — rebuilt from portable primitives.
 

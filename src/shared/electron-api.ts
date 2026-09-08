@@ -4136,7 +4136,7 @@ export type ElectronApi = {
   scaffoldDesignSystemBundle: (workspaceRoot: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
-  /** Resolve the built-in "seed from the Multicode brand" demo source dir (knowledge/brand/); unavailable in builds that do not carry it. */
+  /** Resolve the built-in "seed from the example design system" demo source dir (resources/design-system/example); unavailable in builds that do not carry it. */
   resolveDesignSystemBrandDemoSeed: () => Promise<DesignSystemBrandDemoResolveResult>
   /** Run a bundle's own scripts/lint.mjs on demand (the guided-brief studio's validating preview — the author's contribution gate). */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>

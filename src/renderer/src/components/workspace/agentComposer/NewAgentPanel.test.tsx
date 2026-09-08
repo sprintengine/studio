@@ -875,10 +875,10 @@ async function main(): Promise<void> {
   await check('the greeting uses a first name only when there is one', async () => {
     seedStore()
     useWorkspaceStore.setState({
-      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Conal Smith', photoUrl: null } },
+      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Sam Rivera', photoUrl: null } },
     } as never)
     const named = await render()
-    assert.ok(named.text().includes('Conal'), 'it greets by first name, not full name')
+    assert.ok(named.text().includes('Sam'), 'it greets by first name, not full name')
     assert.ok(!named.text().includes('Smith'), 'and not by surname')
     named.unmount()
 
@@ -887,7 +887,7 @@ async function main(): Promise<void> {
     } as never)
     const anon = await render()
     const text = anon.text()
-    assert.ok(!text.includes('Conal'), 'signed out, no name')
+    assert.ok(!text.includes('Sam'), 'signed out, no name')
     assert.ok(!/,\s*\?/.test(text), 'and no dangling comma where the name was')
     assert.ok(!/sign in/i.test(text), 'a launch surface is not a sign-in prompt')
     anon.unmount()

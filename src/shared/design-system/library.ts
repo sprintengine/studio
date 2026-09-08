@@ -11,7 +11,7 @@
 // left a library that could only ever shrink. Copies from that era are ADOPTED as
 // registered paths pointing at themselves — never moved, never deleted.
 //
-// Contract: knowledge/multicode/design-system-bundle.md.
+// Bundle format contract: resources/design-system/templates/USAGE.md.
 
 import type { DesignSystemManifest } from './manifest'
 

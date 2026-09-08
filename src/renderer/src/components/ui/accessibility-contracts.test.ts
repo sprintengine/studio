@@ -479,7 +479,7 @@ expectIncludes(roleGlyph, 'role="img"', 'RoleGlyph exposes role="img" on its wra
 expectIncludes(roleGlyph, 'aria-label={label}', 'RoleGlyph attaches an accessible name')
 expectIncludes(roleGlyph, 'getSprintEngineRoleLabel(role, registry)', 'RoleGlyph names the role via the registry-aware label accessor')
 expectIncludes(roleGlyph, 'getSprintEngineRoleAccent(role, registry)', 'RoleGlyph reads tone via the registry-aware accent accessor')
-expectIncludes(roleGlyph, 'knowledge/brand/panel-design-system.md', 'RoleGlyph documents itself against the panel design system contract')
+expectIncludes(roleGlyph, 'design-system/foundations/principles.md', 'RoleGlyph documents itself against the design system contract')
 
 expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
 expectMatches(

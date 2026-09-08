@@ -1,8 +1,7 @@
 // Shared RoleGlyph primitive. The documented exception to the
 // one-accent rule: this is the single place where role/tool tone is allowed
 // to appear on a card (kanban roster cards, task-graph nodes, agent rows).
-// See knowledge/brand/panel-design-system.md and
-// knowledge/brand/aesthetic-north-star.md for the contract.
+// See design-system/foundations/principles.md for the contract.
 //
 // The role tone source-of-truth is sprintEngineRoleAccent in
 // src/renderer/src/utils/sprintengine.ts. Do not re-define role colors
@@ -52,7 +51,7 @@ export function RoleGlyph({ role, size = 'md', ariaLabel, className, registry }:
       role="img"
       aria-label={label}
       // design-tokens-allow: role glyph is the documented exception to the one-accent
-      // rule; see knowledge/brand/panel-design-system.md.
+      // rule; see design-system/foundations/principles.md.
       style={{ color: getSprintEngineRoleAccent(role, registry) }}
       className={['inline-flex shrink-0 items-center justify-center', className ?? ''].join(' ')}
     >

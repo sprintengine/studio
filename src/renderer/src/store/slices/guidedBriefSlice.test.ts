@@ -149,12 +149,12 @@ const seededDesignSystem = normalizeGuidedBriefState({
   hasUi: 'yes',
   preset: 'design-system',
   stage: 'designer-working',
-  designSystemSeedSource: { kind: 'brand-demo', path: '/app/knowledge/brand' },
+  designSystemSeedSource: { kind: 'brand-demo', path: '/app/resources/design-system/example' },
 })
 assert.ok(seededDesignSystem)
 assert.deepEqual(seededDesignSystem.designSystemSeedSource, {
   kind: 'brand-demo',
-  path: '/app/knowledge/brand',
+  path: '/app/resources/design-system/example',
 })
 const malformedSeed = normalizeGuidedBriefState({
   workspaceRoot: '/repo/system',

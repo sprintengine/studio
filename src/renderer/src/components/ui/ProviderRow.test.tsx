@@ -67,12 +67,12 @@ const BASE = {
 // ---------------------------------------------------------------------------
 {
   const { host, root } = mount(
-    <ProviderRow {...BASE} health="good" version="2.1.220" stateLine="Authenticated as acme" />,
+    <ProviderRow {...BASE} health="good" version="2.1.220" stateLine="Authenticated as octocat" />,
   )
   const text = host.textContent ?? ''
   assert.match(text, /Claude/, 'the name renders')
   assert.match(text, /2\.1\.220/, 'a known version renders')
-  assert.match(text, /Authenticated as acme/, 'the state line renders')
+  assert.match(text, /Authenticated as octocat/, 'the state line renders')
 
   const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]')
   assert.ok(dot, 'the health dot renders')

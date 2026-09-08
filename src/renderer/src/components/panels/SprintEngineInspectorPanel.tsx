@@ -1843,7 +1843,7 @@ function TaskTimeline({
             className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-baseline gap-x-2 text-meta leading-5 text-[color:var(--text-default)]"
           >
             {/* Lifecycle glyph, never a tone dot: the entry kind reads by shape
-                (knowledge/brand/glyph-system.md), colour only reinforcing it.
+                colour only reinforcing it.
                 Decorative — the actor and verb beside it already name the entry,
                 and speaking the lifecycle word here would announce a comment as
                 "Idea". */}

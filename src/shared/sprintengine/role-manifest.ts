@@ -4,7 +4,7 @@
 // referenced skill ids. Nothing here is executed; the Sprint Engine runtime
 // reads these to assemble an agent's prompt from the named skills. That's what
 // makes a third-party role safe to install with zero code-execution risk (the
-// Tier 1 stance in future-plans/2026-05-28-feature-level-pluggable-architecture.md).
+// Tier 1 stance: declarative data only, no third-party code).
 //
 // v2 schema (MC-1542): a role is routing + directive packs. `directives.implement`
 // composes the owner's startup brief (this replaced `soul`); `directives.<phase>`

@@ -9,7 +9,7 @@
 // deliberately separate from the BYO-CLI `permissionPresets` (opaque launch-arg
 // bundles for a CLI, not capability scopes for code).
 //
-// See future-plans/2026-05-28-feature-level-pluggable-architecture.md (Phase 7).
+// See docs/module-authors/permissions.md for the author-facing reference.
 //
 // ## The `ipc:*` tiers
 //

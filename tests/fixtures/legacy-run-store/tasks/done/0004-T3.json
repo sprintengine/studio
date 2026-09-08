@@ -45,7 +45,7 @@
       "commentId": "C1",
       "commentType": "implementation_summary",
       "id": "ACT-006",
-      "message": "Final nuclear review of 1605 (T1) + verification (T2). MC-1567 preserved on both sub-version paths; no wall-clock leak; wire v2/response-shape/filter/shedding ladder untouched; T2's 87.8%/read saving is real (measured via real dispatchSnapshotRequest). One regression fixed fix-forward: the emitted `roadmaps` collection was excluded from the top-level hash while backlog+automations were folded \u2014 a lane parked/running state rides the orchestrator sidecar and moves with no backlog/sprint-engine delta, so the now-live 1599 fast-path would serve a phone stale roadmap progress. Folded `roadmaps` into buildSnapshotVersion (riders carry no wall-clock), added a parked-only-bump + folding-determinism test, updated protocol.md KG sentence. Scope expansion beyond my empty ownedPaths (recorded here, not via scopeExpansionJson due to the log bug): src/main/mobile/sprintengine/snapshot.ts, snapshot.test.ts, knowledge/multicode-mobile/protocol.md. Verified: snapshot + snapshot-request + roadmap-rider tests green; typecheck:app exit 0.",
+      "message": "Final nuclear review of 1605 (T1) + verification (T2). MC-1567 preserved on both sub-version paths; no wall-clock leak; wire v2/response-shape/filter/shedding ladder untouched; T2's 87.8%/read saving is real (measured via real dispatchSnapshotRequest). One regression fixed fix-forward: the emitted `roadmaps` collection was excluded from the top-level hash while backlog+automations were folded \u2014 a lane parked/running state rides the orchestrator sidecar and moves with no backlog/sprint-engine delta, so the now-live 1599 fast-path would serve a phone stale roadmap progress. Folded `roadmaps` into buildSnapshotVersion (riders carry no wall-clock), added a parked-only-bump + folding-determinism test, updated protocol.md KG sentence. Scope expansion beyond my empty ownedPaths (recorded here, not via scopeExpansionJson due to the log bug): src/main/mobile/sprintengine/snapshot.ts, snapshot.test.ts, docs/multicode-mobile/protocol.md. Verified: snapshot + snapshot-request + roadmap-rider tests green; typecheck:app exit 0.",
       "source": "agent",
       "timestamp": "2026-07-19T20:31:39Z",
       "type": "comment"
@@ -68,13 +68,13 @@
       "actor": "nuclear_reviewer-1",
       "authorAgentId": "nuclear_reviewer-1",
       "authorRole": "nuclear_reviewer",
-      "body": "Final nuclear review of 1605 (T1) + verification (T2). MC-1567 preserved on both sub-version paths; no wall-clock leak; wire v2/response-shape/filter/shedding ladder untouched; T2's 87.8%/read saving is real (measured via real dispatchSnapshotRequest). One regression fixed fix-forward: the emitted `roadmaps` collection was excluded from the top-level hash while backlog+automations were folded \u2014 a lane parked/running state rides the orchestrator sidecar and moves with no backlog/sprint-engine delta, so the now-live 1599 fast-path would serve a phone stale roadmap progress. Folded `roadmaps` into buildSnapshotVersion (riders carry no wall-clock), added a parked-only-bump + folding-determinism test, updated protocol.md KG sentence. Scope expansion beyond my empty ownedPaths (recorded here, not via scopeExpansionJson due to the log bug): src/main/mobile/sprintengine/snapshot.ts, snapshot.test.ts, knowledge/multicode-mobile/protocol.md. Verified: snapshot + snapshot-request + roadmap-rider tests green; typecheck:app exit 0.",
+      "body": "Final nuclear review of 1605 (T1) + verification (T2). MC-1567 preserved on both sub-version paths; no wall-clock leak; wire v2/response-shape/filter/shedding ladder untouched; T2's 87.8%/read saving is real (measured via real dispatchSnapshotRequest). One regression fixed fix-forward: the emitted `roadmaps` collection was excluded from the top-level hash while backlog+automations were folded \u2014 a lane parked/running state rides the orchestrator sidecar and moves with no backlog/sprint-engine delta, so the now-live 1599 fast-path would serve a phone stale roadmap progress. Folded `roadmaps` into buildSnapshotVersion (riders carry no wall-clock), added a parked-only-bump + folding-determinism test, updated protocol.md KG sentence. Scope expansion beyond my empty ownedPaths (recorded here, not via scopeExpansionJson due to the log bug): src/main/mobile/sprintengine/snapshot.ts, snapshot.test.ts, docs/multicode-mobile/protocol.md. Verified: snapshot + snapshot-request + roadmap-rider tests green; typecheck:app exit 0.",
       "createdAt": "2026-07-19T20:31:39Z",
       "id": "C1",
       "paths": [
         "src/main/mobile/sprintengine/snapshot.ts",
         "src/main/mobile/sprintengine/snapshot.test.ts",
-        "knowledge/multicode-mobile/protocol.md"
+        "docs/multicode-mobile/protocol.md"
       ],
       "source": "agent",
       "type": "implementation_summary"
@@ -154,7 +154,7 @@
             "section": "The order is the contract, not an implementation detail: a lost role catalog or"
           }
         ],
-        "path": "knowledge/multicode-mobile/protocol.md",
+        "path": "docs/multicode-mobile/protocol.md",
         "skippedReason": null,
         "source": "working_tree",
         "status": "modified",

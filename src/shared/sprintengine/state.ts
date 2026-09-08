@@ -3092,7 +3092,7 @@ export function getOpenSprintEngineFeedbackComments(
  * Convert a `#rrggbb` hex string to an `rgba(...)` string with the given alpha.
  * Colocated here because every caller pairs it with `sprintEngineRoleAccent`
  * to render the role-tinted avatar / backplate documented in
- * knowledge/brand/panel-design-system.md.
+ * design-system/foundations/principles.md.
  */
 export function hexToRgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '')

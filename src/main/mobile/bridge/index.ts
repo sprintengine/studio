@@ -27,6 +27,7 @@ import { dispatchSnapshotRequest } from './snapshot-request'
 import { filterToDefaultSnapshotStatePaths } from '../../mobile-sprintengine-discovery'
 import { authorizeRelayCommand } from './relay-auth'
 import { upsertRelayDevice } from './relay-device'
+import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 import {
   getDefaultMobileBridgeStorePath,
   readMobileBridgeStore,
@@ -375,7 +376,9 @@ export type MobileBridgeOptions = {
   commandPollAttentionWindowMs?: number
 }
 
-const DEFAULT_RELAY_URL = 'https://multiauth-production.up.railway.app'
+// The default relay; `./service-endpoints` lets a build bake in a different
+// one via MULTICODE_MOBILE_RELAY_URL, which also overrides it at runtime.
+const DEFAULT_RELAY_URL = DEFAULT_MOBILE_RELAY_URL
 const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || DEFAULT_RELAY_URL
 const USING_DEFAULT_RELAY_URL = RELAY_URL === DEFAULT_RELAY_URL
 const INITIAL_RECONNECT_DELAY_MS = 1000

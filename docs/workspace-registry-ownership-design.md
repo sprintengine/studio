@@ -337,8 +337,8 @@ one more apply action registered the same way. Rules:
    anything at or below it. A sequence gap re-fetches the full snapshot
    (`workspace-sync:get-events-after` → gap → `get-snapshot`), which is what
    `applyWorkspaceSyncSnapshot` (`src/shared/workspace-sync.ts:192-200`) exists for.
-2. **Apply actions never dispatch.** The no-echo contract stays exactly as
-   documented (`knowledge/multicode/workspace-window-sync.md:17`), but simplifies:
+2. **Apply actions never dispatch.** The no-echo contract stays exactly as it
+   is, but simplifies:
    once the registry is not in localStorage, the `suppressNextPersistWrite`
    plumbing and the dedup baseline
    (`workspaceStore.ts:1517-1543`) are no longer needed for registry fields, only

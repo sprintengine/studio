@@ -13,9 +13,9 @@ import { SprintEngineRoleIcon } from '../AppIcons'
 
 // RoleAvatar — disc-shaped avatar tinted in the role's accent colour with
 // the role's glyph centered inside. The documented brand exception for
-// role colour applies here: this is one of the four places per
-// knowledge/brand/panel-design-system.md where role tone is allowed
-// outside the panel-header identity dot.
+// role colour applies here: this is one of the four places where role tone is
+// allowed outside the panel-header identity dot (see
+// design-system/foundations/principles.md).
 //
 // Sister primitive to RoleGlyph (which renders just the bare-tone glyph
 // with no backplate). Use RoleAvatar when the surface needs the
@@ -69,7 +69,7 @@ export function RoleAvatar({ role, size = 'md', className, ariaLabel, registry }
         .filter(Boolean)
         .join(' ')}
       // design-tokens-allow: role avatar is the documented exception to the
-      // one-accent rule; see knowledge/brand/panel-design-system.md.
+      // one-accent rule; see design-system/foundations/principles.md.
       style={{ backgroundColor: hexToRgba(accent, alpha), color: accent }}
       role={hidden ? undefined : 'img'}
       aria-label={hidden ? undefined : label}

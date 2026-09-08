@@ -65,8 +65,7 @@ const EXCLUDED_DIRS = new Set(['__preview__'])
 
 // Per-file rule exemptions. Each entry MUST cite the exception category
 // (a) terminal ANSI output, (b) memory graph atmosphere, or (c) brand SVG
-// asset — and explain why the rule cannot apply. See plan §B of
-// future-plans/2026-05-13-app-wide-linear-grade-audit.md.
+// asset — and explain why the rule cannot apply.
 const PATH_EXEMPTIONS = [
   {
     // (a) ANSI output path: xterm host. Hex literals are the xterm-256
@@ -83,7 +82,7 @@ const PATH_EXEMPTIONS = [
   {
     // (b) Memory graph atmosphere: graph node-type palette plus direct canvas
     // paint colors, and the single canvas-scoped radial background var. Pinned
-    // to knowledge/brand/aesthetic-north-star.md memory-graph exception.
+    // to this one canvas file: the graph is an atmospheric surface, not chrome.
     path: 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx',
     rules: ['no-inline-hex', 'no-radial-gradient'],
   },
@@ -95,13 +94,11 @@ const PATH_EXEMPTIONS = [
   },
   {
     // (c) Brand SVG asset: identity colors live on the SVG path attributes.
-    // See knowledge/brand/BRAND.md for the canonical wordmark/mark spec.
     path: 'src/renderer/src/components/brand/MulticodeMark.tsx',
     rules: ['no-inline-hex'],
   },
   {
     // (c) Brand SVG asset: identity colors live on the SVG path attributes.
-    // See knowledge/brand/BRAND.md for the canonical wordmark/mark spec.
     path: 'src/renderer/src/components/brand/MulticodeWordmark.tsx',
     rules: ['no-inline-hex'],
   },

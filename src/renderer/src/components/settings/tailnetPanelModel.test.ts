@@ -171,7 +171,7 @@ check('a device says where it came from, so a test grant an agent left behind is
 check('a waiting request names who is asking, and says when it cannot vouch for the name', () => {
   const request = {
     id: 'tpr_1',
-    deviceName: 'Conal’s MacBook Air',
+    deviceName: 'Sam’s MacBook Air',
     peerNode: 'macbook.example.ts.net',
     peerAddress: '100.64.0.9',
     comparisonCode: '419306',

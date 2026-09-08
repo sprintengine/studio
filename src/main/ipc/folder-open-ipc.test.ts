@@ -124,7 +124,7 @@ function assertProbeResolvesEachTarget(): void {
 // an editor can be: JetBrains Toolbox has folders of its own, the vendors ship
 // several bundle names, and an app on another volume is still an installed app
 // — Spotlight knows it by bundle id. (The IntelliJ that prompted this lived at
-// `/home/dev/projects/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
+// `/Volumes/Extra/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
 // menu said it was not installed.)
 function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
   // The Toolbox `idea` shim, which Toolbox writes but rarely gets onto PATH.
@@ -161,13 +161,13 @@ function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
   const onAnotherVolume = probe({
     platform: 'darwin',
     installed: [],
-    spotlight: { 'com.jetbrains.intellij|com.jetbrains.intellij.ce': '/home/dev/projects/IntelliJ IDEA.app' },
+    spotlight: { 'com.jetbrains.intellij|com.jetbrains.intellij.ce': '/Volumes/Extra/IntelliJ IDEA.app' },
     spotlightAsked: asked,
   })
   assert.deepEqual(resolveFolderOpenLauncher('intellij', onAnotherVolume), {
     kind: 'command',
     command: '/usr/bin/open',
-    args: ['-a', '/home/dev/projects/IntelliJ IDEA.app'],
+    args: ['-a', '/Volumes/Extra/IntelliJ IDEA.app'],
   })
   assert.equal(resolveFolderOpenLauncher('vscode', onAnotherVolume), null, 'Spotlight knowing nothing is "not installed"')
   assert.deepEqual(asked, [['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'], ['com.microsoft.VSCode']])
@@ -226,16 +226,16 @@ function assertSpotlightPickPrefersAnInstall(): void {
   )
   assert.equal(
     pickInstalledBundle(
-      ['/home/dev/projects/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app', '/Applications/IntelliJ IDEA.app'],
+      ['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app', '/Applications/IntelliJ IDEA.app'],
       '/Users/dev',
     ),
     '/Applications/IntelliJ IDEA.app',
   )
   assert.equal(
-    pickInstalledBundle(['/home/dev/projects/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'], '/Users/dev'),
+    pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'], '/Users/dev'),
     '/Users/dev/Applications/IntelliJ IDEA.app',
   )
-  assert.equal(pickInstalledBundle(['/home/dev/projects/IntelliJ IDEA.app\n'], '/Users/dev'), '/home/dev/projects/IntelliJ IDEA.app')
+  assert.equal(pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app\n'], '/Users/dev'), '/Volumes/Extra/IntelliJ IDEA.app')
 }
 
 async function assertProbeChannelReportsEveryTarget(): Promise<void> {

@@ -21,8 +21,7 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * The variance is deliberate: detail-pane vs scan-without-selecting workflows
  * have different content shapes. The shared primitive keeps the anatomy locked.
  *
- * Family-resemblance contract — documented in
- * `knowledge/brand/panel-patterns.md`:
+ * Family-resemblance contract:
  *   - StatusDot leading at 6 px.
  *   - Identifier: `font-mono tabular-nums text-meta text-[color:var(--text-subtle)]`.
  *   - Title: `text-body font-medium`.

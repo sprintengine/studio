@@ -149,10 +149,10 @@ def test_standalone_soul_layers_multicode_skills_only() -> None:
 
 
 # A base Soul may legitimately cite a repository file whose *name* contains a
-# forbidden word (`src/remotion/SprintEngineProductHero.tsx` in the creative
-# Soul). The guard is about runtime vocabulary in prose, so drop code-span file
-# paths before matching. Only path-shaped spans are dropped: a bare `` `task
-# card` `` or `` `claimsChecked` `` span still counts as a leak.
+# forbidden word (a path like `src/video/SprintEngineHero.tsx`). The guard is
+# about runtime vocabulary in prose, so drop code-span file paths before
+# matching. Only path-shaped spans are dropped: a bare `` `task card` `` or
+# `` `claimsChecked` `` span still counts as a leak.
 _CODE_SPAN_FILE_PATH = re.compile(r"`[\w.@/-]+/[\w.@-]+\.[A-Za-z0-9]+`")
 
 

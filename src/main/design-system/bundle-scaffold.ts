@@ -18,7 +18,7 @@ import {
 // (tokens, principles, components, patterns, glyphs) is the designer agent's
 // work — the scaffold never seeds sample design content, so nothing in the
 // bundle pretends to be authored. Layout contract:
-// knowledge/multicode/design-system-bundle.md.
+// resources/design-system/templates/USAGE.md.
 
 const AUTHORED_CONTENT_DIRECTORIES = [
   'foundations',

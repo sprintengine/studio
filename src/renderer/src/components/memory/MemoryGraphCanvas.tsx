@@ -63,7 +63,10 @@ type Star = {
   phase: number
 }
 
-// Palette comes from the spec; the legend reads the same map.
+// Palette comes from the spec; the legend reads the same map. It covers the
+// bucket names the graph knows by name — a vault's own folder and frontmatter
+// vocabulary is open-ended, so anything outside this map gets a stable
+// generated hue instead (colorForBucket).
 export const TYPE_COLORS: Record<string, string> = {
   concept: '#00e5ff',
   service: '#b388ff',
@@ -78,27 +81,43 @@ export const TYPE_COLORS: Record<string, string> = {
 }
 
 export function colorForNode(node: MemoryGraphNode): string {
-  return TYPE_COLORS[bucketForNode(node)] ?? TYPE_COLORS.default
+  return colorForBucket(bucketForNode(node))
+}
+
+/**
+ * The colour a bucket paints with. Named buckets come from TYPE_COLORS so the
+ * spec's vocabulary always reads the same; every other bucket — a vault's own
+ * folder names and frontmatter types, which no palette can enumerate — gets a
+ * hue generated from the bucket name. The hash is stable, so a bucket keeps its
+ * colour across sessions and machines, and saturation/lightness are fixed to
+ * the palette's range so a generated hue sits beside a named one without
+ * looking like a different design.
+ */
+export function colorForBucket(bucket: string): string {
+  const named = TYPE_COLORS[bucket]
+  if (named) return named
+  if (!bucket || bucket === 'default') return TYPE_COLORS.default
+  // FNV-1a over the bucket name: cheap, dependency-free, well spread over 360.
+  let hash = 0x811c9dc5
+  for (let index = 0; index < bucket.length; index += 1) {
+    hash ^= bucket.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `hsl(${(hash >>> 0) % 360} 78% 68%)`
 }
 
 export function bucketForNode(node: MemoryGraphNode): string {
   const fromType = node.type?.trim().toLowerCase()
-  if (fromType && TYPE_COLORS[fromType]) return fromType
   if (fromType) return fromType
-  // No frontmatter type: fall back to the first folder, then a few filename heuristics
-  // so a vault with everything at the root still gets multiple colours.
+  // No frontmatter type: fall back to the first folder, then to the leading
+  // segment of the filename, so a vault with everything at the root still gets
+  // more than one colour. Both are the vault's own words, never a guess about
+  // what a particular note is — the legend prints the bucket, so an invented
+  // label would tell the reader something untrue.
   const group = node.group?.toLowerCase() ?? ''
-  if (group && group !== 'root' && TYPE_COLORS[group]) return group
   if (group && group !== 'root') return group
-  const name = node.name.toLowerCase()
-  if (/^multiauth/.test(name)) return 'service'
-  if (/^multibench/.test(name)) return 'service'
-  if (/^multibrand/.test(name)) return 'service'
-  if (/^multivoice/.test(name)) return 'product'
-  if (/^multicode/.test(name)) return 'product'
-  if (/ecosystem|readme/.test(name)) return 'concept'
-  if (/benchmark/.test(name)) return 'knowledge'
-  return 'default'
+  const prefix = /^([a-z][a-z0-9]{1,23})(?:[-_. ]|$)/.exec(node.name.toLowerCase())?.[1]
+  return prefix ?? 'default'
 }
 
 const STARFIELD_COUNT = 600

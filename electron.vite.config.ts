@@ -78,9 +78,23 @@ function rendererDevPort(): number {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 5173
 }
 
+// Build-time defaults for the two services main talks to (src/main/service-endpoints.ts).
+// Set MULTIAUTH_BASE_URL / MULTICODE_MOBILE_RELAY_URL in the build environment to bake a
+// fork's own deployments in; unset, the shipped defaults are used. Both stay overridable
+// at runtime by the same env names, so this only moves where the fallback comes from.
+function serviceEndpointDefines(): Record<string, string> {
+  const defines: Record<string, string> = {}
+  const accountService = process.env['MULTIAUTH_BASE_URL']?.trim()
+  const relay = process.env['MULTICODE_MOBILE_RELAY_URL']?.trim()
+  if (accountService) defines['__MULTIAUTH_BASE_URL__'] = JSON.stringify(accountService)
+  if (relay) defines['__MOBILE_RELAY_URL__'] = JSON.stringify(relay)
+  return defines
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin(), buildStampPlugin()],
+    define: serviceEndpointDefines(),
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

@@ -5,7 +5,7 @@
     "A sprint-engine task/artifact/status change still changes the top-level snapshotVersion (MC-1567 invariant preserved; unit test).",
     "Wire is unchanged: protocol stays v2, snapshot.request payload and the {ok,unchanged:true,snapshotVersion} response shape are untouched, no new field or relay scope, no re-pair.",
     "`npm run typecheck:app` and the mobile bridge / snapshot unit tests pass.",
-    "KG notes updated in the SAME publish: knowledge/multicode-mobile/protocol.md (item-1599 section: fast-path now fires; version is content-derived and content-complete incl. backlog+automations, excl. wall-clock; still v2) and knowledge/multicode/mobile-bridge.md (snapshotVersion is content-stable across idle reads). Do NOT edit relay.md or multicode-mobile.md push/ledger claims."
+    "KG notes updated in the SAME publish: docs/multicode-mobile/protocol.md (item-1599 section: fast-path now fires; version is content-derived and content-complete incl. backlog+automations, excl. wall-clock; still v2) and docs/multicode/mobile-bridge.md (snapshotVersion is content-stable across idle reads). Do NOT edit relay.md or multicode-mobile.md push/ledger claims."
   ],
   "activity": [
     {
@@ -117,8 +117,8 @@
       "paths": [
         "src/main/mobile/sprintengine/snapshot.ts",
         "src/main/mobile/sprintengine/snapshot.test.ts",
-        "knowledge/multicode-mobile/protocol.md",
-        "knowledge/multicode/mobile-bridge.md"
+        "docs/multicode-mobile/protocol.md",
+        "docs/multicode/mobile-bridge.md"
       ],
       "source": "agent",
       "type": "implementation_summary"
@@ -218,7 +218,7 @@
             "section": "The order is the contract, not an implementation detail: a lost role catalog or"
           }
         ],
-        "path": "knowledge/multicode-mobile/protocol.md",
+        "path": "docs/multicode-mobile/protocol.md",
         "skippedReason": null,
         "source": "working_tree",
         "status": "modified",
@@ -289,7 +289,7 @@
             "section": null
           }
         ],
-        "path": "knowledge/multicode/mobile-bridge.md",
+        "path": "docs/multicode/mobile-bridge.md",
         "skippedReason": null,
         "source": "working_tree",
         "status": "modified",
@@ -2012,8 +2012,8 @@
   "ownedPaths": [
     "src/main/mobile/sprintengine/snapshot.ts",
     "src/main/mobile/sprintengine/snapshot.test.ts",
-    "knowledge/multicode-mobile/protocol.md",
-    "knowledge/multicode/mobile-bridge.md"
+    "docs/multicode-mobile/protocol.md",
+    "docs/multicode/mobile-bridge.md"
   ],
   "ownerAgentId": null,
   "repo": "primary",

@@ -7,8 +7,7 @@
 //   node scripts/build-tokens.mjs           # from the bundle root
 //   node scripts/build-tokens.mjs <bundle>  # explicit bundle root
 //
-// Emission contract (knowledge/multicode/design-system-bundle.md in the
-// authoring repo; stable per design-system.json schemaVersion):
+// Emission contract (USAGE.md; stable per design-system.json schemaVersion):
 //   - one custom property per token: `--` + token path with `.` → `-`
 //   - `:root { … }` holds every token at its light/default $value
 //   - `[data-mode="dark"] { … }` re-declares only the tokens whose
@@ -135,7 +134,7 @@ function main() {
 
   let css = `/* GENERATED FILE — do not edit by hand.
  * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
- * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * Emission contract: USAGE.md ("Derived files") and design-system.json.
  * :root carries the light (default) mode; [data-mode="dark"] overrides the
  * tokens whose values differ in dark mode. */
 :root {

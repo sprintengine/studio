@@ -204,7 +204,7 @@ export function WatchtowerActiveReviewAside({
                         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                           role ? '' : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]'
                         }`}
-                        // design-tokens-allow: role glyph is the documented exception to the one-accent rule; see knowledge/brand/panel-design-system.md.
+                        // design-tokens-allow: role glyph is the documented exception to the one-accent rule; see design-system/foundations/principles.md.
                         style={discStyle}
                         aria-hidden="true"
                       >

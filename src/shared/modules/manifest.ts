@@ -5,8 +5,8 @@
 // the extension surfaces it needs. This file holds the process-agnostic types so
 // the main, preload, and renderer hosts all speak the same vocabulary.
 //
-// See future-plans/2026-05-28-feature-level-pluggable-architecture.md for the
-// design rationale. Phase 0 ships the contracts, the main-process kernel, and a
+// See docs/module-authors/drop-in-extensions.md for the author-facing contract.
+// Phase 0 ships the contracts, the main-process kernel, and a
 // pure enablement resolver; later phases migrate features onto it and add the
 // renderer/preload hosts plus the user-facing module chooser.
 

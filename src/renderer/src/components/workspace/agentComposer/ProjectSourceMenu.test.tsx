@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     <ProjectSourceMenu
       options={[
         { path: '/w/multicode', label: 'multicode' },
-        { path: '/w/quickscan', label: 'quickscan' },
+        { path: '/w/toolbox', label: 'toolbox' },
       ]}
       recentOptions={[{ path: '/w/old-repo', label: 'old-repo' }]}
       selectedPath="/w/multicode"

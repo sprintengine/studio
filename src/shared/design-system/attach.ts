@@ -2,8 +2,8 @@
 // workspace (main-process attach ↔ preload ↔ renderer). Attach is a one-time
 // copy to <workspace>/design-system/ with provenance stamped into the copy —
 // no live sync, no re-materialize-on-update, and never an overwrite or merge
-// when the target already exists. Contract:
-// knowledge/multicode/design-system-bundle.md.
+// when the target already exists. Bundle format contract:
+// resources/design-system/templates/USAGE.md.
 
 /**
  * Where the bundle comes from: an entry in the user-global library

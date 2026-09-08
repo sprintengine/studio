@@ -14,8 +14,7 @@ import { FOCUS_RING_CLASS } from './tokens'
 // primary content columns like the inbox column in Watchtower and Sprint
 // Engine, where the column carries the panel's main flow.
 //
-// Width presets match the documented sister-aside widths in
-// knowledge/brand/panel-design-system.md:
+// Width presets match the documented sister-aside widths:
 //   sm — 38 % / 320–520. Quieter right-side asides (running agents,
 //        active review).
 //   md — 42 % / 320–560. Detail asides anchored to the right.

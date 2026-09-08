@@ -88,9 +88,6 @@ is no longer the *only* source the app will consume:
   can point the read at the HotStack catalogue `GET /v1/registry`; this seed
   stays the offline/packaged fallback either way.
 
-See `knowledge/multicode/extensibility-platform.md` (HotStack Catalogue Consumer
-section) and `knowledge/hotstack-catalogue.md` for the full contracts.
-
 ## Verification
 
 Run this from the Multicode app repo root to validate the local seed registry:

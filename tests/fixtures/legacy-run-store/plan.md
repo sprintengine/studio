@@ -143,15 +143,15 @@ T4  spec_reviewer     Final spec/contract sign-off ................... depends: 
 ## 6. KG updates required in the same publish (T1 owns)
 
 Per the epic's cross-cutting acceptance, the notes 1605 invalidates must be updated in the same
-publish (these files live in `multicode/knowledge/`, so they are editable from this repo):
-- `knowledge/multicode-mobile/protocol.md` — the item-1599 section says the fast-path "cannot fire
+publish (these files live in `docs/`, so they are editable from this repo):
+- `docs/multicode-mobile/protocol.md` — the item-1599 section says the fast-path "cannot fire
   in steady state" because `readSnapshot` folds wall-clock `generatedAt` and omits
   backlog/automations. After 1605, update it to: top-level version is content-derived and
   content-complete (incl. backlog + automations, excl. wall-clock); fast-path now fires. Still v2.
-- `knowledge/multicode/mobile-bridge.md` — refresh any `snapshotVersion` precondition wording so it
+- `docs/multicode/mobile-bridge.md` — refresh any `snapshotVersion` precondition wording so it
   states the version is content-stable across idle reads.
 
-Do **not** edit `knowledge/multiauth/relay.md` or `knowledge/multicode-mobile.md` push/ledger
+Do **not** edit `docs/multiauth/relay.md` or `docs/multicode-mobile.md` push/ledger
 claims — those correspond to relay/mobile code this run does not change; editing them would make the
 KG lie about code that still exists.
 

@@ -10,8 +10,7 @@ import { TruncatedText } from './TruncatedText'
 // The lane primitive owns:
 //   - The flex column section (`flex-1` with a caller-set `minWidth` floor)
 //   - The header rhythm (label + optional glyph + count) matching the
-//     Switchboard pattern documented in
-//     knowledge/brand/panel-design-system.md
+//     Switchboard pattern
 //   - The scrollable `<ol>` body with FLIP wired via useFlipReorder
 //   - The visual state classes for the four drag states (default, dimmed,
 //     legal-drop-target, source)

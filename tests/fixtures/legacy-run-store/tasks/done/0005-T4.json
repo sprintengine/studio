@@ -54,8 +54,8 @@
         "src/main/mobile/sprintengine/snapshot.ts",
         "src/main/mobile/sprintengine/snapshot.test.ts",
         "src/main/mobile/bridge/snapshot-request.test.ts",
-        "knowledge/multicode-mobile/protocol.md",
-        "knowledge/multicode/mobile-bridge.md"
+        "docs/multicode-mobile/protocol.md",
+        "docs/multicode/mobile-bridge.md"
       ],
       "source": "agent",
       "type": "implementation_summary"
@@ -66,7 +66,7 @@
     "T1",
     "T2"
   ],
-  "description": "Confirm the 1605 change stays within the pinned contract and that the knowledge graph matches the code after the change.\n\nFocus:\n- Wire contract: protocol still v2; `snapshot.request` payload and the `{ok, unchanged:true, snapshotVersion}` response shape unchanged; no new field, no new relay scope, no re-pair.\n- KG fidelity: `knowledge/multicode-mobile/protocol.md` and `knowledge/multicode/mobile-bridge.md` were updated in the same publish and now accurately describe content-stable, content-complete (backlog+automations, no wall-clock) top-level versioning with the fast-path firing. Verify `knowledge/multiauth/relay.md` and `knowledge/multicode-mobile.md` were NOT edited to claim relay/mobile deletions that did not happen.\n- Acceptance coverage: every T1 acceptance criterion is actually met by the diff.\n\nReport findings via task tooling; block on any contract or KG drift.",
+  "description": "Confirm the 1605 change stays within the pinned contract and that the knowledge graph matches the code after the change.\n\nFocus:\n- Wire contract: protocol still v2; `snapshot.request` payload and the `{ok, unchanged:true, snapshotVersion}` response shape unchanged; no new field, no new relay scope, no re-pair.\n- KG fidelity: `docs/multicode-mobile/protocol.md` and `docs/multicode/mobile-bridge.md` were updated in the same publish and now accurately describe content-stable, content-complete (backlog+automations, no wall-clock) top-level versioning with the fast-path firing. Verify `docs/multiauth/relay.md` and `docs/multicode-mobile.md` were NOT edited to claim relay/mobile deletions that did not happen.\n- Acceptance coverage: every T1 acceptance criterion is actually met by the diff.\n\nReport findings via task tooling; block on any contract or KG drift.",
   "evidence": {
     "commandsRan": [
       "git diff --name-only main...HEAD",
@@ -88,8 +88,8 @@
     "touchedFiles": [
       "src/main/mobile/sprintengine/snapshot.ts",
       "src/main/mobile/sprintengine/snapshot.test.ts",
-      "knowledge/multicode-mobile/protocol.md",
-      "knowledge/multicode/mobile-bridge.md",
+      "docs/multicode-mobile/protocol.md",
+      "docs/multicode/mobile-bridge.md",
       "src/shared/automations/cadence.ts"
     ]
   },

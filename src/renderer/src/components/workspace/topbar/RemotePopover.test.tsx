@@ -123,7 +123,7 @@ function status(overrides: Partial<TailnetRemoteStatus> = {}): TailnetRemoteStat
 function connection(overrides: Partial<FleetConnection> = {}): FleetConnection {
   return {
     id: 'conn-1',
-    machineName: 'Conal’s MacBook Air',
+    machineName: 'Sam’s MacBook Air',
     endpoint: '100.106.119.1:8471',
     deviceId: 'tnd_x',
     deviceName: 'mini',
@@ -138,7 +138,7 @@ function connection(overrides: Partial<FleetConnection> = {}): FleetConnection {
 function reach(overrides: Partial<FleetMachineReachability> = {}): FleetMachineReachability {
   return {
     connectionId: 'conn-1',
-    machineName: 'Conal’s MacBook Air',
+    machineName: 'Sam’s MacBook Air',
     checking: false,
     reachable: true,
     unauthorized: false,
@@ -167,7 +167,7 @@ function attachments(list: Array<Partial<FleetLiveAttachment> & { attachId: stri
   return new Map(
     list.map((entry) => [
       entry.attachId,
-      { connectionId: 'conn-1', machineName: 'Conal’s MacBook Air', sessionId: 's1', state: 'live', detail: '', ...entry },
+      { connectionId: 'conn-1', machineName: 'Sam’s MacBook Air', sessionId: 's1', state: 'live', detail: '', ...entry },
     ])
   )
 }
@@ -391,9 +391,9 @@ run('the glyph itself carries the state: green for serving or connected, pulsing
 })
 
 run('a machine is named by its first label: the tailnet tail is the same on every row', () => {
-  assert.equal(shortMachineName('dev-macbook-air.tail1234.ts.net'), 'dev-macbook-air')
+  assert.equal(shortMachineName('sam-macbook-air.tailabc123.ts.net'), 'sam-macbook-air')
   assert.equal(shortMachineName('android-phone'), 'android-phone')
-  assert.equal(shortMachineName('Conal’s MacBook Air'), 'Conal’s MacBook Air', 'a typed name is left alone')
+  assert.equal(shortMachineName('Sam’s MacBook Air'), 'Sam’s MacBook Air', 'a typed name is left alone')
   assert.equal(shortMachineName('Air. Studio'), 'Air. Studio', 'a full stop in a name is not a domain')
   assert.equal(shortMachineName('100.106.119.1'), '100.106.119.1', 'an address is not shortened into a lie')
 })
@@ -409,7 +409,7 @@ run('the popover lists the driving device and the machines — no addresses anyw
             {
               id: 'req1',
               deviceName: 'macbook-air',
-              peerNode: 'dev-macbook-air',
+              peerNode: 'sam-macbook-air',
               peerAddress: '100.106.119.1',
               comparisonCode: '481972',
               createdAt: new Date().toISOString(),
@@ -453,14 +453,14 @@ run('the popover lists the driving device and the machines — no addresses anyw
   assert.match(drivingGlyph?.innerHTML ?? '', /--tone-good/, 'and the glyph is green')
   assert.ok(buttonLabelled(mounted, /^Revoke Sprint Engine Android$/), 'a red X revokes the device — the word is in its name and tooltip')
   // The card: the proven node and the declared name, each labelled.
-  assert.match(markup, /dev-macbook-air/)
+  assert.match(markup, /sam-macbook-air/)
   assert.match(markup, /asks to pair/)
   assert.match(markup, /Tailnet node/)
   assert.match(markup, /Calls itself/)
   assert.match(markup, /macbook-air/)
   // Phase 2: the code is TYPED here, not displayed — the digits live on the asker's screen.
   assert.doesNotMatch(markup, /481972/, 'the comparison code is not shown on the approving side')
-  assert.match(markup, /Enter the code shown on dev-macbook-air/)
+  assert.match(markup, /Enter the code shown on sam-macbook-air/)
   assert.ok(codeInput(mounted), 'a numeric code input')
   assert.ok(buttonNamed(mounted, /^Allow/)?.disabled, 'Allow is dead until six digits are typed')
   assert.match(markup, /Terminals — control/)
@@ -469,7 +469,7 @@ run('the popover lists the driving device and the machines — no addresses anyw
   assert.match(markup, /Decline/)
   assert.doesNotMatch(markup, /Review/, 'no pointer elsewhere — the card acts, right here')
   // Machines: the shared remote glyph leads the row, the phase dot and text follow.
-  assert.match(markup, /Conal’s MacBook Air/)
+  assert.match(markup, /Sam’s MacBook Air/)
   assert.match(markup, /2 terminals attached/)
   assert.match(markup, /data-machine-answering="true"/, 'a machine with a live link is answering')
   assert.match(markup, /aria-label="Answering"/, 'said on its glyph')
@@ -490,7 +490,7 @@ run('machine rows narrate the transitional and failed phases with the phase dot 
     )
   )
   const markup = mounted.innerHTML
-  assert.match(markup, /Reconnecting to Conal’s MacBook Air…/)
+  assert.match(markup, /Reconnecting to Sam’s MacBook Air…/)
   assert.doesNotMatch(markup, /status-dot-pulse/, 'no dots: the words carry the transitional phase, the glyph stays in the default ink')
   assert.match(markup, /Mini is not answering/)
   assert.match(markup, /aria-label="Not answering"/)
@@ -695,11 +695,11 @@ run('a paired machine can be dropped from here, and the half only they can do is
   })
   bridge.forgetCalls.length = 0
   const mounted = mount(popover(presence({ fleet: [connection()] })))
-  click(buttonLabelled(mounted, /^Remove Conal’s MacBook Air/))
+  click(buttonLabelled(mounted, /^Remove Sam’s MacBook Air/))
   await flush()
   assert.deepEqual(bridge.forgetCalls, ['conn-1'])
   const toast = useToastStore.getState().toasts[0]
-  assert.match(toast?.title ?? '', /Conal’s MacBook Air disconnected/)
+  assert.match(toast?.title ?? '', /Sam’s MacBook Air disconnected/)
   assert.match(toast?.description ?? '', /Revoke “mini”/, 'the grant over there is theirs to end')
   unmount()
 })
@@ -720,7 +720,7 @@ run('a wrong code is refused beside the field, in main’s words, and the field 
             {
               id: 'req-typo',
               deviceName: 'air',
-              peerNode: 'dev-macbook-air',
+              peerNode: 'sam-macbook-air',
               peerAddress: '100.4.4.4',
               comparisonCode: '481972',
               createdAt: new Date().toISOString(),
@@ -753,7 +753,7 @@ run('a request this machine made shows its code large with the instruction to ty
           {
             requestId: 'tpr_9',
             endpoint: '100.5.5.5:8471',
-            machineName: 'dev-macbook-air',
+            machineName: 'sam-macbook-air',
             comparisonCode: '481972',
             expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
             reverseOffered: true,
@@ -763,10 +763,10 @@ run('a request this machine made shows its code large with the instruction to ty
     )
   )
   const markup = mounted.innerHTML
-  assert.match(markup, /Waiting for dev-macbook-air/)
+  assert.match(markup, /Waiting for sam-macbook-air/)
   assert.match(markup, /481 972/, 'the code, grouped the way it is read aloud')
-  assert.match(markup, /Type this code on dev-macbook-air to allow it/)
-  assert.match(markup, /also lets dev-macbook-air drive this device/, 'the reverse offer is said')
+  assert.match(markup, /Type this code on sam-macbook-air to allow it/)
+  assert.match(markup, /also lets sam-macbook-air drive this device/, 'the reverse offer is said')
   click(buttonNamed(mounted, /Stop waiting/))
   await flush()
   assert.deepEqual(bridge.cancelCalls, ['tpr_9'])

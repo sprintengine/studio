@@ -134,7 +134,7 @@ readable.
 
 **knowledgeRefs.** `note` is the slug the workspace cites a note by — folder plus
 name, with no `knowledge/` prefix and no `.md` extension (for example
-`multicode/review-workspace`), matching the `[[note-name]]` form used inside
+`architecture/review-workspace`), matching the `[[note-name]]` form used inside
 narratives. List a note only if you opened it and it shaped what you wrote; an
 empty array is the honest answer when the change stands on its own, at any depth.
 

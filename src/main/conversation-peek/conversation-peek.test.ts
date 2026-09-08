@@ -100,8 +100,9 @@ function testCollapse(): void {
   // a whole line on its own is a drop and leaves nothing.
   assert.equal(dropped.text, 'Read USAGE.md and conform.', dropped.text)
 
-  // Verbatim from a real transcript on this machine. This is the message the
-  // card quotes in full, and substituting a bare space for each promoted path
+  // A whole typed message: prose over two paragraphs naming several paths, some
+  // inline in a sentence and some as bare tokens. This is the message the card
+  // quotes in full, and substituting a bare space for each promoted path
   // rendered it as "attached at ; read USAGE.md + + and conform" — which reads
   // as though the app corrupted what the person wrote.
   const real = collapsePeekText(
@@ -464,11 +465,11 @@ async function testOversizedImageKeepsItsPlace(): Promise<void> {
 // ── recovering a transcript the hook never named ────────────────────────────
 
 function testProjectDirEncoding(): void {
-  // Every case below is a directory that EXISTS under ~/.claude/projects on the
-  // machine this was written on, paired with the launch cwd its own transcript
-  // rows record. They are fixtures, not guesses: the encoding has changed
-  // between Claude Code versions, and an encoding derived from one example
-  // would name the wrong folder for the other three.
+  // Every case below pairs a launch cwd with the directory name Claude Code
+  // writes under ~/.claude/projects for it. Each covers a distinct shape
+  // observed in real project folders — the encoding has changed between Claude
+  // Code versions, and an encoding derived from one example would name the
+  // wrong folder for the other three.
   const cases: [string, string][] = [
     ['/home/dev/projects/multicode', '-home-dev-projects-multicode'],
     // `/.` becomes `--`: a dot is not special, it is just another separator.

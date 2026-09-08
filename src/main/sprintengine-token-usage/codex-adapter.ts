@@ -13,8 +13,7 @@ import { tokenCount, withDerivedTotals, type ModelTokenUsage } from './types'
 // already includes `cached_input_tokens` — unlike Claude Code, where input and
 // cache reads are disjoint. The adapter normalizes at this boundary
 // (`input − cached → input`) so `input` means non-cached input for every CLI
-// and cross-CLI sums never double-count Codex cache reads. See
-// knowledge/multicode/sprint-engine.md (Token Accounting).
+// and cross-CLI sums never double-count Codex cache reads.
 //
 // Reads are memoized: the rollout path never changes once found (location
 // memo), and the parsed usage is keyed on the file's mtime+size (content

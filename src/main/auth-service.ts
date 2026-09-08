@@ -40,6 +40,7 @@ import {
   type SecureRefreshTokenStore,
 } from './account-client'
 import { getErrorMessage } from './error-message'
+import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
 
 // `MULTIAUTH_BASE_URL` names the Multicode ACCOUNT SERVICE: where entitlement
 // snapshots come from and where the mobile relay lives. It is no longer, by
@@ -48,7 +49,8 @@ import { getErrorMessage } from './error-message'
 // self-hosted deployment, Clerk on the hosted one — and this bridge follows.
 // The environment variable keeps its historical name so existing overrides
 // (`MULTIAUTH_BASE_URL=http://localhost:3000` for local dev) keep working.
-const DEFAULT_MULTIAUTH_BASE_URL = 'https://multiauth-production.up.railway.app'
+// The default it falls back to is set in `./service-endpoints`, where a build
+// can bake in a different deployment via the same `MULTIAUTH_BASE_URL` name.
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || DEFAULT_MULTIAUTH_BASE_URL).replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
 const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const

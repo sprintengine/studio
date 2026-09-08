@@ -148,7 +148,7 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
   try {
     const credential = askingCredential()
     const asked = await call(harness.port, 'POST', TAILNET_PAIR_REQUEST_PATH, {
-      body: { deviceName: 'Conal’s MacBook Air', collectHash: credential.hash },
+      body: { deviceName: 'Sam’s MacBook Air', collectHash: credential.hash },
     })
     assert.equal(asked.status, 200, 'the ask is accepted')
     const requestId = asked.body.requestId as string
@@ -158,7 +158,7 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
     // The person at this machine sees it waiting, with the same digits.
     const waiting = harness.service.getStatus().pairRequests
     assert.equal(waiting.length, 1, 'the request is waiting to be answered here')
-    assert.equal(waiting[0].deviceName, 'Conal’s MacBook Air')
+    assert.equal(waiting[0].deviceName, 'Sam’s MacBook Air')
     assert.equal(waiting[0].comparisonCode, asked.body.comparisonCode, 'both screens show the same code')
 
     // Nothing is collectable until someone answers.

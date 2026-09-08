@@ -662,7 +662,7 @@ export type GuidedBriefHasUi = 'yes' | 'no'
 // as "Design only": a design-only studio that forces the UI path, skips
 // the product and architecture discussions, and starts on the designer stage.
 // `design-system` reuses that design-only studio but authors a portable
-// design-system bundle (see knowledge/multicode/design-system-bundle.md)
+// design-system bundle (see resources/design-system/templates/USAGE.md)
 // instead of one app's mockups. All presets stay inside the `guided-brief`
 // workspace mode rather than becoming their own `WorkspaceMode`.
 export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
@@ -670,7 +670,7 @@ export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-syste
 // Where a design-system studio starts. `null`/absent is the blank scaffold;
 // otherwise the designer agent's opening move is extracting the de-facto
 // design language from the named source (a user-picked product folder, or the
-// built-in Multicode brand reference resolved by the main process). The path
+// built-in example design system resolved by the main process). The path
 // is machine-local by design — it is read live by the designer session on this
 // machine and never travels inside the portable bundle.
 export type DesignSystemSeedSource = {

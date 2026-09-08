@@ -10,7 +10,8 @@
 // frame with `composePreviewSrcDoc`.
 //
 // The door is read-only: nothing here writes into a bundle folder or forks a
-// bundle script. Contract: knowledge/multicode/design-system-bundle.md.
+// bundle script. Bundle format contract:
+// resources/design-system/templates/USAGE.md.
 
 import type { DesignSystemManifest } from './manifest'
 

@@ -162,8 +162,11 @@ jobs:
           # write to another repo, so this is a fine-grained PAT with Contents
           # read/write on studio-releases only. Source never goes there.
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          # Developer ID Application: Conal Smith (EXAMPLETEAM), expires
-          # 2027-02-01. build.mac.notarize is true, so the CSC_* pair and the
+          # CSC_LINK is a "Developer ID Application" certificate exported as a
+          # base64 .p12; APPLE_TEAM_ID is the team it was issued to. Both live
+          # in repo secrets — check the certificate's expiry in Apple's
+          # developer portal before a release, an expired one fails the signing
+          # step. build.mac.notarize is true, so the CSC_* pair and the
           # APPLE_* trio are all load-bearing: a certificate without
           # notarisation credentials signs the app and then fails the notarise
           # step, turning a green release red. Never add WIN_CSC_* here.

@@ -31,10 +31,10 @@ async function runAsync(name: string, body: () => Promise<void>): Promise<void> 
 // pid 83900 → 1 thread.
 const PS_M_OUTPUT = [
   'USER           PID   TT   %CPU STAT PRI     STIME     UTIME COMMAND',
-  'dev 82135 s281    0.0 S    31T   0:00.05   0:00.25 node /path/playwright-mcp',
+  'devuser      82135 s281    0.0 S    31T   0:00.05   0:00.25 node /path/playwright-mcp',
   '             82135         0.0 S    31T   0:00.00   0:00.00 ',
   '             82135         0.0 S    31T   0:00.00   0:00.01 ',
-  'dev 83900 s000    0.0 S    31T   0:00.01   0:00.02 -zsh',
+  'devuser      83900 s000    0.0 S    31T   0:00.01   0:00.02 -zsh',
   '',
 ].join('\n')
 

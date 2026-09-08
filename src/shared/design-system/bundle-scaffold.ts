@@ -2,7 +2,7 @@
 // preload ↔ renderer). Scaffolding stamps the bundle layout from
 // resources/design-system/templates into a workspace so the Design Wizard's
 // design-system preset starts from a well-formed, lintable bundle — see
-// knowledge/multicode/design-system-bundle.md for the layout contract.
+// resources/design-system/templates/USAGE.md for the layout contract.
 
 /**
  * Where the bundle lives inside a workspace, for both the main-process writer

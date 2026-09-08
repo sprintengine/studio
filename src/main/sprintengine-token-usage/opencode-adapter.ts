@@ -7,7 +7,7 @@ import { emptyModelUsage, tokenCount, type FetchLike, type ModelTokenUsage } fro
 // `info.modelID`, mapping cache.read -> cacheRead and cache.write ->
 // cacheCreation. ModelTokenUsage has no reasoning field, so reasoning tokens
 // fold into `output` (consistent with how Phase 1 totals consume perModel and
-// with cost math in T8). See knowledge/multicode/sprint-engine.md.
+// with cost math in T8).
 //
 // The server picks a port at launch (`--port 0`), so there is no port to
 // hardcode: the base URL is resolved from the OPENCODE_SERVER env var (the

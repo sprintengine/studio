@@ -14,7 +14,7 @@ import { attachedWorkspaceFor, buildRemoteBand, shouldBrowse } from './remoteSes
 
 const air: FleetConnection = {
   id: 'c1',
-  machineName: 'dev-macbook-air',
+  machineName: 'sam-macbook-air',
   endpoint: '100.64.0.5:8471',
   deviceId: 'tnd_1',
   deviceName: 'mini',
@@ -117,7 +117,7 @@ const band = buildRemoteBand({
   reachability,
   workspaces: [local, stamped],
 })
-assert.deepEqual(band.map((group) => group.machineName), ['dev-macbook-air', 'studio'], 'machines in name order')
+assert.deepEqual(band.map((group) => group.machineName), ['sam-macbook-air', 'studio'], 'machines in name order')
 const airGroup = band[0]!
 // Conversations only (owner ruling 2026-09-05): a plain shell is not a row,
 // nor is an exited pty; a paused agent still is, last.

@@ -6,31 +6,31 @@ import type { GitHubRepoSummary } from '../../../../../shared/electron-api'
 
 // --- validateCloneUrl -------------------------------------------------------
 {
-  const https = validateCloneUrl('https://github.com/acme/multicode')
+  const https = validateCloneUrl('https://github.com/octocat/multicode')
   assert.ok(https.ok, 'a github web URL is a valid clone source')
-  assert.equal(https.ok && https.url, 'https://github.com/acme/multicode', 'kept verbatim minus nothing')
+  assert.equal(https.ok && https.url, 'https://github.com/octocat/multicode', 'kept verbatim minus nothing')
   assert.equal(https.ok && https.repoName, 'multicode', 'repo name from the last path segment')
   assert.equal(https.ok && https.httpsHost, 'github.com', 'host surfaces for token routing')
 }
 {
-  const suffixed = validateCloneUrl('https://github.com/acme/multicode.git/')
+  const suffixed = validateCloneUrl('https://github.com/octocat/multicode.git/')
   assert.ok(suffixed.ok, '.git suffix and trailing slash are accepted')
   assert.equal(suffixed.ok && suffixed.repoName, 'multicode', '.git is stripped from the name')
 }
 {
-  const scp = validateCloneUrl('git@github.com:acme/multicode.git')
+  const scp = validateCloneUrl('git@github.com:octocat/multicode.git')
   assert.ok(scp.ok, 'scp-style ssh is a valid clone source')
   assert.equal(scp.ok && scp.httpsHost, null, 'no https host — the token must never ride ssh')
   assert.equal(scp.ok && scp.repoName, 'multicode')
 }
 {
-  const sshUrl = validateCloneUrl('ssh://git@github.com/acme/multicode.git')
+  const sshUrl = validateCloneUrl('ssh://git@github.com/octocat/multicode.git')
   assert.ok(sshUrl.ok, 'ssh:// URLs are accepted')
 }
 {
-  const pageUrl = validateCloneUrl('https://github.com/acme/multicode/tree/main/src')
+  const pageUrl = validateCloneUrl('https://github.com/octocat/multicode/tree/main/src')
   assert.ok(pageUrl.ok, 'a github.com page URL with a sub-path is accepted')
-  assert.equal(pageUrl.ok && pageUrl.url, 'https://github.com/acme/multicode', 'normalized to the repo root')
+  assert.equal(pageUrl.ok && pageUrl.url, 'https://github.com/octocat/multicode', 'normalized to the repo root')
   assert.equal(pageUrl.ok && pageUrl.repoName, 'multicode')
 }
 {
@@ -50,12 +50,12 @@ assert.equal(validateCloneUrl('not a url').ok, false, 'whitespace is rejected')
 
 // --- resolveCloneSource -----------------------------------------------------
 const repo: GitHubRepoSummary = {
-  fullName: 'acme/relay-service',
-  name: 'relay-service',
-  owner: 'acme',
+  fullName: 'octocat/weather-api',
+  name: 'weather-api',
+  owner: 'octocat',
   isPrivate: true,
-  description: 'Standalone relay',
-  cloneUrl: 'https://github.com/acme/relay-service.git',
+  description: 'Standalone service',
+  cloneUrl: 'https://github.com/octocat/weather-api.git',
   defaultBranch: 'main',
   pushedAt: '2026-08-30T00:00:00Z',
 }
@@ -64,7 +64,7 @@ const repo: GitHubRepoSummary = {
   const picked = resolveCloneSource(repo, '')
   assert.ok(picked.source, 'a picked repo resolves')
   assert.equal(picked.source?.url, repo.cloneUrl, 'the API clone_url is used verbatim')
-  assert.equal(picked.source?.repoName, 'relay-service', 'folder leaf comes from the repo name')
+  assert.equal(picked.source?.repoName, 'weather-api', 'folder leaf comes from the repo name')
 }
 {
   const blank = resolveCloneSource(null, '   ')
@@ -84,10 +84,10 @@ const repo: GitHubRepoSummary = {
 // --- filterGitHubRepos ------------------------------------------------------
 const repos: GitHubRepoSummary[] = [
   repo,
-  { ...repo, fullName: 'acme/multicode', name: 'multicode', description: 'SprintEngine Studio desktop app' },
+  { ...repo, fullName: 'octocat/multicode', name: 'multicode', description: 'SprintEngine Studio desktop app' },
 ]
 assert.equal(filterGitHubRepos(repos, '').length, 2, 'no filter returns everything')
-assert.equal(filterGitHubRepos(repos, 'RELAY').length, 1, 'full-name match, case-insensitive')
+assert.equal(filterGitHubRepos(repos, 'WEATHER').length, 1, 'full-name match, case-insensitive')
 assert.equal(filterGitHubRepos(repos, 'desktop app').length, 1, 'description matches too')
 assert.equal(filterGitHubRepos(repos, 'zzz').length, 0, 'no match filters all')
 

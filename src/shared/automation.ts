@@ -4,8 +4,7 @@
 // The automation server (src/main/automation/) is a local-only MCP endpoint
 // owned by the app's main process. Reads answer from main's authoritative
 // stores (the workspace registry + terminal runtime), and so do mutations:
-// there is one lane, and no window is involved in any of them. See
-// knowledge/multicode/automation-server.md.
+// there is one lane, and no window is involved in any of them.
 //
 // There used to be a second lane — a request/respond IPC pair that asked the
 // primary window's renderer to run the same store actions the UI used. Every

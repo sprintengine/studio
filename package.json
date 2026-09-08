@@ -1,12 +1,22 @@
 {
-  "name": "multicode",
+  "name": "sprintengine-studio",
   "version": "0.4.0",
-  "description": "AI-first IDE and agent sprintengine command center",
+  "description": "Agent-first desktop IDE and sprint command centre that runs coding agent CLIs across parallel workspaces.",
   "author": "Conal Smith",
-  "license": "UNLICENSED",
+  "license": "FSL-1.1-Apache-2.0",
   "private": true,
   "main": "./out/main/index.js",
-  "homepage": ".",
+  "homepage": "https://sprintengine.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sprintengine/studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sprintengine/studio/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node scripts/dev.js",
     "dev": "node scripts/dev.js",
@@ -44,18 +54,11 @@
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
     "lint:door-surfaces": "node scripts/lint-door-surfaces.mjs",
-    "lint:knowledge-size": "node scripts/lint-knowledge-size.mjs",
-    "lint:knowledge-size:report": "node scripts/lint-knowledge-size.mjs --report",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs && node node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs",
     "sync:catalogue": "node scripts/sync-catalogue.mjs",
     "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
-    "marketing:video:preview": "remotion studio src/remotion/index.ts",
-    "marketing:video:poster": "remotion still src/remotion/index.ts SprintEngineProductHero marketing/assets/sprintengine-product-hero-poster.png --frame=510 --overwrite",
-    "marketing:video:render": "remotion render src/remotion/index.ts SprintEngineProductHero marketing/assets/sprintengine-product-hero.mp4 --codec=h264 --overwrite",
-    "marketing:orchestration:poster": "remotion still src/remotion/index.ts SprintEngineOrchestration marketing/assets/sprintengine-orchestration-poster.png --frame=560 --overwrite",
-    "marketing:orchestration:render": "remotion render src/remotion/index.ts SprintEngineOrchestration marketing/assets/sprintengine-orchestration.mp4 --codec=h264 --overwrite",
     "postinstall": "node scripts/fix-node-pty-permissions.js"
   },
   "build": {
@@ -274,7 +277,6 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.202",
     "@monaco-editor/react": "^4.7.0",
-    "@remotion/google-fonts": "^4.0.464",
     "@vscode/ripgrep": "^1.17.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
@@ -295,7 +297,6 @@
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@remotion/cli": "^4.0.464",
     "@tailwindcss/vite": "^4.0.6",
     "@types/d3-force": "^3.0.10",
     "@types/node": "^22.10.10",
@@ -309,7 +310,6 @@
     "jsdom": "^29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "remotion": "^4.0.464",
     "tailwindcss": "^4.0.6",
     "typescript": "^5.7.3",
     "vite": "^6.0.11"

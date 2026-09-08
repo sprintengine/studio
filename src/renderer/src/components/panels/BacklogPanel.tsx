@@ -146,7 +146,7 @@ import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, 
 // object store (items.json), never markdown frontmatter; Sprint Engine starts
 // route through the existing New Workspace plan-source flow with rough content.
 //
-// Follows knowledge/brand/aesthetic-north-star.md + panel-design-system.md:
+// Follows design-system/foundations/principles.md:
 // stripless nav-pane sibling of Files/Git/KG, one accent, hairline structure.
 // Triage reads as Shared meta — a t-shirt size token and a shape-coded
 // priority glyph+word — not as a per-row status dot. Unestimated is a calm

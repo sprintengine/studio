@@ -14,8 +14,8 @@
 // `--git-lane-*` palette modulo its size. When `headHash` is given, the colour
 // of HEAD's branch line is swapped into slot 0 so the checked-out branch always
 // takes the palette's lead hue. This hue-coded branch identity is a documented
-// north-star exception (see knowledge/brand/aesthetic-north-star.md, "One
-// accent"); ref pills in the renderer reuse the same index.
+// exception to the one-accent rule (design-system/foundations/principles.md);
+// ref pills in the renderer reuse the same index.
 
 export interface GitGraphInputCommit {
   hash: string

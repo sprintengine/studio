@@ -2234,7 +2234,7 @@ function testPickNextAutoRunsDefersBoundOwnerReworkToRevival(): void {
 
   // The revival pass is the one authority that respawns the departed owner, and
   // it is retry-limited so a crash-looping owner cannot spawn-storm.
-  const revivalWorkspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const revivalWorkspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Dana') } })
   const revivalPlan = planSprintEngineDispatch({
     workspace: revivalWorkspace,
     sprintEngineState: state,
@@ -2275,7 +2275,7 @@ function testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles():
     boardColumn: 'ready',
     ownerAgentId: null,
   })
-  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Devin') } })
+  const workspace = workspaceFixture({ agents: { 'developer-1': sprintAgent('developer-1', 'Dana') } })
   const state = sprintEngineStateFixture({
     tasks: [boundTask],
     sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-rework' }) },
@@ -3513,7 +3513,7 @@ async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
 
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
-    agents: { 'developer-1': sprintAgent('developer-1', 'Devin') },
+    agents: { 'developer-1': sprintAgent('developer-1', 'Dana') },
   })
   const state = sprintEngineStateFixture({
     tasks: [task({
@@ -3654,7 +3654,7 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
   const workspace = workspaceFixture({
     sprintEngineState,
     agents: {
-      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'developer-1': sprintAgent('developer-1', 'Dana'),
       'developer-2': sprintAgent('developer-2', 'Drew'),
       'developer-3': sprintAgent('developer-3', 'Dale'),
     },
@@ -4244,7 +4244,7 @@ async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise
   const workspace = workspaceFixture({
     sprintEngineState,
     agents: {
-      'developer-1': sprintAgent('developer-1', 'Devin'),
+      'developer-1': sprintAgent('developer-1', 'Dana'),
       'frontend-2': sprintAgent('frontend-2', 'Zion'),
     },
     sprintEngineAutoState: {
@@ -4482,7 +4482,7 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     agents: {
       architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'Plan handoff for the team', cliOnboardingPromptSent: false },
       product: sprintAgent('product', 'Pia'),
-      developer: sprintAgent('developer', 'Devin'),
+      developer: sprintAgent('developer', 'Dana'),
       frontend: sprintAgent('frontend', 'Rio'),
       security: sprintAgent('security', 'Shawn'),
       tester: sprintAgent('tester', 'Tess'),

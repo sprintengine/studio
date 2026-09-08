@@ -148,7 +148,7 @@ assert.match(
   /not a silent import/,
   'seeded prompt frames extraction as reviewed, not magic import',
 )
-assert.doesNotMatch(seededFolderPrompt, /Multicode brand reference/, 'folder seeding does not mention the demo source')
+assert.doesNotMatch(seededFolderPrompt, /example design system/, 'folder seeding does not mention the demo source')
 
 // Attached-design-system injection (T9): the mockup designer's prompt carries
 // the conform line when and only when the caller resolved design-system/ as
@@ -182,13 +182,13 @@ const seededDemoPrompt = buildGuidedBriefSpecialistStartupPrompt({
   designSystem: {
     bundleDirectoryPath: 'design-system',
     ideaSeedPath: '.guided-brief/idea-seed.md',
-    seedSource: { kind: 'brand-demo', path: '/app/knowledge/brand' },
+    seedSource: { kind: 'brand-demo', path: '/app/resources/design-system/example' },
   },
 })
-assert.match(seededDemoPrompt, /\/app\/knowledge\/brand/, 'demo seeding names the resolved demo path')
-assert.match(seededDemoPrompt, /Multicode brand reference/, 'demo seeding frames the built-in source')
-assert.match(seededDemoPrompt, /design-tokens\.md/, 'demo seeding points at the brand token tables')
-assert.match(seededDemoPrompt, /glyph-system\.md/, 'demo seeding points at the brand glyph language')
+assert.match(seededDemoPrompt, /\/app\/resources\/design-system\/example/, 'demo seeding names the resolved demo path')
+assert.match(seededDemoPrompt, /example design system/, 'demo seeding frames the built-in source')
+assert.match(seededDemoPrompt, /tokens\.tokens\.json/, 'demo seeding points at the example bundle token source')
+assert.match(seededDemoPrompt, /glyphs\//, 'demo seeding points at the example bundle glyph language')
 
 const architectPrompt = buildGuidedBriefSpecialistStartupPrompt({
   kind: 'architect',

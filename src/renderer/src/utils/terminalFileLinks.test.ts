@@ -98,7 +98,7 @@ function makeTerminal(cols: number, lines: MockLine[]): Terminal {
   return { cols, buffer } as unknown as Terminal
 }
 
-const hangingPathHead = '    future-plans/2026-06-07-sprintengine-targeted-review-gate-'
+const hangingPathHead = '    future-plans/2026-06-07-targeted-review-gate-'
 const hangingTerminal = makeTerminal(hangingPathHead.length, [
   { text: hangingPathHead, isWrapped: false },
   { text: '    rechecks.md', isWrapped: false },
@@ -107,17 +107,17 @@ const hangingLogical = readWrappedLogicalLine(hangingTerminal, 1)
 assert.ok(hangingLogical)
 assert.equal(
   hangingLogical.text,
-  '    future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+  '    future-plans/2026-06-07-targeted-review-gate-rechecks.md'
 )
 const hangingRefs = findTerminalFileReferences(hangingLogical.text, roots)
 assert.equal(hangingRefs.length, 1)
 assert.equal(
   hangingRefs[0]?.text,
-  'future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+  'future-plans/2026-06-07-targeted-review-gate-rechecks.md'
 )
 assert.equal(
   hangingRefs[0]?.resolvedPath,
-  '/repo/packages/app/future-plans/2026-06-07-sprintengine-targeted-review-gate-rechecks.md'
+  '/repo/packages/app/future-plans/2026-06-07-targeted-review-gate-rechecks.md'
 )
 const hangingRange = rangeForTerminalFileReference(hangingRefs[0]!, hangingLogical.segments)
 assert.deepEqual(hangingRange, { start: { x: 5, y: 1 }, end: { x: 15, y: 2 } })

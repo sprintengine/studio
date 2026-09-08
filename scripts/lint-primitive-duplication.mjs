@@ -75,8 +75,8 @@ const TOOLTIP_PATH = 'src/renderer/src/components/ui/Tooltip.tsx'
 // for its panel — that's exactly the shape rule (g) flags, so the canonical
 // primitive needs to be exempt.
 const DRAWER_PATH = 'src/renderer/src/components/ui/Drawer.tsx'
-// Memory graph atmosphere exception: pinned to exactly this canvas file per
-// knowledge/brand/aesthetic-north-star.md memory-graph exception.
+// Memory graph atmosphere exception: pinned to exactly this canvas file — the
+// graph is an atmospheric surface, not chrome.
 const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx'
 
 // Native <select> allow-list. Each entry MUST carry a comment pointing to
@@ -88,9 +88,9 @@ const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas
 //   AUDIT-PENDING: scheduled to migrate to ui/Select inside this Shared
 //     audit run. T31 triages whether the consumer recomposition still lands
 //     before signoff.
-//   COMPANION-PLAN-OWNED: target panels handled outside this run by
-//     future-plans/2026-05-13-linear-grade-followup-implementation.md.
-//     This audit's panel migrations stop short of these surfaces by design.
+//   COMPANION-PLAN-OWNED: target panels handled outside this run by a
+//     companion follow-up. This audit's panel migrations stop short of these
+//     surfaces by design.
 // Migration complete: SwitchboardBoardPanel and WatchtowerPanel native
 // <select> sites are now routed through ui/Select (see T8 of the Linear App
 // UI Upgrade — Phase 4 plan). SettingsPanel remains companion-plan-owned; keep

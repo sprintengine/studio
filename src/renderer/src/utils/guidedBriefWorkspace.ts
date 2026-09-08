@@ -235,7 +235,7 @@ export function buildDesignSystemIdeaSeedMarkdown(
           '## Seed Source',
           '',
           seedSource.kind === 'brand-demo'
-            ? '- Kind: built-in Multicode brand reference (demo)'
+            ? '- Kind: built-in example design system (demo)'
             : '- Kind: existing product folder',
           `- Path: \`${seedSource.path}\``,
           '',

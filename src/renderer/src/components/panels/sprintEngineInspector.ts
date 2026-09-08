@@ -350,9 +350,8 @@ export function formatArtifactBlockerSummary(
   return `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'} from ${taskIds}`
 }
 
-// Status idiom: the shared shape-coded LifecycleGlyph (see
-// knowledge/brand/glyph-system.md), so artifact review stage reads by shape and
-// matches the board columns — not a colour-only dot. The tinted status pill
+// Status idiom: the shared shape-coded LifecycleGlyph, so artifact review
+// stage reads by shape and matches the board columns — not a colour-only dot. The tinted status pill
 // (`artifactStatusTone`) that the artifact list rows used to draw beside this
 // was the same status said twice, with the product accent spent on
 // `ready_for_review`; it was removed in the 2026-09-02 audit and every surface

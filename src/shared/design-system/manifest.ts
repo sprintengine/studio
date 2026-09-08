@@ -55,8 +55,8 @@ function requireStringMap(value: unknown, field: string): Record<string, string>
 
 /**
  * Parses and validates a design-system.json manifest. Unknown fields are
- * preserved verbatim (forward compatibility is part of the schema contract —
- * see knowledge/multicode/design-system-bundle.md), so the returned object is
+ * preserved verbatim (forward compatibility is part of the schema contract,
+ * fixed by design-system.json's schemaVersion), so the returned object is
  * the parsed value itself, never a projection of known fields.
  */
 export function parseDesignSystemManifest(json: string): DesignSystemManifest {

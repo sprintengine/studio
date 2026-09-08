@@ -2,7 +2,7 @@
 // (src/main/automation/tailnet/) and the surfaces that configure it.
 //
 // The listener itself is opt-in and bound to the Tailscale interface address
-// only; see knowledge/multicode/tailnet-remote-control.md.
+// only.
 
 /**
  * Per-device scopes, mirroring the gateway's tool families.

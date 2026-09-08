@@ -52,13 +52,13 @@ const gh = versionControlProviderSpec('gh')
 {
   const view = resolveVersionControlRow(
     gh,
-    { id: 'gh', resolved: true, version: 'gh version 2.95.0', auth: { login: 'acme' } },
+    { id: 'gh', resolved: true, version: 'gh version 2.95.0', auth: { login: 'octocat' } },
     'ready',
     'darwin',
   )
   assert.equal(view.kind, 'authenticated')
   assert.equal(view.tone, 'good')
-  assert.equal(versionControlStateWords(view), 'Authenticated as acme')
+  assert.equal(versionControlStateWords(view), 'Authenticated as octocat')
 }
 
 {

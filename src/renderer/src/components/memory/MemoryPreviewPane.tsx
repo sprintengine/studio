@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
-import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
+import { bucketForNode, colorForBucket } from './MemoryGraphCanvas'
 import { Tooltip } from '../ui/Tooltip'
 import { CloseIconButton, GhostButton, InlineNotice, PanelHeader } from '../ui'
 
@@ -74,7 +74,7 @@ export default function MemoryPreviewPane({
   }, [onClose])
 
   const bucket = bucketForNode(node)
-  const color = TYPE_COLORS[bucket] ?? TYPE_COLORS.default
+  const color = colorForBucket(bucket)
   const title = node.title?.trim() || node.name
   const path = node.relativePath
   const canOpen = preview?.ok && (preview.previewKind === 'markdown' || preview.previewKind === 'text' || preview.previewKind === 'image')
@@ -179,7 +179,7 @@ export default function MemoryPreviewPane({
           <div className="flex flex-wrap gap-1.5">
             {related.map((target) => {
               const targetBucket = bucketForNode(target)
-              const targetColor = TYPE_COLORS[targetBucket] ?? TYPE_COLORS.default
+              const targetColor = colorForBucket(targetBucket)
               const label = target.title?.trim() || target.name.replace(/\.mdx?$/i, '')
               return (
                 <button

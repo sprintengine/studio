@@ -86,9 +86,9 @@ const BACKLOG_PREFIX = 'backlog/'
 const UNFILED_DIR = 'unfiled'
 const EPICS_PREFIX = 'backlog/epics/'
 
-// An epic's status is derived from its children and is never written to its file
-// (see knowledge/multicode/backlog.md). Exported so the main-process link writer
-// can spare an epic the launch status write the renderer already spares it.
+// An epic's status is derived from its children and is never written to its
+// file. Exported so the main-process link writer can spare an epic the launch
+// status write the renderer already spares it.
 export function isBacklogEpicRelativePath(relativePath: string): boolean {
   return relativePath.replace(/\\/g, '/').toLowerCase().startsWith(EPICS_PREFIX)
 }

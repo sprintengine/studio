@@ -122,3 +122,10 @@ electron.vite.config.*.mjs
 .claude/skills/studio-*/
 .grok/skills/studio-*/
 .opencode/skills/studio-*/
+
+# Agent-state hook files the studio writes into this workspace when it opens
+# it, with the socket and reporter paths of the machine substituted in. They
+# are install-time output, not source: the templates live under resources/.
+.grok/hooks/multicode-agent-state.json
+.opencode/plugin/multicode-agent-state.js
+.guided-brief/

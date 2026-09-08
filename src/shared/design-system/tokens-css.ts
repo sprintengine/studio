@@ -13,15 +13,16 @@
 // against.
 //
 // `emitTokensCss` is a SECOND implementation of the emission the bundle's own
-// `scripts/build-tokens.mjs` performs, which the KG otherwise forbids. It is
+// `scripts/build-tokens.mjs` performs, which the bundle contract otherwise
+// forbids. It is
 // allowed here for one reason: this one WRITES NOTHING. Regeneration still
 // belongs to the bundle's own script (forked by `derived-file-runner.ts`); this
 // only composes a string in memory so a scripts-off iframe has the right
 // variables. What keeps the two honest is `test:shared:design-system-tokens-css`,
 // which runs the template script over the example bundle and asserts
 // byte-equality with this function. If you change either emitter, that test
-// fails — which is the point. Contract:
-// knowledge/multicode/design-system-bundle.md.
+// fails — which is the point. Bundle format contract:
+// resources/design-system/templates/USAGE.md.
 
 /** The two modes the bundle format fixes (`manifest.modes`). */
 export type DesignSystemTokenMode = 'light' | 'dark'
@@ -309,7 +310,7 @@ export function emitTokensCss(document: unknown): EmitTokensCssResult {
   // The generator's header, verbatim — the drift test compares whole files.
   let css = `/* GENERATED FILE — do not edit by hand.
  * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
- * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * Emission contract: USAGE.md ("Derived files") and design-system.json.
  * :root carries the light (default) mode; [data-mode="dark"] overrides the
  * tokens whose values differ in dark mode. */
 :root {

@@ -35,7 +35,7 @@ import type {
 // WorkspaceLayout.tsx. Enablement is computed reactively from settings so a
 // feature can be toggled without a reload.
 //
-// See future-plans/2026-05-28-feature-level-pluggable-architecture.md.
+// See docs/module-authors/drop-in-extensions.md.
 
 export type WorkspacePanelProps = {
   workspaceId: string

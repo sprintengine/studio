@@ -5,9 +5,8 @@
 // `app-no-drag` so the window never drags on a control click.
 //
 // The at-rest control groups are capped at five via `{/* top-bar-group: <name>
-// */}` markers asserted by scripts/lint-panel-composition.mjs; keep this file,
-// CANONICAL_TOP_BAR_GROUPS, and knowledge/brand/panel-design-system.md TopBar
-// inventory in lockstep.
+// */}` markers asserted by scripts/lint-panel-composition.mjs; keep this file
+// and CANONICAL_TOP_BAR_GROUPS (the TopBar inventory) in lockstep.
 
 import React from 'react'
 import { CheckIcon, RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
@@ -493,8 +492,8 @@ export function WorkspaceActions({
          * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
          * and the tab strip's job), so the row carries two canonical groups;
          * adding a sixth top-bar-group marker fails
-         * scripts/lint-panel-composition.mjs. Documented in
-         * knowledge/brand/panel-design-system.md (TopBar inventory).
+         * scripts/lint-panel-composition.mjs, which holds the canonical
+         * TopBar inventory.
          */}
         {/* top-bar-group: activity-and-views */}
         {workspaces.length > 0 ? (
@@ -779,7 +778,8 @@ export function WorkspaceActions({
 
         {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar,
             Cursor-parity). The former `account-and-settings` top-bar group is
-            retired; see knowledge/brand/panel-design-system.md TopBar inventory. */}
+            retired; see CANONICAL_TOP_BAR_GROUPS in
+            scripts/lint-panel-composition.mjs for the TopBar inventory. */}
       </div>
   )
 }

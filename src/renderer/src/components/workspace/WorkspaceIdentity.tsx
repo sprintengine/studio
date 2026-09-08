@@ -2,7 +2,8 @@
 // (folder-name) chip, and branch chip — hoisted out of the retired 48px WorkspaceTopBar
 // row into the merged AppTitleBar title strip (it fills the title bar's centre
 // slot). It is a display surface, not a control group, so it sits outside the
-// top-bar-group cap (knowledge/brand/panel-design-system.md TopBar inventory).
+// top-bar-group cap (the TopBar inventory lives in
+// scripts/lint-panel-composition.mjs).
 //
 // The star, project, and branch segments are interactive (toggle starred /
 // toggle Files / toggle Git) and opt out of the title strip's drag region with

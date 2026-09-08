@@ -9,12 +9,12 @@ the right one, lands its commit in that project's index, opens one pull request
 per project with correct companion links, and refuses an out-of-order merge.
 This checklist is how that gets proven, by a person, against two real repos.
 
-The contract this validates lives in `knowledge/multicode/sprint-engine-worktree.md`
-(trees, repos list, commits, orphans) and
-`knowledge/multicode/sprint-engine-pull-requests.md` (PRs, merge order, chips).
-When a step here and a Knowledge Graph note disagree, the note is the contract
-and this checklist is what is wrong — unless the app disagrees with both, which
-is the finding.
+The contract this validates is the sprint worktree model (trees, repos list,
+commits, orphans) and the pull-request model (PRs, merge order, chips) — the run
+store shapes in `docs/sprintengine-schema.md` and the mutation boundary in
+`docs/sprintengine-cli.md`. When a step here and those disagree, they are the
+contract and this checklist is what is wrong — unless the app disagrees with
+both, which is the finding.
 
 ## Why This Is Not Executed By The Run That Wrote It
 

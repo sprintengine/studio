@@ -15,9 +15,9 @@ import { findEscapingSymlink } from './bundle-copy-confinement'
 import { readDesignSystemLibraryEntry, type LibraryPaths } from './library-registry'
 
 // Attach materializes a library bundle into a consuming workspace at
-// <workspace>/design-system/ — a one-time copy exactly like knowledge/brand/,
-// with provenance stamped into the copy (never the source). The workspace
-// filesystem is the only dependency: no knowledge-graph root, no env vars.
+// <workspace>/design-system/ — a one-time copy, with provenance stamped into
+// the copy (never the source). The workspace filesystem is the only
+// dependency: no knowledge-graph root, no env vars.
 // An existing design-system/ in the target is a typed refusal with nothing
 // written — no overwrite, no merge in v1.
 

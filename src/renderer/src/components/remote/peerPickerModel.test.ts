@@ -12,8 +12,8 @@ import { fleetMachinePhase, machinePhaseText, machineRowAction } from './machine
 const studio = { product: 'SprintEngine Studio MCP', transportVersion: 1, protocolVersions: [] }
 const peer = (over: Partial<TailnetPeer> = {}): TailnetPeer => ({
   id: 'n1',
-  hostName: 'dev-macbook-air',
-  dnsName: 'dev-macbook-air.example.ts.net',
+  hostName: 'sam-macbook-air',
+  dnsName: 'sam-macbook-air.example.ts.net',
   address: '100.64.0.9',
   os: 'macOS',
   online: true,
@@ -29,7 +29,7 @@ const scanOf = (peers: TailnetPeer[]): TailnetPeerScan => ({
 })
 const connection: FleetConnection = {
   id: 'tnc_1',
-  machineName: 'dev-macbook-air',
+  machineName: 'sam-macbook-air',
   endpoint: '100.64.0.9:8471',
   deviceId: 'tnd_1',
   deviceName: 'mini',
@@ -40,7 +40,7 @@ const connection: FleetConnection = {
 }
 const reach = (over: Partial<FleetMachineReachability> = {}): FleetMachineReachability => ({
   connectionId: 'tnc_1',
-  machineName: 'dev-macbook-air',
+  machineName: 'sam-macbook-air',
   checking: false,
   reachable: true,
   unauthorized: false,
@@ -107,8 +107,8 @@ assert.match(String(view(scanOf([peer({ isSelf: true })])).emptyMessage), /only 
 }
 
 // The direction is said before the click, both ways when the reverse half is offered.
-assert.equal(connectDirectionNote('dev-macbook-air', false), 'Lets this device drive dev-macbook-air.')
-assert.match(connectDirectionNote('dev-macbook-air', true), /and dev-macbook-air drive this device/u)
+assert.equal(connectDirectionNote('sam-macbook-air', false), 'Lets this device drive sam-macbook-air.')
+assert.match(connectDirectionNote('sam-macbook-air', true), /and sam-macbook-air drive this device/u)
 
 assert.equal(ago(NOW - 10_000, NOW), 'just now')
 assert.equal(ago(NOW - 5 * 60_000, NOW), '5 min ago')
@@ -160,11 +160,11 @@ const device = (over: Partial<TailnetDevice> = {}): TailnetDevice => ({
   scopes: ['terminal:control'],
   createdAt: '2026-09-02T21:02:06.952Z',
   lastSeenAt: '2026-09-03T07:51:15.438Z',
-  lastPeerNode: 'android-phone.tail1234.ts.net',
+  lastPeerNode: 'android-phone.tailabc123.ts.net',
   origin: { kind: 'unknown', by: null },
   ...over,
 })
-const phone = peer({ id: 'n-phone', hostName: 'android-phone', dnsName: 'android-phone.tail1234.ts.net', os: 'android', studio: null })
+const phone = peer({ id: 'n-phone', hostName: 'android-phone', dnsName: 'android-phone.tailabc123.ts.net', os: 'android', studio: null })
 const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
   peerPickerView({ scan: scanOf(peers), scanning: false, connections: [], reachability: new Map(), devices, now: NOW })
 
@@ -189,7 +189,7 @@ const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
   assert.equal(shortNamed.rows[0].state, 'device')
   const longStored = withDevices([{ ...phone, dnsName: null }], [device()])
   assert.equal(longStored.rows[0].state, 'device', 'a short peer name matches a stored FQDN')
-  const trailingDot = withDevices([phone], [device({ lastPeerNode: 'android-phone.tail1234.ts.net.' })])
+  const trailingDot = withDevices([phone], [device({ lastPeerNode: 'ANDROID-PHONE.tailabc123.ts.net.' })])
   assert.equal(trailingDot.rows[0].state, 'device', 'case and the trailing dot are not identity')
 }
 
@@ -203,7 +203,7 @@ const withDevices = (peers: TailnetPeer[], devices: TailnetDevice[]) =>
 {
   // Hosting wins: a Mac that runs Studio AND paired a device from here is
   // still somewhere you can connect to.
-  const both = withDevices([peer({ hostName: 'mini', dnsName: 'mini.tail1234.ts.net' })], [device({ lastPeerNode: 'mini.tail1234.ts.net' })])
+  const both = withDevices([peer({ hostName: 'mini', dnsName: 'mini.tailabc123.ts.net' })], [device({ lastPeerNode: 'mini.tailabc123.ts.net' })])
   assert.equal(both.rows[0].state, 'connectable')
   assert.equal(both.connectableCount, 1)
 }

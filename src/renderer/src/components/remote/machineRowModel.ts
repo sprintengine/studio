@@ -108,7 +108,7 @@ export function machineRowAction(phase: FleetMachinePhase): 'retry' | 'pair-agai
 
 /**
  * The name a row shows for a machine. A tailnet FQDN
- * (`dev-macbook-air.tail1234.ts.net`) is one machine's name plus a tail
+ * (`sam-macbook-air.tailabc123.ts.net`) is one machine's name plus a tail
  * that is the same on every row — it pushes the part a person reads out of a
  * narrow row and into an ellipsis. The first label is the name; anything
  * without a dotted tail is left exactly as it was typed.
@@ -116,7 +116,7 @@ export function machineRowAction(phase: FleetMachinePhase): 'retry' | 'pair-agai
 export function shortMachineName(name: string): string {
   const trimmed = name.trim()
   // Only a hostname is shortened, and only when the whole string is one:
-  // "Conal's MacBook Air. Studio" is a typed name with a full stop in it, and
+  // "Sam's MacBook Air. Studio" is a typed name with a full stop in it, and
   // "100.106.119.1" is an address — a first label from either would be a lie.
   if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(trimmed)) return trimmed
   if (/^\d+(?:\.\d+)+$/u.test(trimmed)) return trimmed

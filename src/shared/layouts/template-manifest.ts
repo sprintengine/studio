@@ -2,8 +2,8 @@
 //
 // A layout template is a FlexLayout model (pure JSON) plus display metadata. The
 // app feeds `layout` straight to FlexLayout's Model.fromJson — nothing is
-// executed — so a third-party template is safe to install (the Tier 1 stance in
-// future-plans/2026-05-28-feature-level-pluggable-architecture.md). A template
+// executed — so a third-party template is safe to install (the Tier 1 stance:
+// declarative data only, no third-party code). A template
 // that references a panel from a disabled module degrades to an empty surface
 // (the WorkspaceLayout factory handles unknown/gated components), so the only
 // hard requirement we validate is a structurally-sound FlexLayout root, which is

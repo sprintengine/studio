@@ -103,9 +103,6 @@
 /* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
  * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
- * Source of truth: future-plans/2026-05-12-linear-grade-ui-redesign.md,
- * .multi-code/sprintengine/2026-05-12-linear-grade-ui-redesign2/plan.md, and
- * future-plans/2026-05-21-app-themes-light-forest.md (multi-theme rollout).
  *
  * Themes attach as `data-theme="<id>"` on <html>. The bare :root block below
  * is the default Dark theme; explicit data-theme blocks for `light` and
@@ -329,7 +326,8 @@
   --terminal-cursor: var(--accent-primary);
 
   /* Memory-graph atmosphere — faint radial glow behind the knowledge graph
-     canvas. Scoped to MemoryGraphCanvas per knowledge/brand/aesthetic-north-star.md.
+     canvas. Scoped to MemoryGraphCanvas: the graph is an atmospheric surface,
+     and this is the one gradient the app allows.
      Dark default here; the light theme overrides it below. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
@@ -2137,10 +2135,10 @@ samp,
 }
 
 /* Status dot pulse — shared keyframe for live indicators.
- * Color is overridden inline by the consuming element. Brand semantics
- * (knowledge/brand/BRAND.md): emerald #30d158 = running/live, amber
- * #ffbf2f or #f2c45f = needs-input/pending, red #ff787c = failed.
- * Brand allows this animation explicitly under "what communicates state". */
+ * Color is overridden inline by the consuming element. Status semantics:
+ * emerald #30d158 = running/live, amber #ffbf2f or #f2c45f =
+ * needs-input/pending, red #ff787c = failed. The pulse is allowed because it
+ * communicates state rather than decorating. */
 @keyframes status-dot-pulse {
   0%, 100% {
     opacity: 1;

@@ -35,7 +35,8 @@ export const JSONRPC_INTERNAL_ERROR = -32603
 // surface live (MC-1855); a client on a persistent transport also gets
 // notifications/tools/list_changed the moment it does, so the TTL is the floor for
 // a client that ignores notifications, not the mechanism. `cacheScope` is
-// deliberately absent — see knowledge/multicode/studio-mcp-gateway.md.
+// deliberately absent: the gateway serves one client scope, so there is
+// nothing for a client to key a cache by.
 export const TOOLS_LIST_TTL_MS = 300_000
 
 export type McpDispatchOutcome =

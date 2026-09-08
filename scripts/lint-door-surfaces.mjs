@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Door-surface brand gates (MC-1840) — the mechanical slice of
-// knowledge/brand/door-surface-checklist.md:
+// Door-surface brand gates (MC-1840) — the mechanically checkable rules a
+// door page must pass:
 //
 //  1. A door page never paints the themed canvas: `--bg-app` is forbidden
 //     under components/workspace/globalSurface/ (owner ruling 2026-07-23 —
@@ -47,7 +47,7 @@ for (const file of walk(componentsRoot)) {
 }
 
 if (violations.length > 0) {
-  console.error('Door-surface brand gate failed (knowledge/brand/door-surface-checklist.md):')
+  console.error('Door-surface brand gate failed:')
   for (const violation of violations) console.error(`  ${violation}`)
   process.exit(1)
 }

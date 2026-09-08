@@ -2,7 +2,7 @@
 // runner ↔ preload ↔ renderer). The runner forks each bundle's own generator
 // scripts (the manifest `derived` map names them) so consuming repos and the
 // app regenerate with one implementation — see
-// knowledge/multicode/design-system-bundle.md.
+// resources/design-system/templates/USAGE.md ("Derived files").
 
 /** One generator-script execution inside a bundle. */
 export interface DerivedScriptRun {

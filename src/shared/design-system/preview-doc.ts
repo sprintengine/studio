@@ -19,7 +19,7 @@
 // frames make that unnecessary, which removes a whole class of "the rescoper
 // missed a selector" bug rather than reimplementing it.
 //
-// Contract: knowledge/multicode/design-system-bundle.md.
+// Bundle format contract: resources/design-system/templates/USAGE.md.
 
 /** The two modes the bundle format fixes; a preview renders in exactly one. */
 export type PreviewMode = 'light' | 'dark'

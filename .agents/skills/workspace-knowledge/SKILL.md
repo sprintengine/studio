@@ -41,7 +41,7 @@ Any time you open a note to update it, you also own its freshness:
 
 - Target ≤ 750 words / 140 lines per note (lint soft warn); hard fail at 1,500 words / 250 lines.
 - A note over the hard cap covers more than one concept — split it into linked sub-notes, never rewrap lines to game the count (words are what's measured).
-- Check with `npm run lint:knowledge-size` when available. Ceilings were set after a full-graph prune; never raise them.
+- Ceilings are ratchets set after a full-graph prune; never raise them.
 
 ## Do Not Store
 

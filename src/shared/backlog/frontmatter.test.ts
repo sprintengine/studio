@@ -17,8 +17,10 @@ function run(name: string, body: () => void): void {
   tests.push({ name, body })
 }
 
-// Every *.md file under backlog/, recursively (including archived/ and any
-// epics/ subtree) — the corpus the round-trip property tests run against.
+// Every *.md file under the checked-in corpus, recursively (including
+// archived/ and the epics/ subtree) — what the round-trip property tests run
+// against. The corpus is committed next to this test rather than read from a
+// live backlog/ folder so the properties keep their coverage in any checkout.
 function collectBacklogMarkdown(dir: string, out: string[]): string[] {
   let entries: Dirent[]
   try {
@@ -34,7 +36,9 @@ function collectBacklogMarkdown(dir: string, out: string[]): string[] {
   return out
 }
 
-const backlogRoot = join(process.cwd(), 'backlog')
+// Resolved from the repo root (how every suite here runs) rather than from
+// import.meta.url — the bundled test lives in node_modules/.cache.
+const backlogRoot = join(process.cwd(), 'src', 'shared', 'backlog', '__fixtures__', 'backlog')
 const fixtureFiles = collectBacklogMarkdown(backlogRoot, [])
 
 // A top-level key guaranteed absent from any real backlog file, so set→clear is
@@ -50,8 +54,19 @@ function topLevelKeyOrder(content: string): string[] {
   return Object.keys(fields).filter((key) => !key.includes('.'))
 }
 
-run('every repo backlog file is available as a round-trip fixture', () => {
+run('the checked-in backlog corpus is present and covers the real layouts', () => {
   assert.ok(fixtureFiles.length > 0, `expected backlog/*.md fixtures under ${backlogRoot}`)
+  const relative = fixtureFiles.map((path) => path.slice(backlogRoot.length + 1).replace(/\\/g, '/'))
+  // Each shape below is a property the corpus must keep exercising; losing one
+  // silently narrows every property test underneath it.
+  assert.ok(relative.some((path) => path.startsWith('epics/')), 'corpus keeps an epic container')
+  assert.ok(relative.some((path) => path.includes('/') && !path.startsWith('epics/')), 'corpus keeps an item filed in an epic folder')
+  assert.ok(relative.some((path) => path.startsWith('archived/')), 'corpus keeps an archived item')
+  const contents = fixtureFiles.map((path) => readFileSync(path, 'utf8'))
+  assert.ok(contents.some((text) => /^dependsOn:/m.test(text)), 'corpus keeps an item that declares dependsOn')
+  assert.ok(contents.some((text) => /^dependenciesPlanned:/m.test(text)), 'corpus keeps an epic that declares dependenciesPlanned')
+  assert.ok(contents.some((text) => /^backlog:$/m.test(text)), 'corpus keeps the legacy nested section')
+  assert.ok(contents.some((text) => !text.startsWith('---')), 'corpus keeps a file with no frontmatter')
 })
 
 run('property: set then clear an absent key returns byte-identical content', () => {

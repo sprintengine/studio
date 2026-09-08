@@ -6,7 +6,7 @@ import { getSprintEngineRoleLabel } from './sprintengine'
 // These prompts intentionally point agents at the managed MCP boundary and
 // canonical CLI verbs. They MUST NOT contain server-owned routing fields
 // like `statePath` or `workspaceRoot` — the managed Sprint Engine MCP
-// server resolves those itself (see `knowledge/multicode/sprint-engine.md`).
+// server resolves those itself (see docs/sprintengine-cli.md).
 // If a future change needs new prompt variants, add them here so the same
 // rule is enforced for the live board and any other surface that spawns
 // Sprint Engine agents.

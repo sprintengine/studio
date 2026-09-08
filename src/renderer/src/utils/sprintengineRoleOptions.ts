@@ -21,8 +21,7 @@ import {
 // un-ship this is empty: every specialist role — architect included — now
 // travels in the installable pack. Kept as the last-resort fallback for callers
 // that hold no `SprintEngineRoleRegistry` at all, so a role that cannot resolve is never
-// advertised. The registry is the runtime authority when present, per
-// `knowledge/multicode/sprint-engine.md`.
+// advertised. The registry is the runtime authority when present.
 export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = []
 
 // Bundled summary copy for the live Sprint Engine board's add-member panel.

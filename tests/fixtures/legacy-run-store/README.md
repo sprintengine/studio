@@ -10,13 +10,17 @@ Copied verbatim: `run.yaml` (`schemaVersion: 4`, the version the engine still
 supports), `tasks/`, `artifacts/`, `metrics/`, `runner/`, `events.jsonl`,
 `dispatch.jsonl`, `automation.json`, `plan.md`.
 
-Three deliberate deviations from the source store:
+Four deliberate deviations from the source store:
 
 - **`worktree/` and `projection.json` are omitted.** The worktree is a git
   checkout with no bearing on store loading, and `projection.json` is a derived
   cache full of absolute machine paths — the engine rebuilds it.
 - **One absolute path in `automation.json` was replaced with `<team-dir>`.** It
   was the capture machine's own store path in a delivered-notification key.
+- **Knowledge-graph note paths were re-prefixed.** The run's prose cited notes
+  under a `knowledge/` root that this repo no longer carries; the prefix was
+  rewritten to `docs/` so the fixture holds no dangling reference. Nothing the
+  store loader reads was touched.
 - **`rosterSource` and `allowedRuntimes` were added to `run.yaml`.** Every real
   store on the capture machine carries `requiredSweeps` (this one's four entries
   are real), but none carries the other two: they were written only by

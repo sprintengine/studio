@@ -1,5 +1,5 @@
 import React from 'react'
-import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
+import { bucketForNode, colorForBucket } from './MemoryGraphCanvas'
 
 type LegendProps = {
   nodes: MemoryGraphNode[]
@@ -26,7 +26,7 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
       </div>
       <ul className="space-y-1">
         {entries.map(([bucket, count]) => {
-          const color = TYPE_COLORS[bucket] ?? TYPE_COLORS.default
+          const color = colorForBucket(bucket)
           return (
             <li key={bucket} className="flex items-center gap-2">
               <span
@@ -52,7 +52,7 @@ type TooltipProps = {
 
 export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
   const bucket = bucketForNode(node)
-  const color = TYPE_COLORS[bucket] ?? TYPE_COLORS.default
+  const color = colorForBucket(bucket)
   const title = node.title?.trim() || node.name
   return (
     <div

@@ -228,7 +228,7 @@ export type GuidedBriefSpecialistPromptInput =
       designSystemAttached?: boolean
       // Design-system preset: the session authors a portable bundle instead
       // of one app's mockups, under a dedicated role prompt (not the shared
-      // designer soul). See knowledge/multicode/design-system-bundle.md.
+      // designer soul). See resources/design-system/templates/USAGE.md.
       designSystem?: {
         bundleDirectoryPath: string
         ideaSeedPath: string
@@ -359,7 +359,7 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     const seedSourceLines = seedSource
       ? [
           seedSource.kind === 'brand-demo'
-            ? `This studio was seeded from the built-in Multicode brand reference at \`${seedSource.path}\`. Treat it as the existing product being distilled into a design system: its token values live in Markdown tables (\`design-tokens.md\`, \`workspace-themes.md\`), its glyph language in \`glyph-system.md\`, its principles in \`aesthetic-north-star.md\`, and its logo/icon SVGs in \`multicode-assets/\`.`
+            ? `This studio was seeded from the built-in example design system at \`${seedSource.path}\`. Treat it as the existing product being distilled into a design system: its token values live in \`foundations/tokens.tokens.json\`, its principles in \`foundations/principles.md\`, its glyph language in \`glyphs/\`, and its components in \`components/\`.`
             : `This studio was seeded from an existing product at \`${seedSource.path}\`. Extract its de-facto design language instead of starting blank.`,
           'Before the first interview question, inspect the source and author a starter bundle from what is actually there: CSS custom properties (`:root` blocks and stylesheet files), documented token values, SVG glyphs, and the obvious repeated components (button, input, card). Extract only values the source contains — do not invent.',
           `Write the extraction as real files: reference and semantic DTCG tokens in \`${bundle}/foundations/tokens.tokens.json\` with both light and dark mode values (when the source defines only one mode, derive the other conservatively and flag it for review), the source's glyphs copied into \`${bundle}/glyphs/\` (one concept per file, fills converted to currentColor), and the two or three strongest candidate components under \`${bundle}/components/\`.`,
