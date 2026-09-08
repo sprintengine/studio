@@ -50,13 +50,18 @@
 // sweep that has not drawn anything yet, and never a substitute for proof.
 //
 // A site record is the sweep's own JSON row:
-//   { file, line, element, status, before, after, kit, note }
+//   { file, line, element, status, before, after, kit, note, lane?, kitMember? }
 // `status` is "swapped" | "kept" | "needs-variant". A row that also carries a
 // `specimen` object gets drawn:
 //   specimen: { id, ground, name, eyebrow?, states?, wrap?, near?, want? }
 // Specimen ids follow one convention, and the module must export them:
 //   swapped       <id>-before-<state> and <id>-after-<state>, "rest" required
+//   kept          <id>-raw, shown once as it stands under the reason it was kept
 //   needs-variant <id>-raw and <id>-forced
+// Two optional fields shape the page rather than the counts: `lane` is the pass
+// of the sweep the row came from, and the masthead counts each lane beside the
+// statuses; `kitMember` is the component that draws the site now, and the
+// swapped bands are grouped under it. A sweep that names neither loses nothing.
 // `ground` is a token name the specimen sits on in the app (--bg-canvas,
 // --bg-app, --bg-surface). `wrap` is "plain" (default), "popover" or "card".
 
@@ -151,10 +156,24 @@ function eachRule(css) {
  * to read a bundle's tokens.css (`:root` light tier, `[data-mode="dark"]`) and
  * an app alias layer that inverts the default (`:root, :root[data-theme="dark"]`
  * plus `:root[data-theme="light"]`) with one rule and no per-project casing.
+ *
+ * A rule qualified by an attribute value that is NEITHER light nor dark is a
+ * MODE the report is not in - a named palette, a window material, a density -
+ * and declares neither ground, so it is skipped. Left in, it reads as a base
+ * tier: its literals land in BOTH grounds and the last such block in the file
+ * paints every specimen, which is how a light ground comes out dark.
  */
 function grounding(selector) {
-  const parts = selector.split(',').map((part) => part.trim()).filter(Boolean)
-  if (parts.length === 0) return 'both'
+  const parts = selector
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) =>
+      [...part.matchAll(/\[[a-zA-Z-]+(?:=)?"?([^\]"]*)"?\]/g)].every(
+        (m) => m[1] === '' || m[1] === 'light' || m[1] === 'dark',
+      ),
+    )
+  if (parts.length === 0) return 'skip'
   if (parts.some((part) => !/\b(dark|light)\b/.test(part))) return 'both'
   const dark = parts.some((part) => /\bdark\b/.test(part))
   const light = parts.some((part) => /\blight\b/.test(part))
@@ -187,6 +206,7 @@ function buildGrounds() {
       const props = customProps(rule.body)
       if (props.length === 0) continue
       const where = grounding(rule.selector)
+      if (where === 'skip') continue
       if (where !== 'dark') light.push(...props)
       if (where !== 'light') dark.push(...props)
     }
@@ -261,6 +281,15 @@ const count = (status) => rows.filter((r) => r.status === status).length
 const nSwap = count('swapped')
 const nKept = count('kept')
 const nWait = count('needs-variant')
+
+/** The sweep's own lanes, in the order they were swept. Empty if none named. */
+const laneCounts = []
+for (const row of rows) {
+  if (!row.lane) continue
+  const found = laneCounts.find((l) => l.name === row.lane)
+  if (found) found.n += 1
+  else laneCounts.push({ name: row.lane, n: 1 })
+}
 
 const SPECS = opts.specimens ? renderSpecimens(opts.specimens) : {}
 const missing = []
@@ -358,8 +387,25 @@ function family(record) {
 </section>`
 }
 
+/** A control kept raw: shown once, as it stands, under the reason it was kept. */
+function keptCard(record) {
+  const s = record.specimen
+  const wrap = WRAP[s.wrap ?? 'plain']
+  const ground = s.ground ?? '--bg-app'
+  return `<section class="fam">
+<div class="fam-head"><div class="titles"><p class="eyebrow">${esc(s.eyebrow ?? path.basename(record.file))}</p>
+<h3>${esc(s.name)}</h3></div><span class="wants">kept raw</span></div>
+<div class="fampair">
+  <div class="famcol"><p class="famhead">As it stands, unchanged</p><div class="cellrow">${quad(wrap(spec(`${s.id}-raw`)), ground)}</div></div>
+</div>
+<p class="note">${esc(record.note)}</p>
+</section>`
+}
+
 const drawnSwaps = rows.filter((r) => r.status === 'swapped' && r.specimen)
-const drawnFamilies = rows.filter((r) => r.status !== 'swapped' && r.specimen)
+const drawnKept = rows.filter((r) => r.status === 'kept' && r.specimen)
+const nUndrawn = rows.filter((r) => r.status === 'kept' && !r.specimen).length
+const drawnFamilies = rows.filter((r) => r.status === 'needs-variant' && r.specimen)
 
 const table =
   `<table class="sites"><thead><tr><th>File</th><th class="c-line">Line</th><th>Tag</th>` +
@@ -527,31 +573,76 @@ const page = [
 <p class="stand">Each control is shown on the ground it actually sits on in the app, in light and in dark, at life size and at double, with the states the change touched underneath.</p></div>
 <div class="stats">
   <div class="stat is-swap"><span class="stat-n">${nSwap}</span><span class="stat-l">Swapped</span></div>
-  <div class="stat"><span class="stat-n">${nKept}</span><span class="stat-l">Kept as-is</span></div>
-  <div class="stat is-wait"><span class="stat-n">${nWait}</span><span class="stat-l">Waiting on a variant</span></div>
+  <div class="stat"><span class="stat-n">${drawnKept.length}</span><span class="stat-l">Kept raw</span></div>
+  ${nUndrawn > 0 ? `<div class="stat"><span class="stat-n">${nUndrawn}</span><span class="stat-l">Kept, not drawn</span></div>` : ''}
+  ${nWait > 0 ? `<div class="stat is-wait"><span class="stat-n">${nWait}</span><span class="stat-l">Waiting on a variant</span></div>` : ''}
 </div>
+${
+  laneCounts.length > 0
+    ? `<div class="stats">${laneCounts
+        .map((l) => `<div class="stat"><span class="stat-n">${l.n}</span><span class="stat-l">${esc(l.name)}</span></div>`)
+        .join('')}</div>`
+    : ''
+}
 <p class="method">The specimen grounds are fixed - one light, one dark - whichever theme you are reading this in, because they are the app’s grounds, not the page’s. Hover, focus and pressed are restated on a wrapper class, since a page that is only read never enters them.</p>
 </header>`,
 ]
 
 if (drawnSwaps.length > 0) {
+  // Grouped under the kit member that draws them now, when the sweep named one:
+  // the reader is asking which components absorbed the hand-rolls, and the
+  // group sizes answer it before a single band is read.
+  const grouped = drawnSwaps.some((r) => r.kitMember)
   page.push(
     `<div class="secthead"><h2>What changed</h2><p class="lede">${drawnSwaps.length} site${
       drawnSwaps.length === 1 ? '' : 's'
-    }, each one a control an existing component, variant, size and tone reproduce exactly.</p></div>`,
+    }, each one a control an existing component, variant, size and tone reproduce exactly${
+      grouped ? ', grouped under the kit member that draws it now' : ''
+    }.</p></div>`,
   )
-  for (const record of drawnSwaps) page.push(band(record))
+  if (!grouped) for (const record of drawnSwaps) page.push(band(record))
+  else {
+    const members = []
+    for (const record of drawnSwaps) {
+      const name = record.kitMember ?? 'Other'
+      const found = members.find((m) => m.name === name)
+      if (found) found.rows.push(record)
+      else members.push({ name, rows: [record] })
+    }
+    members.sort((a, b) => (b.rows.length === a.rows.length ? (a.name < b.name ? -1 : 1) : b.rows.length - a.rows.length))
+    for (const member of members) {
+      page.push(
+        `<div class="secthead"><h2>${esc(member.name)}</h2><p class="lede">${member.rows.length} site${
+          member.rows.length === 1 ? '' : 's'
+        }.</p></div>`,
+      )
+      for (const record of member.rows) page.push(band(record))
+    }
+  }
+}
+
+if (drawnKept.length > 0) {
+  page.push(
+    `<div class="secthead"><h2>Left alone, and why</h2><p class="lede">${drawnKept.length} control${
+      drawnKept.length === 1 ? '' : 's'
+    } stayed raw. There is no forced pairing to show: each is a shape the kit does not ship, or an element the kit would only put chrome on, so it is shown once, as it stands, under the reason.</p></div>`,
+  )
+  for (const record of drawnKept) page.push(keptCard(record))
 }
 
 if (drawnFamilies.length > 0) {
   page.push(
-    `<div class="secthead"><h2>Left alone, and why</h2><p class="lede">These are not hand-rolls anyone defended - they are shapes the kit does not ship yet. Each pair puts the raw control as it stands today beside the closest thing the kit does ship, with the raw classes dropped, so the cost of forcing it is visible rather than argued.</p></div>`,
+    `<div class="secthead"><h2>Waiting on a kit variant</h2><p class="lede">These are not hand-rolls anyone defended - they are shapes the kit does not ship yet. Each pair puts the raw control as it stands today beside the closest thing the kit does ship, with the raw classes dropped, so the cost of forcing it is visible rather than argued.</p></div>`,
   )
   for (const record of drawnFamilies) page.push(family(record))
 }
 
 page.push(`<footer class="foot">
-<p><b>${nSwap} swapped</b>, <b>${nKept} kept</b>, <b>${nWait} waiting on kit variants</b>, ${rows.length} sites in all.</p>
+<p><b>${nSwap} swapped</b>, <b>${nKept} kept</b>${
+  nWait > 0 ? `, <b>${nWait} waiting on kit variants</b>` : ''
+}, ${rows.length} sites in all${
+  laneCounts.length > 0 ? ` - ${laneCounts.map((l) => `${l.n} ${esc(l.name.toLowerCase())}`).join(', ')}` : ''
+}.</p>
 <details><summary>full site list</summary><div class="tablewrap">${table}</div></details>
 </footer>`)
 page.push('</main>')
@@ -568,12 +659,12 @@ if (/<!doctype|<html[\s>]|<head[\s>]|<body[\s>]/i.test(html)) problems.push('the
 if (/<pre[\s>]|<code[\s>]/i.test(html)) problems.push('the page carries a code block; the specimens are the content')
 if (missing.length > 0) problems.push(`the specimen module exports no ${[...new Set(missing)].join(', ')}`)
 if (grounds.counts.light === 0 || grounds.counts.dark === 0) problems.push('a ground is empty; check the --tokens files and their :root selectors')
-for (const token of new Set([...drawnSwaps, ...drawnFamilies].map((r) => r.specimen.ground).filter(Boolean))) {
+for (const token of new Set([...drawnSwaps, ...drawnKept, ...drawnFamilies].map((r) => r.specimen.ground).filter(Boolean))) {
   if (!grounds.css.includes(`${token}:`)) problems.push(`a specimen sits on ${token}, which the grounds do not declare`)
 }
 console.log(
   `wrote ${opts.out} (${html.length} bytes) - ${rows.length} sites, ${drawnSwaps.length} bands, ` +
-    `${drawnFamilies.length} families, ${Object.keys(SPECS).length} specimens, ` +
+    `${drawnKept.length} kept, ${drawnFamilies.length} families, ${Object.keys(SPECS).length} specimens, ` +
     `grounds ${grounds.counts.light} light / ${grounds.counts.dark} dark, app css ${path.basename(appCssPath)}`,
 )
 if (problems.length > 0) {

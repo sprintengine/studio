@@ -128,10 +128,11 @@ one state, one moment. The artefact is a **rendered before/after page**: each
 specimen is real markup — as it stood, and as the system renders it — painted
 by the project's own built stylesheet, on a checker ground, LIGHT and DARK side
 by side at 1x and 2x, with a state strip pairing A (before) and B (after) under
-each band. Then **"Left alone, and why"**, pairing each control the system cannot
-yet express with the nearest component forced onto it; then a footer of counts
-and one collapsible site list, the only place a file path appears. Almost no
-prose, no code blocks: the specimens are the content.
+each band. Then **"Left alone, and why"**, each control kept raw shown once as it
+stands, under the reason; then **"Waiting on a kit variant"**, pairing each
+control the system cannot yet express with the nearest component forced onto it;
+then a footer of counts and one collapsible site list, the only place a file
+path appears. Almost no prose, no code blocks: the specimens are the content.
 
 The sweep writes one JSON array of
 `{file, line, element, status, before, after, kit, note}`, where `status` is
@@ -139,12 +140,16 @@ The sweep writes one JSON array of
 (raw for a reason that is not debt — say which) or `needs-variant` (the system
 has no such shape; `kit` names the variant that would cover it). A record to be
 drawn adds `specimen: {id, name, eyebrow, ground, states, wrap, near, want}`,
-`ground` being the token the control really sits on. `before` comes from
+`ground` being the token the control really sits on. Two optional fields shape
+the page: `lane`, the pass of the sweep the row came from, counted beside the
+statuses in the masthead, and `kitMember`, the component drawing the site now,
+which groups the swapped bands under it. `before` comes from
 `git show <sha>^:<file>`, never retyped.
 
 `scripts/render-swap-report.mjs` builds the page from those records plus a `.tsx`
 module exporting `SPECIMENS: Record<string, ReactNode>` (keys
-`<id>-before-<state>` / `<id>-after-<state>`, `<id>-raw` / `<id>-forced`):
+`<id>-before-<state>` / `<id>-after-<state>` for a swap, `<id>-raw` alone for a
+`kept` record, `<id>-raw` / `<id>-forced` for a `needs-variant` one):
 
 ```
 node <skill>/scripts/render-swap-report.mjs \
@@ -157,7 +162,9 @@ node <skill>/scripts/render-swap-report.mjs \
 `--css` (required) is the project's built stylesheet, so build first. `--tokens`
 repeats in cascade order and rebuilds both grounds as classes out of the real
 `:root` blocks — a bare `:root` feeds both, a `dark`-qualified selector the dark
-one — because an attribute-driven theme selects nothing on an inner wrapper.
+one, and a rule qualified by any other attribute value (a named palette, a window
+material) neither — because an attribute-driven theme selects nothing on an inner
+wrapper, and a mode the report is not in contaminates both grounds.
 `--specimens` and `--alias` are the module and its import prefixes; `--repo` is
 the project root the sources and `node_modules` come from. Output is an
 artifact-ready fragment, non-zero on a missing specimen id, an empty ground or a
