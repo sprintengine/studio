@@ -121,6 +121,30 @@ export const agentRuntimeRendererModule: RendererModule = {
         },
       })
     }
+    // Open on the source drift notice ("A plugin source has updates … Open
+    // Plugins and press Sync"): the bell row lands on the Plugins view, where
+    // the source's tab wears its update mark and Sync is — or on Skills when
+    // the emitter said so. Until 2026-09-08 this source had no action at all,
+    // and a notice that names a place must be able to take you there.
+    host.registerNotificationActionProvider({
+      source: 'marketplace',
+      resolveActions: ({ notification }) => [
+        {
+          id: 'marketplace.open-catalogue',
+          label: 'Open',
+          run: async () => {
+            const { useWorkspaceStore } = await import('../store/workspaceStore')
+            dispatchExtensionsSurfaceTarget({
+              view:
+                notification.extensionsRow === 'skills'
+                  ? EXTENSIONS_DRAWER_VIEWS.skills
+                  : EXTENSIONS_DRAWER_VIEWS.plugins,
+            })
+            useWorkspaceStore.getState().openGlobalSurface('extensions')
+          },
+        },
+      ],
+    })
     // The Plugins door (Extensions drawer ruling, 2026-09-05 — "surfaces, not
     // modals"; the Extensions door of MC-1847, then a modal from 2026-09-01).
     // Registered through the always-on core so the catalogue is always

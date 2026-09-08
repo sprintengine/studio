@@ -40,15 +40,23 @@ class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
 dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
-domWindow.api = {}
+// The run index store subscribes to main as soon as anything reads it — the
+// drawer does now, for the counts its run-door rows wear — so the stubs answer
+// with no runs rather than throwing on a missing bridge.
+domWindow.api = {
+  onSprintRunsChanged: () => () => {},
+  listSprintRuns: async () => [],
+}
 
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { ExtensionsRail } from './ExtensionsRail'
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, getRendererHost } from '../../modules'
+import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SidebarNavButton } from './SidebarNavButton'
+import { useRailBadges } from './useRailBadges'
 import { getSurfaceView, subscribeSurfaceViews } from './surfaceView'
 import ExtensionsGlobalSurface from './globalSurface/extensions/ExtensionsGlobalSurface'
 import {
@@ -56,10 +64,15 @@ import {
   dispatchExtensionsSurfaceTarget,
 } from './globalSurface/extensions/extensionsSurfaceTarget'
 
+// Every root, so the end of the file can unmount them all: the drawer's rows
+// now subscribe to the run index and the design arrivals store, whose hourly
+// refresh would otherwise keep this process alive after the last assertion.
+const roots: Array<ReturnType<typeof createRoot>> = []
 function render(): HTMLElement {
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host as unknown as Element)
+  roots.push(root)
   act(() => {
     root.render(React.createElement(ExtensionsRail, { collapsed: false }))
   })
@@ -67,8 +80,12 @@ function render(): HTMLElement {
 }
 
 const rows = () => [...dom.window.document.querySelectorAll('[role="listitem"] button')] as HTMLElement[]
-const rowLabels = () => rows().map((row) => row.textContent?.trim() ?? '')
-const row = (label: string) => rows().find((candidate) => candidate.textContent?.trim() === label)
+// The label span, not the whole row: a row wearing its unread count has the
+// number in its text too, and "Plugins" must still be found as Plugins.
+const labelOf = (row: HTMLElement) => (row.querySelector('span.truncate') ?? row).textContent?.trim() ?? ''
+const rowLabels = () => rows().map(labelOf)
+const row = (label: string) => rows().find((candidate) => labelOf(candidate) === label)
+const badgeOf = (label: string) => row(label)?.querySelector('[role="status"]') ?? null
 
 // A door row, as a module registers one — on the HOST, which is where the
 // drawer reads them from (it stopped taking them as a prop: the sidebar's memo
@@ -241,6 +258,102 @@ act(() => {
   useWorkspaceStore.getState().closeGlobalSurface()
 })
 
+// ── A row wears the news that belongs to it ──────────────────────────────────
+// Owner, 2026-09-08: "put the notification on whatever row it came from". The
+// square used to read everything under it as the section opened, and the rows
+// said nothing; now the count sits on the row, and opening THAT row reads it.
+// The rail hook is the reader, so it is mounted beside the drawer the way
+// WorkspaceManager mounts it, reporting the square's count for the sum.
+function RailProbe(): React.ReactElement {
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const badges = useRailBadges({
+    workspaces: [],
+    activityByWorkspaceId: {},
+    unseenDoneIds: new Set(),
+    onScreenWorkspaceId: null,
+    activeGlobalSurface,
+  })
+  return React.createElement('output', { 'data-extensions': String(badges.extensions?.count ?? 0) })
+}
+const probeHost = dom.window.document.createElement('div')
+dom.window.document.body.appendChild(probeHost)
+const probeRoot = createRoot(probeHost as unknown as Element)
+act(() => {
+  probeRoot.render(React.createElement(RailProbe))
+})
+const squareCount = () => Number(probeHost.querySelector('output')?.getAttribute('data-extensions'))
+
+const notice = (id: string, over: Record<string, unknown>) => ({
+  id,
+  timestamp: '2026-09-08T21:41:34.767Z',
+  level: 'info' as const,
+  title: 't',
+  message: 'm',
+  source: 'marketplace' as const,
+  ...over,
+})
+act(() => {
+  useNotificationStore.getState().addNotification(notice('drift', { source: 'marketplace', extensionsRow: 'plugins' }))
+  useNotificationStore.getState().addNotification(notice('run', { source: 'sprintengine' }))
+  useNotificationStore.getState().addNotification(notice('crash', { source: 'terminal', level: 'error' }))
+})
+assert.equal(badgeOf('Plugins')?.textContent, '1', 'the drift notice counts on the Plugins row')
+assert.equal(badgeOf('Plugins')?.getAttribute('aria-label'), 'Plugins: 1 new', 'named for the row, not a bare number')
+assert.equal(badgeOf('Skills'), null, 'and on no other row')
+assert.equal(badgeOf('Design'), null)
+assert.equal(badgeOf('Agent CLIs'), null)
+assert.equal(squareCount(), 2, 'the square is the sum of its rows — the run notice counts under Sprints, the terminal crash nowhere')
+
+// Opening the SECTION does not read a row: the drawer is on screen and the
+// counts are still there to be found.
+act(() => {
+  useWorkspaceStore.getState().openGlobalSurface('extensions-home')
+})
+assert.equal(badgeOf('Plugins')?.textContent, '1', 'the drawer opening reads nothing')
+assert.equal(squareCount(), 2)
+
+// Opening the ROW reads it — once its page is actually on screen, standing on
+// that view, so Plugins opening does not read the Skills news beside it.
+act(() => {
+  row('Plugins')?.click()
+})
+// A fresh root: the earlier one was unmounted, and an unmounted root is done.
+const readingHost = dom.window.document.createElement('div')
+dom.window.document.body.appendChild(readingHost)
+const readingRoot = createRoot(readingHost as unknown as Element)
+act(() => {
+  readingRoot.render(React.createElement(ExtensionsGlobalSurface))
+})
+assert.equal(badgeOf('Plugins'), null, 'the row on screen has read its news')
+assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'drift')?.read, true)
+assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'run')?.read, false, 'another row’s news is untouched')
+assert.equal(squareCount(), 1, 'the square drops by exactly what was read')
+act(() => {
+  readingRoot.unmount()
+  useWorkspaceStore.getState().closeGlobalSurface()
+  useNotificationStore.getState().clearAll()
+})
+
+// Collapsed, the count docks on the row's corner rather than trailing a label
+// the column no longer shows.
+act(() => {
+  useNotificationStore.getState().addNotification(notice('cli', { source: 'cli' }))
+})
+const collapsedHost = dom.window.document.createElement('div')
+dom.window.document.body.appendChild(collapsedHost)
+const collapsedRoot = createRoot(collapsedHost as unknown as Element)
+act(() => {
+  collapsedRoot.render(React.createElement(ExtensionsRail, { collapsed: true }))
+})
+const collapsedBadge = collapsedHost.querySelector('button[aria-label="Agent CLIs"] [role="status"]')
+assert.equal(collapsedBadge?.textContent, '1', 'a CLI update counts on Agent CLIs, collapsed too')
+assert.ok(collapsedBadge?.className.includes('absolute'), 'docked on the corner, as the rail’s squares wear theirs')
+act(() => {
+  collapsedRoot.unmount()
+  probeRoot.unmount()
+  useNotificationStore.getState().clearAll()
+})
+
 // ── A disabled module takes its row with it ──────────────────────────────────
 dom.window.document.body.innerHTML = ''
 act(() => {
@@ -261,5 +374,9 @@ assert.deepEqual(
   ['Plugins', 'Skills', 'Agent CLIs'],
   'rows for modules that are off are absent rather than dead, and the rest keep their order',
 )
+
+act(() => {
+  for (const root of roots) root.unmount()
+})
 
 console.log('ExtensionsRail.test.tsx: ok')

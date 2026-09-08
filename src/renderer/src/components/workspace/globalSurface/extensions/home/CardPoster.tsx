@@ -92,6 +92,7 @@ import React from 'react'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
 import { cardActionLabel, cardStampLabel } from '../../../../extensions/homeCards'
 import { PrimaryButton } from '../../../../ui/Buttons'
+import { NewChip } from '../../../../ui/NewChip'
 import { Popover } from '../../../../ui/Popover'
 import { CardArt } from './cardArt'
 import {
@@ -355,6 +356,7 @@ export function CardPoster({
   shape = 'card',
   running = false,
   disabled = false,
+  isNew = false,
   onLaunch,
 }: {
   card: HostedCard
@@ -364,12 +366,41 @@ export function CardPoster({
   /** A run is in flight somewhere on the page, so no card may start a second. */
   disabled?: boolean
   /**
+   * Published since the person last opened the home, so it wears the New chip
+   * (`newHomeCardSlugs`, `homeCards.ts`). Never a hoist and never a sort key —
+   * the grid's order is the feed's editorial decision and the chip is the only
+   * difference (`design-system/components/badge/component.md`, "The New mark").
+   */
+  isNew?: boolean
+  /**
    * The press that runs the card: a row chosen in the picker on a card that
    * spawns, and the button itself on a card that does not.
    */
   onLaunch: (choice: CardLaunchChoice) => void
 }): JSX.Element {
   const stamp = cardStampLabel(card.kind)
+  // The New chip rides the CORNER, beside the kind stamp, rather than sitting
+  // inline after the title — and both halves of that are deliberate.
+  //
+  // The accent budget is the first half. The hero keeps everything inside the
+  // scrim, `Go` included, so its title block ALREADY spends the page's one
+  // accent on the control; a second accent an inch away would put two of them
+  // in one band of one plate. The stamp's corner is the card's other label
+  // furniture, it is quiet, and it is the same place on both shapes — a mark
+  // that moved between the hero and an ordinary card would read as two
+  // different marks.
+  //
+  // The clamp is the second half. Both titles are `line-clamp-2` (cardSplash),
+  // so an inline chip after a title that already wraps twice lands on a third
+  // line and is clipped away entirely — the mark would be missing on exactly
+  // the cards with the longest names.
+  //
+  // It stays READABLE rather than `decorative`: nothing here writes an
+  // accessible name for the card. The one hand-written name on a poster is
+  // `Go`'s, which names the BUTTON ("Install — <title>"), so hiding the chip
+  // would delete the word "New" for anyone not looking at the picture. It falls
+  // after the title in reading order, which is where the badge doc puts it.
+  const mark = isNew ? <NewChip /> : null
   // Has this card anything to do at all? (item
   // `2026-09-06-a-card-with-nothing-to-run-has-no-go`.)
   //
@@ -529,7 +560,7 @@ export function CardPoster({
               {go}
             </div>
           </CardSplashTitle>
-          <CardSplashStamp label={stamp} />
+          <CardSplashStamp label={stamp} mark={mark} />
         </CardSplash>
         {/* Disabled with the button it fronts. The glass is the card's hit
             area, so a run already in flight must not open a picker through it
@@ -544,7 +575,7 @@ export function CardPoster({
         <CardArt name={card.art} />
         <CardSplashScrim />
         <CardSplashTitle title={card.title} />
-        <CardSplashStamp label={stamp} />
+        <CardSplashStamp label={stamp} mark={mark} />
       </CardSplash>
       {/* The scrim has already carried the title down onto this ground, so the
           body starts close to it rather than at a full step — the mockup's

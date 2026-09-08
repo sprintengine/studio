@@ -22,6 +22,7 @@ import {
   registerDesignSystemFolder,
   type LibraryPaths,
 } from '../design-system/library-registry'
+import { listDesignSystemArrivals } from '../design-system/arrivals'
 import { attachDesignSystemBundle, detachDesignSystemBundle } from '../design-system/attach'
 import { readDesignSystemBundle } from '../design-system/bundle-read'
 
@@ -105,6 +106,9 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   // The library: a REGISTRY OF PATHS the user pointed at (item 2004), read live.
   // Nothing here copies a bundle, and nothing writes inside a registered folder.
   ipcMain.handle('design-system:library-list', () => listDesignSystemLibrary(libraryPaths()))
+  // The same library, reduced to arrival dates: what the Extensions drawer's
+  // Design row counts without paying for a full read of every bundle.
+  ipcMain.handle('design-system:library-arrivals', () => listDesignSystemArrivals(libraryPaths()))
   ipcMain.handle('design-system:library-register', (_event, folderPath: unknown) =>
     registerDesignSystemFolder(libraryPaths(), typeof folderPath === 'string' ? folderPath : ''),
   )

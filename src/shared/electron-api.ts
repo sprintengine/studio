@@ -146,6 +146,7 @@ import type {
   DesignSystemLibraryListResult,
   DesignSystemRegisterResult,
 } from './design-system/library'
+import type { DesignSystemArrivalsResult } from './design-system/arrivals'
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
@@ -2324,6 +2325,15 @@ export type DiagnosticLogInput = {
   taskId?: string
   sessionId?: string
   navigationTarget?: NotificationNavigationTarget
+  /**
+   * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
+   * workflows, sprints, design, plugins, skills, agent-clis), when the emitter
+   * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
+   * A string rather than the row type because this shape is shared with the
+   * main process and persists to localStorage; unknown values fall back to the
+   * source rule.
+   */
+  extensionsRow?: string
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {
@@ -4085,6 +4095,8 @@ export type ElectronApi = {
   readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
   /** List the library: every registered folder, probed live for its source state. */
   listDesignSystemLibrary: () => Promise<DesignSystemLibraryListResult>
+  /** The same library reduced to arrival dates — one `addedAt` map per readable bundle, for the Extensions drawer's Design count. Never inlines an asset; a broken registration is skipped. */
+  listDesignSystemArrivals: () => Promise<DesignSystemArrivalsResult>
   /** Point the library at a folder on disk. Registers a reference — copies nothing. */
   registerDesignSystemFolder: (folderPath: string) => Promise<DesignSystemRegisterResult>
   /** Drop a registration. Removes the reference only; the user's folder is untouched. */

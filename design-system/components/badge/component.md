@@ -53,6 +53,18 @@ named, never decorative — nothing beside a glyph says what the number is — a
 its ring is the rail's own `bg.canvas`, since the square sits on the canvas
 rather than the app ground the default ring assumes.
 
+**On a drawer row** (2026-09-08) the same counter is the row's unread pip: the
+Extensions drawer's rows each wear the news that belongs to them, trailing the
+label when the column is expanded and docked on the icon's corner — ringed in
+`bg.canvas`, the column's ground — when it is collapsed. It replaces the row's
+status dot while it shows (one status idiom per surface; the count is the one
+that says how much), and its accessible name carries the row's name and what
+is counted ("Sprints: 1 waiting on you, 2 new"), because the row beside it
+names a place, not the news. The app rail's square above the drawer is the sum
+of its rows: same primitive, same tone precedence, and the two cannot
+disagree because one derivation feeds both (principles.md, "The app rail",
+item 9).
+
 ## Only a count is a live region (2026-09-02)
 
 The two species announce differently, and this is the part a consumer gets
@@ -82,12 +94,14 @@ species — **no hairline**. A border would make it read as a state chip, and th
 is not a state: it is the system pointing at something, which is the one job
 `accent.primary` has. It is the entire accent spend on the row that carries it.
 
-Two surfaces wear it and they must not diverge, which is why it is one shipped
-component (`src/renderer/src/components/ui/NewChip.tsx`) rather than a span in
-each: the CLI model picker marks a model the hosted feed released inside its
-thirty-day window, and the Design door marks a component, pattern, glyph or
-foundations file that arrived in a bundle since the person last opened it. The
-window is literally the same constant.
+Three surfaces wear it and they must not diverge, which is why it is one
+shipped component (`src/renderer/src/components/ui/NewChip.tsx`) rather than a
+span in each: the CLI model picker marks a model the hosted feed released
+inside its thirty-day window, the Design door marks a component, pattern, glyph
+or foundations file that arrived in a bundle since the person last opened it,
+and (2026-09-08) the Extensions home marks a hosted card published since the
+home was last open — the cards the app rail's square was counting, still
+marked when the person arrives. The window is literally the same constant.
 
 - **Never a hoist and never a sort key.** The row stays exactly where its list
   put it; the chip is the only difference, so a muscle-memory pick still lands.

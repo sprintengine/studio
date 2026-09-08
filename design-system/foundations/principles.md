@@ -506,10 +506,25 @@ walks. Its anatomy:
    counts scheduled runs that ended while its door was closed; Extensions
    counts unread news from anything under it, cards published since its home
    was last open, and sprints waiting on an answer. The tone is the loudest
-   thing counted — danger, then warn, then good or the accent. Opening the
-   section reads its count; a thing still waiting on the person stays counted.
-   Never a toast: a glass card for every chat that finished would be over the
-   top, and the count is what says "come back here" without interrupting.
+   thing counted — danger, then warn, then good or the accent. A thing still
+   waiting on the person stays counted. Never a toast: a glass card for every
+   chat that finished would be over the top, and the count is what says "come
+   back here" without interrupting.
+9. **Each drawer row wears its own count, and the square is their sum**
+   (2026-09-08). The Extensions square used to read everything under it the
+   moment the section opened, and the drawer that appeared said nothing about
+   which row the news belonged to — a count that vanished on the click it
+   asked for. Now the news goes on the row it came from: a source drift notice
+   on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the
+   door that lists it, entries arrived since the bundle was last shown on
+   Design. The row draws the same corner counter — trailing when the column is
+   expanded, docked on the icon when collapsed — in place of any status dot it
+   would otherwise wear (one status idiom per surface), with the row's name in
+   its accessible name. Opening a ROW reads its news; opening the section reads
+   nothing, and the square keeps counting while the drawer is on screen, the
+   way a workspace icon does above its unread channels. The home reads its own
+   cards as it mounts, and marks the ones that were new with the New mark, so
+   what the count pointed at is still on screen when the person arrives.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.

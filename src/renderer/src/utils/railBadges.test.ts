@@ -7,7 +7,10 @@ import {
   EXTENSIONS_NOTIFICATION_SOURCES,
   automationsRailBadge,
   extensionsRailBadge,
+  extensionsRowBadge,
+  extensionsRowOfNotification,
   homeRailBadge,
+  unreadByExtensionsRow,
   unreadNotificationsFrom,
   unseenCardCount,
 } from './railBadges'
@@ -59,17 +62,82 @@ assert.equal(unseenCardCount(cards, undefined), 0, 'never looked is nothing new 
 assert.equal(unseenCardCount(cards, '2026-09-03T00:00:00Z'), 1, 'only cards published after the last look count; an unparseable date never does')
 assert.equal(unseenCardCount(cards, 'garbage'), 0)
 
-// ── Extensions ────────────────────────────────────────────────────────────────
-assert.equal(extensionsRailBadge({ unread: [], unseenCards: 0, sprintsWaiting: 0 }), null)
+// ── News → drawer rows ────────────────────────────────────────────────────────
+// Owner, 2026-09-08: the notification goes on the row it came from. A source
+// decides the row unless the emitter said which.
+assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), 'agent-clis')
+assert.equal(extensionsRowOfNotification(note({ source: 'models' })), 'agent-clis')
+assert.equal(extensionsRowOfNotification(note({ source: 'marketplace' })), 'plugins', 'the drift notice says "Open Plugins"')
+assert.equal(extensionsRowOfNotification(note({ source: 'sprintengine' })), 'sprints', 'an unnamed run notice falls to Sprints, as an unclassifiable run does')
+assert.equal(extensionsRowOfNotification(note({ source: 'sprintengine', extensionsRow: 'workflows' })), 'workflows', 'an emitter that knows wins')
+assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'skills' })), 'skills')
+assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'nonsense' })), 'plugins', 'an unknown row name falls back to the source rule')
+assert.equal(extensionsRowOfNotification(note({ source: 'terminal' })), null, 'a terminal crash badges no row')
+assert.equal(extensionsRowOfNotification(note({ source: 'terminal', extensionsRow: 'design' })), 'design', 'any source may name a row')
+
+const byRow = unreadByExtensionsRow([
+  ...list,
+  note({ id: 'g', source: 'cli', read: true }),
+  note({ id: 'h', source: 'sprintengine', extensionsRow: 'workflows' }),
+])
 assert.deepEqual(
-  extensionsRailBadge({ unread: [note({ id: 'c', source: 'marketplace' })], unseenCards: 2, sprintsWaiting: 0 }),
-  { count: 3, tone: 'accent', label: '3 new in Extensions' },
+  Object.fromEntries(Object.entries(byRow).map(([row, rows]) => [row, rows.map((n) => n.id)])),
+  { workflows: ['h'], sprints: ['d'], design: [], plugins: ['c'], skills: [], 'agent-clis': ['f'] },
+  'every row is present; read rows and rows from other sources do not count',
 )
-assert.equal(extensionsRailBadge({ unread: [], unseenCards: 0, sprintsWaiting: 1 })?.tone, 'warn', 'a sprint waiting on you is gold')
+
+// ── One row's count ───────────────────────────────────────────────────────────
+assert.equal(extensionsRowBadge({ label: 'Plugins', unread: [] }), null, 'nothing is no badge, not a 0')
+assert.deepEqual(
+  extensionsRowBadge({ label: 'Plugins', unread: [note({ id: 'c', source: 'marketplace' })] }),
+  { count: 1, tone: 'accent', label: 'Plugins: 1 new' },
+)
+assert.deepEqual(
+  extensionsRowBadge({ label: 'Sprints', unread: [note({ id: 'd', source: 'sprintengine' })], waiting: 2 }),
+  { count: 3, tone: 'warn', label: 'Sprints: 2 waiting on you, 1 new' },
+  'a run waiting on you is gold and the label keeps the two apart',
+)
+assert.deepEqual(
+  extensionsRowBadge({ label: 'Design', unread: [], arrived: 4 }),
+  { count: 4, tone: 'accent', label: 'Design: 4 new' },
+  'entries arrived since the last look are news',
+)
 assert.equal(
-  extensionsRailBadge({ unread: [note({ id: 'e', level: 'error', source: 'cli' })], unseenCards: 0, sprintsWaiting: 1 })?.tone,
+  extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'e', level: 'error', source: 'cli' })], waiting: 1 })?.tone,
   'error',
   'a failure still outranks a wait',
+)
+assert.equal(extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'w', level: 'warning', source: 'models' })] })?.tone, 'warn')
+
+// ── Extensions: the sum of its rows ──────────────────────────────────────────
+assert.equal(extensionsRailBadge({ rows: {}, unseenCards: 0 }), null)
+assert.deepEqual(
+  extensionsRailBadge({
+    rows: { plugins: { count: 1, tone: 'accent', label: 'Plugins: 1 new' }, skills: null },
+    unseenCards: 2,
+  }),
+  { count: 3, tone: 'accent', label: '3 new in Extensions' },
+  'the square counts what its rows count, plus the cards the home will mark',
+)
+assert.equal(
+  extensionsRailBadge({ rows: { sprints: { count: 1, tone: 'warn', label: 'Sprints: 1 waiting on you' } }, unseenCards: 0 })?.tone,
+  'warn',
+  'a sprint waiting on you is gold',
+)
+assert.equal(
+  extensionsRailBadge({
+    rows: {
+      sprints: { count: 1, tone: 'warn', label: 'Sprints: 1 waiting on you' },
+      'agent-clis': { count: 1, tone: 'error', label: 'Agent CLIs: 1 new' },
+    },
+    unseenCards: 0,
+  })?.tone,
+  'error',
+  'the loudest row decides the square',
+)
+assert.deepEqual(
+  extensionsRailBadge({ rows: {}, unseenCards: 1 }),
+  { count: 1, tone: 'accent', label: '1 new in Extensions' },
 )
 
 console.log('railBadges.test.ts: ok')

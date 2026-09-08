@@ -8,7 +8,7 @@ import type {
   SurfaceIconComponent,
 } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { DRAWER_ROWS } from './extensionsDrawer'
+import { DRAWER_ROWS, type ExtensionsDrawerRowId } from './extensionsDrawer'
 import { useSurfaceView } from './surfaceView'
 
 // The drawer's five rows, RESOLVED (Extensions drawer ruling, 2026-09-05,
@@ -30,6 +30,8 @@ import { useSurfaceView } from './surfaceView'
 export type ExtensionsDrawerRowView = {
   /** Stable across renders and unique in the list; a React key. */
   key: string
+  /** The row's own name in the ruling — what its unread count is keyed by. */
+  rowId: ExtensionsDrawerRowId
   /** The surface the row leads to. */
   surfaceId: string
   /** The view within it, when the row is one of a multi-row surface's views. */
@@ -113,6 +115,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
         return [
           {
             key: `nav:${entry.id}`,
+            rowId: row.rowId,
             surfaceId: entry.id,
             label: surface?.label,
             Icon: surface?.Icon,
@@ -132,6 +135,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
         return [
           {
             key: `surface:${surface.id}`,
+            rowId: row.rowId,
             surfaceId: surface.id,
             label: surface.label,
             Icon: surface.Icon,
@@ -150,6 +154,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
       return [
         {
           key: `view:${surface.id}:${view.id}`,
+          rowId: row.rowId,
           surfaceId: surface.id,
           viewId: view.id,
           label: view.label,

@@ -1,6 +1,8 @@
 import React from 'react'
 
+import { Badge } from '../ui/Badge'
 import { RowButton } from '../ui/RowButton'
+import type { Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 
 // Top-nav row (New chat, Automations, Sprints, Connectors, and any door a
@@ -9,9 +11,25 @@ import { Tooltip } from '../ui/Tooltip'
 // carrying the label. An optional `indicator` (a status dot) rides the trailing
 // edge when expanded, or the top-right corner when collapsed.
 //
+// A `badge` (owner, 2026-09-08) is the row's unread count: the kit's corner
+// counter for unread activity — trailing when the row is expanded,
+// docked on the icon's corner when collapsed, the same way the app rail's
+// squares wear theirs. It REPLACES the indicator while it shows: a count and a
+// dot on one row would be two status idioms saying one thing, which
+// principles.md rejects on sight, and the count is the one that says how much.
+//
 // Extracted from WorkspaceSidebar so the sidebar-nav host contribution point
 // (renderer-host.ts) can render module doors with the same chrome as the shell's
 // own doors — a module entry is just a component that renders one of these.
+
+/** A row's unread count. Null or a zero draws nothing — a badge never says 0. */
+export type RowBadge = {
+  count: number
+  tone: Tone
+  /** The count's accessible name; a bare number tells a screen reader nothing. */
+  label: string
+}
+
 export function SidebarNavButton({
   collapsed,
   active,
@@ -21,6 +39,7 @@ export function SidebarNavButton({
   tooltip,
   tooltipWhenExpanded,
   indicator,
+  badge,
   onClick,
   onDragOver,
   onDragLeave,
@@ -41,6 +60,8 @@ export function SidebarNavButton({
   // A small state dot (running / waiting-on-you), trailing when expanded and a
   // corner dot when collapsed. Its own aria-label carries the meaning.
   indicator?: React.ReactNode
+  // The row's unread count, drawn in place of `indicator` while it is above 0.
+  badge?: RowBadge | null
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   onDragOver?: (event: React.DragEvent<HTMLButtonElement>) => void
   onDragLeave?: (event: React.DragEvent<HTMLButtonElement>) => void
@@ -68,7 +89,25 @@ export function SidebarNavButton({
     >
       {icon}
       {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
-      {indicator ? (
+      {badge && badge.count > 0 ? (
+        collapsed ? (
+          // Docked on the row's own corner (the row is `relative`), ringed in
+          // the sidebar's ground — `bg.canvas`, the same ground the rail's
+          // squares sit on — rather than the app ground the primitive assumes.
+          <Badge
+            corner
+            tone={badge.tone}
+            count={badge.count}
+            max={99}
+            ariaLabel={badge.label}
+            className="border-[color:var(--bg-canvas)]"
+          />
+        ) : (
+          <span className="ml-auto flex shrink-0 pl-1">
+            <Badge tone={badge.tone} count={badge.count} max={99} ariaLabel={badge.label} />
+          </span>
+        )
+      ) : indicator ? (
         collapsed ? (
           <span className="absolute right-1 top-1 flex">{indicator}</span>
         ) : (

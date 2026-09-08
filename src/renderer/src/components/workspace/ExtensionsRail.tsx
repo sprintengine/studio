@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
+import { useExtensionsRowBadges } from './useExtensionsRowBadges'
 
 // The Extensions drawer (app shell, 2026-09-05): the sidebar column
 // while the app rail's Extensions glyph is chosen. Everything a person can open
@@ -26,6 +27,15 @@ import { SidebarNavButton } from './SidebarNavButton'
 // column for the length of its visit, and the host's back chevron or a rail
 // glyph brings the drawer back.
 //
+// Each row wears its own unread count (owner, 2026-09-08): the news that
+// belongs to it, and for a run door the runs waiting on an answer. The drawer
+// only wears them — `useExtensionsRowBadges` derives them, and the same
+// derivation is what the app rail's Extensions square sums, so the square and
+// the rows beneath it never disagree. A row's count clears when its page is
+// on screen (`useRailBadges` does the reading), which is what makes the count
+// an answer to "where did that come from?" rather than a number that vanishes
+// the moment the drawer opens.
+//
 // No heading and no groups: a heading must separate something from something
 // else (principles, Composition), and to the person these are all just
 // extensions.
@@ -39,10 +49,12 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
   // is keyed on module enablement alone and misses a third-party module that
   // registers late, which put a row on the Extensions home and not here.
   const drawerRows = useExtensionsDrawerRows()
+  const badges = useExtensionsRowBadges()
 
   const rows = useMemo(
     () =>
       drawerRows.flatMap((row) => {
+        const badge = badges[row.rowId]
         // A module's own row component owns its full chrome — a status dot, its
         // own wider reading of "selected" — so it renders instead of a generic
         // row, not beside one.
@@ -53,7 +65,7 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
               key: row.key,
               node: (
                 <React.Suspense fallback={null}>
-                  <RowComponent collapsed={collapsed} />
+                  <RowComponent collapsed={collapsed} badge={badge} />
                 </React.Suspense>
               ),
             },
@@ -74,13 +86,14 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
                 ariaLabel={row.label}
                 tooltip={row.label}
                 active={row.active}
+                badge={badge}
                 onClick={row.open}
               />
             ),
           },
         ]
       }),
-    [collapsed, drawerRows],
+    [collapsed, drawerRows, badges],
   )
 
   return (

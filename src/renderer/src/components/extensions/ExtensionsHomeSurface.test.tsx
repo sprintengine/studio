@@ -65,6 +65,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import ExtensionsHomeSurface from './ExtensionsHomeSurface'
 import { EXTENSIONS_HOME_TILE_SUMMARIES } from './extensionsHomeTiles'
 import { ExtensionsRail } from '../workspace/ExtensionsRail'
+import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   consumePendingExtensionsSurfaceTarget,
@@ -1340,6 +1341,117 @@ async function main(): Promise<void> {
 
   home.unmount()
   drawer.unmount()
+
+  // ── The cards that arrived since the last visit wear the New chip ───────────
+  //
+  // The rail square counts the hosted cards published since the home was last
+  // open; until now the section was stamped seen on its first frame, so the page
+  // the badge sent the person to could not say WHICH cards it had just cleared.
+  // The home stamps itself instead, and marks what the stamp revealed
+  // (`newHomeCardSlugs`, `design-system/components/badge/component.md`, "The New
+  // mark").
+  //
+  // Mounted fresh rather than reusing the page above, because the freeze happens
+  // once per visit: a page that has already stamped itself has, correctly,
+  // nothing left to mark.
+  act(() => {
+    useWorkspaceStore.setState(() => ({ cards: FEED, cardFeedStatus: 'ready' as const }))
+  })
+  const STAMP = '2026-09-02T00:00:00.000Z'
+  act(() => {
+    useNotificationStore.setState({ sectionSeenAt: { extensions: STAMP } })
+  })
+
+  const visit = mount(React.createElement(ExtensionsHomeSurface))
+  const posterFor = (title: string): HTMLElement => {
+    const poster = cardsIn(visit.host).find((candidate) => titleOf(candidate) === title)
+    assert.ok(poster, `${title}: the card is on the page`)
+    return poster as HTMLElement
+  }
+  const chipped = (title: string): boolean => Boolean(posterFor(title).textContent?.includes('New'))
+
+  // The hero was published before the stamp and the other two after it. The hero
+  // is the case worth naming: it leads the grid because the FEED promoted it, and
+  // leading is not being new.
+  assert.equal(chipped('Big task? No problem.'), false, 'a card that was here last time is not marked')
+  assert.equal(chipped('Let an agent drive your browser'), true, 'a card published since the stamp is')
+  assert.equal(chipped('Build a 3D apocalypse of your own street'), true, 'and so is the other one')
+
+  // The kit's chip, not a span drawn here: accent ink on the soft accent, no
+  // hairline, and readable — nothing on a poster writes an accessible name for
+  // the CARD (the one hand-written name is `Go`'s, and it names the button), so
+  // hiding the chip would delete the word for anyone not looking at the picture.
+  const chip = [...posterFor('Let an agent drive your browser').querySelectorAll('span')].find(
+    (span) => span.textContent === 'New',
+  )
+  assert.ok(chip, 'the mark is an element of its own, not a word inside the title')
+  assert.ok(
+    chip?.className.includes('accent-primary-soft'),
+    'and it is the kit’s New mark — accent ink on the soft accent',
+  )
+  assert.doesNotMatch(chip?.className ?? '', /border/, 'no hairline: a border would make it read as a state chip')
+  assert.equal(chip?.getAttribute('aria-hidden'), null, 'and it is spoken, because nothing else on the card says it')
+
+  // Never a hoist and never a sort key: the grid is exactly the order it was
+  // before anything was marked, so a muscle-memory pick still lands.
+  assert.deepEqual(
+    cardsIn(visit.host).map(titleOf),
+    [
+      'Big task? No problem.',
+      'Let an agent drive your browser',
+      'Build a 3D apocalypse of your own street',
+    ],
+    'the chip is the only difference — it moves nothing',
+  )
+
+  // The visit stamps itself, which is what makes the rail square quiet on the way
+  // out — and the chips survive that write, because the stamp the page marks
+  // against was frozen on mount.
+  const stampedAt = useNotificationStore.getState().sectionSeenAt.extensions
+  assert.ok(
+    stampedAt && Date.parse(stampedAt) > Date.parse(STAMP),
+    'the home advances the section stamp on mount',
+  )
+  assert.equal(chipped('Let an agent drive your browser'), true, 'and the marks stay up for the visit that revealed them')
+
+  // A card pushed while the person is reading the page is SEEN, not badged
+  // behind them: the feed changing stamps again, and the new card is marked
+  // against this visit's frozen stamp like every other.
+  act(() => {
+    useWorkspaceStore.setState(() => ({
+      cards: [
+        ...FEED,
+        {
+          slug: 'mid-visit',
+          kind: 'skill' as const,
+          title: 'It landed while you were reading',
+          dek: 'A push that arrives mid-visit, which the rail must not save up for later.',
+          art: 'browser' as const,
+          publishedAt: '2026-09-08T00:00:00.000Z',
+          go: [CHAT],
+        },
+      ],
+      cardFeedStatus: 'ready' as const,
+    }))
+  })
+  assert.equal(chipped('It landed while you were reading'), true, 'the card that arrived mid-visit is marked')
+  const restamped = useNotificationStore.getState().sectionSeenAt.extensions
+  assert.ok(
+    restamped && Date.parse(restamped) >= Date.parse(stampedAt ?? ''),
+    'and the section was stamped again, so the square does not count it after the person has seen it',
+  )
+  visit.unmount()
+
+  // The mark expires on its own: the next open is clean, because the visit above
+  // stamped itself.
+  const second = mount(React.createElement(ExtensionsHomeSurface))
+  assert.equal(
+    cardsIn(second.host).filter((poster) => poster.textContent?.includes('New')).length,
+    0,
+    'a mark that never clears is decoration — the visit that revealed it is what clears it',
+  )
+  second.unmount()
+
   console.log('ExtensionsHomeSurface.test.tsx: ok')
 }
 

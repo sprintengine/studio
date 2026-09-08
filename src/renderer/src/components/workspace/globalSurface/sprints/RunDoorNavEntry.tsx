@@ -17,10 +17,11 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // contribution point.
 //
 // One component for both doors, for the same reason one surface serves both: the
-// row is a label, a glyph, an aggregate dot and an open action, and only the
-// first two differ. The dot reads the door's OWN runs — a workflow waiting on
+// row is a label, a glyph, an aggregate mark and an open action, and only the
+// first two differ. The mark reads the door's OWN runs — a workflow waiting on
 // somebody must not light the Sprints row, or the operator opens a list the run
-// is not in.
+// is not in. Since 2026-09-08 the host hands the row its count (`badge`), which
+// partitions the waiting runs by the same door rule this row's dot always used.
 //
 // The sidebar renders this only while the module is enabled, so it assumes it is
 // live. It carries the run index's aggregate signal into the rail even while the
@@ -28,6 +29,7 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 export function RunDoorNavEntry({
   door,
   collapsed,
+  badge,
 }: SidebarNavEntryRenderProps & { door: RunDoorDefinition }) {
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   // One selected thing in the sidebar, and it is never nothing.
@@ -56,6 +58,12 @@ export function RunDoorNavEntry({
       tooltip={attention.waiting ? `${door.label} — waiting on you` : door.label}
       tooltipWhenExpanded
       active={active}
+      // The host's count (runs waiting here, plus this door's unread news)
+      // takes the row while it is above zero — SidebarNavButton draws it in
+      // the indicator's place, so a waiting run is a gold "1" rather than a
+      // gold dot. The pulse survives underneath only while nothing is counted:
+      // "a run is live" is ambient, and the count is what asks for the person.
+      badge={badge}
       indicator={runDoorNavIndicator(door, attention)}
       onClick={() => openGlobalSurface(door.id)}
     />

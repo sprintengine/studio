@@ -8,6 +8,7 @@ import type {
   DesignSystemLibraryListResult,
   DesignSystemRegisterResult,
 } from '../../shared/design-system/library'
+import type { DesignSystemArrivalsResult } from '../../shared/design-system/arrivals'
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
@@ -30,6 +31,8 @@ export const designSystemApi = {
     ipcRenderer.invoke('design-system:read-bundle', bundleDir),
   listDesignSystemLibrary: (): Promise<DesignSystemLibraryListResult> =>
     ipcRenderer.invoke('design-system:library-list'),
+  listDesignSystemArrivals: (): Promise<DesignSystemArrivalsResult> =>
+    ipcRenderer.invoke('design-system:library-arrivals'),
   registerDesignSystemFolder: (folderPath: string): Promise<DesignSystemRegisterResult> =>
     ipcRenderer.invoke('design-system:library-register', folderPath),
   forgetDesignSystemFolder: (id: string): Promise<{ ok: true; forgotten: boolean }> =>
@@ -48,6 +51,7 @@ export const designSystemApi = {
   | 'lintDesignSystemBundle'
   | 'readDesignSystemBundle'
   | 'listDesignSystemLibrary'
+  | 'listDesignSystemArrivals'
   | 'registerDesignSystemFolder'
   | 'forgetDesignSystemFolder'
   | 'attachDesignSystemBundle'

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
+import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { CardButton } from '../ui/CardButton'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -24,7 +25,7 @@ import {
   skillsCountLine,
   sprintRunCountLine,
 } from './extensionsHomeTiles'
-import { homeCardCount, homeCardGrid } from './homeCards'
+import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
 
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens, in the card region, with the Extensions drawer standing
@@ -387,6 +388,40 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   }, [drawable])
   const grid = useMemo(() => homeCardGrid(cards, query), [cards, query])
   const matched = (grid.hero ? 1 : 0) + grid.rest.length
+
+  // The stamp this visit opened on, frozen on the first render and never read
+  // from the store again.
+  //
+  // The Design door does exactly this with `visitSeenAt`
+  // (`globalSurface/design/DesignGlobalSurface.tsx`) and the reasoning carries
+  // over whole: the marks have to stay up for the whole visit that reveals
+  // them, so the write below cannot be allowed to erase what the person is
+  // currently looking at; and the next open has to be quiet, so the write
+  // happens on the visit rather than on some dismissal the person has to
+  // perform. A ref rather than state because reading it must not re-render, and
+  // because it is deliberately NOT reactive.
+  //
+  // `undefined` is "not captured yet" and `null` is "captured, and there was no
+  // stamp" — a fresh profile, where nothing is new (`newHomeCardSlugs`).
+  const visitSeenAt = useRef<string | null | undefined>(undefined)
+  if (visitSeenAt.current === undefined) {
+    visitSeenAt.current = useNotificationStore.getState().sectionSeenAt.extensions ?? null
+  }
+  /** The cards this visit chips: published since the stamp above. */
+  const newSlugs = useMemo(() => newHomeCardSlugs(cards, visitSeenAt.current), [cards])
+
+  // The HOME is what stamps the section, because the home is what marks the
+  // cards — the rail square's count and the chips on this page are one fact,
+  // and a host that stamped on the section's first frame left the page unable
+  // to tell which cards it had just cleared.
+  //
+  // Again on every feed change, not only on mount: a push that lands while the
+  // person is reading this page has been seen, and badging it behind them is
+  // the same defect one step later. The frozen ref above is what keeps this
+  // visit's chips on screen through that write.
+  useEffect(() => {
+    useNotificationStore.getState().markSectionSeen('extensions', new Date().toISOString())
+  }, [cards])
   // Only a page with nothing to draw is loading — the slice says the same thing
   // on its own side, and a re-read behind cards that are already up must never
   // replace them with a skeleton.
@@ -493,6 +528,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                   shape="hero"
                   running={runningSlug === grid.hero.slug}
                   disabled={runningSlug !== null}
+                  isNew={newSlugs.has(grid.hero.slug)}
                   onLaunch={(choice) => onLaunch(grid.hero as HostedCard, choice)}
                 />
               </div>
@@ -503,6 +539,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                 card={card}
                 running={runningSlug === card.slug}
                 disabled={runningSlug !== null}
+                isNew={newSlugs.has(card.slug)}
                 onLaunch={(choice) => onLaunch(card, choice)}
               />
             ))}

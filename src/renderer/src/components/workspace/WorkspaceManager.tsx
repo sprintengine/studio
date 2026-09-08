@@ -1718,11 +1718,14 @@ export default function WorkspaceManager() {
       const notice = sourceUpdatesNotice(check)
       if (!notice) return
       showToast({ tone: 'accent', title: notice.title, description: notice.description })
+      // On the Plugins row of the Extensions drawer, where the notice sends
+      // the person; Sync there takes the changes for Skills too.
       publishDiagnosticSync({
         level: 'info',
         source: 'marketplace',
         title: notice.title,
         message: notice.description,
+        extensionsRow: 'plugins',
       })
     })
   }, [])
@@ -2513,9 +2516,7 @@ export default function WorkspaceManager() {
     activityByWorkspaceId,
     unseenDoneIds,
     onScreenWorkspaceId: activeGlobalSurface ? null : windowActiveWorkspaceId,
-    section: sidebarSection,
     activeGlobalSurface,
-    sprintsEnabled: selectModuleEnabled(moduleEnablement, 'sprint-engine'),
   })
 
 

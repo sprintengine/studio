@@ -42,18 +42,53 @@ export const EXTENSIONS_HOME_SURFACE_ID = 'extensions-home'
 //             person, so it contributes three rows, each with its own label,
 //             glyph and way of landing the surface on it.
 export type DrawerRow =
-  | { kind: 'nav'; entryId: string }
-  | { kind: 'surface'; surfaceId: string }
-  | { kind: 'view'; surfaceId: string; viewId: string }
+  | { kind: 'nav'; rowId: ExtensionsDrawerRowId; entryId: string }
+  | { kind: 'surface'; rowId: ExtensionsDrawerRowId; surfaceId: string }
+  | { kind: 'view'; rowId: ExtensionsDrawerRowId; surfaceId: string; viewId: string }
+
+/**
+ * A row's own name, stable across what it resolves to. Two things address a row
+ * by it: the unread count each row wears (`useExtensionsRowBadges`), and a bell
+ * notification's `extensionsRow`, which says which row a piece of news belongs
+ * to. Neither is a surface id — Plugins, Skills and Agent CLIs are three rows of
+ * ONE surface, and a count keyed on the surface would light all three.
+ */
+export type ExtensionsDrawerRowId = 'workflows' | 'sprints' | 'design' | 'plugins' | 'skills' | 'agent-clis'
 
 export const DRAWER_ROWS: readonly DrawerRow[] = [
-  { kind: 'nav', entryId: 'workflows' },
-  { kind: 'nav', entryId: 'sprints' },
-  { kind: 'surface', surfaceId: 'design' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'plugins' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'skills' },
-  { kind: 'view', surfaceId: 'extensions', viewId: 'agent-clis' },
+  { kind: 'nav', rowId: 'workflows', entryId: 'workflows' },
+  { kind: 'nav', rowId: 'sprints', entryId: 'sprints' },
+  { kind: 'surface', rowId: 'design', surfaceId: 'design' },
+  { kind: 'view', rowId: 'plugins', surfaceId: 'extensions', viewId: 'plugins' },
+  { kind: 'view', rowId: 'skills', surfaceId: 'extensions', viewId: 'skills' },
+  { kind: 'view', rowId: 'agent-clis', surfaceId: 'extensions', viewId: 'agent-clis' },
 ]
+
+export const EXTENSIONS_DRAWER_ROW_IDS: readonly ExtensionsDrawerRowId[] = DRAWER_ROWS.map((row) => row.rowId)
+
+export function isExtensionsDrawerRowId(value: unknown): value is ExtensionsDrawerRowId {
+  return typeof value === 'string' && (EXTENSIONS_DRAWER_ROW_IDS as readonly string[]).includes(value)
+}
+
+/**
+ * Which row the card region is showing, from the open surface and — for the
+ * three rows that are views of one surface — the view it stands on. Null while
+ * no drawer row is open (the home, a chat, Automations, a surface that is not
+ * a row). This is what "opening a row" means to the row's unread count: the
+ * moment its page is on screen, its news has been seen.
+ */
+export function openExtensionsDrawerRow(
+  activeGlobalSurface: string | null,
+  activeView: string | null,
+): ExtensionsDrawerRowId | null {
+  if (!activeGlobalSurface) return null
+  for (const row of DRAWER_ROWS) {
+    if (row.kind === 'nav' && row.entryId === activeGlobalSurface) return row.rowId
+    if (row.kind === 'surface' && row.surfaceId === activeGlobalSurface) return row.rowId
+    if (row.kind === 'view' && row.surfaceId === activeGlobalSurface && row.viewId === activeView) return row.rowId
+  }
+  return null
+}
 
 /**
  * The surfaces that live UNDER the Extensions glyph: the home the glyph opens,

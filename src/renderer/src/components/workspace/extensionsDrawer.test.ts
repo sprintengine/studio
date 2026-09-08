@@ -7,9 +7,12 @@ import assert from 'node:assert/strict'
 // clicked — the failure the ruling's Stage 2 exists to prevent.
 import {
   DRAWER_ROWS,
+  EXTENSIONS_DRAWER_ROW_IDS,
   EXTENSIONS_DRAWER_SURFACE_IDS,
   EXTENSIONS_HOME_SURFACE_ID,
+  isExtensionsDrawerRowId,
   isExtensionsDrawerSurface,
+  openExtensionsDrawerRow,
   surfaceTakesSidebarColumn,
 } from './extensionsDrawer'
 
@@ -27,6 +30,27 @@ assert.deepEqual(
   ['extensions', 'extensions', 'extensions'],
   'the last three rows are three views of ONE surface, not three surfaces',
 )
+
+// ── Each row's own name ──────────────────────────────────────────────────────
+// What a row's unread count is keyed by, and what a notification names to say
+// which row it belongs to (owner, 2026-09-08). Not a surface id: three of the
+// rows are views of one surface, and a count keyed on it would light all three.
+assert.deepEqual([...EXTENSIONS_DRAWER_ROW_IDS], ['workflows', 'sprints', 'design', 'plugins', 'skills', 'agent-clis'])
+assert.equal(isExtensionsDrawerRowId('plugins'), true)
+assert.equal(isExtensionsDrawerRowId('extensions'), false, 'the surface three rows share is not a row')
+assert.equal(isExtensionsDrawerRowId(undefined), false)
+
+// Which row is on screen — the moment its news counts as read.
+assert.equal(openExtensionsDrawerRow(null, null), null, 'a chat on screen opens no row')
+assert.equal(openExtensionsDrawerRow(EXTENSIONS_HOME_SURFACE_ID, null), null, 'the home is not a row; it reads its own cards')
+assert.equal(openExtensionsDrawerRow('automations', null), null)
+assert.equal(openExtensionsDrawerRow('workflows', null), 'workflows')
+assert.equal(openExtensionsDrawerRow('sprints', null), 'sprints')
+assert.equal(openExtensionsDrawerRow('design', null), 'design')
+assert.equal(openExtensionsDrawerRow('extensions', 'plugins'), 'plugins')
+assert.equal(openExtensionsDrawerRow('extensions', 'skills'), 'skills')
+assert.equal(openExtensionsDrawerRow('extensions', 'agent-clis'), 'agent-clis')
+assert.equal(openExtensionsDrawerRow('extensions', null), null, 'the surface with no view yet has opened no row — Plugins must not read Skills')
 
 // ── Which surfaces live under the Extensions glyph ───────────────────────────
 // Opening one of these is a move INSIDE the section, so the sidebar follows it

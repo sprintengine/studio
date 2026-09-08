@@ -602,6 +602,15 @@ export type DiagnosticLogInput = {
   taskId?: string
   sessionId?: string
   navigationTarget?: NotificationNavigationTarget
+  /**
+   * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
+   * workflows, sprints, design, plugins, skills, agent-clis), when the emitter
+   * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
+   * A string rather than the row type because this shape is shared with the
+   * main process and persists to localStorage; unknown values fall back to the
+   * source rule.
+   */
+  extensionsRow?: string
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {

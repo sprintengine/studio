@@ -279,6 +279,14 @@ export function CardSplashTitle({
   )
 }
 
+/** Where the stamp sits, and the fact that it takes no clicks. */
+const STAMP_CORNER = 'pointer-events-none absolute top-2.5 right-2.5 z-10'
+
+/** The stamp's own drawing: the mockup's pill, minus the letter-spacing. */
+const STAMP_PILL =
+  'inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] ' +
+  'bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium uppercase text-[color:var(--text-muted)]'
+
 /**
  * The stamp: one word, top right, saying what the card is.
  *
@@ -297,10 +305,28 @@ export function CardSplashTitle({
  * label is passed in already cased; the transform is what makes it look drawn
  * rather than typed.
  */
-export function CardSplashStamp({ label }: { label: string }): JSX.Element {
+export function CardSplashStamp({
+  label,
+  /**
+   * A mark that belongs beside the stamp rather than in the words — today the
+   * New chip (`CardPoster.tsx` says why the corner is where it goes). Nothing
+   * is drawn around it when there is none, so a card without one keeps exactly
+   * the single positioned pill it has always been.
+   */
+  mark,
+}: {
+  label: string
+  mark?: React.ReactNode
+}): JSX.Element {
+  if (!mark) {
+    return (
+      <span className={`${STAMP_CORNER} ${STAMP_PILL}`}>{label}</span>
+    )
+  }
   return (
-    <span className="pointer-events-none absolute top-2.5 right-2.5 z-10 inline-flex h-5 items-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-micro font-medium uppercase text-[color:var(--text-muted)]">
-      {label}
+    <span className={`${STAMP_CORNER} inline-flex items-center gap-1.5`}>
+      <span className={STAMP_PILL}>{label}</span>
+      {mark}
     </span>
   )
 }

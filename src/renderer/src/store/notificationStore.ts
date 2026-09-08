@@ -20,6 +20,12 @@ interface NotificationStore {
   markAllRead: () => void
   /** Opening a rail section reads everything its badge was counting. */
   markReadBySources: (sources: ReadonlySet<DiagnosticSource>) => void
+  /**
+   * Opening a drawer row reads the rows it was counting. The caller says which
+   * — the store does not know how news is attributed to rows, only that reading
+   * is a flag flip over the ones the predicate picks.
+   */
+  markReadWhere: (predicate: (notification: AppNotification) => boolean) => void
   markSectionSeen: (section: RailSeenSection, at: string) => void
   clearAll: () => void
 }
@@ -63,6 +69,13 @@ export const useNotificationStore = create<NotificationStore>()(
         set((state) => {
           for (const notification of state.notifications) {
             if (!notification.read && sources.has(notification.source)) notification.read = true
+          }
+        }),
+
+      markReadWhere: (predicate) =>
+        set((state) => {
+          for (const notification of state.notifications) {
+            if (!notification.read && predicate(notification)) notification.read = true
           }
         }),
 

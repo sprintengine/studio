@@ -15,6 +15,7 @@ import { useSurfaceBackNav } from '../surfaceBackNav'
 import type { DesignSystemLibraryEntry } from '../../../../../../shared/design-system/library'
 import { designSystemRegistrationId } from '../../../../../../shared/design-system/library'
 import { newDesignSystemEntryKeys } from '../../../../../../shared/design-system/new-entries'
+import { reloadDesignArrivals, reportDesignArrivals } from './designArrivalsStore'
 import { DesignCanvas, type DesignCanvasTabId } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
@@ -208,6 +209,12 @@ export default function DesignGlobalSurface(): JSX.Element {
       for (const path of knownPaths) {
         const result = await window.api.readDesignSystemBundle(path)
         if (cancelled || !mounted.current) return
+        // Hand the dates to the shared store as well as this door's state: the
+        // Extensions row counts the same arrivals, and while the door is open
+        // its read is the freshest either of them has.
+        if (result.ok) {
+          reportDesignArrivals(designSystemRegistrationId(path), path, result.view.addedAt)
+        }
         setReads((previous) => ({
           ...previous,
           [path]: result.ok
@@ -368,6 +375,9 @@ export default function DesignGlobalSurface(): JSX.Element {
     try {
       const result = await window.api.readDesignSystemBundle(path)
       if (!mounted.current) return
+      if (result.ok) {
+        reportDesignArrivals(designSystemRegistrationId(path), path, result.view.addedAt)
+      }
       setReads((previous) => ({
         ...previous,
         [path]: result.ok
@@ -409,9 +419,13 @@ export default function DesignGlobalSurface(): JSX.Element {
       setPointError(result.message)
       return
     }
+    // A folder just joined the library: the row's count is describing a library
+    // that no longer exists until this lands.
+    reloadDesignArrivals()
     const read = await window.api.readDesignSystemBundle(result.entry.path)
     if (!mounted.current) return
     if (read.ok) {
+      reportDesignArrivals(result.entry.id, result.entry.path, read.view.addedAt)
       setReads((previous) => ({
         ...previous,
         [result.entry.path]: { identity: read.view.identity, view: read.view, failure: null },
@@ -457,6 +471,7 @@ export default function DesignGlobalSurface(): JSX.Element {
         setPointError(registered.message)
         return
       }
+      reloadDesignArrivals()
       await loadLibrary()
       if (!mounted.current) return
       setNewSelected(false)
@@ -485,6 +500,7 @@ export default function DesignGlobalSurface(): JSX.Element {
       return
     }
     if (entry.registrationId) await window.api.forgetDesignSystemFolder(entry.registrationId)
+    reloadDesignArrivals()
     if (!mounted.current) return
     await loadLibrary()
     if (!mounted.current) return
@@ -497,6 +513,8 @@ export default function DesignGlobalSurface(): JSX.Element {
   const forgetEntry = useCallback(async (entry: DesignRailEntry) => {
     if (!entry.registrationId) return
     await window.api.forgetDesignSystemFolder(entry.registrationId)
+    // The forgotten system's entries must stop counting on the Design row too.
+    reloadDesignArrivals()
     if (!mounted.current) return
     setSelectedId(null)
     await loadLibrary()

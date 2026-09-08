@@ -20,6 +20,7 @@ import {
   homeCardCount,
   homeCardGrid,
   matchesHomeCardSearch,
+  newHomeCardSlugs,
   orderHomeCards,
 } from './homeCards'
 
@@ -208,6 +209,69 @@ run('every kind the schema knows has a word on its stamp', () => {
     assert.equal(label, CARD_KIND_STAMPS[kind])
   }
   assert.equal(cardStampLabel('mcp'), 'MCP server', 'the product’s own words for it, not the machine’s')
+})
+
+// ── What the visit marks as new ──────────────────────────────────────────────
+// The home freezes the stamp it opened on and chips every card published after
+// it. The rail square's `unseenCardCount` counts the same cards, so these cases
+// are also the counter's cases: a square that says "2 new" over a page wearing
+// three chips is the badge lying about the page beside it.
+
+run('no stamp is nothing new — a fresh profile is not a page of chips', () => {
+  const feed = [
+    card({ slug: 'a', publishedAt: '2026-09-05T00:00:00.000Z' }),
+    card({ slug: 'b', publishedAt: '2026-09-06T00:00:00.000Z' }),
+  ]
+  assert.equal(newHomeCardSlugs(feed, undefined).size, 0, 'never looked, so nothing arrived since')
+  assert.equal(newHomeCardSlugs(feed, null).size, 0, 'and null says the same thing as undefined')
+  assert.equal(newHomeCardSlugs(feed, '').size, 0, 'as does an empty stamp')
+})
+
+run('a stamp this build cannot read marks nothing', () => {
+  const feed = [card({ slug: 'a', publishedAt: '2026-09-05T00:00:00.000Z' })]
+  assert.equal(
+    newHomeCardSlugs(feed, 'last tuesday').size,
+    0,
+    'a bad date must not turn the whole feed new — the failure is silent and the chip would never clear',
+  )
+})
+
+run('strictly after the stamp, and only that', () => {
+  const seenAt = '2026-09-03T00:00:00.000Z'
+  const marked = newHomeCardSlugs(
+    [
+      card({ slug: 'before', publishedAt: '2026-09-02T23:59:59.999Z' }),
+      card({ slug: 'exactly-then', publishedAt: seenAt }),
+      card({ slug: 'after', publishedAt: '2026-09-03T00:00:00.001Z' }),
+    ],
+    seenAt,
+  )
+  assert.deepEqual([...marked], ['after'], 'a card published at the stamp was on the page they just looked at')
+  assert.ok(!marked.has('before'), 'and one older than it certainly was')
+})
+
+run('a card whose date cannot be read is never new', () => {
+  const marked = newHomeCardSlugs(
+    [
+      card({ slug: 'unreadable', publishedAt: 'soon' }),
+      card({ slug: 'readable', publishedAt: '2026-09-09T00:00:00.000Z' }),
+    ],
+    '2026-09-03T00:00:00.000Z',
+  )
+  assert.deepEqual([...marked], ['readable'], 'NaN is not a date after the stamp, and a chip on it would never clear')
+})
+
+run('the mark is the whole difference — it is not a hoist and not a sort key', () => {
+  // `design-system/components/badge/component.md`, "The New mark": the row stays
+  // exactly where its list put it, so a muscle-memory pick still lands.
+  const feed = [
+    card({ slug: 'old', publishedAt: '2026-08-01T00:00:00.000Z' }),
+    card({ slug: 'fresh', publishedAt: '2026-09-09T00:00:00.000Z' }),
+    card({ slug: 'hero', publishedAt: '2026-07-01T00:00:00.000Z', hero: true }),
+  ]
+  const before = slugs(orderHomeCards(feed))
+  newHomeCardSlugs(feed, '2026-09-01T00:00:00.000Z')
+  assert.deepEqual(slugs(orderHomeCards(feed)), before, 'asking which cards are new moves none of them')
 })
 
 console.log('homeCards.test.ts: ok')

@@ -212,6 +212,40 @@ export function homeCardCount(cards: readonly HostedCard[]): number {
   return renderableCards(cards).length
 }
 
+/**
+ * The cards the home marks with the New chip: everything published strictly
+ * after the stamp the visit was opened with.
+ *
+ * Never seen is nothing new — a fresh install, before the host has stamped its
+ * first ready feed — because a page that chipped its whole feed on the first
+ * open would be marking the product rather than what arrived. A stamp this
+ * build cannot parse is treated the same way, for the same reason: a bad date
+ * must not turn every card new.
+ *
+ * The rule is stated once, here. `unseenCardCount` in `utils/railBadges.ts`
+ * counts the same cards for the rail square and has to AGREE with this set — a
+ * square saying "2 new" over a page wearing three chips is the badge lying —
+ * so that counter delegates to this function rather than restating the rule.
+ */
+export function newHomeCardSlugs(
+  cards: readonly HostedCard[],
+  seenAt: string | null | undefined,
+): ReadonlySet<string> {
+  const slugs = new Set<string>()
+  if (!seenAt) return slugs
+  const seenMs = Date.parse(seenAt)
+  if (Number.isNaN(seenMs)) return slugs
+  for (const card of cards) {
+    const publishedMs = Date.parse(card.publishedAt)
+    // Strictly after. A card published at the very millisecond of the stamp was
+    // on the page the person just looked at, so it is not news to them; and a
+    // date this build cannot read is never new, because the alternative is a
+    // chip that never clears.
+    if (!Number.isNaN(publishedMs) && publishedMs > seenMs) slugs.add(card.slug)
+  }
+  return slugs
+}
+
 // Epoch millis, or 0 for a date this build cannot read — which sorts such a
 // card to the bottom instead of poisoning every comparison it takes part in.
 function publishedAtMs(card: HostedCard): number {

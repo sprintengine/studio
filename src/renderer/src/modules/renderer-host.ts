@@ -1,4 +1,5 @@
 import type { ComponentType, LazyExoticComponent } from 'react'
+import type { RowBadge } from '../components/workspace/SidebarNavButton'
 
 import type { ModuleEventEnvelope } from '../../../shared/modules/events'
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
@@ -352,6 +353,14 @@ export type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view
 export type SidebarNavEntryRenderProps = {
   /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
   collapsed: boolean
+  /**
+   * The unread count the host has derived for this row (`useExtensionsRowBadges`),
+   * or null for none. The host counts because the count spans things the
+   * module cannot see — bell rows, the rail's sum — and a row that drew its
+   * own would disagree with the square above it. The row wears it through
+   * `SidebarNavButton`'s `badge`, in place of any status dot it would draw.
+   */
+  badge?: RowBadge | null
 }
 
 export type SidebarNavEntryComponent =
