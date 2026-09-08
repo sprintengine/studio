@@ -1203,6 +1203,14 @@ export interface SettingsSliceState {
   // and the glyph that reads current stays whichever one was showing. Selecting
   // a workspace or starting a chat flips it to `home`.
   sidebarSection: SidebarSection
+  // How the chat rail lists conversations (all-chats-view, 2026-09-07):
+  // `projects` is the folder tree — a header per project over its chats;
+  // `all` is one stream of every chat, newest activity first, with each row
+  // naming the project it belongs to. Persisted in the settings envelope, so
+  // the rail reopens in the shape the person left it in. App-wide rather than
+  // per window: it is how this person reads their work, not a property of one
+  // window.
+  chatListView: ChatListView
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -1235,8 +1243,12 @@ export interface SettingsSliceState {
 
 export type SidebarSection = 'home' | 'extensions'
 
+// The two shapes the chat rail can take. See `chatListView` above.
+export type ChatListView = 'projects' | 'all'
+
 export interface SettingsSliceActions {
   setSidebarSection: (section: SidebarSection) => void
+  setChatListView: (view: ChatListView) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
@@ -1432,6 +1444,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     activeGlobalSurface: null,
     activeModalSurface: null,
     sidebarSection: 'home',
+    chatListView: 'projects',
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
@@ -1449,6 +1462,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSidebarSection: (section) =>
       set((state) => {
         state.sidebarSection = section
+      }),
+
+    setChatListView: (view) =>
+      set((state) => {
+        state.chatListView = view
       }),
 
     setSidebarCollapsed: (collapsed) =>

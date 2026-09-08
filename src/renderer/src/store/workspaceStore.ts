@@ -50,7 +50,7 @@ import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
-import { createSettingsSlice, normalizeAppSettings, type SidebarSection } from './slices/settingsSlice'
+import { createSettingsSlice, normalizeAppSettings, type ChatListView, type SidebarSection } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
 import {
@@ -171,6 +171,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   authState: MulticodeAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
+  // Which shape the chat rail lists conversations in (all-chats-view):
+  // the project tree, or one stream of every chat newest-first. Persisted
+  // in the settings envelope beside sidebarWidth.
+  chatListView: ChatListView
+  setChatListView: (view: ChatListView) => void
   sidebarWidth: number
   setSidebarWidth: (width: number) => void
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
@@ -253,6 +258,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
     heldIds: ReadonlySet<WorkspaceId>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
+  recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
@@ -558,6 +564,7 @@ type RegistryEnvelopeState = {
 type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
+  chatListView: unknown
   sidebarWidth: unknown
   workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
@@ -637,6 +644,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
   return {
     appSettings: state.appSettings,
     sidebarCollapsed: state.sidebarCollapsed,
+    chatListView: state.chatListView,
     sidebarWidth: state.sidebarWidth,
     workspacePaneWidth: state.workspacePaneWidth,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
@@ -672,6 +680,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
       return {
         appSettings: s.appSettings,
         sidebarCollapsed: s.sidebarCollapsed,
+        chatListView: s.chatListView,
         sidebarWidth: s.sidebarWidth,
         workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
@@ -695,6 +704,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
   return {
     appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
+    chatListView: s.chatListView,
     sidebarWidth: s.sidebarWidth,
     workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
@@ -1248,7 +1258,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; workspacePaneWidth?: number }> | undefined
+        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; chatListView?: string; sidebarWidth?: number; workspacePaneWidth?: number }> | undefined
         // Version-gated migrations cannot be the only enforcement of these
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
@@ -1305,6 +1315,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             typeof state?.sidebarCollapsed === 'boolean'
               ? state.sidebarCollapsed
               : current.sidebarCollapsed,
+          // A value this build does not know (an older or newer name for a
+          // rail shape) falls back to the tree rather than leaving the rail
+          // in a shape nothing renders.
+          chatListView:
+            state?.chatListView === 'all' || state?.chatListView === 'projects'
+              ? state.chatListView
+              : current.chatListView,
           sidebarWidth:
             typeof state?.sidebarWidth === 'number'
               ? clampSidebarWidth(state.sidebarWidth)

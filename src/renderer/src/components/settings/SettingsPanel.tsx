@@ -890,6 +890,8 @@ export default function SettingsPanel({
     (s) => s.appSettings.appearance.windowMaterial
   )
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
+  const chatListView = useWorkspaceStore((s) => s.chatListView)
+  const setChatListView = useWorkspaceStore((s) => s.setChatListView)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
@@ -1390,6 +1392,30 @@ export default function SettingsPanel({
         >
           <SettingsPageHeader title="Appearance" />
           <AppThemePicker value={appearanceTheme} onChange={setAppearanceTheme} />
+          {/* How the chat rail lists conversations (all-chats-view). It lives
+              here rather than over the list itself (owner, 2026-09-07): it is
+              how this person reads their work — set once, lived with — and the
+              rail's one control at the top is New chat.
+
+              Appearance and not General: it changes the shape of a list, not
+              what the app does — the same question as the theme and the window
+              material it sits under. */}
+          <div className="border-t border-[color:var(--border-subtle)] pt-5">
+            <SettingsRow
+              label="Chat list"
+              help="Group chats under their project, or list them all together, most recently messaged first."
+            >
+              <SegmentedControl<'projects' | 'all'>
+                ariaLabel="Chat list"
+                items={[
+                  { value: 'projects', label: 'By project' },
+                  { value: 'all', label: 'All chats' },
+                ]}
+                value={chatListView}
+                onChange={setChatListView}
+              />
+            </SettingsRow>
+          </div>
           {window.api.platform === 'darwin' ? (
             <div className="border-t border-[color:var(--border-subtle)] pt-5">
               <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">

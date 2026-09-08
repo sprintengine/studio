@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
+import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -79,12 +79,13 @@ import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../uti
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import {
-  sortWorkspacesByActivity,
   sortWorkspacesByAttention,
+  sortWorkspacesByUserMessage,
   type WorkspaceAttentionTier,
 } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { isSettledWorkspace } from '../../utils/workspaceSettle'
+import { isSettledWorkspace, workspaceLastActiveAt } from '../../utils/workspaceSettle'
+import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -125,10 +126,17 @@ type WorkspaceSidebarProps = {
   // question), it is simply out of the layout.
   contextRailActive?: boolean
   activityByWorkspaceId: Record<WorkspaceId, Activity>
-  // Workspaces whose agents are resident (live PTY) right now — bolded as "hot"
-  // (instant switch) versus suspended/exited rows that re-launch on open.
+  // Workspaces whose agents are resident (live PTY) right now — instant to
+  // switch into, versus suspended/exited rows that re-launch on open. Said in
+  // words on the row for a screen reader; it is no longer what bolds a row
+  // (see `workspaceRowEmphasis`), because a live pty on a chat nobody has
+  // touched since this morning is not the same claim as a chat in motion.
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
+  // The unseen-completion marks, as they change — the app rail's Home badge
+  // counts them (useRailBadges). The sidebar stays their owner: it is the layer
+  // that knows what was looked at, and nothing outside it writes a mark.
+  onUnseenDoneChange?: (ids: ReadonlySet<WorkspaceId>) => void
   onSelectWorkspace: (id: WorkspaceId) => void
   // Open a session that lives on a paired machine (the Remote band): focus
   // the workspace here that already is it, or attach a new one. Absent in a
@@ -171,6 +179,12 @@ type FolderGroup = {
 }
 
 const NULL_FOLDER_KEY = '__no_folder__'
+
+// The flat stream's single Settled shelf (all-chats-view). It shares the fold
+// map with the folders' shelves — one place remembers what is open — under a
+// key no folder can produce.
+const ALL_CHATS_SHELF_KEY = '__all_chats__'
+const ALL_CHATS_SHELF_ID = 'ws-settled-all-chats'
 
 /**
  * Which header each row files under, with repository identity applied
@@ -605,11 +619,14 @@ function SettledShelfRow({
   expanded,
   controlsId,
   onToggle,
+  flush = false,
 }: {
   count: number
   expanded: boolean
   controlsId: string
   onToggle: () => void
+  /** The flat stream's shelf: no folder header above it, so no indent under one. */
+  flush?: boolean
 }) {
   return (
     <div className="mx-1.5 my-0.5 flex items-center gap-1">
@@ -618,8 +635,8 @@ function SettledShelfRow({
         onClick={onToggle}
         aria-expanded={expanded}
         aria-controls={controlsId}
-        // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file)
-        className={`flex h-control-xs min-w-0 flex-1 cursor-pointer select-none items-center gap-1.5 rounded-md pl-[30px] pr-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+        // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file); flush drops to 10px, which is the same sum for a flat-stream row
+        className={`flex h-control-xs min-w-0 flex-1 cursor-pointer select-none items-center gap-1.5 rounded-md ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
       >
         <svg
           viewBox="0 0 16 16"
@@ -938,10 +955,13 @@ function BranchChip({
   branch,
   worktree,
   cwd,
+  dim = false,
 }: {
   branch: string
   worktree: boolean
   cwd: string | null
+  /** The row is background: nothing on its meta line may outshine its title. */
+  dim?: boolean
 }) {
   return (
     <Tooltip
@@ -951,8 +971,12 @@ function BranchChip({
       <span
         className={`flex min-w-0 items-center gap-1 font-mono text-micro ${
           // A worktree of the terminal's own reads at full strength: it is
-          // this terminal's checkout, not a checkout it shares.
-          worktree ? 'text-[color:var(--text-default)]' : ''
+          // this terminal's checkout, not a checkout it shares. Not on a
+          // background row, though — full strength there is BRIGHTER than the
+          // dimmed title above it, which reads as the branch being the point
+          // of a chat nobody is using (owner, 2026-09-07). It inherits the
+          // line's ink instead.
+          worktree && !dim ? 'text-[color:var(--text-default)]' : ''
         }`}
       >
         <GitBranchGlyph className="icon-xs shrink-0" />
@@ -987,12 +1011,28 @@ export function TerminalLineView({
   now,
   seatOverlay,
   disambiguate = false,
+  dim = false,
+  rowOwnsStatus = false,
 }: {
   line: TerminalLine
   now: number
   seatOverlay?: React.ReactNode
   /** More than one line on the row: a waiting line wears the warn dot so the gold surface says WHICH. */
   disambiguate?: boolean
+  /** The row is background (`workspaceRowEmphasis`): the line recedes with it. */
+  dim?: boolean
+  /**
+   * The ROW is saying the status somewhere else — the flat stream's project
+   * line, where the clock and the working dots sit at the top-right of every
+   * row (all-chats-view). The line then says nothing about time or work: one
+   * terminal's dots beside the row's own dots is the same fact twice, six
+   * pixels apart (owner, 2026-09-07).
+   *
+   * What survives is the disambiguation mark, and only on a row with more than
+   * one line: a row wearing the gold wash still has to say WHICH of its
+   * terminals is the one waiting, and the row's single seat cannot.
+   */
+  rowOwnsStatus?: boolean
 }) {
   const runtimeLabel = line.cli
     ? labelForCliRuntime(line.cli as AgentCli)
@@ -1016,7 +1056,9 @@ export function TerminalLineView({
       // knows nothing about a hover surface. Agent lines only: a shell has no
       // conversation, and a remote pane's key is a tab id, not a session.
       {...(line.kind === 'agent' ? { 'data-peek-session': line.key } : {})}
-      className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]"
+      className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
+        dim ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+      }`}
     >
       <Tooltip content={markLabel} placement="bottom" wrapperClassName="flex shrink-0 items-center">
         <span
@@ -1049,7 +1091,7 @@ export function TerminalLineView({
         </Tooltip>
       ) : null}
       {line.branch ? (
-        <BranchChip branch={line.branch} worktree={line.worktree} cwd={line.cwd} />
+        <BranchChip branch={line.branch} worktree={line.worktree} cwd={line.cwd} dim={dim} />
       ) : line.removed ? (
         <Tooltip content={line.cwd ? `Directory removed — ${line.cwd}` : 'Directory removed'} wrapperClassName="flex shrink-0 items-center">
           <span className="shrink-0 text-micro text-[color:var(--tone-error)]">Removed</span>
@@ -1102,7 +1144,18 @@ export function TerminalLineView({
             seatOverlay ? 'transition-opacity group-hover:opacity-0 group-focus-within:opacity-0' : ''
           }`}
         >
-          {line.working ? (
+          {rowOwnsStatus ? (
+            // The row's own seat has said it. All that is left for the line is
+            // the mark that says which terminal is waiting, on a row that has
+            // more than one — and the words, always.
+            line.needsInput ? (
+              disambiguate ? (
+                <StatusDot tone="warn" pulse label="Needs your input" />
+              ) : (
+                <span className="sr-only">Needs your input</span>
+              )
+            ) : null
+          ) : line.working ? (
             <>
               <AgentWorkingDots label="Agent working" />
               {line.workingSince !== null ? <WorkingElapsed since={line.workingSince} /> : null}
@@ -1144,6 +1197,7 @@ export default function WorkspaceSidebar({
   activityByWorkspaceId,
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
+  onUnseenDoneChange,
   onSelectWorkspace,
   onOpenRemoteSession,
   onMoveWorkspaceToNewWindow,
@@ -1267,6 +1321,9 @@ export default function WorkspaceSidebar({
       return next
     })
   }, [terminalRecencyByWorkspaceId, terminalSessions, activeWorkspaceId])
+  useEffect(() => {
+    onUnseenDoneChange?.(unseenDoneIds)
+  }, [unseenDoneIds, onUnseenDoneChange])
 
   // Which band each row sorts into: blocked-on-you first, then finished-while-
   // you-were-away, then running, then everything at rest. Reads the same two
@@ -1641,6 +1698,36 @@ export default function WorkspaceSidebar({
     [localRailWorkspaces, keyOf, resolvedGroups]
   )
 
+  // Which shape this rail lists chats in — the project tree, or one stream of
+  // all of them (all-chats-view, 2026-09-07). Read from the store rather than
+  // drilled through props: it is a persisted app-level preference, the way the
+  // active door is, and every window shows the same shape.
+  //
+  // Read here, set in Settings → Appearance (owner, 2026-09-07). It rode over
+  // the list for a day and was struck: a control the person touches once and
+  // lives with does not deserve a permanent seat above the thing it arranges,
+  // and the rail's one control at the top is New chat.
+  const chatListView = useWorkspaceStore((s) => s.chatListView)
+
+  // A stream row's project line. The same header the tree would have filed the
+  // row under, so switching views never renames anything: one resolver, two
+  // shapes.
+  const groupByKey = useMemo(() => {
+    const map = new Map<string, FolderGroup>()
+    for (const group of groups) map.set(group.key, group)
+    return map
+  }, [groups])
+  const flatProjectOf = useCallback(
+    (workspace: Workspace) => {
+      const group = groupByKey.get(keyOf(workspace))
+      return {
+        name: group?.displayName ?? 'No folder',
+        folderPath: group?.fullPath ?? workspace.folderPath ?? null,
+      }
+    },
+    [groupByKey, keyOf]
+  )
+
   // The row you are in always has a row: a settled chat you selected (or
   // settled from its own menu) keeps its place in the active list until you
   // leave it, and drops into the shelf then. Reading it never wakes it.
@@ -1690,9 +1777,9 @@ export default function WorkspaceSidebar({
   )
 
   // Starred workspaces band the same way the folders do — blocked, then just
-  // finished, then running, then at rest — and inside each band by how long ago
-  // each was worked on. This supersedes manual drag position within the Starred
-  // section.
+  // finished, then running, then at rest — and inside each band by when the
+  // person last messaged each. This supersedes manual drag position within the
+  // Starred section.
   // A starred row never settles on its own, but a person can settle one by
   // hand; rest means rest, so it then shows in its folder's shelf alone.
   const starredWorkspaces = useMemo(
@@ -2100,12 +2187,20 @@ export default function WorkspaceSidebar({
       remoteMachine?: string
       /** A row in its folder's Settled shelf: title and the hover actions, nothing that asks for a look. */
       settled?: boolean
+      /**
+       * The row is in the flat stream (all-chats-view), where there is no
+       * folder header above it: it grows a line for the project it belongs to,
+       * and that line takes the row's clock and its hover actions. Null in the
+       * tree, where the header says the project once for all its chats.
+       */
+      flatProject?: { name: string; folderPath: string | null }
     }
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
     // workspace row is "current" — the door row carries the selection, so a
     // highlighted project row here would be a second, conflicting selected state.
     const active = !globalSurfaceActive && workspace.id === activeWorkspaceId
+    const flatProject = options?.flatProject ?? null
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]
@@ -2138,8 +2233,24 @@ export default function WorkspaceSidebar({
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
-    // Bolded below so suspended/exited workspaces read as the quieter state.
+    // Said in words for a screen reader; it no longer claims a visual channel.
+    // Weight now belongs to the row that is MOVING (see `emphasis` below), and
+    // residency is not movement: a chat whose CLI process happens to still be
+    // up, untouched since this morning, is background whatever its pty is
+    // doing (owner, 2026-09-07).
     const resident = residentWorkspaceIds.has(workspace.id)
+    // How loudly this row is drawn — weight for the row you are in and the
+    // rows that are working, muted ink for everything that has gone quiet.
+    // Reads the same clock the row's own idle label shows, falling back to the
+    // record when there is no terminal recency to read (a parked chat).
+    const emphasis = workspaceRowEmphasis({
+      selected: active,
+      working: activity === 'working',
+      wantsYou: needsAttention || unseenDone,
+      settled: options?.settled === true,
+      lastActiveAt: recency?.idleSince ?? workspaceLastActiveAt(workspace),
+      now,
+    })
     const highlighted = hasHighlightOverride(workspace.highlight)
     const dropMark =
       dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
@@ -2359,7 +2470,11 @@ export default function WorkspaceSidebar({
           ) : null}
           {showRecencyText ? (
             <Tooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
-              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+              <span
+                className={`text-meta tabular-nums ${
+                  emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+                }`}
+              >
                 <span aria-hidden="true">{idleRecencyText}</span>
                 <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
               </span>
@@ -2397,20 +2512,24 @@ export default function WorkspaceSidebar({
     // `TruncatedText` itself is untouched; this is only how the row uses it.
     const titleClusterClass = `flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`
     const titleClass = `min-w-0 flex-1 ${
-      // Weight ONLY. "Hot" used to claim `--text-strong` as well, and
-      // the ink lift is selection's channel, not residency's — a
-      // resident row that was not the selected one read at exactly the
-      // selected row's ink while ALSO being bold, so it out-shouted the
-      // chat the user was actually in. Residency keeps the weight,
-      // which is a channel selection never uses; the ink lift belongs
-      // to the one selected row (design-system/patterns/selection.html).
-      // This is also what kept the mark honest on an attention row,
-      // where text-strong cancelled the warn ink the row was wearing.
-      resident ? 'font-semibold' : ''
+      // Weight ONLY, and for every row anyone is using — the row you are in,
+      // the ones working, the ones that want you, and anything touched inside
+      // the hour. The ink lift stays selection's channel, not weight's: the
+      // selected row is the one that also brightens (its row class carries
+      // `--text-strong`), so a bold row never reads as the row you are in
+      // (design-system/patterns/selection.html). It is also what keeps the
+      // mark honest on an attention row, where a second ink would cancel the
+      // warn colour the row is wearing.
+      emphasis === 'active' ? 'font-semibold' : ''
     } ${
-      // Muted ink for a row at rest; selection's ink lift still wins
-      // when it is the row you are in.
-      options?.settled && !active ? 'text-[color:var(--text-muted)]' : ''
+      // The background tier, and deliberately a step below list-row's Rest:
+      // `text.muted` still read as foreground on this near-black rail, so a
+      // chat nobody is using sits at `text.subtle` and lifts to `text.default`
+      // on hover — reaching for one is never reading dim text. Selection's own
+      // ink lift never reaches here: a selected row is `active`.
+      emphasis === 'quiet'
+        ? 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-default)]'
+        : ''
     }`
     const titleClusterContent = (
       <>
@@ -2455,13 +2574,21 @@ export default function WorkspaceSidebar({
         tabIndex={rovingKey === rowKey ? 0 : -1}
         onFocus={() => setRovingKey(rowKey)}
         onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
-        draggable={!renamingId}
-        onDragStart={(event) => handleRowDragStart(event, workspace, fKey)}
+        // Drag-to-reorder is the tree's: it rewrites the stored order of a
+        // folder's chats, and the flat stream is ordered by the clock, so a
+        // drag there would move a row you cannot see moving. Dropping a
+        // TERMINAL onto a chat is untouched — that is not about order.
+        draggable={!renamingId && !flatProject}
+        onDragStart={(event) => {
+          if (flatProject) return
+          handleRowDragStart(event, workspace, fKey)
+        }}
         onDragOver={(event) => {
           if (dataTransferHasTabDrag(event.dataTransfer)) {
             handleTabDragOverRow(event, workspace)
             return
           }
+          if (flatProject) return
           handleRowDragOver(event, workspace, fKey)
         }}
         onDragLeave={() => handleTabDragLeaveRow(workspace.id)}
@@ -2470,6 +2597,7 @@ export default function WorkspaceSidebar({
             handleTabDropOnRow(event, workspace)
             return
           }
+          if (flatProject) return
           handleRowDrop(event, workspace, fKey)
         }}
         onDragEnd={handleDragEnd}
@@ -2491,11 +2619,13 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below)
+        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below); the flat stream has no folder header to sit under, so its rows give the indent back and start on the column's own 16px edge, where New chat starts
         // Two-line row (remote-sessions-ux): a column now — line 1 is the title
         // + status cluster, line 2 the meta (heads · provenance · branch ·
         // diff). min-h keeps a metaless row exactly the height it always was.
-        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pr-1.5 text-heading ${
+          flatProject ? 'pl-1.5' : 'pl-[26px]'
+        } ${FOCUS_RING_CLASS} ${
           needsAttention
             ? attentionRowClass(active)
             : unseenDone
@@ -2509,6 +2639,28 @@ export default function WorkspaceSidebar({
         role="treeitem"
         aria-current={active ? 'true' : undefined}
       >
+        {/* The flat stream's top line (all-chats-view): the project this chat
+            belongs to, and the clock — or what the agent is doing — at the
+            trailing edge. It is the one line that is the same shape on every
+            row, which is what lets the eye find the clock without reading the
+            row; in the tree the folder header says the project instead and the
+            clock rides whichever line the row happens to end on.
+
+            A folder glyph, not the project's logo: the logo belongs to the one
+            header that names the project (MC-2135, reversed 2026-09-02 for
+            exactly this — a project's mark once per chat is repetition), and
+            this line is a row's filing, not a heading. */}
+        {flatProject ? (
+          <div
+            className={`flex h-5 min-w-0 items-center gap-1.5 text-meta ${
+              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+            }`}
+          >
+            <FolderTypeIcon className="icon-xs shrink-0" />
+            <span className="min-w-0 truncate">{flatProject.name}</span>
+            {statusSeat}
+          </div>
+        ) : null}
         <AttentionPulse active={needsAttention} resetKey={workspace.id} />
         <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
         {dropMark === 'before' ? (
@@ -2577,16 +2729,26 @@ export default function WorkspaceSidebar({
           </Tooltip>
         ) : null}
         {/* A lineless row has no line to carry the seat, so it keeps it
-            here — the one-liner it always was. */}
-        {metaHasSubstance ? null : statusSeat}
+            here — the one-liner it always was. Never in the flat stream,
+            where the project line above already took it. */}
+        {metaHasSubstance || flatProject ? null : statusSeat}
         </div>
         {parkedWorktreeBranch ? (
           // The same line container a terminal's line uses, so a parked
           // worktree row is exactly as tall as a live one and its seat sits
           // where every other seat sits.
-          <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
-            <BranchChip branch={parkedWorktreeBranch} worktree cwd={workspace.folderPath ?? null} />
-            {statusSeat}
+          <div
+            className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
+              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+            }`}
+          >
+            <BranchChip
+              branch={parkedWorktreeBranch}
+              worktree
+              cwd={workspace.folderPath ?? null}
+              dim={emphasis === 'quiet'}
+            />
+            {flatProject ? null : statusSeat}
           </div>
         ) : null}
         {rowLines.lines.map((line, index) => (
@@ -2594,12 +2756,18 @@ export default function WorkspaceSidebar({
             key={line.key}
             line={line}
             now={now}
-            seatOverlay={index === 0 ? rowActionsOverlay : undefined}
+            seatOverlay={index === 0 && !flatProject ? rowActionsOverlay : undefined}
             disambiguate={rowLines.lines.length > 1}
+            dim={emphasis === 'quiet'}
+            rowOwnsStatus={flatProject !== null}
           />
         ))}
         {rowLines.overflow > 0 ? (
-          <div className="flex h-5 items-center text-micro text-[color:var(--text-subtle)]">
+          <div
+            className={`flex h-5 items-center text-micro ${
+              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+            }`}
+          >
             +{rowLines.overflow} more {rowLines.overflow === 1 ? 'terminal' : 'terminals'}
           </div>
         ) : null}
@@ -2658,7 +2826,7 @@ export default function WorkspaceSidebar({
   // Renders a folder's workspace rows: the active rows in attention order,
   // then — only when the folder has any — its Settled shelf (settled-chats,
   // 2026-09-07): one fold row carrying the count, closed by default, over the
-  // resting rows in compact form, most recently worked first. The shelf
+  // resting rows in compact form, most recently messaged first. The shelf
   // replaces the old "Show N older" recency fold: a chat now rests by the
   // settle rule (`utils/workspaceSettle.ts`), never by a fold that hid it.
   // `folderBodyId` lets the folder header's toggle button own an
@@ -2674,7 +2842,7 @@ export default function WorkspaceSidebar({
     if (folderCollapsed) return <div id={folderBodyId} hidden />
 
     const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace))
-    const settledRows = sortWorkspacesByActivity(visibleWorkspaces.filter(isShelved), now)
+    const settledRows = sortWorkspacesByUserMessage(visibleWorkspaces.filter(isShelved))
 
     if (settledRows.length === 0) {
       return (
@@ -2712,17 +2880,67 @@ export default function WorkspaceSidebar({
     )
   }
 
+  // The flat stream (all-chats-view, 2026-09-07): every local chat in one list,
+  // ordered by when you last messaged each (owner, 2026-09-07 — this list used
+  // to count the agent's turn too, and a chat finishing then jumped ahead of
+  // the row you were reaching for). No headings: the gold and green washes say
+  // which rows want you, and a band would be a second, weaker way of saying it
+  // (owner, 2026-09-07).
+  //
+  // Rest works exactly as it does in the tree, with one shelf instead of one
+  // per project: the same rows, the same fold, the same count.
+  //
+  // Rows born on a paired machine stay the Remote band's alone, as they are in
+  // the tree — the band is above this list either way.
+  const renderChatStream = () => {
+    const streamRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter((w) => !isShelved(w)))
+    const settledRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter(isShelved))
+    const expanded = expandedSettledFolders[ALL_CHATS_SHELF_KEY] === true
+    return (
+      <section className="relative pt-1" aria-label="All chats">
+        {streamRows.map((workspace) =>
+          renderWorkspaceRow(workspace, keyOf(workspace), {
+            keyPrefix: 'all-',
+            flatProject: flatProjectOf(workspace),
+          })
+        )}
+        {settledRows.length > 0 ? (
+          <>
+            <SettledShelfRow
+              count={settledRows.length}
+              expanded={expanded}
+              flush
+              controlsId={ALL_CHATS_SHELF_ID}
+              onToggle={() =>
+                setExpandedSettledFolders((prev) => ({ ...prev, [ALL_CHATS_SHELF_KEY]: !expanded }))
+              }
+            />
+            <div id={ALL_CHATS_SHELF_ID} role="group" aria-label="Settled chats" hidden={!expanded}>
+              {expanded
+                ? settledRows.map((workspace) =>
+                    renderWorkspaceRow(workspace, keyOf(workspace), {
+                      keyPrefix: 'all-',
+                      settled: true,
+                      flatProject: flatProjectOf(workspace),
+                    })
+                  )
+                : null}
+            </div>
+          </>
+        ) : null}
+      </section>
+    )
+  }
+
   // One folder's section: the header (drag, context menu, disclosure) over the
   // body.
   const renderFolderSection = (group: FolderGroup) => {
     const collapsed = collapsedFolders[group.key] === true
     // Each folder's rows band by what wants you — blocked on input, then
     // finished-while-you-were-away, then running, then at rest — and
-    // inside each band by how recently each was worked on, same as the
+    // inside each band by when the person last messaged each, same as the
     // Starred section. The selected row holds the band it was in when you
-    // picked it, so nothing reflows under the cursor. The stale-fold below
-    // still partitions by the 2-day threshold; this only sets the order
-    // within the recent and folded groups.
+    // picked it, so nothing reflows under the cursor.
     const visibleWorkspaces = sortWorkspacesByAttention(group.workspaces, attentionTierOf)
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
     const dropMark =
@@ -2972,7 +3190,11 @@ export default function WorkspaceSidebar({
       {extensionsSection && !contextRailActive ? (
         <ExtensionsRail collapsed={sidebarCollapsed} />
       ) : null}
-      <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
+      {/* `mb-2` where a hairline used to be (owner, 2026-09-07): the rule under
+          New chat boxed the one control into a strip of its own, and the tree
+          below it is separated by the space, not by a line — the same call
+          as the account cluster at the rail's foot. */}
+      <div className={`mx-2 mb-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
         {/* Home's one control above the tree: New chat, the one way in (owner,
             2026-09-04). The doors that used to share this band — Sprints,
             Backlog, Horizon, Reviews — live under the app rail's Extensions
@@ -3001,10 +3223,6 @@ export default function WorkspaceSidebar({
         </div>
       </div>
 
-      <div
-        aria-hidden="true"
-        className={`mx-2 my-2 h-px bg-[color:var(--border-subtle)] ${homeHidden ? 'hidden' : ''}`}
-      />
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
           umbrella header; the folder headers are the top level (Cursor-parity).
@@ -3145,7 +3363,7 @@ export default function WorkspaceSidebar({
             </div>
           </section>
         ) : null}
-        {activeGroups.map((group) => renderFolderSection(group))}
+        {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
       </nav>
       {/* The account + Settings cluster that used to pin to this column's foot
           lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever

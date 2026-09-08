@@ -69,7 +69,10 @@ const line = (over: Partial<TerminalLine> = {}): TerminalLine => ({
 
 const NOW = 1_700_000_000_000
 
-function view(over: Partial<TerminalLine> = {}, props: { seatOverlay?: ReactNode; disambiguate?: boolean } = {}) {
+function view(
+  over: Partial<TerminalLine> = {},
+  props: { seatOverlay?: ReactNode; disambiguate?: boolean; dim?: boolean; rowOwnsStatus?: boolean } = {}
+) {
   return renderToStaticMarkup(<TerminalLineView line={line(over)} now={NOW} {...props} />)
 }
 
@@ -100,6 +103,38 @@ run('a worktree of its own reads at full strength, with the path on hover', () =
   assert.match(markup, /sr-only"> \(worktree\)/, 'said in words too')
   const shared = view({ branch: 'main', cwd: '/repo' })
   assert.doesNotMatch(shared, /\(worktree\)/)
+})
+
+run('a background row\'s line recedes with its title — nothing on it outshines the name', () => {
+  // Contrast-for-quiet-chats, 2026-09-07: the worktree branch drew at
+  // `--text-default`, which on a dimmed row was BRIGHTER than the chat's own
+  // name above it — the branch reading as the point of a chat nobody is using.
+  const dim = view({ branch: 'agent/perf-review', worktree: true, cwd: '/repo/.wt/perf' }, { dim: true })
+  assert.match(dim, /text-\[color:var\(--text-disabled\)\]/, 'the line drops a step below the dimmed title')
+  assert.doesNotMatch(dim, /--text-default/, 'and its worktree branch gives up full strength')
+  assert.match(dim, /agent\/perf-review/, 'the branch is still there — dimmer, not gone')
+
+  const lit = view({ branch: 'agent/perf-review', worktree: true, cwd: '/repo/.wt/perf' })
+  assert.match(lit, /--text-default/, 'a row in use keeps it')
+})
+
+run('when the row owns the status, the line stops saying it — once per row, not twice', () => {
+  // The flat stream puts the clock and the working dots on the row's project
+  // line (all-chats-view). The line under it used to say both again six pixels
+  // away, so a working chat read "••• 2m" twice.
+  const working = view({ working: true, workingSince: NOW - 120_000 }, { rowOwnsStatus: true })
+  assert.doesNotMatch(working, /Agent working/, 'no second set of working dots')
+  assert.doesNotMatch(working, /2m/, 'and no second elapsed clock')
+
+  const idle = view({ idleSince: NOW - 600_000, idleLabel: 'Idle' }, { rowOwnsStatus: true })
+  assert.doesNotMatch(idle, /10m/, 'no second idle clock either')
+  assert.match(view({ idleSince: NOW - 600_000, idleLabel: 'Idle' }), /10m/, 'the tree keeps it on the line')
+
+  // What survives: which terminal is waiting, on a row with more than one.
+  const waiting = view({ needsInput: true }, { rowOwnsStatus: true, disambiguate: true })
+  assert.match(waiting, /Needs your input/, 'a multi-terminal row still says which line is waiting')
+  const lone = view({ needsInput: true }, { rowOwnsStatus: true })
+  assert.match(lone, /sr-only[^>]*>Needs your input/, 'a single line says it in words alone — the row wash is the mark')
 })
 
 run('a removed directory says so instead of a branch', () => {
