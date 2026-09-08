@@ -15,6 +15,8 @@ resources/studio-plugin/
     .mcp.json                         the stdio bridge to the running app
     hooks/hooks.json                  the agent-state reporter
     skills/studio-*/SKILL.md          one skill per area
+    skills/studio-design-system/
+      scripts/render-swap-report.mjs  the before/after page renderer
   studio-skills/
     skills/*/SKILL.md                 the workflow skills the app ships
 ```
@@ -102,15 +104,26 @@ the flag; the flag is the whole change.
 ## The skills
 
 One per area, as the item asks: `studio-sprints`, `studio-backlog`,
-`studio-automations`, `studio-workspaces`, `studio-review`. Each is written to
+`studio-automations`, `studio-workspaces`, `studio-review`, and
+`studio-design-system` — six. The last one is the odd shape of the set: the
+other five are manuals for a tool surface, and it is the manual for the
+*repository's* design system. It sits here rather than with the workflow skills
+because it teaches the studio's own kit, spec trio and lint gates by path, which
+is knowledge about this product and not a general technique. It ships one
+executable of its own, `skills/studio-design-system/scripts/`, which the other
+five do not. Each is written to
 the Agent Skills specification — `name` equal to its directory, a `description`
 under 1024 characters that says **when** to use it, a body under 500 lines — and
 `src/main/skills/studio-plugin-skills.test.ts` checks all three against the same
 frontmatter parser the app's own skill reader uses.
 
-They are distilled from `sprintengine_help`'s five topics, the tool descriptions
-in `src/main/automation/automation-tools.ts` and the sprint-engine tool
-schemas, and the review gateway tools. `sprintengine_help` stays — an agent that
+The five tool-surface skills are distilled from `sprintengine_help`'s five
+topics, the tool descriptions in `src/main/automation/automation-tools.ts` and
+the sprint-engine tool schemas, and the review gateway tools.
+`studio-design-system` is distilled from a different set — `design-system/`'s
+own `USAGE.md`, `AGENTS.md` and `foundations/principles.md`, the kit under
+`src/renderer/src/components/ui/`, and the lint gates under `scripts/` that
+enforce both. `sprintengine_help` stays — an agent that
 arrives without the plugin still has it — but the skills are the manual: they
 cost nothing until invoked and carry the workflow, not just the tool list.
 

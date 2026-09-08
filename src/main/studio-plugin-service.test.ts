@@ -63,7 +63,7 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
   assert.notEqual(record, null, `the open recorded an install; warnings=${JSON.stringify(warnings)}`)
   assert.equal(record?.version, '1.0.0')
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
-  assert.equal(record?.skillDirNames.length, 5)
+  assert.equal(record?.skillDirNames.length, 6)
   assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-sprints', 'SKILL.md')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
