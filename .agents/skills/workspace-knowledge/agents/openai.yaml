@@ -1,3 +1,0 @@
-display_name: Workspace Knowledge
-short_description: Read and update the local Markdown knowledge graph.
-default_prompt: Use workspace knowledge to gather durable project context, then add or update concise linked notes when the work creates lasting knowledge.

@@ -1,9 +1,0 @@
-{
-  "$comment": "No env: this server authenticates as the kubeconfig or in-cluster identity it finds, so there is no key to name. Add --read-only or --disable-destructive to args for a cluster this workspace must not change; see skills/use-kubernetes.",
-  "mcpServers": {
-    "io-github-containers-kubernetes-mcp-server": {
-      "command": "npx",
-      "args": ["-y", "kubernetes-mcp-server@latest"]
-    }
-  }
-}
