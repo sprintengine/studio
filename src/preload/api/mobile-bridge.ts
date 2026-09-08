@@ -3,7 +3,6 @@ import type {
   ElectronApi,
   MobileBridgeDiagnosticEntry,
   MobileBridgePairingChallenge,
-  MobileBridgePresence,
   MobileBridgeSettingsUpdate,
   MobileBridgeState,
   MobileControlDevice,
@@ -16,12 +15,8 @@ export const mobileBridgeApi = {
     ipcRenderer.invoke('mobile-bridge:update-settings', input),
   mobileBridgeRequestPairingCode: (): Promise<MobileBridgePairingChallenge> =>
     ipcRenderer.invoke('mobile-bridge:request-pairing-code'),
-  mobileBridgeListDevices: (): Promise<MobileControlDevice[]> =>
-    ipcRenderer.invoke('mobile-bridge:list-devices'),
   mobileBridgeRevokeDevice: (deviceId: string, reason?: string): Promise<MobileControlDevice> =>
     ipcRenderer.invoke('mobile-bridge:revoke-device', deviceId, reason),
-  mobileBridgePublishPresence: (presence: MobileBridgePresence): Promise<MobileBridgeState> =>
-    ipcRenderer.invoke('mobile-bridge:publish-presence', presence),
   mobileBridgeGetDiagnostics: (): Promise<MobileBridgeDiagnosticEntry[]> =>
     ipcRenderer.invoke('mobile-bridge:get-diagnostics'),
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void): (() => void) => {
@@ -35,9 +30,7 @@ export const mobileBridgeApi = {
   | 'mobileBridgeGetState'
   | 'mobileBridgeUpdateSettings'
   | 'mobileBridgeRequestPairingCode'
-  | 'mobileBridgeListDevices'
   | 'mobileBridgeRevokeDevice'
-  | 'mobileBridgePublishPresence'
   | 'mobileBridgeGetDiagnostics'
   | 'onMobileBridgeStateChanged'
 >

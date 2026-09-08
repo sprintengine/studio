@@ -372,7 +372,6 @@ export const FLEET_EVENT_CHANNEL = 'fleet:event'
 export const FLEET_GET_LIVE_STATE_CHANNEL = 'fleet:get-live-state'
 
 export const FLEET_REQUEST_PAIRING_CHANNEL = 'fleet:request-pairing'
-export const FLEET_COLLECT_PAIRING_CHANNEL = 'fleet:collect-pairing'
 export const FLEET_CANCEL_PAIRING_CHANNEL = 'fleet:cancel-pairing'
 /** Re-check one paired machine now (the row's Retry), or every machine when no id is given. */
 export const FLEET_CHECK_REACHABILITY_CHANNEL = 'fleet:check-reachability'
@@ -380,7 +379,6 @@ export const FLEET_LIST_CONNECTIONS_CHANNEL = 'fleet:list-connections'
 export const FLEET_PAIR_CHANNEL = 'fleet:pair'
 export const FLEET_FORGET_CHANNEL = 'fleet:forget'
 export const FLEET_BROWSE_CHANNEL = 'fleet:browse'
-export const FLEET_LIST_RUNS_CHANNEL = 'fleet:list-runs'
 export const FLEET_CREATE_TERMINAL_CHANNEL = 'fleet:create-terminal'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const FLEET_WORKSPACE_CHECKOUT_CHANNEL = 'fleet:workspace-checkout'

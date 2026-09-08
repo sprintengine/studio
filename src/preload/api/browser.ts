@@ -25,7 +25,6 @@ export const browserApi = {
   browserRegister: (input: BrowserRegisterInput): Promise<BrowserRegisterResult> =>
     ipcRenderer.invoke('browser:register', input),
   browserUnregister: (tabId: string): Promise<void> => ipcRenderer.invoke('browser:unregister', { tabId }),
-  browserState: (tabId: string): Promise<BrowserTabState | null> => ipcRenderer.invoke('browser:state', { tabId }),
   browserNavigate: (tabId: string, url: string): Promise<boolean> =>
     ipcRenderer.invoke('browser:navigate', { tabId, url }),
   browserBack: (tabId: string): Promise<boolean> => ipcRenderer.invoke('browser:back', { tabId }),
@@ -66,7 +65,6 @@ export const browserApi = {
   | 'browserConfig'
   | 'browserRegister'
   | 'browserUnregister'
-  | 'browserState'
   | 'browserNavigate'
   | 'browserBack'
   | 'browserForward'

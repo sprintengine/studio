@@ -32,4 +32,3 @@ export type AutomationServerStatus = {
 }
 
 export const AUTOMATION_GET_STATUS_CHANNEL = 'automation:get-status'
-export const AUTOMATION_SET_ENABLED_CHANNEL = 'automation:set-enabled'

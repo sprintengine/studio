@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron'
 import type { HostedModelFeedReadInput, HostedModelFeedReadResult } from '../../shared/electron-api'
 import { configuredModelFeedUrl } from '../hosted-feed/model-feed-client'
 import { readHostedModelFeed } from '../hosted-feed/hosted-feed-service'
+import { isRecord } from '../../shared/records'
 
 export type HostedModelFeedIpcHandlers = {
   read(input?: HostedModelFeedReadInput): Promise<HostedModelFeedReadResult>
@@ -29,7 +30,7 @@ export function registerHostedModelFeedIpc(
   })
 
   ipcMain.handle('hosted-model-feed:refresh', async (_event, input?: unknown): Promise<HostedModelFeedReadResult> => {
-    const forceRefresh = isObject(input) && input.forceRefresh === true
+    const forceRefresh = isRecord(input) && input.forceRefresh === true
     try {
       return await read(forceRefresh ? { forceRefresh: true } : {})
     } catch (error) {
@@ -47,6 +48,3 @@ function failure(error: unknown): HostedModelFeedReadResult {
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

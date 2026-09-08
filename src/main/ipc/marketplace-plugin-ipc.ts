@@ -1,12 +1,8 @@
 import { app, type IpcMain } from 'electron'
 
 import type {
-  MarketplacePluginInstallInput,
-  MarketplacePluginInstallResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
-  MarketplacePluginUninstallInput,
-  MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceUpdateStatesResult,
@@ -22,7 +18,7 @@ import { defaultMarketplacePluginStagingRoot, type MarketplaceInstallLog } from 
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
-import { createMarketplacePluginInstaller, type MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
+import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
 export function registerMarketplacePluginIpc(
@@ -34,11 +30,9 @@ export function registerMarketplacePluginIpc(
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   })
   // Verify/install failures used to be invisible (result objects only, no
-  // logging anywhere) — every pipeline event now lands in the diagnostics
-  // log and the main-process console.
+  // logging anywhere) — every pipeline event now lands in the diagnostics log.
   const marketplaceLog: MarketplaceInstallLog = (event, detail) => {
     const details = detail === undefined ? undefined : JSON.stringify(detail)
-    console.log(`[marketplace] ${event}${details ? ` ${details}` : ''}`)
     void writeDiagnosticLog({
       level: event.includes('fail') || event.includes('mismatch') ? 'error' : 'info',
       source: 'marketplace',
@@ -60,11 +54,6 @@ export function registerMarketplacePluginIpc(
     if (!result.ok) return result
     return { ok: true, value: { definition: result.value.definition, alreadyAdded: result.value.alreadyAdded } }
   }
-  const installPlugin = createMarketplacePluginInstaller({
-    mcpConfigService: services.mcpConfigService,
-    trustContext,
-    installAutomationDefinition,
-  })
   const verifier = createMarketplacePluginVerifier({
     trustContext,
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
@@ -86,17 +75,6 @@ export function registerMarketplacePluginIpc(
     },
     log: marketplaceLog,
   })
-
-  ipcMain.handle(
-    'marketplace:plugins:install-folder',
-    async (_event, input: MarketplacePluginInstallInput): Promise<MarketplacePluginInstallResult> => {
-      try {
-        return await installPlugin(input)
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    }
-  )
 
   ipcMain.handle(
     'marketplace:plugins:verify',
@@ -154,17 +132,6 @@ export function registerMarketplacePluginIpc(
           },
           input ?? {}
         )
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    }
-  )
-
-  ipcMain.handle(
-    'marketplace:plugins:uninstall',
-    async (_event, input: MarketplacePluginUninstallInput): Promise<MarketplacePluginUninstallResult> => {
-      try {
-        return await lifecycle.uninstall(input)
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

@@ -20,8 +20,6 @@ import type {
   ConversationListSessionsInput,
   ConversationListSessionsResult,
   ConversationPermissionPreset,
-  ConversationProviderTestInput,
-  ConversationProviderTestResult,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
@@ -41,13 +39,13 @@ import {
 import { ConversationRuntime } from '../conversation-runtime'
 import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
-import { listOpenAiCompatibleModels, testOpenAiCompatibleConnection } from '../providers/openai-compatible-provider'
+import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
+import { isRecord } from '../../shared/records'
 
 export type ConversationIpcHandlers = {
   listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
-  testProvider(input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
   setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
   clearSecret(input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>
@@ -140,14 +138,6 @@ export function createConversationIpcHandlers(
     getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> {
       return secretStore.getStatus(input.providerId)
     },
-    testProvider(input: ConversationProviderTestInput): Promise<ConversationProviderTestResult> {
-      return testOpenAiCompatibleConnection({
-        providerId: input.providerId,
-        modelId: input.modelId,
-        getProviderById: getConversationProviderById,
-        resolveSecret: (providerId) => secretStore.resolveSecret(providerId),
-      })
-    },
     setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult> {
       return secretStore.setSecret(input.providerId, input.value)
     },
@@ -195,7 +185,7 @@ export function registerConversationIpc(
   }>()
 
   ipcMain.handle('conversation:providers:list', async (_, input: unknown): Promise<ConversationProviderListResult> => {
-    if (input !== undefined && !isObject(input)) return { ok: false, message: 'Provider list input must be an object.' }
+    if (input !== undefined && !isRecord(input)) return { ok: false, message: 'Provider list input must be an object.' }
     try {
       return await handlers.listProviders(input as ConversationProvidersListInput | undefined)
     } catch (err) {
@@ -225,16 +215,6 @@ export function registerConversationIpc(
       }
     }
   )
-
-  ipcMain.handle('conversation:providers:test', async (_, input: unknown): Promise<ConversationProviderTestResult> => {
-    const parsed = parseProviderTestInput(input)
-    if (!parsed.ok) return { ok: false, status: { providerId: '', state: 'invalid_endpoint', message: parsed.message } }
-    try {
-      return handlers.testProvider(parsed.input)
-    } catch (err) {
-      return { ok: false, status: { providerId: parsed.input.providerId, state: 'network_error', message: formatError(err) } }
-    }
-  })
 
   ipcMain.handle('conversation:secrets:set', async (_, input: unknown): Promise<ConversationSecretSetResult> => {
     const parsed = parseSecretSetInput(input)
@@ -323,7 +303,7 @@ export function registerConversationIpc(
   })
 
   ipcMain.handle('conversation:sessions:list', async (_, input: unknown): Promise<ConversationListSessionsResult> => {
-    if (input !== undefined && !isObject(input)) return { ok: false, message: 'Session list input must be an object.' }
+    if (input !== undefined && !isRecord(input)) return { ok: false, message: 'Session list input must be an object.' }
     try {
       return handlers.listSessions(input as ConversationListSessionsInput | undefined)
     } catch (err) {
@@ -367,7 +347,7 @@ export function registerConversationIpc(
   })
 
   ipcMain.handle('conversation:events:unsubscribe', (_event, input: unknown): { ok: true } | { ok: false; message: string } => {
-    if (!isObject(input) || typeof input.subscriptionId !== 'string') {
+    if (!isRecord(input) || typeof input.subscriptionId !== 'string') {
       return { ok: false, message: 'subscriptionId is required.' }
     }
     const subscription = eventSubscriptions.get(input.subscriptionId)
@@ -387,55 +367,35 @@ function formatError(err: unknown): string {
 function parseProviderInput(input: unknown):
   | { ok: true; input: ConversationSecretStatusInput }
   | { ok: false; message: string } {
-  if (!isObject(input) || typeof input.providerId !== 'string') {
+  if (!isRecord(input) || typeof input.providerId !== 'string') {
     return { ok: false, message: 'providerId is required.' }
   }
   return { ok: true, input: { providerId: input.providerId } }
 }
 
-function parseProviderTestInput(input: unknown):
-  | { ok: true; input: ConversationProviderTestInput }
-  | { ok: false; message: string } {
-  const parsed = parseProviderInput(input)
-  if (!parsed.ok) return parsed
-  if (isObject(input) && 'modelId' in input && input.modelId !== undefined && typeof input.modelId !== 'string') {
-    return { ok: false, message: 'modelId must be a string when present.' }
-  }
-  return {
-    ok: true,
-    input: {
-      providerId: parsed.input.providerId,
-      ...(isObject(input) && typeof input.modelId === 'string' ? { modelId: input.modelId } : {}),
-    },
-  }
-}
 
 function parseSecretSetInput(input: unknown):
   | { ok: true; input: ConversationSecretSetInput }
   | { ok: false; message: string } {
   const parsed = parseProviderInput(input)
   if (!parsed.ok) return parsed
-  if (!isObject(input) || typeof input.value !== 'string') {
+  if (!isRecord(input) || typeof input.value !== 'string') {
     return { ok: false, message: 'Secret value is required.' }
   }
   return { ok: true, input: { providerId: parsed.input.providerId, value: input.value } }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function parseStartSessionInput(input: unknown):
   | { ok: true; input: ConversationStartSessionInput }
   | { ok: false; message: string } {
-  if (!isObject(input)) return { ok: false, message: 'Start session input must be an object.' }
+  if (!isRecord(input)) return { ok: false, message: 'Start session input must be an object.' }
   const { workspaceRoot, workspaceId, agentId, providerId, modelId, cliRuntimes, permissionPreset, allowedTools } = input
   if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
   if (typeof workspaceId !== 'string') return { ok: false, message: 'workspaceId is required.' }
   if (typeof agentId !== 'string') return { ok: false, message: 'agentId is required.' }
   if (typeof providerId !== 'string') return { ok: false, message: 'providerId is required.' }
   if (typeof modelId !== 'string') return { ok: false, message: 'modelId is required.' }
-  if (cliRuntimes !== undefined && !isObject(cliRuntimes)) {
+  if (cliRuntimes !== undefined && !isRecord(cliRuntimes)) {
     return { ok: false, message: 'cliRuntimes must be an object when present.' }
   }
   if (permissionPreset !== undefined && !isPermissionPreset(permissionPreset)) {
@@ -455,7 +415,7 @@ function parseStartSessionInput(input: unknown):
       agentId,
       providerId,
       modelId,
-      ...(isObject(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
+      ...(isRecord(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
       ...(isPermissionPreset(permissionPreset) ? { permissionPreset } : {}),
       ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
@@ -465,7 +425,7 @@ function parseStartSessionInput(input: unknown):
 function parseTranscriptInput(input: unknown):
   | { ok: true; input: ConversationTranscriptInput }
   | { ok: false; message: string } {
-  if (!isObject(input)) return { ok: false, message: 'Transcript input must be an object.' }
+  if (!isRecord(input)) return { ok: false, message: 'Transcript input must be an object.' }
   const { workspaceRoot, workspaceId, agentId } = input
   if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
   if (typeof workspaceId !== 'string') return { ok: false, message: 'workspaceId is required.' }
@@ -497,7 +457,7 @@ function parseImageAttachments(raw: unknown):
   }
   const attachments: ConversationImageAttachment[] = []
   for (const entry of raw) {
-    if (!isObject(entry)) return { ok: false, message: 'Each attachment must be an object.' }
+    if (!isRecord(entry)) return { ok: false, message: 'Each attachment must be an object.' }
     const { id, mediaType, dataBase64, name, byteLength } = entry
     if (typeof id !== 'string' || !id.trim()) return { ok: false, message: 'Attachment id is required.' }
     if (typeof mediaType !== 'string' || !ALLOWED_IMAGE_MEDIA_TYPES.has(mediaType)) {
@@ -533,7 +493,7 @@ function parseSendTurnInput(input: unknown):
   | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
-  if (!isObject(input) || typeof input.message !== 'string') return { ok: false, message: 'message is required.' }
+  if (!isRecord(input) || typeof input.message !== 'string') return { ok: false, message: 'message is required.' }
   if ('localTurnId' in input && input.localTurnId !== undefined && typeof input.localTurnId !== 'string') {
     return { ok: false, message: 'localTurnId must be a string when present.' }
   }
@@ -557,7 +517,7 @@ function parseSendTurnInput(input: unknown):
 function parseSessionIdInput(input: unknown):
   | { ok: true; input: ConversationInterruptInput }
   | { ok: false; message: string } {
-  if (!isObject(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
+  if (!isRecord(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
   return { ok: true, input: { sessionId: input.sessionId } }
 }
 
@@ -572,7 +532,7 @@ function parseSetPermissionInput(input: unknown):
   | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
-  const permissionPreset = isObject(input) ? input.permissionPreset : undefined
+  const permissionPreset = isRecord(input) ? input.permissionPreset : undefined
   if (!isPermissionPreset(permissionPreset)) return { ok: false, message: PERMISSION_PRESET_ERROR }
   return { ok: true, input: { sessionId: session.input.sessionId, permissionPreset } }
 }
@@ -582,11 +542,11 @@ function parseRespondToRequestInput(input: unknown):
   | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
-  if (!isObject(input) || typeof input.requestId !== 'string') return { ok: false, message: 'requestId is required.' }
+  if (!isRecord(input) || typeof input.requestId !== 'string') return { ok: false, message: 'requestId is required.' }
   if (typeof input.approved !== 'boolean') return { ok: false, message: 'approved is required.' }
   let answers: Record<string, string> | undefined
   if ('answers' in input && input.answers !== undefined) {
-    if (!isObject(input.answers) || Object.values(input.answers).some((value) => typeof value !== 'string')) {
+    if (!isRecord(input.answers) || Object.values(input.answers).some((value) => typeof value !== 'string')) {
       return { ok: false, message: 'answers must map question text to answer strings.' }
     }
     answers = input.answers as Record<string, string>

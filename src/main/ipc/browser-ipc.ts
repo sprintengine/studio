@@ -47,11 +47,6 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
     manager.noteActive(input.workspaceId, tabId)
   })
 
-  ipcMain.handle('browser:state', (_event, input: { tabId: string }) => {
-    const tabId = tabIdOf(input)
-    return tabId ? manager.state(tabId) : null
-  })
-
   ipcMain.handle('browser:navigate', (_event, input: { tabId: string; url: string }) => {
     const tabId = tabIdOf(input)
     if (!tabId || typeof input.url !== 'string') return false

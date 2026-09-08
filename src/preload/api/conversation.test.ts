@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { createConversationApi } from './conversation'
 import type { ConversationProviderListResult, ConversationSecretStatusResult } from '../../shared/electron-api'
-import type { ConversationEvent, ConversationProviderTestResult } from '../../shared/conversation-runtime'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 
 type Listener = (event: unknown, payload: ConversationEvent) => void
 
@@ -30,17 +30,6 @@ async function main(): Promise<void> {
     async invoke(channel: string): Promise<any> {
       calls.push(channel)
       if (channel === 'conversation:providers:list') return response
-      if (channel === 'conversation:providers:test') {
-        return {
-          ok: true,
-          status: {
-            providerId: 'openai-compatible',
-            state: 'reachable',
-            modelId: 'gpt-5',
-            message: 'Provider endpoint is reachable.',
-          },
-        } satisfies ConversationProviderTestResult
-      }
       if (channel === 'conversation:events:subscribe') return { ok: true, subscriptionId: 'conversation-subscription-1' }
       if (channel === 'conversation:events:unsubscribe') return { ok: true }
       if (channel === 'conversation:sessions:list') return { ok: true, sessions: [] }
@@ -81,7 +70,6 @@ async function main(): Promise<void> {
 
   const result = await api.conversationProvidersList()
   assert.deepEqual(result, response)
-  assert.equal((await api.conversationProviderTest({ providerId: 'openai-compatible', modelId: 'gpt-5' })).status.state, 'reachable')
   assert.deepEqual(
     await api.conversationSecretStatus({ providerId: 'openai-compatible' }),
     {
@@ -131,7 +119,6 @@ async function main(): Promise<void> {
   assert.equal(removed[0]?.listener, listeners[0]?.listener)
   assert.deepEqual(calls, [
     'conversation:providers:list',
-    'conversation:providers:test',
     'conversation:secrets:status',
     'conversation:secrets:set',
     'conversation:secrets:clear',

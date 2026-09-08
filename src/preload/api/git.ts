@@ -9,13 +9,11 @@ import type {
   GitBranchSnapshot,
   GitCommandResult,
   GitConflictFileContent,
-  GitConflictSnapshot,
   GitFileBaseResult,
   GitFileStage,
   GitFileStageResult,
   GitGraphOptions,
   GitGraphSnapshot,
-  GitHistorySnapshot,
   GitRepoOperation,
   GitResetMode,
   GitStashListSnapshot,
@@ -26,14 +24,11 @@ import type {
   RevFileResult,
   WorkspaceChangeSummary,
   GitStatusSnapshot,
-  GitWorktreeCopyIncludedInput,
-  GitWorktreeCopyIncludedResult,
   GitWorktreeCreateInput,
   GitWorktreeEntry,
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
-  GitWorktreeRepairInput,
 } from '../../shared/electron-api'
 
 export const gitApi = {
@@ -64,12 +59,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitRepositoryIdentity: (folderPath: string): Promise<RepositoryIdentity | null> =>
     ipcRenderer.invoke('git:get-repository-identity', folderPath),
-  getGitHistory: (repoRoot: string, limit?: number): Promise<GitHistorySnapshot> =>
-    ipcRenderer.invoke('git:get-history', repoRoot, limit),
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions): Promise<GitGraphSnapshot> =>
     ipcRenderer.invoke('git:get-commit-graph', repoRoot, options),
-  getGitConflicts: (repoRoot: string): Promise<GitConflictSnapshot> =>
-    ipcRenderer.invoke('git:get-conflicts', repoRoot),
   getGitConflictFile: (repoRoot: string, filePath: string): Promise<GitConflictFileContent | null> =>
     ipcRenderer.invoke('git:get-conflict-file', repoRoot, filePath),
   resolveGitConflict: (repoRoot: string, filePath: string, content: string): Promise<GitCommandResult> =>
@@ -120,8 +111,6 @@ export const gitApi = {
     ipcRenderer.invoke('git:stash-drop', repoRoot, index, expectedHash),
   checkoutGitCommit: (repoRoot: string, commitHash: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:checkout-commit', repoRoot, commitHash),
-  createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:branch-from-commit', repoRoot, branchName, commitHash),
   checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:checkout-commit-as-branch', repoRoot, branchName, commitHash),
   createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string): Promise<GitCommandResult> =>
@@ -134,12 +123,6 @@ export const gitApi = {
     ipcRenderer.invoke('git:worktree:remove', input),
   pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:prune', repoRoot),
-  repairGitWorktrees: (input: GitWorktreeRepairInput): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
-    ipcRenderer.invoke('git:worktree:repair', input),
-  copyGitWorktreeIncludedFiles: (
-    input: GitWorktreeCopyIncludedInput
-  ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> =>
-    ipcRenderer.invoke('git:worktree:copy-included', input),
   getGitHubTokenStatus: (): Promise<GitHubTokenStatus> =>
     ipcRenderer.invoke('github:token-status'),
   setGitHubToken: (token: string): Promise<GitHubTokenStatus> =>
@@ -164,9 +147,7 @@ export const gitApi = {
   | 'getGitFileAtStage'
   | 'getGitBranches'
   | 'getGitRepositoryIdentity'
-  | 'getGitHistory'
   | 'getGitCommitGraph'
-  | 'getGitConflicts'
   | 'getGitConflictFile'
   | 'resolveGitConflict'
   | 'stageGitPaths'
@@ -192,15 +173,12 @@ export const gitApi = {
   | 'applyGitStash'
   | 'dropGitStash'
   | 'checkoutGitCommit'
-  | 'createGitBranchFromCommit'
   | 'checkoutGitCommitAsBranch'
   | 'createGitTagFromCommit'
   | 'listGitWorktrees'
   | 'createGitWorktree'
   | 'removeGitWorktree'
   | 'pruneGitWorktrees'
-  | 'repairGitWorktrees'
-  | 'copyGitWorktreeIncludedFiles'
   | 'getGitHubTokenStatus'
   | 'setGitHubToken'
   | 'clearGitHubToken'

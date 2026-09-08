@@ -16,7 +16,6 @@ import type {
   OpenDialogOptions,
   ProcessMetricsSnapshot,
   ProjectLogo,
-  SaveDialogOptions,
   VersionControlProviderProbe,
   WorkspaceFolderCheckResult,
 } from '../../shared/electron-api'
@@ -61,7 +60,6 @@ export const filesystemApi = {
   diagnosticsOpenWindow: (): Promise<void> =>
     ipcRenderer.invoke('diagnostics:open-window'),
   writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
-  writeBinaryFile: (path: string, base64Content: string) => ipcRenderer.invoke('fs:write-binary-file', path, base64Content),
   saveDroppedImage: (input: { mediaType: string; dataBase64: string }): Promise<string> =>
     ipcRenderer.invoke('fs:save-dropped-image', input),
   openImageAttachment: (input: { mediaType: string; dataBase64: string; name?: string }): Promise<void> =>
@@ -69,8 +67,6 @@ export const filesystemApi = {
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
   ensureDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
-  createWorkspaceFolder: (parentDir: string, name: string) =>
-    ipcRenderer.invoke('fs:create-workspace-folder', parentDir, name),
   renamePath: (sourcePath: string, nextName: string) => ipcRenderer.invoke('fs:rename', sourcePath, nextName),
   movePath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:move', sourcePath, destinationDir),
   copyPath: (sourcePath: string, destinationDir: string) => ipcRenderer.invoke('fs:copy', sourcePath, destinationDir),
@@ -100,7 +96,6 @@ export const filesystemApi = {
   },
   openDir: () => ipcRenderer.invoke('fs:dialog:opendir'),
   defaultWorkspaceParentDir: () => ipcRenderer.invoke('app:default-workspace-parent'),
-  saveFile: (options?: SaveDialogOptions) => ipcRenderer.invoke('fs:dialog:savefile', options),
   openFile: (options?: OpenDialogOptions) => ipcRenderer.invoke('fs:dialog:openfile', options),
   showContextMenu: (items: ContextMenuItem[]) => ipcRenderer.invoke('app:show-context-menu', items),
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
@@ -126,13 +121,11 @@ export const filesystemApi = {
   | 'diagnosticsGetProcessMetrics'
   | 'diagnosticsOpenWindow'
   | 'writefile'
-  | 'writeBinaryFile'
   | 'saveDroppedImage'
   | 'openImageAttachment'
   | 'createFile'
   | 'createDir'
   | 'ensureDir'
-  | 'createWorkspaceFolder'
   | 'renamePath'
   | 'movePath'
   | 'copyPath'
@@ -146,7 +139,6 @@ export const filesystemApi = {
   | 'watchPath'
   | 'openDir'
   | 'defaultWorkspaceParentDir'
-  | 'saveFile'
   | 'openFile'
   | 'showContextMenu'
   | 'showMenubarMenu'

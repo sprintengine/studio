@@ -1,11 +1,8 @@
 import type { IpcMain } from 'electron'
 import type {
-  EntitlementSnapshot,
-  FeatureValue,
   MulticodeAuthState,
   PremiumAccessDecision,
   PremiumAccessRequest,
-  SessionSnapshot,
 } from '../../shared/electron-api'
 
 // Identity and session — the provider-shaped half of the auth surface.
@@ -14,18 +11,15 @@ type AuthBridge = {
   login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }>
   logout(): Promise<{ loggedOut: true }>
   refreshEntitlements(options?: { forceRefresh?: boolean }): Promise<MulticodeAuthState>
-  selectOrganization(organizationId: string): Promise<{ organizationId: string }>
   openUpgrade(reason?: string): Promise<{ opened: true; url: string }>
-  getSession(): Promise<SessionSnapshot>
 }
 
 // The entitlement seam (`src/main/entitlement-service.ts`). Every feature-key
 // question the renderer asks is answered here, by a service that names no
-// provider — which is why these three handlers take it rather than the bridge.
+// provider — which is why the premium-access handler takes it rather than the
+// bridge.
 type EntitlementGate = {
   checkAccess(input: PremiumAccessRequest): Promise<PremiumAccessDecision>
-  getSnapshot(options?: { forceRefresh?: boolean }): Promise<EntitlementSnapshot>
-  requireFeature(input: PremiumAccessRequest | string): Promise<FeatureValue>
 }
 
 export function registerAuthIpc(ipcMain: IpcMain, auth: AuthBridge, entitlements: EntitlementGate): void {
@@ -37,15 +31,7 @@ export function registerAuthIpc(ipcMain: IpcMain, auth: AuthBridge, entitlements
 
   ipcMain.handle('auth:refresh-entitlements', () => auth.refreshEntitlements({ forceRefresh: true }))
 
-  ipcMain.handle('auth:select-organization', (_, organizationId: string) => auth.selectOrganization(organizationId))
-
   ipcMain.handle('auth:open-upgrade', (_, reason?: string) => auth.openUpgrade(reason))
 
   ipcMain.handle('auth:check-premium-access', (_, input: PremiumAccessRequest) => entitlements.checkAccess(input))
-
-  ipcMain.handle('auth:get-session', () => auth.getSession())
-
-  ipcMain.handle('auth:get-entitlements', (_, options?: { forceRefresh?: boolean }) => entitlements.getSnapshot(options))
-
-  ipcMain.handle('auth:require-entitlement', (_, input: PremiumAccessRequest | string) => entitlements.requireFeature(input))
 }

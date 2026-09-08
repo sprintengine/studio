@@ -629,12 +629,6 @@ const legacyBackupAppSettings = {
     '/Users/dev/workspace/multicode',
     '/Users/dev/workspace/multicode-mobile',
   ],
-  usageTelemetry: {
-    sendUsageData: false,
-    localDevExportEnabled: false,
-    lastExportAt: null,
-    exportDiagnostics: true,
-  },
   learning: {
     showTipsOnStartup: false,
     lastShownTipId: 'tip-12',

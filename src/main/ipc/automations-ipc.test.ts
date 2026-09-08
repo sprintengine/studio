@@ -21,7 +21,6 @@ import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
-  AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -359,13 +358,9 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   if (!listed.ok) return
   assert.deepEqual(listed.value.map((definition) => definition.id), ['nightly-review'])
 
-  const fetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
-    workspaceRoot,
-    automationId: 'nightly-review',
-  })
-  assert.equal(fetched.ok, true)
-  if (!fetched.ok) return
-  assert.equal(fetched.value.name, 'Nightly Review')
+  const fetched = listed.value.find((definition) => definition.id === 'nightly-review')
+  assert.ok(fetched, 'the created automation is readable back from the list')
+  assert.equal(fetched.name, 'Nightly Review')
 
   const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
     workspaceRoot,
@@ -507,13 +502,9 @@ async function testWebhookSecretIsRedactedFromDefinitionIpcReads(): Promise<void
   if (!listed.ok) return
   assertRedactedWebhookDefinition(listed.value[0])
 
-  const fetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
-    workspaceRoot,
-    automationId: 'webhook-secret',
-  })
-  assert.equal(fetched.ok, true)
-  if (!fetched.ok) return
-  assertRedactedWebhookDefinition(fetched.value)
+  const fetched = listed.value.find((definition) => definition.id === 'webhook-secret')
+  assert.ok(fetched, 'the created automation is readable back from the list')
+  assertRedactedWebhookDefinition(fetched)
 
   const updated = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_UPDATE_CHANNEL, {
     workspaceRoot,
@@ -774,13 +765,12 @@ async function testRunInWorktreeRoundTripAndValidation(): Promise<void> {
   assert.equal(off.ok, true)
   if (!off.ok) return
   assert.equal(off.value.runInWorktree, false, 'patch updates runInWorktree to false')
-  const refetched = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_GET_CHANNEL, {
-    workspaceRoot,
-    automationId: 'nightly-review',
-  })
-  assert.equal(refetched.ok, true)
-  if (!refetched.ok) return
-  assert.equal(refetched.value.runInWorktree, false, 'runInWorktree=false persists across a fresh fetch')
+  const relisted = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
+  assert.equal(relisted.ok, true)
+  if (!relisted.ok) return
+  const refetched = relisted.value.find((definition) => definition.id === 'nightly-review')
+  assert.ok(refetched, 'the automation survives the patch')
+  assert.equal(refetched.runInWorktree, false, 'runInWorktree=false persists across a fresh read')
 
   // Absent at create stays absent on the stored definition; consumers default it
   // to true (existing automations keep their per-run worktree).

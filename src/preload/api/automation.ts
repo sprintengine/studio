@@ -1,7 +1,6 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import {
   AUTOMATION_GET_STATUS_CHANNEL,
-  AUTOMATION_SET_ENABLED_CHANNEL,
   type AutomationServerStatus,
 } from '../../shared/automation'
 import {
@@ -37,8 +36,6 @@ import type { ElectronApi } from '../../shared/electron-api'
 export const automationApi = {
   automationGetStatus: (): Promise<AutomationServerStatus> =>
     ipcRenderer.invoke(AUTOMATION_GET_STATUS_CHANNEL) as Promise<AutomationServerStatus>,
-  automationSetEnabled: (enabled: boolean): Promise<AutomationServerStatus> =>
-    ipcRenderer.invoke(AUTOMATION_SET_ENABLED_CHANNEL, enabled) as Promise<AutomationServerStatus>,
   tailnetGetStatus: (): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_GET_STATUS_CHANNEL) as Promise<TailnetRemoteStatus>,
   tailnetSetEnabled: (enabled: boolean): Promise<TailnetRemoteStatus> =>
@@ -75,7 +72,6 @@ export const automationApi = {
 } satisfies Pick<
   ElectronApi,
   | 'automationGetStatus'
-  | 'automationSetEnabled'
   | 'tailnetGetStatus'
   | 'tailnetSetEnabled'
   | 'tailnetOfferPairing'

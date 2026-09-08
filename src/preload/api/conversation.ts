@@ -17,8 +17,6 @@ import type {
   ConversationInterruptInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
-  ConversationProviderTestInput,
-  ConversationProviderTestResult,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
@@ -34,7 +32,6 @@ import type {
 type ConversationIpcRenderer = {
   invoke(channel: 'conversation:providers:list', input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   invoke(channel: 'conversation:providers:models', input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
-  invoke(channel: 'conversation:providers:test', input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>
   invoke(channel: 'conversation:secrets:status', input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
   invoke(channel: 'conversation:secrets:set', input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
   invoke(channel: 'conversation:secrets:clear', input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>
@@ -67,8 +64,6 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
       renderer.invoke('conversation:providers:models', input),
-    conversationProviderTest: (input: ConversationProviderTestInput): Promise<ConversationProviderTestResult> =>
-      renderer.invoke('conversation:providers:test', input),
     conversationSecretStatus: (input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> =>
       renderer.invoke('conversation:secrets:status', input),
     conversationSecretSet: (input: ConversationSecretSetInput): Promise<ConversationSecretSetResult> =>
@@ -110,7 +105,6 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     ElectronApi,
     | 'conversationProvidersList'
     | 'conversationProviderModels'
-    | 'conversationProviderTest'
     | 'conversationSecretStatus'
     | 'conversationSecretSet'
     | 'conversationSecretClear'

@@ -18,7 +18,6 @@ export const windowApi = {
   windowClose: () => ipcRenderer.invoke('window:close'),
   getWindowState: (): Promise<WindowState | null> => ipcRenderer.invoke('window:get-state'),
   getWindowPlacement: (): Promise<WindowPlacement | null> => ipcRenderer.invoke('window:get-placement'),
-  getWorkspaceWindowId: (): Promise<string> => ipcRenderer.invoke('window:get-workspace-window-id'),
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput): Promise<CreateWorkspaceWindowResult> =>
     ipcRenderer.invoke('window:create-workspace-window', input),
   openAuxWindow: (input: OpenAuxWindowInput): Promise<OpenAuxWindowResult> =>
@@ -65,7 +64,6 @@ export const windowApi = {
   | 'windowClose'
   | 'getWindowState'
   | 'getWindowPlacement'
-  | 'getWorkspaceWindowId'
   | 'createWorkspaceWindow'
   | 'openAuxWindow'
   | 'onAuxWindowRetarget'

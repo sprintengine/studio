@@ -211,9 +211,6 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
     return 'general'
   }
   if (initialTab === 'specialist-packs') return 'modules'
-  // Roles left Settings (owner, 2026-09-07 — they ship as a Claude-format plugin
-  // now); persisted menu/learn routes that still name the tab land on Agents.
-  if (initialTab === 'roles') return 'agents'
   // Voice dictation moved onto the module-contributed section path (MC-1861);
   // legacy deep-links (Learn center, persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
@@ -856,7 +853,6 @@ export default function SettingsPanel({
     [pluginCatalogEntries],
   )
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
-  const usageTelemetry = useWorkspaceStore((s) => s.appSettings.usageTelemetry)
   // Profile tab reads the shared auth projection and drives the same auth IPC as
   // the sidebar account popover — no new state, just a fuller management surface.
   const authState = useWorkspaceStore((s) => s.authState)
@@ -895,7 +891,6 @@ export default function SettingsPanel({
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
-  const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
@@ -1213,7 +1208,7 @@ export default function SettingsPanel({
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
       setGithubTokenEditing(false)
-      setGithubTokenMessage('Saved. Switchboard can now import private GitHub issues.')
+      setGithubTokenMessage('Saved. Studio can now read private GitHub repositories.')
     } catch (error) {
       setGithubTokenMessage(error instanceof Error ? error.message : 'Could not save the GitHub token.')
     } finally {
@@ -1255,9 +1250,6 @@ export default function SettingsPanel({
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
   const backgroundModeDescriptor = getSettingDescriptor('keep-running-in-background')
-  const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
-  const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
-  const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
 
   const installCliFromFolder = useCallback(async () => {
     if (typeof window.api.installPluginFolder !== 'function') {
@@ -1532,27 +1524,6 @@ export default function SettingsPanel({
                 descriptor={backgroundModeDescriptor}
                 checked={keepRunningInBackground}
                 onChange={(enabled) => setKeepRunningInBackground(enabled)}
-              />
-            ) : null}
-            {telemetrySendDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetrySendDescriptor}
-                checked={usageTelemetry.sendUsageData}
-                onChange={(enabled) => setUsageTelemetrySettings({ sendUsageData: enabled })}
-              />
-            ) : null}
-            {telemetryLocalDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetryLocalDescriptor}
-                checked={usageTelemetry.localDevExportEnabled}
-                onChange={(enabled) => setUsageTelemetrySettings({ localDevExportEnabled: enabled })}
-              />
-            ) : null}
-            {telemetryDiagnosticsDescriptor ? (
-              <RegistrySwitchRow
-                descriptor={telemetryDiagnosticsDescriptor}
-                checked={usageTelemetry.exportDiagnostics}
-                onChange={(enabled) => setUsageTelemetrySettings({ exportDiagnostics: enabled })}
               />
             ) : null}
           </div>

@@ -61,7 +61,6 @@ export const skillsApi = {
     ipcRenderer.invoke('skills:uninstall-plugin', input),
   skillsListInstalledPlugins: (input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome> =>
     ipcRenderer.invoke('skills:list-installed-plugins', input),
-  skillsCheckSourceUpdates: (): Promise<SkillSourceUpdateCheck> => ipcRenderer.invoke('skills:check-source-updates'),
   onSkillSourcesUpdated: (cb: (check: SkillSourceUpdateCheck) => void): (() => void) => {
     const channel = 'skills:sources-updated'
     const handler = (_: IpcRendererEvent, check: SkillSourceUpdateCheck): void => cb(check)
@@ -85,6 +84,5 @@ export const skillsApi = {
   | 'skillsInstallPlugin'
   | 'skillsUninstallPlugin'
   | 'skillsListInstalledPlugins'
-  | 'skillsCheckSourceUpdates'
   | 'onSkillSourcesUpdated'
 >

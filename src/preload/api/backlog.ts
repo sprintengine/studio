@@ -18,9 +18,7 @@ import type {
   BacklogRemoveRecordInput,
   BacklogStatusInput,
   BacklogTriageInput,
-  BacklogTypeInput,
   BacklogMoveSourceInput,
-  BacklogWorkspaceKeyResult,
   ElectronApi,
 } from '../../shared/electron-api'
 
@@ -28,9 +26,7 @@ type BacklogIpcRenderer = {
   invoke(channel: 'backlog:read-object-store', workspaceRoot: string): Promise<BacklogReadResult>
   invoke(channel: 'backlog:ensure-object-records', workspaceRoot: string, items: BacklogItemRecordInput[]): Promise<BacklogReadResult>
   invoke(channel: 'backlog:ensure-item-ids', input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult>
-  invoke(channel: 'backlog:read-workspace-key', workspaceRoot: string): Promise<BacklogWorkspaceKeyResult>
   invoke(channel: 'backlog:update-status', input: BacklogStatusInput): Promise<BacklogMutationResult>
-  invoke(channel: 'backlog:update-type', input: BacklogTypeInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-triage', input: BacklogTriageInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-highlight', input: BacklogHighlightInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:add-or-update-link', input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
@@ -53,12 +49,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:ensure-object-records', workspaceRoot, items),
     ensureBacklogItemIds: (input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult> =>
       renderer.invoke('backlog:ensure-item-ids', input),
-    readBacklogWorkspaceKey: (workspaceRoot: string): Promise<BacklogWorkspaceKeyResult> =>
-      renderer.invoke('backlog:read-workspace-key', workspaceRoot),
     updateBacklogStatus: (input: BacklogStatusInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:update-status', input),
-    updateBacklogType: (input: BacklogTypeInput): Promise<BacklogMutationResult> =>
-      renderer.invoke('backlog:update-type', input),
     updateBacklogTriage: (input: BacklogTriageInput): Promise<BacklogMutationResult> =>
       renderer.invoke('backlog:update-triage', input),
     updateBacklogHighlight: (input: BacklogHighlightInput): Promise<BacklogMutationResult> =>
@@ -88,9 +80,7 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
     | 'readBacklogObjectStore'
     | 'ensureBacklogObjectRecords'
     | 'ensureBacklogItemIds'
-    | 'readBacklogWorkspaceKey'
     | 'updateBacklogStatus'
-    | 'updateBacklogType'
     | 'updateBacklogTriage'
     | 'updateBacklogHighlight'
     | 'addOrUpdateBacklogLink'

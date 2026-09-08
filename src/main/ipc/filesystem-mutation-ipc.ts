@@ -12,23 +12,6 @@ type FilesystemMutationIpcDependencies = {
   trashItem(targetPath: string): Promise<void>
 }
 
-function normalizeNewWorkspaceFolderName(rawName: string): string {
-  const name = rawName.trim()
-  if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) {
-    throw new Error('Enter a valid folder name.')
-  }
-  if (/[\u0000-\u001f<>:"|?*]/u.test(name)) {
-    throw new Error('Folder names cannot contain control characters or <>:"|?*.')
-  }
-  if (/[. ]$/u.test(name)) {
-    throw new Error('Folder names cannot end with a period or space.')
-  }
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(name)) {
-    throw new Error('That folder name is reserved by Windows.')
-  }
-  return name
-}
-
 function normalizeRenamedFileSystemEntryName(rawName: string): string {
   if (/[. ]$/u.test(rawName)) {
     throw new Error('File and folder names cannot end with a period or space.')
@@ -57,11 +40,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   ipcMain.handle('fs:writefile', async (_, filePath: string, content: string): Promise<void> => {
     await deps.assertNotDirectSprintEngineStateMutation(filePath)
     await writeFile(filePath, content, 'utf-8')
-  })
-
-  ipcMain.handle('fs:write-binary-file', async (_, filePath: string, base64Content: string): Promise<void> => {
-    await deps.assertNotDirectSprintEngineStateMutation(filePath)
-    await writeFile(filePath, Buffer.from(base64Content, 'base64'))
   })
 
   ipcMain.handle(
@@ -100,16 +78,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   ipcMain.handle('fs:ensure-dir', async (_, parentDir: string, name: string): Promise<string> => {
     const dirPath = join(parentDir, name)
     await mkdir(dirPath, { recursive: true })
-    return dirPath
-  })
-
-  ipcMain.handle('fs:create-workspace-folder', async (_, parentDir: string, name: string): Promise<string> => {
-    const normalizedName = normalizeNewWorkspaceFolderName(name)
-    const dirPath = join(parentDir, normalizedName)
-    if (await deps.pathExists(dirPath)) {
-      throw new Error(`A folder named "${normalizedName}" already exists.`)
-    }
-    await mkdir(dirPath)
     return dirPath
   })
 

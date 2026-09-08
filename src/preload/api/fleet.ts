@@ -10,10 +10,8 @@ import {
   FLEET_FORGET_CHANNEL,
   FLEET_GET_LIVE_STATE_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
-  FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
   FLEET_CHECK_REACHABILITY_CHANNEL,
-  FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
   FLEET_REQUEST_PAIRING_CHANNEL,
   FLEET_EVENT_CHANNEL,
@@ -25,12 +23,10 @@ import {
   type FleetCreateTerminalResult,
   type FleetCheckoutRequest,
   type FleetWorkspaceCheckoutResult,
-  type FleetCollectPairingResult,
   type FleetEvent,
   type FleetLiveState,
   type FleetPairResult,
   type FleetRequestPairingResult,
-  type FleetRun,
   type FleetTerminalEvent,
 } from '../../shared/tailnet-fleet'
 import type { TailnetScope } from '../../shared/tailnet'
@@ -57,21 +53,12 @@ export const fleetApi = {
     }) as Promise<FleetRequestPairingResult>,
   fleetCheckReachability: (connectionId?: string): Promise<FleetLiveState> =>
     ipcRenderer.invoke(FLEET_CHECK_REACHABILITY_CHANNEL, connectionId ?? null) as Promise<FleetLiveState>,
-  fleetCollectPairing: (requestId: string): Promise<FleetCollectPairingResult> =>
-    ipcRenderer.invoke(FLEET_COLLECT_PAIRING_CHANNEL, requestId) as Promise<FleetCollectPairingResult>,
   fleetCancelPairing: (requestId: string): Promise<void> =>
     ipcRenderer.invoke(FLEET_CANCEL_PAIRING_CHANNEL, requestId) as Promise<void>,
   fleetForget: (connectionId: string): Promise<FleetConnection[]> =>
     ipcRenderer.invoke(FLEET_FORGET_CHANNEL, connectionId) as Promise<FleetConnection[]>,
   fleetBrowse: (connectionId: string): Promise<FleetBrowse> =>
     ipcRenderer.invoke(FLEET_BROWSE_CHANNEL, connectionId) as Promise<FleetBrowse>,
-  fleetListRuns: (
-    connectionId: string,
-    workspaceId: string
-  ): Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }> =>
-    ipcRenderer.invoke(FLEET_LIST_RUNS_CHANNEL, { connectionId, workspaceId }) as Promise<
-      { ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }
-    >,
   fleetCreateTerminal: (input: {
     connectionId: string
     workspaceId?: string
@@ -121,12 +108,10 @@ export const fleetApi = {
   | 'fleetListConnections'
   | 'fleetPair'
   | 'fleetRequestPairing'
-  | 'fleetCollectPairing'
   | 'fleetCancelPairing'
   | 'fleetCheckReachability'
   | 'fleetForget'
   | 'fleetBrowse'
-  | 'fleetListRuns'
   | 'fleetCreateTerminal'
   | 'fleetWorkspaceCheckout'
   | 'fleetAttachTerminal'

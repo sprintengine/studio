@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import type { IpcMain } from 'electron'
 
-import type { ModuleNotification } from '../../shared/modules/notifications'
 import { createMainKernel, type SidecarLifecycle, type SidecarRunState } from './main-host'
 
 function createFakeIpcMain(): IpcMain {
@@ -81,12 +80,8 @@ async function testDemandSidecar(): Promise<void> {
 // Spawn failure: queryable 'failed' state with the error recorded, and a
 // module-identified error notification — never a fake-running state.
 async function testSpawnFailure(): Promise<void> {
-  const delivered: ModuleNotification[] = []
-  const kernel = createMainKernel(createFakeIpcMain(), {
-    deliverNotification: (notification) => {
-      delivered.push(notification)
-    },
-  })
+  const kernel = createMainKernel(createFakeIpcMain())
+  const delivered = kernel.recentNotifications()
   const handle = kernel.hostFor('sprint-engine').registerSidecar(
     { id: 'broken-daemon', kind: 'process', startOn: 'demand' },
     {
@@ -107,11 +102,8 @@ async function testSpawnFailure(): Promise<void> {
 
   // Startup-spawned failures are isolated (runStartup must not throw) but
   // still recorded and notified.
-  const startupKernel = createMainKernel(createFakeIpcMain(), {
-    deliverNotification: (notification) => {
-      delivered.push(notification)
-    },
-  })
+  const startupKernel = createMainKernel(createFakeIpcMain())
+  const startupDelivered = startupKernel.recentNotifications()
   startupKernel.hostFor('alpha').registerSidecar(
     { id: 'broken-eager', kind: 'process' },
     {
@@ -126,7 +118,7 @@ async function testSpawnFailure(): Promise<void> {
     startupKernel.sidecarStatuses().map((status) => [status.state, status.error]),
     [['failed', 'spawn exploded']]
   )
-  assert.equal(delivered.length, 2)
+  assert.equal(startupDelivered.length, 1, 'the startup-spawned failure is notified on its own kernel')
 }
 
 // Declarative registrations (no lifecycle) stay 'declared'; the handle cannot

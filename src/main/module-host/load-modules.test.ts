@@ -5,7 +5,6 @@ import { join } from 'node:path'
 
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
-import { MODULE_NOTIFICATIONS_RECENT_CHANNEL } from '../../shared/modules/notifications'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import type { InstalledModule } from '../modules/user-module-registry'
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
@@ -144,7 +143,7 @@ function testThrowingModuleIsIsolated(): void {
   assert.deepEqual(report.loaded, ['good'], 'a throwing module must not abort the others')
   assert.equal(report.errors.length, 1)
   assert.equal(report.errors[0].id, 'bad')
-  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, MODULE_NOTIFICATIONS_RECENT_CHANNEL, 'good:ping'])
+  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'good:ping'])
 }
 
 function testDuplicateChannelIsReportedNotFatal(): void {
@@ -163,7 +162,7 @@ function testDuplicateChannelIsReportedNotFatal(): void {
   assert.deepEqual(report.loaded, ['first'])
   assert.equal(report.errors.length, 1)
   assert.equal(report.errors[0].id, 'second')
-  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, MODULE_NOTIFICATIONS_RECENT_CHANNEL, 'shared:channel'], 'channel handled exactly once')
+  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'shared:channel'], 'channel handled exactly once')
   assert.equal(kernel.ownedChannels().get('shared:channel'), 'first')
 }
 
@@ -264,7 +263,7 @@ async function testTrustedThirdPartyMainRegistersThroughHost(): Promise<void> {
   assert.deepEqual(report.loaded, ['trusted'])
   assert.deepEqual(report.manifestOnly, [])
   assert.deepEqual(report.errors, [])
-  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, MODULE_NOTIFICATIONS_RECENT_CHANNEL, 'trusted:ping'])
+  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'trusted:ping'])
 }
 
 async function testUntrustedAndInvalidThirdPartyMainNeverImports(): Promise<void> {
@@ -334,7 +333,7 @@ async function testThirdPartyPathSafetyAndBadEntriesAreLaunchErrors(): Promise<v
 
   assert.deepEqual(report.loaded, ['good'])
   assert.deepEqual(report.manifestOnly, ['manifest-only'])
-  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, MODULE_NOTIFICATIONS_RECENT_CHANNEL, 'good:ping'])
+  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'good:ping'])
   assert.equal(report.errors.length, 3)
   assert.equal(report.errors.find((error) => error.id === 'escaped')?.message, 'entry.main must resolve inside the module root.')
   assert.equal(
@@ -388,7 +387,7 @@ async function testTrustedThirdPartyRegistrationThrowIsIsolated(): Promise<void>
   const { report } = loadMainModules({ ipcMain, modules: [...planned.modules, good] })
 
   assert.deepEqual(report.loaded, ['good'])
-  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, MODULE_NOTIFICATIONS_RECENT_CHANNEL, 'good:ping'])
+  assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'good:ping'])
   assert.equal(report.errors.length, 1)
   assert.equal(report.errors[0].id, 'bad')
   assert.equal(report.errors[0].message, 'boom')

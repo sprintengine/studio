@@ -19,9 +19,7 @@ import type {
   BacklogRemoveRecordInput,
   BacklogStatusInput,
   BacklogTriageInput,
-  BacklogTypeInput,
   BacklogMoveSourceInput,
-  BacklogWorkspaceKeyResult,
 } from '../../shared/electron-api'
 import {
   addOrUpdateBacklogLink,
@@ -30,7 +28,6 @@ import {
   ensureBacklogObjectRecords,
   moveBacklogObjectSource,
   readBacklogObjectStore,
-  readBacklogWorkspaceKey,
   removeBacklogLink,
   removeBacklogObjectRecord,
   updateBacklogDependencies,
@@ -41,7 +38,6 @@ import {
   updateBacklogModuleMetadata,
   updateBacklogStatus,
   updateBacklogTriage,
-  updateBacklogType,
 } from '../backlog-service'
 
 export function registerBacklogIpc(ipcMain: IpcMain): void {
@@ -60,16 +56,8 @@ export function registerBacklogIpc(ipcMain: IpcMain): void {
     return ensureBacklogItemIds(input)
   })
 
-  ipcMain.handle('backlog:read-workspace-key', (_event, workspaceRoot: string): Promise<BacklogWorkspaceKeyResult> => {
-    return readBacklogWorkspaceKey(workspaceRoot)
-  })
-
   ipcMain.handle('backlog:update-status', (_event, input: BacklogStatusInput): Promise<BacklogMutationResult> => {
     return updateBacklogStatus(input)
-  })
-
-  ipcMain.handle('backlog:update-type', (_event, input: BacklogTypeInput): Promise<BacklogMutationResult> => {
-    return updateBacklogType(input)
   })
 
   ipcMain.handle('backlog:update-triage', (_event, input: BacklogTriageInput): Promise<BacklogMutationResult> => {

@@ -28,12 +28,9 @@ async function main(): Promise<void> {
   const installed = await api.installPluginFolder('/tmp/some-cli')
   assert.deepEqual(installed, installResponse)
 
-  const reloaded = await api.reloadPlugins()
-  assert.deepEqual(reloaded, listResponse)
-
   assert.deepEqual(
     calls.map((call) => call.channel),
-    ['plugins:list', 'plugins:install-folder', 'plugins:reload']
+    ['plugins:list', 'plugins:install-folder']
   )
   assert.deepEqual(calls[1].args, ['/tmp/some-cli'])
 

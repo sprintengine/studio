@@ -1,10 +1,11 @@
-// Module notifications — shared contract between the main-process module host
-// and the renderer display surface (Settings → Modules diagnostics, toasts).
+// Module notifications — the shared payload contract for the main-process
+// module host's notification buffer.
 //
-// A notification is a small, typed, user-visible status payload emitted by a
-// capability module through its scoped host (`host.notify(...)`). The source
-// module id is stamped by the host from its own scope — it is never accepted
-// from the caller, so one module cannot impersonate another.
+// A notification is a small, typed, status payload emitted by a capability
+// module through its scoped host (`host.notify(...)`). The source module id is
+// stamped by the host from its own scope — it is never accepted from the
+// caller, so one module cannot impersonate another. The kernel buffers the
+// recent ones for diagnostics; there is no renderer channel for them today.
 
 export type ModuleNotificationSeverity = 'info' | 'warning' | 'error'
 
@@ -26,13 +27,6 @@ export type ModuleNotifyInput = {
   title: string
   body?: string
 }
-
-// One module-host-owned event channel carries every module's notifications to
-// the renderer (fan-out by `sourceModuleId` happens on the display side). The
-// companion invoke channel returns the kernel's recent-notification buffer so
-// windows opened after startup still see launch-time diagnostics.
-export const MODULE_NOTIFICATIONS_EVENT_CHANNEL = 'modules:notifications'
-export const MODULE_NOTIFICATIONS_RECENT_CHANNEL = 'modules:notifications:recent'
 
 const MAX_TITLE_LENGTH = 200
 const MAX_BODY_LENGTH = 2000

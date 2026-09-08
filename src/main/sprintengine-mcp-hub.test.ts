@@ -337,12 +337,8 @@ async function testGatedHubOwnership(): Promise<void> {
 // the hub as a demand sidecar through the kernel; a real hub spawns, a real
 // MCP run registration succeeds, and kernel shutdown stops the process.
 async function testKernelOwnedSidecarLifecycle(): Promise<void> {
-  const notifications: Array<{ sourceModuleId: string; title: string }> = []
-  const kernel = createMainKernel({ handle: () => undefined } as unknown as Parameters<typeof createMainKernel>[0], {
-    deliverNotification: (notification) => {
-      notifications.push({ sourceModuleId: notification.sourceModuleId, title: notification.title })
-    },
-  })
+  const kernel = createMainKernel({ handle: () => undefined } as unknown as Parameters<typeof createMainKernel>[0])
+  const notifications = kernel.recentNotifications()
   const hub = createGatedSprintEngineMcpHub(
     createSprintEngineMcpHubService({ runtimeRoot: () => process.cwd() })
   )

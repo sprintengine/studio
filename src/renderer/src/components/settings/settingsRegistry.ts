@@ -26,7 +26,7 @@ import { APP_THEMES, type AppTheme } from '../../types/appTheme'
 
 // Scope marks where a field is surfaced:
 // - 'app'   — app-wide preferences shown in SettingsPanel.
-// - 'panel' — per-panel popover (Switchboard, Watchtower, Sprint Engine).
+// - 'panel' — per-panel popover (Sprint Engine, Backlog).
 // - 'role'  — per-agent-role defaults (specialist, sprint engine).
 export type SettingScope = 'app' | 'panel' | 'role'
 
@@ -81,7 +81,7 @@ export type SettingDescriptor = {
   group: string
   field: SettingField
   // Dot-path inside `useWorkspaceStore` for the canonical read source.
-  // Example: 'appSettings.usageTelemetry.sendUsageData'.
+  // Example: 'appSettings.keepRunningInBackground'.
   storePath: string
   // Workspace-store action that mutates the value when the store owns the
   // write path. Some settings live outside the store — for those leave
@@ -132,38 +132,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     field: { type: 'switch' },
     storePath: 'appSettings.keepRunningInBackground',
     storeSetter: 'setKeepRunningInBackground',
-  },
-
-  // Telemetry — anonymous usage + crash diagnostics.
-  {
-    id: 'usage-telemetry-send-data',
-    label: 'Send anonymous usage data',
-    help: 'Feature counts only. Never file contents or terminal output.',
-    scope: 'app',
-    group: 'telemetry',
-    field: { type: 'switch' },
-    storePath: 'appSettings.usageTelemetry.sendUsageData',
-    storeSetter: 'setUsageTelemetrySettings',
-  },
-  {
-    id: 'usage-telemetry-local-export',
-    label: 'Export usage data to a local file',
-    help: 'A daily JSON file you can read yourself.',
-    scope: 'app',
-    group: 'telemetry',
-    field: { type: 'switch' },
-    storePath: 'appSettings.usageTelemetry.localDevExportEnabled',
-    storeSetter: 'setUsageTelemetrySettings',
-  },
-  {
-    id: 'usage-telemetry-export-diagnostics',
-    label: 'Include diagnostic logs in exports',
-    help: 'Adds diagnostic events to the local export.',
-    scope: 'app',
-    group: 'telemetry',
-    field: { type: 'switch' },
-    storePath: 'appSettings.usageTelemetry.exportDiagnostics',
-    storeSetter: 'setUsageTelemetrySettings',
   },
 
   // Agent runtime defaults.

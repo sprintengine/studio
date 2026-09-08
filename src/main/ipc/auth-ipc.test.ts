@@ -1,5 +1,5 @@
 /**
- * MC-2169 — the entitlement IPC channels must reach the SEAM, never the auth
+ * MC-2169 — the entitlement IPC channel must reach the SEAM, never the auth
  * bridge. That is the structural rule the seam exists to enforce, so it is
  * pinned here rather than left to review: the bridge below throws on any
  * entitlement call, so a handler that regresses to it fails loudly instead of
@@ -33,7 +33,6 @@ async function main(): Promise<void> {
   const handlers = new Map<string, Handler>()
   const ipcMain = { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as unknown as IpcMain
 
-  let refreshes = 0
   const entitlements = new EntitlementService(
     {
       read: () => ({
@@ -42,23 +41,17 @@ async function main(): Promise<void> {
         cache: null,
         lastRefreshAt: new Date().toISOString(),
       }),
-      refresh: async () => {
-        refreshes += 1
-      },
+      refresh: async () => {},
     },
     { product: 'multicode' }
   )
 
-  // Serves only the identity/session/quota half. Anything else is a regression.
+  // Serves only the identity half. Anything else is a regression.
   const bridge = new Proxy({}, {
-    get: (_target, property) => {
-      if (property === 'getSession') {
-        return async () => ({ authenticated: false, user: null, selectedOrganization: null })
-      }
-      return async () => {
+    get: (_target, property) =>
+      async () => {
         throw new Error(`bridge.${String(property)} must not serve an entitlement channel`)
-      }
-    },
+      },
   })
 
   registerAuthIpc(ipcMain, bridge as never, entitlements)
@@ -75,21 +68,6 @@ async function main(): Promise<void> {
   }
   assert.equal(decision.allowed, true)
   assert.equal(decision.status, 'fresh')
-
-  const snap = await invoke('auth:get-entitlements', { forceRefresh: true }) as EntitlementSnapshot
-  assert.equal(snap.userId, 'user_1')
-  assert.equal(refreshes, 1, 'forceRefresh must reach the provider through the seam')
-
-  assert.equal(await invoke('auth:require-entitlement', 'multicode.x'), true)
-  await assert.rejects(
-    () => invoke('auth:require-entitlement', 'multicode.missing'),
-    /Upgrade this organization/
-  )
-
-  // The identity half still belongs to the bridge — the split is a split, not a
-  // move of everything onto the seam.
-  const session = await invoke('auth:get-session') as { authenticated: boolean }
-  assert.equal(session.authenticated, false)
 
   console.log('auth ipc tests passed')
 }

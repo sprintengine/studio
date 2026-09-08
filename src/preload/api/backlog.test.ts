@@ -16,7 +16,6 @@ async function main(): Promise<void> {
   await api.readBacklogObjectStore('/repo')
   await api.ensureBacklogObjectRecords('/repo', [{ relativePath: 'backlog/plan.md', status: 'idea' }])
   await api.ensureBacklogItemIds({ workspaceRoot: '/repo', items: [{ relativePath: 'backlog/plan.md', numericId: null }] })
-  await api.readBacklogWorkspaceKey('/repo')
   await api.updateBacklogStatus({ workspaceRoot: '/repo', relativePath: 'backlog/plan.md', status: 'in_progress' })
   await api.addOrUpdateBacklogLink({
     workspaceRoot: '/repo',
@@ -52,7 +51,6 @@ async function main(): Promise<void> {
     'backlog:read-object-store',
     'backlog:ensure-object-records',
     'backlog:ensure-item-ids',
-    'backlog:read-workspace-key',
     'backlog:update-status',
     'backlog:add-or-update-link',
     'backlog:remove-link',

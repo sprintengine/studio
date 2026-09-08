@@ -944,16 +944,6 @@ export type AgentCapabilitiesResult =
     }
   | { ok: false; message: string }
 
-export type AgentCapabilitiesWatchInput = {
-  workspaceRoot: string
-}
-
-// Named once and imported by both sides: main registering a channel the preload
-// spells differently is a failure that only shows up in a running app.
-export const AGENT_CAPABILITIES_WATCH_START_CHANNEL = 'skills:agent-capabilities-watch-start'
-export const AGENT_CAPABILITIES_WATCH_STOP_CHANNEL = 'skills:agent-capabilities-watch-stop'
-export const AGENT_CAPABILITIES_INVALIDATED_CHANNEL = 'skills:agent-capabilities-invalidated'
-
 /**
  * "Ask again" — never the new answer. One per `(workspaceRoot, harnessId)`
  * after the watcher's debounce, so a ten-file install moves the surface once.

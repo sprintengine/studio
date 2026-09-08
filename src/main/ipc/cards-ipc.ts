@@ -48,6 +48,7 @@ import { listPluginRegistryEntries } from '../plugin-registry-instance'
 import type { SkillsService } from '../skills'
 import { installedSkillCopies } from '../skills/sync'
 import { runCard, type CardRunDeps } from '../cards/run-card'
+import { isRecord } from '../../shared/records'
 
 export type CardsIpcServices = {
   skillsService: SkillsService
@@ -137,7 +138,7 @@ export function registerCardsIpc(
 type ParsedRequest = { ok: true; input: CardRunInput } | { ok: false; message: string }
 
 function parseRequest(raw: unknown): ParsedRequest {
-  if (!isObject(raw)) return { ok: false, message: 'That card could not be read, so nothing ran.' }
+  if (!isRecord(raw)) return { ok: false, message: 'That card could not be read, so nothing ran.' }
   const slug = typeof raw.slug === 'string' ? raw.slug.trim() : ''
   if (!slug) return { ok: false, message: 'That card could not be read, so nothing ran.' }
   if (!Array.isArray(raw.actions)) return { ok: false, message: 'That card has nothing to run.' }
@@ -222,6 +223,3 @@ function absolutePathOrNull(value: unknown): string | null {
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) ? path : null
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

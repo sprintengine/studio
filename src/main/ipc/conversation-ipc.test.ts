@@ -13,7 +13,6 @@ import type {
 } from '../../shared/electron-api'
 import type {
   ConversationEvent,
-  ConversationProviderTestResult,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationStartSessionResult,
@@ -33,7 +32,6 @@ function createIpcMain(): { handle(channel: string, handler: Handler): void; han
 
 async function main(): Promise<void> {
   await testRegistersProviderListChannel()
-  await testRegistersProviderTestChannel()
   await testRegistersSecretChannels()
   await testRegistersSessionChannelsAndEventSubscription()
   await testSendTurnValidatesImageAttachments()
@@ -64,7 +62,6 @@ async function testRegistersProviderListChannel(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => response,
-    testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),
@@ -74,40 +71,6 @@ async function testRegistersProviderListChannel(): Promise<void> {
   const handler = ipcMain.handlers.get('conversation:providers:list')
   assert.ok(handler, 'conversation:providers:list should be registered')
   assert.deepEqual(await handler?.(null), response)
-}
-
-async function testRegistersProviderTestChannel(): Promise<void> {
-  const response: ConversationProviderTestResult = {
-    ok: true,
-    status: {
-      providerId: 'openai-compatible',
-      state: 'reachable',
-      modelId: 'gpt-5',
-      message: 'Provider endpoint is reachable.',
-    },
-  }
-  const calls: string[] = []
-  const ipcMain = createIpcMain()
-  registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: async () => ({ ok: true, providers: [] }),
-    testProvider: async (input) => {
-      calls.push(`${input.providerId}:${input.modelId}`)
-      return response
-    },
-    getSecretStatus: async () => ({ ok: false, message: 'unused' }),
-    setSecret: async () => ({ ok: false, message: 'unused' }),
-    clearSecret: async () => ({ ok: false, message: 'unused' }),
-    ...runtimeHandlerStubs(),
-  })
-
-  assert.deepEqual(
-    await ipcMain.handlers.get('conversation:providers:test')?.(null, {
-      providerId: 'openai-compatible',
-      modelId: 'gpt-5',
-    }),
-    response
-  )
-  assert.deepEqual(calls, ['openai-compatible:gpt-5'])
 }
 
 async function testRegistersSecretChannels(): Promise<void> {
@@ -127,7 +90,6 @@ async function testRegistersSecretChannels(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => ({ ok: true, providers: [] }),
-    testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async (input) => {
       calls.push(`status:${input.providerId}`)
       return response
@@ -182,7 +144,6 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => ({ ok: true, providers: [] }),
     listProviderModels: async () => ({ ok: true, models: [] }),
-    testProvider: async () => ({ ok: false, status: { providerId: 'mock-provider', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),
@@ -302,7 +263,6 @@ async function testSetPermissionValidatesThePreset(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => ({ ok: true, providers: [] }),
-    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),
@@ -339,7 +299,6 @@ async function testSendTurnValidatesImageAttachments(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => ({ ok: true, providers: [] }),
-    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),
@@ -401,7 +360,6 @@ async function testAttachmentLimitsAreTheSharedOnes(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
     listProviders: async () => ({ ok: true, providers: [] }),
-    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),
@@ -492,7 +450,6 @@ async function testFailureIsExplicit(): Promise<void> {
     listProviders: async () => {
       throw new Error('provider registry load failed')
     },
-    testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
     clearSecret: async () => ({ ok: false, message: 'unused' }),

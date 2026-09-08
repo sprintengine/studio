@@ -6,11 +6,7 @@ import type {
   ModuleEnablementOverrides,
   ModuleResolutionErrorCode,
 } from '../../shared/modules/manifest'
-import {
-  MODULE_NOTIFICATIONS_RECENT_CHANNEL,
-  sanitizeNotificationText,
-  type ModuleNotification,
-} from '../../shared/modules/notifications'
+import { sanitizeNotificationText } from '../../shared/modules/notifications'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import { createMainKernel, type MainHost, type MainKernel, type SidecarSpec } from './main-host'
 
@@ -75,8 +71,6 @@ export function loadMainModules(options: {
   ineligible?: Record<string, ModuleResolutionErrorCode>
   /** Pre-resolution launch errors from module discovery/validation. */
   launchErrors?: MainModuleLoadError[]
-  /** Sends a module notification to every open renderer window. */
-  deliverNotification?: (notification: ModuleNotification) => void
   /** Sends a module event to every open renderer window. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for notification flood-bound tests. */
@@ -91,13 +85,11 @@ export function loadMainModules(options: {
   )
 
   const kernel = createMainKernel(ipcMain, {
-    deliverNotification: options.deliverNotification,
     deliverModuleEvent: options.deliverModuleEvent,
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
   })
   const hostScope = kernel.hostFor('@host')
-  hostScope.registerIpc(MODULE_NOTIFICATIONS_RECENT_CHANNEL, () => kernel.recentNotifications())
   provideServices?.(hostScope)
   const loaded: string[] = []
   const manifestOnly: string[] = []

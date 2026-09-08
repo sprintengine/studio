@@ -3,7 +3,6 @@ import type {
   SprintEngineArtifactCommandResult,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
-  SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineRosterEnableInput,
@@ -61,7 +60,6 @@ export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 export type SprintEngineArtifactReviewMode = 'user' | 'auto-run'
 
 type SprintEngineIpcDependencies = {
-  openArtifact(payload: SprintEngineArtifactOpenPayload): Promise<SprintEngineArtifactCommandResult>
   reviewArtifact(
     payload: SprintEngineArtifactReviewPayload,
     action: SprintEngineArtifactReviewAction,
@@ -83,17 +81,12 @@ type SprintEngineIpcDependencies = {
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
-  readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
   readTokenUsage(payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport>
   listRuns(payload: SprintEngineRunsListPayload): Promise<SprintRunSummary[]>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
-  ipcMain.handle('sprintengine:artifact:open', async (_, payload: SprintEngineArtifactOpenPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.openArtifact(payload)
-  })
-
   ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'approve', 'user')
   })
@@ -176,10 +169,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:registry:roles:read', async (_, payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult> => {
     return deps.readRegistryRoles(payload)
-  })
-
-  ipcMain.handle('sprintengine:registry:role:read', async (_, payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult> => {
-    return deps.readRegistryRole(payload)
   })
 
   ipcMain.handle('sprintengine:feedback:summarize', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult> => {

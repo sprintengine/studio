@@ -22,7 +22,6 @@ async function main(): Promise<void> {
     'backlog:read-object-store',
     'backlog:ensure-object-records',
     'backlog:update-status',
-    'backlog:update-type',
     'backlog:update-triage',
     'backlog:add-or-update-link',
     'backlog:update-module-metadata',

@@ -6,6 +6,7 @@ import {
   configuredMarketplaceRegistryUrl,
   defaultMarketplaceRegistryCachePath,
 } from '../marketplace/registry-client'
+import { isRecord } from '../../shared/records'
 
 export type MarketplaceRegistryReader = {
   read(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
@@ -72,7 +73,7 @@ export function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryCli
 
 function validateReadInput(input: unknown): { ok: true; input?: MarketplaceRegistryReadInput } | { ok: false; result: MarketplaceRegistryReadResult } {
   if (input === undefined) return { ok: true }
-  if (!isObject(input)) return invalidReadInputResult()
+  if (!isRecord(input)) return invalidReadInputResult()
   if ('forceRefresh' in input && typeof input.forceRefresh !== 'boolean') return invalidReadInputResult()
   return { ok: true, input: { ...(typeof input.forceRefresh === 'boolean' ? { forceRefresh: input.forceRefresh } : {}) } }
 }
@@ -88,10 +89,6 @@ function invalidReadInputResult(): { ok: false; result: MarketplaceRegistryReadR
       message: 'Invalid marketplace registry read input.',
     },
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function formatError(error: unknown): string {

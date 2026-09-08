@@ -13,7 +13,6 @@ import type {
   SprintEngineLaunchSettingsWriteAck,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
-  SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineRosterEnableInput,
@@ -39,20 +38,9 @@ import {
   type SprintRunSummary,
   type SprintRunsChangedEvent,
 } from '../../shared/sprintengine/runSummary'
-import type {
-  RoleInstallResult,
-  UserRoleDeleteResult,
-  UserRoleGetResult,
-  UserRoleSaveInput,
-  UserRoleSaveResult,
-} from '../../shared/sprintengine/role-manifest'
+import type { RoleInstallResult } from '../../shared/sprintengine/role-manifest'
 
 export const sprintEngineApi = {
-  openSprintEngineArtifact: (
-    statePath: string,
-    artifactPath: string
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:artifact:open', { statePath, artifactPath }),
   approveSprintEngineArtifact: (
     statePath: string,
     artifactId: string
@@ -127,10 +115,6 @@ export const sprintEngineApi = {
     input: SprintEngineRegistryRolesReadInput
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:registry:roles:read', input),
-  readSprintEngineRegistryRole: (
-    input: SprintEngineRegistryRoleReadInput
-  ): Promise<SprintEngineMcpReadResult> =>
-    ipcRenderer.invoke('sprintengine:registry:role:read', input),
   summarizeSprintEngineFeedback: (
     statePath: string
   ): Promise<SprintEngineMcpReadResult> =>
@@ -139,17 +123,8 @@ export const sprintEngineApi = {
     statePath: string
   ): Promise<SprintEngineTokenUsageReport> =>
     ipcRenderer.invoke('sprintengine:token-usage:read', { statePath }),
-  installUserSprintEngineRoleFolder: (srcDir: string) =>
-    ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
   installBundledSpecialistPack: (): Promise<RoleInstallResult> =>
     ipcRenderer.invoke('sprintengine:specialist-pack:install-bundled'),
-  listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
-  saveUserSprintEngineRole: (input: UserRoleSaveInput): Promise<UserRoleSaveResult> =>
-    ipcRenderer.invoke('sprintengine:user-roles:save', input),
-  deleteUserSprintEngineRole: (id: string): Promise<UserRoleDeleteResult> =>
-    ipcRenderer.invoke('sprintengine:user-roles:delete', id),
-  getUserSprintEngineRole: (id: string): Promise<UserRoleGetResult> =>
-    ipcRenderer.invoke('sprintengine:user-roles:get', id),
   readSprintEngineAutomationMode: (
     input: SprintEngineAutomationReadInput
   ): Promise<SprintEngineAutomationReadResult> =>
@@ -218,7 +193,6 @@ export const sprintEngineApi = {
   },
 } satisfies Pick<
   ElectronApi,
-  | 'openSprintEngineArtifact'
   | 'approveSprintEngineArtifact'
   | 'autoApproveSprintEngineArtifact'
   | 'requestSprintEngineArtifactChanges'
@@ -251,13 +225,7 @@ export const sprintEngineApi = {
   | 'enableSprintEngineRole'
   | 'readSprintEngineProjection'
   | 'readSprintEngineRegistryRoles'
-  | 'readSprintEngineRegistryRole'
   | 'summarizeSprintEngineFeedback'
   | 'readSprintEngineTokenUsage'
-  | 'installUserSprintEngineRoleFolder'
   | 'installBundledSpecialistPack'
-  | 'listUserSprintEngineRoles'
-  | 'saveUserSprintEngineRole'
-  | 'deleteUserSprintEngineRole'
-  | 'getUserSprintEngineRole'
 >

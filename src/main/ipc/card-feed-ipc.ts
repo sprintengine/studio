@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult } from '../../shared/electron-api'
 import { configuredCardFeedUrl } from '../hosted-feed/card-feed-client'
 import { readHostedCardFeed } from '../hosted-feed/card-feed-service'
+import { isRecord } from '../../shared/records'
 
 export type HostedCardFeedIpcHandlers = {
   read(input?: HostedCardFeedReadInput): Promise<HostedCardFeedReadResult>
@@ -33,7 +34,7 @@ export function registerHostedCardFeedIpc(
   })
 
   ipcMain.handle('hosted-card-feed:refresh', async (_event, input?: unknown): Promise<HostedCardFeedReadResult> => {
-    const forceRefresh = isObject(input) && input.forceRefresh === true
+    const forceRefresh = isRecord(input) && input.forceRefresh === true
     try {
       return await read(forceRefresh ? { forceRefresh: true } : {})
     } catch (error) {
@@ -51,6 +52,3 @@ function failure(error: unknown): HostedCardFeedReadResult {
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

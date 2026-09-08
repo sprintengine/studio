@@ -21,8 +21,6 @@ import {
   renameGitBranch,
   resetGitBranchToCommit,
   revertGitCommit,
-  copyGitWorktreeIncludedFiles,
-  createGitBranchFromCommit,
   createGitTagFromCommit,
   createGitWorktree,
   discardUnstagedGitChanges,
@@ -30,10 +28,8 @@ import {
   getGitBranches,
   getGitCommitGraph,
   getGitConflictFile,
-  getGitConflicts,
   getGitFileAtStage,
   getGitFileBase,
-  getGitHistory,
   getGitRepoRoot,
   getGitRowSummary,
   getGitStatus,
@@ -42,7 +38,6 @@ import {
   pullGitBranchWithStash,
   pruneGitWorktrees,
   removeGitWorktree,
-  repairGitWorktrees,
   resolveGitConflict,
   pushGitBranch,
   revertGitPaths,
@@ -155,18 +150,10 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-branches', { repoRoot }, () => getGitBranches(repoRoot))
   })
 
-  ipcMain.handle('git:get-history', async (_, repoRoot: string, limit?: number) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-history', { repoRoot, limit }, () => getGitHistory(repoRoot, limit))
-  })
-
   ipcMain.handle('git:get-commit-graph', async (_, repoRoot: string, options?: { limit?: number; skip?: number }) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-commit-graph', { repoRoot, ...options }, () =>
       getGitCommitGraph(repoRoot, options ?? {})
     )
-  })
-
-  ipcMain.handle('git:get-conflicts', async (_, repoRoot: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflicts', { repoRoot }, () => getGitConflicts(repoRoot))
   })
 
   ipcMain.handle('git:get-conflict-file', async (_, repoRoot: string, filePath: string) => {
@@ -285,12 +272,6 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
     return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit', { repoRoot, commitHash }, () => checkoutGitCommit(repoRoot, commitHash))
   })
 
-  ipcMain.handle('git:branch-from-commit', async (_, repoRoot: string, branchName: string, commitHash: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'branch-from-commit', { repoRoot, branchName, commitHash }, () =>
-      createGitBranchFromCommit(repoRoot, branchName, commitHash)
-    )
-  })
-
   ipcMain.handle('git:checkout-commit-as-branch', async (_, repoRoot: string, branchName: string, commitHash: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit-as-branch', { repoRoot, branchName, commitHash }, () =>
       checkoutGitCommitAsBranch(repoRoot, branchName, commitHash)
@@ -317,13 +298,5 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
     return pruneGitWorktrees(repoRoot)
-  })
-
-  ipcMain.handle('git:worktree:repair', async (_, input) => {
-    return repairGitWorktrees(input)
-  })
-
-  ipcMain.handle('git:worktree:copy-included', async (_, input) => {
-    return copyGitWorktreeIncludedFiles(input)
   })
 }

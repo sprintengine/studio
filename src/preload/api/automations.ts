@@ -29,7 +29,6 @@ import {
   AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
-  AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -55,7 +54,6 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   | 'listInstanceAutomations'
   | 'listBuiltinAutomations'
   | 'addBuiltinAutomation'
-  | 'getAutomation'
   | 'createAutomation'
   | 'updateAutomation'
   | 'deleteAutomation'
@@ -76,8 +74,6 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       renderer.invoke(AUTOMATIONS_BUILTIN_LIST_CHANNEL) as Promise<AutomationsBuiltinListResult>,
     addBuiltinAutomation: (input: AutomationsBuiltinInstallInput): Promise<AutomationsBuiltinInstallResult> =>
       renderer.invoke(AUTOMATIONS_BUILTIN_INSTALL_CHANNEL, input) as Promise<AutomationsBuiltinInstallResult>,
-    getAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDefinitionResult> =>
-      renderer.invoke(AUTOMATIONS_GET_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
     createAutomation: (input: AutomationsCreateInput): Promise<AutomationsDefinitionResult> =>
       renderer.invoke(AUTOMATIONS_CREATE_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
     updateAutomation: (input: AutomationsUpdateInput): Promise<AutomationsDefinitionResult> =>

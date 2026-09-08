@@ -1,6 +1,5 @@
 import type { IpcMain } from 'electron'
 import {
-  clearMemoryActivityHistory,
   getMemoryActivityStatus,
   getMemoryActivitySynapses,
   installMemoryActivityHook,
@@ -55,14 +54,6 @@ export function registerMemoryActivityIpc(ipcMain: IpcMain): void {
   )
 
   ipcMain.handle(
-    'memory-activity:stop-watching',
-    async (_, input: WorkspaceInput): Promise<{ ok: true }> => {
-      if (input?.workspaceRoot) stopMemoryActivityWatcher(input.workspaceRoot)
-      return { ok: true }
-    }
-  )
-
-  ipcMain.handle(
     'memory-activity:get-status',
     async (_, input: WorkspaceInput): Promise<ActivityStatus> => {
       return getMemoryActivityStatus(input?.workspaceRoot ?? null)
@@ -82,14 +73,6 @@ export function registerMemoryActivityIpc(ipcMain: IpcMain): void {
     async (_, input: WorkspaceInput): Promise<boolean> => {
       if (!input?.workspaceRoot) return false
       return isMemoryActivityInstalled(input.workspaceRoot)
-    }
-  )
-
-  ipcMain.handle(
-    'memory-activity:clear-history',
-    async (_, input: WorkspaceInput): Promise<{ ok: true }> => {
-      if (input?.workspaceRoot) await clearMemoryActivityHistory(input.workspaceRoot)
-      return { ok: true }
     }
   )
 }

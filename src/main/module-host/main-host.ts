@@ -12,7 +12,6 @@ import {
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
-  MODULE_NOTIFICATIONS_EVENT_CHANNEL,
   validateModuleNotifyInput,
   type ModuleNotification,
   type ModuleNotifyInput,
@@ -190,14 +189,14 @@ export type MainKernel = {
   isStarted(): boolean
   /**
    * Infrastructure-only notification entry: stamps `sourceModuleId`, applies
-   * flood bounding, buffers, and delivers. Module code never sees the kernel —
+   * flood bounding, and buffers. Module code never sees the kernel —
    * it emits through its scoped host's `notify`, which delegates here with the
    * host's own id. The kernel is also how host-level diagnostics (e.g.
    * third-party entry.main launch failures) are attributed to the failing
    * module's identity.
    */
   emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void
-  /** Recent notifications (bounded), newest last — replayed to late-opening windows. */
+  /** Recent notifications (bounded), newest last. The kernel's diagnostics record. */
   recentNotifications(): ReadonlyArray<ModuleNotification>
   /**
    * Infrastructure-only event entry, the twin of `emitNotification`: stamps
@@ -209,8 +208,6 @@ export type MainKernel = {
 }
 
 export type MainKernelOptions = {
-  /** Sends one notification to every open renderer window. Absent in tests. */
-  deliverNotification?: (notification: ModuleNotification) => void
   /** Sends one module event to every open renderer window. Absent in tests. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for flood-bound tests. */
@@ -280,10 +277,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   const floodStateByModule = new Map<string, ModuleNotificationFloodState>()
   let started = false
 
-  // The notifications and module-events channels belong to the host kernel;
-  // reserving them here makes a module's attempt to claim either a
-  // registration error.
-  channels.set(MODULE_NOTIFICATIONS_EVENT_CHANNEL, { owner: '@host' })
+  // The module-events channel belongs to the host kernel; reserving it here
+  // makes a module's attempt to claim it a registration error.
   channels.set(MODULE_EVENTS_CHANNEL, { owner: '@host' })
 
   // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
@@ -352,7 +347,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     }
     recent.push(notification)
     if (recent.length > NOTIFICATION_BUFFER_LIMIT) recent.splice(0, recent.length - NOTIFICATION_BUFFER_LIMIT)
-    options.deliverNotification?.(notification)
   }
 
   function emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void {

@@ -21,7 +21,6 @@ export type PluginIpcHandlers = {
   list(): PluginRegistryListResult
   detectAvailability(input: PluginDetectAvailabilityInput | undefined): Promise<PluginAvailabilityResult>
   installFolder(srcDir: unknown): Promise<PluginInstallResult>
-  reload(): PluginRegistryListResult
   launchPreview(input: AgentLaunchPreviewInput | undefined): AgentLaunchPreviewResult
 }
 
@@ -53,14 +52,6 @@ export function createPluginIpcHandlers(): PluginIpcHandlers {
         // Pick the new plugin up immediately so the renderer's next list reflects it.
         reloadPluginRegistry()
         return { ok: true, id: installed.id, kind: installed.kind, displayName: installed.displayName }
-      } catch (err) {
-        return { ok: false, message: formatError(err) }
-      }
-    },
-    reload(): PluginRegistryListResult {
-      try {
-        reloadPluginRegistry()
-        return { ok: true, plugins: listPluginRegistryEntries() }
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
@@ -115,14 +106,6 @@ export function registerPluginIpc(
       }
     }
   )
-
-  ipcMain.handle('plugins:reload', async (): Promise<PluginRegistryListResult> => {
-    try {
-      return handlers.reload()
-    } catch (err) {
-      return { ok: false, message: formatError(err) }
-    }
-  })
 
   ipcMain.handle(
     'plugins:launch-preview',

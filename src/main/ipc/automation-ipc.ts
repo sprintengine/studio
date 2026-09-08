@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron'
 import {
   AUTOMATION_GET_STATUS_CHANNEL,
-  AUTOMATION_SET_ENABLED_CHANNEL,
 } from '../../shared/automation'
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
@@ -28,9 +27,6 @@ import type { AutomationService } from '../automation/automation-service'
 // widen its own reach.
 export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationService): void {
   ipcMain.handle(AUTOMATION_GET_STATUS_CHANNEL, () => service.getStatus())
-  ipcMain.handle(AUTOMATION_SET_ENABLED_CHANNEL, (_event, enabled: unknown) =>
-    service.setEnabled(enabled === true)
-  )
   ipcMain.handle(TAILNET_GET_STATUS_CHANNEL, () => service.getTailnetStatus())
   // The initial read behind the push channel: a subscriber takes this snapshot
   // once, then stores each pushed payload's fresher copy.

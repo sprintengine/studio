@@ -20,7 +20,6 @@ export type AutomationCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass
 export const AUTOMATION_DEFAULT_PERMISSION_PRESET: AutomationCliPermissionPreset = 'bypass'
 
 export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'
-export const AUTOMATIONS_GET_CHANNEL = 'automations:get'
 export const AUTOMATIONS_CREATE_CHANNEL = 'automations:create'
 export const AUTOMATIONS_UPDATE_CHANNEL = 'automations:update'
 export const AUTOMATIONS_DELETE_CHANNEL = 'automations:delete'

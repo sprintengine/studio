@@ -10,10 +10,8 @@ import {
   FLEET_FORGET_CHANNEL,
   FLEET_GET_LIVE_STATE_CHANNEL,
   FLEET_LIST_CONNECTIONS_CHANNEL,
-  FLEET_LIST_RUNS_CHANNEL,
   FLEET_CANCEL_PAIRING_CHANNEL,
   FLEET_CHECK_REACHABILITY_CHANNEL,
-  FLEET_COLLECT_PAIRING_CHANNEL,
   FLEET_PAIR_CHANNEL,
   FLEET_REQUEST_PAIRING_CHANNEL,
   FLEET_TERMINAL_INPUT_CHANNEL,
@@ -21,6 +19,7 @@ import {
   type FleetTerminalEvent,
 } from '../../shared/tailnet-fleet'
 import type { AutomationService } from '../automation/automation-service'
+import { asRecord } from '../../shared/records'
 
 // The window's door onto the Fleet (MC-2167).
 //
@@ -79,18 +78,11 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   ipcMain.handle(FLEET_CHECK_REACHABILITY_CHANNEL, (_event, connectionId: unknown) =>
     service.fleet().checkReachability(typeof connectionId === 'string' ? connectionId : undefined)
   )
-  ipcMain.handle(FLEET_COLLECT_PAIRING_CHANNEL, (_event, requestId: unknown) =>
-    service.fleet().collectPairing(requestId)
-  )
   ipcMain.handle(FLEET_CANCEL_PAIRING_CHANNEL, (_event, requestId: unknown) => {
     service.fleet().cancelPairing(requestId)
   })
   ipcMain.handle(FLEET_FORGET_CHANNEL, (_event, connectionId: unknown) => service.fleet().forget(connectionId))
   ipcMain.handle(FLEET_BROWSE_CHANNEL, (_event, connectionId: unknown) => service.fleet().browse(connectionId))
-  ipcMain.handle(FLEET_LIST_RUNS_CHANNEL, (_event, input: unknown) => {
-    const record = asRecord(input)
-    return service.fleet().listRuns(record?.connectionId, record?.workspaceId)
-  })
   ipcMain.handle(FLEET_CREATE_TERMINAL_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input) ?? {}
     return service.fleet().createTerminal({
@@ -148,6 +140,3 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   })
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
-}

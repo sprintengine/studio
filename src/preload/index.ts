@@ -20,7 +20,6 @@ import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
-import { layoutTemplatesApi } from './api/layout-templates'
 import { marketplaceApi } from './api/marketplace'
 import { hostedModelFeedApi } from './api/hosted-model-feed'
 import { hostedCardFeedApi } from './api/hosted-card-feed'
@@ -77,7 +76,6 @@ const api = {
   ...filesystemApi,
   ...soulsApi,
   ...gitApi,
-  ...layoutTemplatesApi,
   ...marketplaceApi,
   ...memoryActivityApi,
   ...mcpApi,

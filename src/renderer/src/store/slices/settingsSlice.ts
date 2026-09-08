@@ -38,7 +38,6 @@ import type {
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleRegistry,
-  UsageTelemetrySettings,
   VoiceDictationModel,
   VoiceDictationSettings,
   Workspace,
@@ -237,40 +236,6 @@ export function normalizeMcpSettings(value: unknown): McpSettings {
   return {
     syncEnabled: candidate.syncEnabled === true,
     servers,
-  }
-}
-
-export function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
-  return {
-    sendUsageData: false,
-    localDevExportEnabled: import.meta.env?.DEV === true,
-    lastExportAt: null,
-    exportDiagnostics: true,
-  }
-}
-
-export function normalizeUsageTelemetrySettings(settings: unknown): UsageTelemetrySettings {
-  const defaults = defaultUsageTelemetrySettings()
-  if (!settings || typeof settings !== 'object') return defaults
-
-  const candidate = settings as Partial<UsageTelemetrySettings>
-  return {
-    sendUsageData:
-      typeof candidate.sendUsageData === 'boolean'
-        ? candidate.sendUsageData
-        : defaults.sendUsageData,
-    localDevExportEnabled:
-      typeof candidate.localDevExportEnabled === 'boolean'
-        ? candidate.localDevExportEnabled
-        : defaults.localDevExportEnabled,
-    lastExportAt:
-      typeof candidate.lastExportAt === 'string' || candidate.lastExportAt === null
-        ? candidate.lastExportAt
-        : defaults.lastExportAt,
-    exportDiagnostics:
-      typeof candidate.exportDiagnostics === 'boolean'
-        ? candidate.exportDiagnostics
-        : defaults.exportDiagnostics,
   }
 }
 
@@ -1053,7 +1018,6 @@ export const defaultAppSettings = (): AppSettings => ({
   // Null follows the active workspace, which is what the Design door did before
   // it had a chip at all.
   designProjectScopePath: null,
-  usageTelemetry: defaultUsageTelemetrySettings(),
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
   voiceDictation: defaultVoiceDictationSettings(),
@@ -1130,7 +1094,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       workspaces.map((ws) => ws.folderPath)
     ),
     designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
-    usageTelemetry: normalizeUsageTelemetrySettings(settings?.usageTelemetry),
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
@@ -1425,7 +1388,6 @@ export interface SettingsSliceActions {
   setGuidedBriefConversationSessions: (enabled: boolean) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
-  setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void
@@ -2130,14 +2092,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setKeepRunningInBackground: (enabled) =>
       set((state) => {
         state.appSettings.keepRunningInBackground = enabled === true
-      }),
-
-    setUsageTelemetrySettings: (update) =>
-      set((state) => {
-        state.appSettings.usageTelemetry = normalizeUsageTelemetrySettings({
-          ...state.appSettings.usageTelemetry,
-          ...update,
-        })
       }),
 
     setVoiceDictationSettings: (update) =>

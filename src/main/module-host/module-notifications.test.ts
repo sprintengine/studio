@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import type { IpcMain } from 'electron'
 
-import {
-  MODULE_NOTIFICATIONS_EVENT_CHANNEL,
-  MODULE_NOTIFICATIONS_RECENT_CHANNEL,
-  type ModuleNotification,
-} from '../../shared/modules/notifications'
+import { MODULE_EVENTS_CHANNEL } from '../../shared/modules/events'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import { loadMainModules, type CapabilityModule } from './load-modules'
 import { createMainKernel } from './main-host'
@@ -21,9 +17,9 @@ function createFakeIpcMain(): { ipcMain: IpcMain; handlers: Map<string, (...args
 }
 
 function testNotifyStampsScopedModuleIdentity(): void {
-  const delivered: ModuleNotification[] = []
   const { ipcMain } = createFakeIpcMain()
-  const kernel = createMainKernel(ipcMain, { deliverNotification: (n) => delivered.push(n) })
+  const kernel = createMainKernel(ipcMain)
+  const delivered = kernel.recentNotifications()
 
   const host = kernel.hostFor('weather-panel')
   // A caller-supplied sourceModuleId must be ignored: identity is host scope.
@@ -55,9 +51,9 @@ function testInvalidNotifyPayloadThrows(): void {
 
 function testIdenticalRepeatIsDroppedAndDistinctPasses(): void {
   let clock = 1_000
-  const delivered: ModuleNotification[] = []
   const { ipcMain } = createFakeIpcMain()
-  const kernel = createMainKernel(ipcMain, { deliverNotification: (n) => delivered.push(n), now: () => clock })
+  const kernel = createMainKernel(ipcMain, { now: () => clock })
+  const delivered = kernel.recentNotifications()
   const host = kernel.hostFor('weather-panel')
 
   host.notify({ severity: 'warning', title: 'API slow' })
@@ -80,9 +76,9 @@ function testIdenticalRepeatIsDroppedAndDistinctPasses(): void {
 
 function testRateCapBoundsAModuleButNotOthers(): void {
   let clock = 1_000
-  const delivered: ModuleNotification[] = []
   const { ipcMain } = createFakeIpcMain()
-  const kernel = createMainKernel(ipcMain, { deliverNotification: (n) => delivered.push(n), now: () => clock })
+  const kernel = createMainKernel(ipcMain, { now: () => clock })
+  const delivered = kernel.recentNotifications()
   const noisy = kernel.hostFor('noisy')
   const quiet = kernel.hostFor('quiet')
 
@@ -102,35 +98,25 @@ function testRateCapBoundsAModuleButNotOthers(): void {
 }
 
 function testNotificationsFlowThroughLoadedModuleAndRecentBuffer(): void {
-  const delivered: ModuleNotification[] = []
   const emitter: CapabilityModule = {
     manifest: { id: 'emitter', displayName: 'Emitter', version: 1, defaultEnabled: true },
     registerMain: (host) => host.notify({ severity: 'info', title: 'Emitter ready' }),
   }
 
-  const { ipcMain, handlers } = createFakeIpcMain()
-  const { report, kernel } = loadMainModules({
-    ipcMain,
-    modules: [emitter],
-    deliverNotification: (n) => delivered.push(n),
-  })
+  const { ipcMain } = createFakeIpcMain()
+  const { report, kernel } = loadMainModules({ ipcMain, modules: [emitter] })
 
   assert.deepEqual(report.loaded, ['emitter'])
+  // A module that notifies during registerMain lands in the kernel's buffer.
+  const delivered = kernel.recentNotifications()
   assert.equal(delivered.length, 1)
   assert.equal(delivered[0].sourceModuleId, 'emitter')
-
-  // The recent buffer is served over the host-owned invoke channel so windows
-  // opened after startup can replay launch-time notifications.
-  const recentHandler = handlers.get(MODULE_NOTIFICATIONS_RECENT_CHANNEL)
-  assert.equal(typeof recentHandler, 'function')
-  assert.deepEqual(recentHandler!(), kernel.recentNotifications())
-  assert.equal(kernel.recentNotifications().length, 1)
 }
 
 function testEventChannelNameIsReservedAgainstModules(): void {
   const claimer: CapabilityModule = {
     manifest: { id: 'claimer', displayName: 'Claimer', version: 1, defaultEnabled: true },
-    registerMain: (host) => host.registerIpc(MODULE_NOTIFICATIONS_EVENT_CHANNEL, () => null),
+    registerMain: (host) => host.registerIpc(MODULE_EVENTS_CHANNEL, () => null),
   }
 
   const { ipcMain } = createFakeIpcMain()
@@ -138,7 +124,7 @@ function testEventChannelNameIsReservedAgainstModules(): void {
 
   assert.deepEqual(report.loaded, [])
   assert.match(report.errors[0]?.message ?? '', /already registered by module "@host"/)
-  assert.equal(kernel.ownedChannels().get(MODULE_NOTIFICATIONS_EVENT_CHANNEL), '@host')
+  assert.equal(kernel.ownedChannels().get(MODULE_EVENTS_CHANNEL), '@host')
 }
 
 function thirdPartyManifestOnly(id: string): CapabilityModule {
@@ -154,7 +140,6 @@ function thirdPartyManifestOnly(id: string): CapabilityModule {
 }
 
 function testThirdPartyLoadErrorsBecomeNotificationsBundledStayLogOnly(): void {
-  const delivered: ModuleNotification[] = []
   const blockedThirdParty = thirdPartyManifestOnly('untrusted-module')
   const failingThirdParty: CapabilityModule = {
     manifest: {
@@ -177,12 +162,12 @@ function testThirdPartyLoadErrorsBecomeNotificationsBundledStayLogOnly(): void {
   }
 
   const { ipcMain } = createFakeIpcMain()
-  const { report } = loadMainModules({
+  const { report, kernel } = loadMainModules({
     ipcMain,
     modules: [blockedThirdParty, failingThirdParty, failingBundled],
     ineligible: { 'untrusted-module': 'untrusted' },
-    deliverNotification: (n) => delivered.push(n),
   })
+  const delivered = kernel.recentNotifications()
 
   assert.equal(report.errors.length, 3)
   assert.deepEqual(

@@ -69,16 +69,6 @@ type RegisterWindowIpcOptions = {
   }): { retargeted: boolean }
 }
 
-function getWorkspaceWindowId(win: BrowserWindow): string {
-  try {
-    const currentUrl = win.webContents.getURL()
-    const parsed = new URL(currentUrl)
-    return parsed.searchParams.get('windowId')?.trim() || 'primary'
-  } catch {
-    return 'primary'
-  }
-}
-
 export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOptions): void {
   ipcMain.handle('window:minimize', (event) => {
     getRequestWindow(event)?.minimize()
@@ -111,11 +101,6 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
   ipcMain.handle('window:get-placement', (event) => {
     const win = getRequestWindow(event)
     return win ? getWindowPlacement(win) : null
-  })
-
-  ipcMain.handle('window:get-workspace-window-id', (event) => {
-    const win = getRequestWindow(event)
-    return win ? getWorkspaceWindowId(win) : 'primary'
   })
 
   ipcMain.handle('window:confirm-close', (event) => {

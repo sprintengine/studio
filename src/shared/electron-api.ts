@@ -49,9 +49,7 @@ export type {
 } from './folder-open-targets'
 import type {
   AgentCapabilitiesInput,
-  AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
-  AgentCapabilitiesWatchInput,
   ScannedPlugin,
   ScanResult,
   SkillDiscoveryResult,
@@ -67,9 +65,7 @@ export type { SkillHarness } from './skills'
 // IPC envelopes, same split as the skill-source calls below.
 export type {
   AgentCapabilitiesInput,
-  AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
-  AgentCapabilitiesWatchInput,
   AgentMcpServer,
   AgentSkill,
   AgentSkillSource,
@@ -108,9 +104,7 @@ import type {
   FleetEvent,
   FleetLiveState,
   FleetPairResult,
-  FleetRun,
   FleetTerminalEvent,
-  FleetCollectPairingResult,
   FleetRequestPairingResult,
 } from './tailnet-fleet'
 import type {
@@ -135,35 +129,19 @@ import type {
   AutomationsUpdateInput,
   AutomationsWorkspaceInput,
 } from './automations/contracts'
-import type {
-  RoleInstallResult,
-  UserRoleDeleteResult,
-  UserRoleGetResult,
-  UserRoleListResult,
-  UserRoleSaveInput,
-  UserRoleSaveResult,
-} from './sprintengine/role-manifest'
-export type {
-  UserRoleDeleteResult,
-  UserRoleGetResult,
-  UserRoleSaveInput,
-  UserRoleSaveResult,
-} from './sprintengine/role-manifest'
+import type { RoleInstallResult } from './sprintengine/role-manifest'
 import type { SprintEngineTokenUsageReport } from './sprintengine-token-usage'
 // Re-export the tracker seam contract so the preload bridge and renderer import
 // tracker types from the single electron-api surface (MC-1633).
 // Write-back config + IPC contracts (MC-1640): schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
-import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
-import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
 import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
 import type {
   DesignSystemLibraryListResult,
-  DesignSystemLibraryReadResult,
   DesignSystemRegisterResult,
 } from './design-system/library'
 import type {
@@ -180,8 +158,6 @@ import type {
   ConversationInterruptInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
-  ConversationProviderTestInput,
-  ConversationProviderTestResult,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
@@ -3447,7 +3423,6 @@ export type ElectronApi = {
   windowClose: () => Promise<void>
   getWindowState: () => Promise<WindowState | null>
   getWindowPlacement: () => Promise<WindowPlacement | null>
-  getWorkspaceWindowId: () => Promise<string>
   createWorkspaceWindow: (input: CreateWorkspaceWindowInput) => Promise<CreateWorkspaceWindowResult>
   openAuxWindow: (input: OpenAuxWindowInput) => Promise<OpenAuxWindowResult>
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
@@ -3464,7 +3439,6 @@ export type ElectronApi = {
   browserConfig: () => Promise<BrowserConfig>
   browserRegister: (input: BrowserRegisterInput) => Promise<BrowserRegisterResult>
   browserUnregister: (tabId: string) => Promise<void>
-  browserState: (tabId: string) => Promise<BrowserTabState | null>
   browserNavigate: (tabId: string, url: string) => Promise<boolean>
   browserBack: (tabId: string) => Promise<boolean>
   browserForward: (tabId: string) => Promise<boolean>
@@ -3523,7 +3497,6 @@ export type ElectronApi = {
   workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   automationGetStatus: () => Promise<AutomationServerStatus>
-  automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
   // Tailnet remote control (MC-2162): the opt-in listener that serves the same
   // gateway surface to paired devices on the Tailscale network. Configuration
   // only — it never carries a tool call, and no MCP tool can reach it, so an
@@ -3585,7 +3558,6 @@ export type ElectronApi = {
     endpoint: string,
     options?: { reverseScopes?: TailnetScope[] }
   ) => Promise<FleetRequestPairingResult>
-  fleetCollectPairing: (requestId: string) => Promise<FleetCollectPairingResult>
   fleetCancelPairing: (requestId: string) => Promise<void>
   /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */
   fleetCheckReachability: (connectionId?: string) => Promise<FleetLiveState>
@@ -3593,10 +3565,6 @@ export type ElectronApi = {
   fleetForget: (connectionId: string) => Promise<FleetConnection[]>
   /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
   fleetBrowse: (connectionId: string) => Promise<FleetBrowse>
-  fleetListRuns: (
-    connectionId: string,
-    workspaceId: string
-  ) => Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }>
   /** Open a terminal on the remote machine and get the session id to attach to. */
   fleetCreateTerminal: (input: {
     connectionId: string
@@ -3661,7 +3629,6 @@ export type ElectronApi = {
    * one twice reports the copy the project already has instead of duplicating it.
    */
   addBuiltinAutomation: (input: AutomationsBuiltinInstallInput) => Promise<AutomationsBuiltinInstallResult>
-  getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
   createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
   updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
   deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
@@ -3679,20 +3646,14 @@ export type ElectronApi = {
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
   authRefreshEntitlements: () => Promise<MulticodeAuthState>
-  authSelectOrganization: (organizationId: string) => Promise<{ organizationId: string }>
   authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
   authCheckPremiumAccess: (input: PremiumAccessRequest) => Promise<PremiumAccessDecision>
-  authGetSession: () => Promise<SessionSnapshot>
-  authGetEntitlements: (options?: { forceRefresh?: boolean }) => Promise<EntitlementSnapshot>
-  authRequireEntitlement: (input: string | PremiumAccessRequest) => Promise<FeatureValue>
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   mobileBridgeGetState: () => Promise<MobileBridgeState>
   mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate) => Promise<MobileBridgeState>
   mobileBridgeRequestPairingCode: () => Promise<MobileBridgePairingChallenge>
-  mobileBridgeListDevices: () => Promise<MobileControlDevice[]>
   mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
-  mobileBridgePublishPresence: (presence: MobileBridgePresence) => Promise<MobileBridgeState>
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
@@ -3720,9 +3681,6 @@ export type ElectronApi = {
   memoryActivityStartWatching: (
     input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
   ) => Promise<{ ok: true }>
-  memoryActivityStopWatching: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<{ ok: true }>
   memoryActivityGetStatus: (
     input: { workspaceRoot: string | null }
   ) => Promise<MemoryActivityStatus>
@@ -3732,9 +3690,6 @@ export type ElectronApi = {
   memoryActivityIsInstalled: (
     input: { workspaceRoot: string | null }
   ) => Promise<boolean>
-  memoryActivityClearHistory: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<{ ok: true }>
   onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => () => void
   onMemoryActivityStatus: (cb: (status: MemoryActivityStatus) => void) => () => void
   onMemoryActivitySynapses: (cb: (payload: MemoryActivitySynapsesPayload) => void) => () => void
@@ -3779,15 +3734,11 @@ export type ElectronApi = {
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
-  installMarketplacePluginFolder: (input: MarketplacePluginInstallInput) => Promise<MarketplacePluginInstallResult>
   installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
-  uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
-  reloadPlugins: () => Promise<PluginRegistryListResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
-  conversationProviderTest: (input: ConversationProviderTestInput) => Promise<ConversationProviderTestResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>
@@ -3819,7 +3770,6 @@ export type ElectronApi = {
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>
-  writeBinaryFile: (path: string, base64Content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard
    * screenshot, an image dragged out of a browser) into the app's temp images
@@ -3837,7 +3787,6 @@ export type ElectronApi = {
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>
   ensureDir: (parentDir: string, name: string) => Promise<string>
-  createWorkspaceFolder: (parentDir: string, name: string) => Promise<string>
   renamePath: (sourcePath: string, nextName: string) => Promise<string>
   movePath: (sourcePath: string, destinationDir: string) => Promise<string>
   copyPath: (sourcePath: string, destinationDir: string) => Promise<string>
@@ -3850,7 +3799,6 @@ export type ElectronApi = {
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: () => Promise<string | null>
   defaultWorkspaceParentDir: () => Promise<string | null>
-  saveFile: (options?: SaveDialogOptions) => Promise<string | null>
   openFile: (options?: OpenDialogOptions) => Promise<string | null>
   showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
@@ -3908,9 +3856,7 @@ export type ElectronApi = {
    * (one-project-across-machines). Null for a non-repo or a remote-less one.
    */
   getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentity | null>
-  getGitHistory: (repoRoot: string, limit?: number) => Promise<GitHistorySnapshot>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
-  getGitConflicts: (repoRoot: string) => Promise<GitConflictSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
   stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
@@ -3936,17 +3882,12 @@ export type ElectronApi = {
   applyGitStash: (repoRoot: string, index: number, expectedHash: string, pop?: boolean) => Promise<GitCommandResult>
   dropGitStash: (repoRoot: string, index: number, expectedHash: string) => Promise<GitCommandResult>
   checkoutGitCommit: (repoRoot: string, commitHash: string) => Promise<GitCommandResult>
-  createGitBranchFromCommit: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
   checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
   createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
-  repairGitWorktrees: (input: GitWorktreeRepairInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
-  copyGitWorktreeIncludedFiles: (
-    input: GitWorktreeCopyIncludedInput
-  ) => Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>>
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>
@@ -3955,24 +3896,15 @@ export type ElectronApi = {
   detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
   mcpListCatalog: () => Promise<McpCatalogResult>
-  mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   // Everything the agent in one CLI can reach in one workspace, in one call:
   // its skills, its MCP servers, and any path that failed to read.
   agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>
-  // Keeping that answer true while a surface stays open. Main watches the paths
-  // it resolved and says only *that* they changed; the refetch goes back through
-  // agentCapabilities, so there is one source of truth for the list. Refcounted:
-  // stop what you start, or the watchers outlive the surface.
-  agentCapabilitiesWatchStart: (input: AgentCapabilitiesWatchInput) => Promise<void>
-  agentCapabilitiesWatchStop: (input: AgentCapabilitiesWatchInput) => Promise<void>
-  onAgentCapabilitiesInvalidated: (cb: (event: AgentCapabilitiesInvalidation) => void) => () => void
   // Put one skill where every installed, skill-capable CLI reads it, and take
   // it away again. Both report per target and neither returns the new list: the
   // write invalidates, and the surface re-reads through agentCapabilities.
   agentSkillAttach: (input: AgentSkillWriteInput) => Promise<AgentSkillWriteResult>
-  agentSkillRemove: (input: AgentSkillWriteInput) => Promise<AgentSkillWriteResult>
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
   skillsAddLocalSource: (input: SkillAddLocalSourceInput) => Promise<SkillAddSourceResult>
@@ -3988,8 +3920,6 @@ export type ElectronApi = {
   skillsInstallPlugin: (input: SkillPluginInstallInput) => Promise<SkillPluginInstallOutcome>
   skillsUninstallPlugin: (input: SkillPluginUninstallInput) => Promise<SkillPluginUninstallOutcome>
   skillsListInstalledPlugins: (input: SkillInstalledPluginsInput) => Promise<SkillInstalledPluginsOutcome>
-  /** Run the source update check now (Settings "Check now", or a test). */
-  skillsCheckSourceUpdates: () => Promise<SkillSourceUpdateCheck>
   /** Every check's result, pushed from main — the poller's hourly leg or a manual check. */
   onSkillSourcesUpdated: (cb: (check: SkillSourceUpdateCheck) => void) => () => void
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
@@ -4002,7 +3932,6 @@ export type ElectronApi = {
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
   // had. See src/shared/text-generation/contract.ts.
   generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
-  openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   requestSprintEngineArtifactChanges: (
@@ -4083,9 +4012,6 @@ export type ElectronApi = {
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string, knownToken?: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
-  readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
-  /** Install third-party Sprint Engine roles from a folder into the user-global registry. */
-  installUserSprintEngineRoleFolder: (srcDir: string) => Promise<RoleInstallResult>
   /**
    * One-time MC-1587 update-migration: install the shipped (un-bundled)
    * specialist pack into the user-global registry. The renderer owns the
@@ -4093,34 +4019,16 @@ export type ElectronApi = {
    * invalidates the role catalog.
    */
   installBundledSpecialistPack: () => Promise<RoleInstallResult>
-  /** List the roles currently installed in the user-global registry. */
-  listUserSprintEngineRoles: () => Promise<UserRoleListResult>
-  /** Save (create or overwrite) a user-authored role manifest and its soul (SKILL.md) body. */
-  saveUserSprintEngineRole: (input: UserRoleSaveInput) => Promise<UserRoleSaveResult>
-  /** Delete a user-authored role and its soul skill folder. Idempotent. */
-  deleteUserSprintEngineRole: (id: string) => Promise<UserRoleDeleteResult>
-  /** Read a user-authored role manifest and its soul body for edit prefill. */
-  getUserSprintEngineRole: (id: string) => Promise<UserRoleGetResult>
-  /** Install third-party workspace layout templates from a folder. */
-  installUserLayoutTemplateFolder: (srcDir: string) => Promise<LayoutTemplateInstallResult>
-  /** List the layout templates installed in the user-global registry. */
-  listUserLayoutTemplates: () => Promise<UserLayoutTemplateListResult>
   /** Regenerate design-system derived files (tokens.css, catalog) for every bundle under a root dir. */
   regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
-  /** Stamp the design-system bundle layout (templates + manifest) into a workspace. Never overwrites an existing bundle. */
-  scaffoldDesignSystemBundle: (workspaceRoot: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
-  /** Resolve the built-in "seed from the example design system" demo source dir (resources/design-system/example); unavailable in builds that do not carry it. */
-  resolveDesignSystemBrandDemoSeed: () => Promise<DesignSystemBrandDemoResolveResult>
   /** Run a bundle's own scripts/lint.mjs on demand (the guided-brief studio's validating preview — the author's contribution gate). */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
   /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
   readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
   /** List the library: every registered folder, probed live for its source state. */
   listDesignSystemLibrary: () => Promise<DesignSystemLibraryListResult>
-  /** Read one registered design system by its registration id. */
-  readDesignSystemLibraryEntry: (id: string) => Promise<DesignSystemLibraryReadResult>
   /** Point the library at a folder on disk. Registers a reference — copies nothing. */
   registerDesignSystemFolder: (folderPath: string) => Promise<DesignSystemRegisterResult>
   /** Drop a registration. Removes the reference only; the user's folder is untouched. */
@@ -4238,9 +4146,7 @@ export type ElectronApi = {
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>
-  readBacklogWorkspaceKey: (workspaceRoot: string) => Promise<BacklogWorkspaceKeyResult>
   updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>
-  updateBacklogType: (input: BacklogTypeInput) => Promise<BacklogMutationResult>
   updateBacklogTriage: (input: BacklogTriageInput) => Promise<BacklogMutationResult>
   updateBacklogHighlight: (input: BacklogHighlightInput) => Promise<BacklogMutationResult>
   addOrUpdateBacklogLink: (input: BacklogAddOrUpdateLinkInput) => Promise<BacklogMutationResult>

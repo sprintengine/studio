@@ -25,10 +25,6 @@ export const memoryActivityApi = {
   ): Promise<{ ok: true }> =>
     ipcRenderer.invoke('memory-activity:start-watching', input),
 
-  memoryActivityStopWatching: (
-    input: { workspaceRoot: string | null }
-  ): Promise<{ ok: true }> =>
-    ipcRenderer.invoke('memory-activity:stop-watching', input),
 
   memoryActivityGetStatus: (
     input: { workspaceRoot: string | null }
@@ -45,10 +41,6 @@ export const memoryActivityApi = {
   ): Promise<boolean> =>
     ipcRenderer.invoke('memory-activity:is-installed', input),
 
-  memoryActivityClearHistory: (
-    input: { workspaceRoot: string | null }
-  ): Promise<{ ok: true }> =>
-    ipcRenderer.invoke('memory-activity:clear-history', input),
 
   onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => {
     const handler = (_: IpcRendererEvent, event: MemoryActivityEvent) => cb(event)
@@ -72,11 +64,9 @@ export const memoryActivityApi = {
   | 'memoryActivityInstall'
   | 'memoryActivityUninstall'
   | 'memoryActivityStartWatching'
-  | 'memoryActivityStopWatching'
   | 'memoryActivityGetStatus'
   | 'memoryActivityGetSynapses'
   | 'memoryActivityIsInstalled'
-  | 'memoryActivityClearHistory'
   | 'onMemoryActivityEvent'
   | 'onMemoryActivityStatus'
   | 'onMemoryActivitySynapses'

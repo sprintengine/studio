@@ -34,7 +34,6 @@ import {
   AUTOMATIONS_CREATE_CHANNEL,
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
-  AUTOMATIONS_GET_CHANNEL,
   AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
@@ -71,6 +70,7 @@ import {
 import { AutomationsStore, type AutomationStoreProblem } from '../automations/store'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import type { IpcInvokeHandler, SidecarRuntimeStatus } from '../module-host/main-host'
+import { isRecord } from '../../shared/records'
 
 export type AutomationsIpcHost = {
   registerIpc(channel: string, handler: IpcInvokeHandler): void
@@ -143,14 +143,6 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     const definitions = await createStore(workspaceRoot.value).listDefinitions()
     if (!definitions.ok) return storeErrors(definitions.errors)
     return ok(definitions.values.map(definitionForRenderer))
-  })
-
-  host.registerIpc(AUTOMATIONS_GET_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
-    const definition = await writeCore.get(parsed.value.workspaceRoot, parsed.value.automationId)
-    if (!definition.ok) return definition
-    return ok(definitionForRenderer(definition.value))
   })
 
   // Shared by the IPC channel and the app-level front door (automation server
@@ -518,10 +510,6 @@ function storeErrors<T>(errors: AutomationStoreProblem[]): AutomationsResult<T> 
 
 function trimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function ok<T>(value: T): AutomationsResult<T> {

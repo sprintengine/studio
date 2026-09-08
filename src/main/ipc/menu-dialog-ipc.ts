@@ -55,12 +55,6 @@ export function registerMenuDialogIpc(ipcMain: IpcMain): void {
     }
   })
 
-  ipcMain.handle('fs:dialog:savefile', async (event, options: Electron.SaveDialogOptions) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const result = await dialog.showSaveDialog(win!, options ?? {})
-    return result.filePath ?? null
-  })
-
   ipcMain.handle('fs:dialog:openfile', async (event, options: Electron.OpenDialogOptions) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win!, {

@@ -3,7 +3,6 @@ import type { IpcMain } from 'electron'
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
-import type { DesignSystemLibraryReadResult } from '../../shared/design-system/library'
 import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
 import type {
   DesignSystemAttachResult,
@@ -12,19 +11,14 @@ import type {
 } from '../../shared/design-system/attach'
 import { regenerateDesignSystemDerivedFiles } from '../design-system/derived-file-runner'
 import { forkBundleScriptInUtilityProcess } from '../design-system/utility-process-fork'
-import {
-  scaffoldDesignSystemBundle,
-  seedDesignSystemBundle,
-} from '../design-system/bundle-scaffold'
+import { seedDesignSystemBundle } from '../design-system/bundle-scaffold'
 import { resolveDesignSystemTemplatesDir } from '../design-system/templates-path'
-import { resolveDesignSystemBrandDemoSeedDir } from '../design-system/brand-demo-path'
 import { runDesignSystemBundleLint } from '../design-system/bundle-lint-run'
 import {
   defaultDesignSystemLibraryRoot,
   defaultDesignSystemRegistryPath,
   forgetDesignSystemFolder,
   listDesignSystemLibrary,
-  readDesignSystemLibraryEntry,
   registerDesignSystemFolder,
   type LibraryPaths,
 } from '../design-system/library-registry'
@@ -70,20 +64,6 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       return regenerateDesignSystemDerivedFiles(rootDir, forkBundleScriptInUtilityProcess)
     },
   )
-  ipcMain.handle(
-    'design-system:scaffold-bundle',
-    (_event, workspaceRoot: unknown, name: unknown, summary: unknown): Promise<DesignSystemScaffoldResult> => {
-      if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
-        return Promise.resolve({ ok: false, message: 'No workspace root provided.' })
-      }
-      return scaffoldDesignSystemBundle({
-        workspaceRoot,
-        name: typeof name === 'string' ? name : '',
-        summary: typeof summary === 'string' ? summary : '',
-        templatesDir: resolveDesignSystemTemplatesDir(),
-      })
-    },
-  )
   // Create a new bundle in a folder the user chose — seeded from one they have,
   // or bare from the shipped templates (item 2005). The ONE place the design
   // surface writes a bundle, and only ever into the folder the user picked.
@@ -103,9 +83,6 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         summary: typeof summary === 'string' ? summary : '',
         templatesDir: resolveDesignSystemTemplatesDir(),
       }),
-  )
-  ipcMain.handle('design-system:resolve-brand-demo-seed', () =>
-    resolveDesignSystemBrandDemoSeedDir(),
   )
   // On-demand bundle lint: the guided-brief studio's validating preview, which
   // forks the bundle's own scripts/lint.mjs. It is the author's contribution
@@ -129,19 +106,6 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   // The library: a REGISTRY OF PATHS the user pointed at (item 2004), read live.
   // Nothing here copies a bundle, and nothing writes inside a registered folder.
   ipcMain.handle('design-system:library-list', () => listDesignSystemLibrary(libraryPaths()))
-  ipcMain.handle(
-    'design-system:library-read',
-    (_event, id: unknown): Promise<DesignSystemLibraryReadResult> => {
-      if (typeof id !== 'string' || id.trim().length === 0) {
-        return Promise.resolve({
-          ok: false,
-          message: 'No design system id provided.',
-          sourceState: 'missing',
-        })
-      }
-      return readDesignSystemLibraryEntry(libraryPaths(), id)
-    },
-  )
   ipcMain.handle('design-system:library-register', (_event, folderPath: unknown) =>
     registerDesignSystemFolder(libraryPaths(), typeof folderPath === 'string' ? folderPath : ''),
   )

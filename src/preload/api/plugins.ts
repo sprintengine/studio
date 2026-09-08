@@ -17,7 +17,6 @@ type PluginsIpcRenderer = {
     input?: PluginDetectAvailabilityInput,
   ): Promise<PluginAvailabilityResult>
   invoke(channel: 'plugins:install-folder', srcDir: string): Promise<PluginInstallResult>
-  invoke(channel: 'plugins:reload'): Promise<PluginRegistryListResult>
   invoke(
     channel: 'plugins:launch-preview',
     input: AgentLaunchPreviewInput,
@@ -34,15 +33,13 @@ export function createPluginsApi(renderer: PluginsIpcRenderer) {
       renderer.invoke('plugins:detect-availability', input),
     installPluginFolder: (srcDir: string): Promise<PluginInstallResult> =>
       renderer.invoke('plugins:install-folder', srcDir),
-    reloadPlugins: (): Promise<PluginRegistryListResult> =>
-      renderer.invoke('plugins:reload'),
     // The launch surface's receipt line: what this spawn would actually run,
     // rendered in main from the manifest the spawn renders from.
     agentLaunchPreview: (input: AgentLaunchPreviewInput): Promise<AgentLaunchPreviewResult> =>
       renderer.invoke('plugins:launch-preview', input),
   } satisfies Pick<
     ElectronApi,
-    'pluginsList' | 'pluginsDetectAvailability' | 'installPluginFolder' | 'reloadPlugins' | 'agentLaunchPreview'
+    'pluginsList' | 'pluginsDetectAvailability' | 'installPluginFolder' | 'agentLaunchPreview'
   >
 }
 

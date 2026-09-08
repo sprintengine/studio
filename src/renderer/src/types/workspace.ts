@@ -350,13 +350,6 @@ export type WorkspaceWindowState = {
   lastFocusedAt: number
 }
 
-export type UsageTelemetrySettings = {
-  sendUsageData: boolean
-  localDevExportEnabled: boolean
-  lastExportAt: string | null
-  exportDiagnostics: boolean
-}
-
 export type LearningSettings = {
   showTipsOnStartup: boolean
   lastShownTipId: string | null
@@ -546,7 +539,6 @@ export type AppSettings = {
    * a stored folder that has since gone lands.
    */
   designProjectScopePath: string | null
-  usageTelemetry: UsageTelemetrySettings
   learning: LearningSettings
   appearance: AppearanceSettings
   /** Voice dictation transcription server + model configuration. */

@@ -22,7 +22,6 @@ import type {
   SkillScanOutcome,
   SkillSearchInput,
   SkillSearchOutcome,
-  SkillSourceUpdateCheck,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -88,9 +87,5 @@ export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): voi
   ipcMain.handle(
     'skills:list-installed-plugins',
     (_, input: SkillInstalledPluginsInput): Promise<SkillInstalledPluginsOutcome> => service.listInstalledPlugins(input)
-  )
-  ipcMain.handle(
-    'skills:check-source-updates',
-    (): Promise<SkillSourceUpdateCheck> => service.checkSourceUpdates()
   )
 }

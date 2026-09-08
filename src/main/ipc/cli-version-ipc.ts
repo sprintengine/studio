@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron'
 
 import type { CliVersionAdvisoriesInput, CliVersionAdvisoriesResult } from '../../shared/electron-api'
 import { readCliVersionAdvisories, setCliVersionChecksEnabled } from '../cli-version-advisory-service'
+import { isRecord } from '../../shared/records'
 
 export type CliVersionIpcHandlers = {
   read(input?: CliVersionAdvisoriesInput): Promise<CliVersionAdvisoriesResult>
@@ -17,10 +18,10 @@ export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVe
   const setEnabled = overrides.setEnabled ?? setCliVersionChecksEnabled
 
   ipcMain.handle('cli-version:advisories', async (_event, input?: unknown): Promise<CliVersionAdvisoriesResult> => {
-    const parsed = isObject(input) ? input : {}
+    const parsed = isRecord(input) ? input : {}
     const request: CliVersionAdvisoriesInput = {
       ...(parsed.force === true ? { force: true } : {}),
-      ...(isObject(parsed.cliRuntimes) ? { cliRuntimes: parsed.cliRuntimes as CliVersionAdvisoriesInput['cliRuntimes'] } : {}),
+      ...(isRecord(parsed.cliRuntimes) ? { cliRuntimes: parsed.cliRuntimes as CliVersionAdvisoriesInput['cliRuntimes'] } : {}),
     }
     try {
       return await read(request)
@@ -34,6 +35,3 @@ export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVe
   }))
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

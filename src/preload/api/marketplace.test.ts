@@ -2,9 +2,7 @@ import assert from 'node:assert/strict'
 
 import { createMarketplaceApi } from './marketplace'
 import type {
-  MarketplacePluginInstallResult,
   MarketplacePluginRegistryInstallResult,
-  MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadResult,
   MarketplaceUpdateStatesResult,
@@ -21,7 +19,7 @@ async function main(): Promise<void> {
     fetchedAt: '2026-06-16T00:00:00.000Z',
     marketplace: { schemaVersion: 1, plugins: [] },
   }
-  const installResponse: MarketplacePluginInstallResult = {
+  const registryInstallResponse: MarketplacePluginRegistryInstallResult = {
     ok: true,
     id: 'bundle-plugin',
     displayName: 'Bundle Plugin',
@@ -29,9 +27,6 @@ async function main(): Promise<void> {
     trust: 'signed',
     loadEligible: false,
     installed: [{ kind: 'mcp', id: 'bundle-mcp' }],
-  }
-  const registryInstallResponse: MarketplacePluginRegistryInstallResult = {
-    ...installResponse,
     classification: 'verified',
     sourceUrl: 'https://example.com/plugins/bundle-plugin/',
     updated: false,
@@ -52,11 +47,6 @@ async function main(): Promise<void> {
     classification: 'verified',
     permissions: ['network'],
     sourceUrl: 'https://example.com/plugins/bundle-plugin/',
-  }
-  const uninstallResponse: MarketplacePluginUninstallResult = {
-    ok: true,
-    id: 'bundle-plugin',
-    removed: [{ kind: 'mcp', id: 'bundle-mcp' }],
   }
   const updateStatesResponse: MarketplaceUpdateStatesResult = {
     ok: true,
@@ -84,15 +74,12 @@ async function main(): Promise<void> {
         return entryInput.entry?.mcp ? inlineInstallResponse : registryInstallResponse
       }
       if (channel === 'marketplace:plugins:update-entry') return { ...registryInstallResponse, updated: true }
-      if (channel === 'marketplace:plugins:uninstall') return uninstallResponse
       if (channel === 'marketplace:plugins:update-states') return updateStatesResponse
-      return installResponse
+      return registryInstallResponse
     },
   } as unknown as Parameters<typeof createMarketplaceApi>[0])
 
   const registry = await api.readMarketplaceRegistry({ forceRefresh: true })
-  const input = { localFolder: '/tmp/plugin', workspaceRoot: '/tmp/workspace' }
-  const installed = await api.installMarketplacePluginFolder(input)
   const entryInput = {
     entry: {
       id: 'bundle-plugin',
@@ -142,25 +129,20 @@ async function main(): Promise<void> {
   const registryInstalled = await api.installMarketplacePluginFromRegistry(entryInput)
   const inlineInstalled = await api.installMarketplacePluginFromRegistry(inlineEntryInput)
   const registryUpdated = await api.updateMarketplacePluginFromRegistry({ ...entryInput, trustGranted: true })
-  const uninstalled = await api.uninstallMarketplacePlugin({ pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' })
   const updateStates = await api.readMarketplacePluginUpdateStates({ forceRefresh: true })
   assert.deepEqual(registry, registryResponse)
-  assert.deepEqual(installed, installResponse)
   assert.deepEqual(verified, verifyResponse)
   assert.deepEqual(registryInstalled, registryInstallResponse)
   assert.deepEqual(inlineInstalled, inlineInstallResponse)
   assert.equal(inlineInstalled.ok && inlineInstalled.classification, 'unsigned')
   assert.equal(registryUpdated.updated, true)
-  assert.deepEqual(uninstalled, uninstallResponse)
   assert.deepEqual(updateStates, updateStatesResponse)
   assert.deepEqual(calls, [
     { channel: 'marketplace:registry:read', args: [{ forceRefresh: true }] },
-    { channel: 'marketplace:plugins:install-folder', args: [input] },
     { channel: 'marketplace:plugins:verify', args: [entryInput.entry] },
     { channel: 'marketplace:plugins:install-entry', args: [entryInput] },
     { channel: 'marketplace:plugins:install-entry', args: [inlineEntryInput] },
     { channel: 'marketplace:plugins:update-entry', args: [{ ...entryInput, trustGranted: true }] },
-    { channel: 'marketplace:plugins:uninstall', args: [{ pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' }] },
     { channel: 'marketplace:plugins:update-states', args: [{ forceRefresh: true }] },
   ])
 
