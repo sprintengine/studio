@@ -199,7 +199,7 @@ async function noSocketMeansNoHookButStillTheSkills(): Promise<void> {
   const service = createStudioPluginService(built.options)
   await service.ensureInstalled(built.workspace)
   const record = service.installed(built.workspace)
-  assert.equal(record?.skillDirNames.length, 5, 'the skills are what an agent reads; they still land')
+  assert.equal(record?.skillDirNames.length, 6, 'the skills are what an agent reads; they still land')
   assert.equal(record?.hookSettingsPath, '', 'no hook is registered with nothing to report to')
   // And the question was never answered, because it was never asked.
   assert.equal(existsSync(join(built.userData, 'studio-plugin.json')), false)
