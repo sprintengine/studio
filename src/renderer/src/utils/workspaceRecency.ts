@@ -5,46 +5,79 @@ import { MONOTONIC_WORKSPACE_CLOCKS, workspaceFieldMayApply } from '../../../sha
 // the user last typed into one of its terminals (lastTerminalActivityAt, fed from
 // lastInputAt — not terminal output, so reopening a workspace never refreshes it).
 // The rest rule (`workspaceSettle.ts`) builds on this, adding the agent's turn end.
+//
+// NOT the ordering key any more — see `workspaceLastUserMessageAt`, which this
+// is now only the fallback for. A keystroke is any keystroke: an arrow key, a
+// `y` at a permission prompt, a `git status` in a plain shell. Ordering on it
+// moved rows under the cursor of someone who had not said anything.
 export function workspaceLastWorkedAt(workspace: Workspace): number {
   return Math.max(workspace.createdAt, workspace.lastTerminalActivityAt ?? 0)
 }
 
-// Workspaces touched within this window all count as "just now" for ordering, so
-// opening or briefly touching a recent workspace never reshuffles the rows
-// around it. Only once a row falls outside the window does its actual last-worked
-// time decide where it sits relative to other older rows.
-export const RECENT_ACTIVITY_TIE_WINDOW_MS = 30 * 60 * 1000 // 30 minutes
-
-// The ordering key, and deliberately a pure function of *work*: a row worked on
-// inside the tie window collapses onto `now`, while rows worked earlier keep their
-// real last-worked time and sort below, oldest last. Live status has no say here.
-// Opening an idle workspace flips it "live" (its agents come back to life), but
-// that transient blip is not work and must not move the row; only genuine work
-// — creation or terminal input, via workspaceLastWorkedAt — sets position.
-// Liveness still drives the status dot and holds busy rows out of the Settled
-// shelf (`workspaceSettle.ts`); it just never reorders them.
-function activitySortKey(workspace: Workspace, now: number): number {
-  const workedAt = workspaceLastWorkedAt(workspace)
-  return now - workedAt < RECENT_ACTIVITY_TIE_WINDOW_MS ? now : workedAt
+/**
+ * When the chat was last active, by anyone: the latest of the person's last
+ * real work (creation or a keystroke, `workspaceLastWorkedAt`), the person's
+ * last message, and the agent's last turn end. This is the rest rule's clock
+ * (`workspaceSettle.ts`) — "has this chat gone quiet", where an agent that
+ * spoke an hour ago plainly means it has not. Deliberately not an ordering
+ * key: what keeps a chat out of the Settled shelf is a different question from
+ * where it sits in the list.
+ *
+ * The message clock has to be in here even though a message into a terminal
+ * always moves the keystroke clock with it: a conversation-runtime chat has no
+ * pty and no turn-end hook, so its message clock is the ONLY thing that ever
+ * moves. Without it, a chat the person writes in every day is three days idle
+ * by this reading from the moment it is created, and the sweep shelves it out
+ * from under them.
+ */
+export function workspaceLastActiveAt(workspace: Workspace): number {
+  return Math.max(
+    workspaceLastWorkedAt(workspace),
+    workspace.lastUserMessageAt ?? 0,
+    workspace.lastTurnEndedAt ?? 0,
+  )
 }
 
-// Orders workspaces by how recently each was worked on rather than by manual
-// position. Rows worked within the last 30 minutes share one "just now" tier and
-// keep their stored order — an open, a green dot, or a transient status blip never
-// bumps a row ahead of its neighbours. Rows older than the window sort below that
-// tier, most recent first.
-function compareWorkspacesByActivity(a: Workspace, b: Workspace, now: number): number {
-  return activitySortKey(b, now) - activitySortKey(a, now)
+/**
+ * THE ordering key for every list of chats: when the person last sent a
+ * message into this one (`lastUserMessageAt`, the `UserPromptSubmit` hook).
+ *
+ * Ordering used to read work and — in the flat stream — the agent's turn end,
+ * with a 30-minute window collapsing recent rows onto `now` to damp the churn
+ * that caused. It was still churn: a row moved when an agent finished
+ * somewhere else, when a keystroke landed in a shell, and spontaneously as
+ * `now` advanced a row out of the tie window — all while the person was
+ * reaching for a row with the mouse (workspace-row-move-on-click, id 88).
+ *
+ * A submitted message is the one event a person performs deliberately and
+ * expects to reorder their chats by. So this key moves for that and nothing
+ * else, which makes the whole order a pure function of stored stamps: it can
+ * only change when someone says something, never on a clock tick, an agent, or
+ * a click. Hence no tie window here — there is no longer anything to damp.
+ *
+ * The fallback is `workspaceLastWorkedAt` for the rows that can never have a
+ * message: a plain shell, a hookless CLI, a chat not yet spoken in. For those
+ * the old key is the best that is knowable, and using it keeps them in the
+ * order they have always had rather than sinking them all to creation time.
+ */
+export function workspaceLastUserMessageAt(workspace: Workspace): number {
+  return workspace.lastUserMessageAt ?? workspaceLastWorkedAt(workspace)
 }
 
-export function sortWorkspacesByActivity(
-  workspaces: Workspace[],
-  now: number = Date.now()
-): Workspace[] {
-  // Array.prototype.sort is stable, so rows that tie on last-worked time
-  // (including everything inside the 30-minute window) keep their incoming
+// Most recently spoken in first. Ties — including every row still on its
+// fallback with the same stamp — are left to the caller's stable sort.
+function compareWorkspacesByUserMessage(a: Workspace, b: Workspace): number {
+  return workspaceLastUserMessageAt(b) - workspaceLastUserMessageAt(a)
+}
+
+/**
+ * Orders workspaces by when the person last messaged each, most recent first,
+ * rather than by manual position.
+ */
+export function sortWorkspacesByUserMessage(workspaces: Workspace[]): Workspace[] {
+  // Array.prototype.sort is stable, so rows that tie keep their incoming
   // (stored) order.
-  return [...workspaces].sort((a, b) => compareWorkspacesByActivity(a, b, now))
+  return [...workspaces].sort(compareWorkspacesByUserMessage)
 }
 
 // The bands a folder's rows fall into, top to bottom. Recency alone answers
@@ -71,21 +104,20 @@ export function attentionTierRank(tier: WorkspaceAttentionTier): number {
   return ATTENTION_TIER_RANK[tier]
 }
 
-// Orders workspaces by attention tier first, then — within a tier — by the
-// same last-worked recency key the list has always used. Live status finally
-// gets a say in position, but only through `tierOf`, which the sidebar
-// deliberately freezes for the row you have selected: a tier that changed
-// under your cursor would reflow the list you are reading, which is the bug
-// this ordering must not reintroduce (`workspace-row-move-on-click`, id 88).
+// Orders workspaces by attention tier first, then — within a tier — by when
+// the person last messaged each. Live status gets a say in position, but only
+// through `tierOf`, which the sidebar deliberately freezes for the row you
+// have selected: a tier that changed under your cursor would reflow the list
+// you are reading, which is the bug this ordering must not reintroduce
+// (`workspace-row-move-on-click`, id 88).
 export function sortWorkspacesByAttention(
   workspaces: Workspace[],
-  tierOf: (workspace: Workspace) => WorkspaceAttentionTier,
-  now: number = Date.now()
+  tierOf: (workspace: Workspace) => WorkspaceAttentionTier
 ): Workspace[] {
   return [...workspaces].sort((a, b) => {
     const byTier = ATTENTION_TIER_RANK[tierOf(a)] - ATTENTION_TIER_RANK[tierOf(b)]
     if (byTier !== 0) return byTier
-    return compareWorkspacesByActivity(a, b, now)
+    return compareWorkspacesByUserMessage(a, b)
   })
 }
 
@@ -93,7 +125,8 @@ export function sortWorkspacesByAttention(
 // sent from an older reading), the later copy of each activity clock is the
 // truth — the same rule main's reducer applies (MONOTONIC_WORKSPACE_CLOCKS):
 // an older stamp must not roll a row's clock back and let the rest sweep read
-// a chat that was active yesterday as idle.
+// a chat that was active yesterday as idle, or deal the list a different order
+// than the one the person left.
 export function keepLaterWorkspaceClocks(
   existing: Pick<Workspace, (typeof MONOTONIC_WORKSPACE_CLOCKS)[number]>,
   incoming: Workspace

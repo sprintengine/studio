@@ -3,7 +3,7 @@ import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { deriveSprintEngineRunGlyph } from './sprintengine'
 import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
 import { isStarred } from './highlight'
-import { workspaceLastWorkedAt } from './workspaceRecency'
+import { workspaceLastActiveAt } from './workspaceRecency'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
@@ -32,21 +32,16 @@ const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set([
   'done_unmerged',
 ])
 
+// The chat's own activity clock lives with the other clocks now
+// (`workspaceRecency.ts`), where the flat stream's ordering can read it
+// without the rest rules and the sort importing each other. Re-exported here
+// because the rest rule is what it was written for and what most callers of
+// it are reasoning about.
+export { workspaceLastActiveAt } from './workspaceRecency'
+
 /** The one answer to "is this row resting?". */
 export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boolean {
   return typeof workspace.settledAt === 'number'
-}
-
-/**
- * When the chat was last active, by anyone: the later of the person's last
- * real work (creation or a keystroke, `workspaceLastWorkedAt`) and the
- * agent's last turn end. Recency ordering deliberately reads only the
- * person's work — an agent finishing must not reshuffle the list — but rest
- * is about the whole chat going quiet, and a turn that ended yesterday is
- * not three idle days.
- */
-export function workspaceLastActiveAt(workspace: Workspace): number {
-  return Math.max(workspaceLastWorkedAt(workspace), workspace.lastTurnEndedAt ?? 0)
 }
 
 /**

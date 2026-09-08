@@ -5,7 +5,7 @@
 
 import { isStarred } from '../../utils/highlight'
 import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
-import { sortWorkspacesByActivity } from '../../utils/workspaceRecency'
+import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import {
   deriveWorkspaceDisplayActivity,
@@ -420,8 +420,8 @@ export function groupSessionItems(
  * Reproduces the workspace grouping users see in the left sidebar so the
  * session manager dropdown matches: starred workspaces first, then folder
  * groups in first-occurrence order, with each workspace appearing exactly
- * once. Both the starred section and each folder's rows are ordered by
- * most-recently-worked time.
+ * once. Both the starred section and each folder's rows are ordered by when
+ * the person last messaged each (`workspaceLastUserMessageAt`).
  *
  * The sidebar additionally bands its rows by attention (blocked, just
  * finished, running, at rest) before applying this recency order. The
@@ -437,7 +437,7 @@ export function buildSidebarWorkspaceOrder(
   let index = 0
 
   const starred = workspaces.filter((workspace) => isStarred(workspace.highlight))
-  for (const workspace of sortWorkspacesByActivity(starred)) order.set(workspace.id, index++)
+  for (const workspace of sortWorkspacesByUserMessage(starred)) order.set(workspace.id, index++)
 
   const seenFolders: string[] = []
   const folderBuckets = new Map<string, Workspace[]>()
@@ -458,7 +458,7 @@ export function buildSidebarWorkspaceOrder(
   }
   for (const key of seenFolders) {
     const bucket = folderBuckets.get(key)!
-    for (const workspace of sortWorkspacesByActivity(bucket)) {
+    for (const workspace of sortWorkspacesByUserMessage(bucket)) {
       order.set(workspace.id, index++)
     }
   }

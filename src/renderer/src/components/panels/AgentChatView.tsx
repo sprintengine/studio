@@ -37,7 +37,13 @@ import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
-import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
+import {
+  attachmentCountLabel,
+  attachmentPreviewUrl,
+  AttachmentThumbnail,
+  ComposerAttachmentStrip,
+  openAttachmentImage,
+} from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
 import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
@@ -1005,7 +1011,13 @@ export { dataTransferHasFiles, imageFilesFromDataTransfer }
 // The staged-image strip and its helpers live in ComposerAttachmentStrip
 // (shared with the new-chat launch surface, which must not import this panel);
 // re-exported for the same reason.
-export { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip }
+export {
+  attachmentCountLabel,
+  attachmentPreviewUrl,
+  AttachmentThumbnail,
+  ComposerAttachmentStrip,
+  openAttachmentImage,
+}
 
 // Fold a commit made while the turn was locked into the waiting queued turn
 // (D6/1776): text appends, images concatenate. Reports how many images the
@@ -1184,23 +1196,6 @@ export function isConversationBusy(
   return activeTurn || awaitingApproval || pending !== null
 }
 
-// The composer's one commit rule, shared by every affordance that can commit a
-// turn — Enter, the send button, and the right-click menu's Send item (1793) —
-// so the three can never disagree about whether a turn can be committed or
-// whether committing sends now or queues (D6/1776). Content is text OR staged
-// images (D3/1774): an image-only message is sendable.
-export function composerSendAction(options: {
-  ready: boolean
-  busy: boolean
-  sending: boolean
-  hasText: boolean
-  attachmentCount: number
-}): { label: string; disabled: boolean } {
-  return {
-    label: options.sending ? 'Sending' : options.busy ? 'Queue message' : 'Send message',
-    disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
-  }
-}
 /**
  * The skill type-ahead the draft is asking for, if any. Two doors into one list
  * (agent-harness chats only — plain model chats run no tools):
@@ -1226,6 +1221,23 @@ export function chatSkillTrigger(draft: string): ChatSkillTrigger | null {
   return null
 }
 
+// The composer's one commit rule, shared by every affordance that can commit a
+// turn — Enter, the send button, and the right-click menu's Send item (1793) —
+// so the three can never disagree about whether a turn can be committed or
+// whether committing sends now or queues (D6/1776). Content is text OR staged
+// images (D3/1774): an image-only message is sendable.
+export function composerSendAction(options: {
+  ready: boolean
+  busy: boolean
+  sending: boolean
+  hasText: boolean
+  attachmentCount: number
+}): { label: string; disabled: boolean } {
+  return {
+    label: options.sending ? 'Sending' : options.busy ? 'Queue message' : 'Send message',
+    disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
+  }
+}
 
 // Menu shortcut hints use the platform's own editing chords, so the composer
 // menu teaches the keyboard path instead of inventing one.
@@ -1322,6 +1334,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  // A conversation-runtime chat has no pty, so no `UserPromptSubmit` frame
+  // reaches the sidebar's ordering clock the way a CLI's does. Sending a turn
+  // is the same event, so it stamps the same clock here — without this these
+  // chats would sit at their creation time for ever while every CLI chat moved.
+  const recordWorkspaceUserMessage = useWorkspaceStore((s) => s.recordWorkspaceUserMessage)
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const conversation = agent?.conversation
@@ -1711,6 +1728,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       ])
       setDraft('')
       setPending('sending')
+      recordWorkspaceUserMessage(workspaceId, Date.now())
       try {
         const result = await window.api.conversationSessionSendTurn({
           sessionId: activeSession,
@@ -1725,7 +1743,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         setPending(null)
       }
     },
-    [ensureSession, pending, userTurns.length]
+    [ensureSession, pending, recordWorkspaceUserMessage, userTurns.length, workspaceId]
   )
 
   // Composer submit (Enter or the send affordance). Sends immediately when the
@@ -2275,6 +2293,19 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               Drop to attach
             </div>
           ) : null}
+          {skillTrigger ? (
+            <InlineSkillPicker
+              ref={skillPickerRef}
+              workspaceRoot={workspaceRoot}
+              query={skillTrigger.query}
+              onPick={applySkillPick}
+              onMatchCountChange={(count) => {
+                // Non-matching text dismisses; the trigger character stays literal.
+                if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
+              }}
+              onDismiss={dismissSkillTrigger}
+            />
+          ) : null}
           <ComposerAttachmentStrip
             attachments={attachments}
             reading={attachingCount}
@@ -2293,19 +2324,6 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               if (!imagesEnabled) return
               const files = imageFilesFromDataTransfer(event.clipboardData)
               if (files.length === 0) return
-          {skillTrigger ? (
-            <InlineSkillPicker
-              ref={skillPickerRef}
-              workspaceRoot={workspaceRoot}
-              query={skillTrigger.query}
-              onPick={applySkillPick}
-              onMatchCountChange={(count) => {
-                // Non-matching text dismisses; the trigger character stays literal.
-                if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
-              }}
-              onDismiss={dismissSkillTrigger}
-            />
-          ) : null}
               event.preventDefault()
               void attachFiles(files)
             }}
@@ -3676,12 +3694,7 @@ export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { k
         {attachments.length > 0 ? (
           <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
-              <img
-                key={attachment.id}
-                src={attachmentPreviewUrl(attachment)}
-                alt={attachment.name ?? 'Attached image'}
-                className="h-16 w-16 rounded-sm border border-[color:var(--border-subtle)] object-cover"
-              />
+              <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-16 w-16" />
             ))}
           </div>
         ) : null}

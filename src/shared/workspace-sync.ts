@@ -99,13 +99,18 @@ export type WorkspaceSyncCommand =
     }
 
 /**
- * The two activity clocks a record carries — the person's last input and the
- * agent's last turn end — only ever move forward, and every window learns
- * them from the same sessions. So a patch may only ADVANCE them: main's
- * reducer and the renderer's inbound paths both keep the later value, and an
- * older reading from a lagging window can never roll a persisted clock back.
+ * The activity clocks a record carries — the person's last keystroke, the
+ * person's last submitted message, and the agent's last turn end — only ever
+ * move forward, and every window learns them from the same sessions. So a
+ * patch may only ADVANCE them: main's reducer and the renderer's inbound
+ * paths both keep the later value, and an older reading from a lagging window
+ * can never roll a persisted clock back.
  */
-export const MONOTONIC_WORKSPACE_CLOCKS = ['lastTerminalActivityAt', 'lastTurnEndedAt'] as const
+export const MONOTONIC_WORKSPACE_CLOCKS = [
+  'lastTerminalActivityAt',
+  'lastUserMessageAt',
+  'lastTurnEndedAt',
+] as const
 
 /** True unless writing `value` into `key` would roll an activity clock back. */
 export function workspaceFieldMayApply(record: Record<string, unknown>, key: string, value: unknown): boolean {
@@ -143,6 +148,7 @@ export type WorkspaceFieldsPatch = {
   highlight?: Workspace['highlight'] | null
   worktree?: Workspace['worktree']
   lastTerminalActivityAt?: number | null
+  lastUserMessageAt?: number | null
   lastTurnEndedAt?: number | null
 }
 

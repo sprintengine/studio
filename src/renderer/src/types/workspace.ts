@@ -1096,6 +1096,21 @@ export type Workspace = {
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null
+  // When the person last SENT A MESSAGE to an agent in this chat — the
+  // `UserPromptSubmit` hook, mirrored off the session snapshots' `lastPrompt`
+  // by WorkspaceManager. Monotonic like the clocks around it.
+  //
+  // This is the sidebar's ordering key (`workspaceLastUserMessageAt`), and the
+  // reason it exists apart from `lastTerminalActivityAt`: that one moves on
+  // every keystroke — an arrow key, a `y` at a permission prompt, a `git log`
+  // in a plain shell — so the list reordered under the cursor of someone who
+  // had not said anything. A submitted message is the one event a person
+  // performs on purpose and expects to reorder their chats.
+  //
+  // Absent until the first prompt, and for a runtime whose reporter forwards
+  // none (a plain shell, a hookless CLI) — for those rows the ordering key
+  // falls back to `workspaceLastWorkedAt`, which is all that is knowable.
+  lastUserMessageAt?: number | null
   // When an agent in this workspace last finished a turn (hook-reported Stop),
   // monotonic like `lastTerminalActivityAt`. The sidebar's idle time for a
   // parked chat with no live session, so it says when the agent finished

@@ -94,6 +94,7 @@ import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
+import { useRailBadges } from './useRailBadges'
 import { EXTENSIONS_HOME_SURFACE_ID, surfaceTakesSidebarColumn } from './extensionsDrawer'
 import { dispatchExtensionsSurfaceTarget, EXTENSIONS_DRAWER_VIEWS } from './globalSurface/extensions/extensionsSurfaceTarget'
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
@@ -359,6 +360,9 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.highlight === right.highlight
     && left.createdAt === right.createdAt
     && left.lastTerminalActivityAt === right.lastTerminalActivityAt
+    // The sidebar's ordering key: without it a chat kept its old place until
+    // some unrelated field moved the projection along.
+    && left.lastUserMessageAt === right.lastUserMessageAt
     && left.lastTurnEndedAt === right.lastTurnEndedAt
     // Rest (settled-chats, 2026-09-07): a Settle or Un-settle changes only
     // these, and the sidebar renders from this projection — without them the
@@ -559,6 +563,7 @@ export default function WorkspaceManager() {
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
+  const recordWorkspaceUserMessage = useWorkspaceStore((s) => s.recordWorkspaceUserMessage)
   const recordWorkspaceTurnEnd = useWorkspaceStore((s) => s.recordWorkspaceTurnEnd)
   const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -772,6 +777,7 @@ export default function WorkspaceManager() {
   const notificationsRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
+  const reportedUserMessageRef = useRef<Map<string, number>>(new Map())
   const reportedTurnEndRef = useRef<Map<string, number>>(new Map())
   // Prompt timestamps already offered to the auto-titler, per session. The store
   // action is idempotent, but calling it on every broadcast would run an immer
@@ -2173,6 +2179,29 @@ export default function WorkspaceManager() {
         recordWorkspaceTerminalActivity(workspaceId, lastInputAt)
       }
 
+      // Persist "last message the person sent" the same way, from the
+      // `UserPromptSubmit` prompt each session carries. This is what the
+      // sidebar orders by: keystrokes above answer "did the person touch this
+      // terminal", which reordered the list when someone pressed an arrow key,
+      // and a message answers "did the person say something here", which is
+      // the event they mean when they expect a chat to move.
+      const userMessageByWorkspace = new Map<string, number>()
+      for (const session of sessions) {
+        if (typeof session.workspaceId !== 'string') continue
+        const at = session.lastPrompt?.at
+        if (typeof at !== 'number') continue
+        const current = userMessageByWorkspace.get(session.workspaceId)
+        if (current === undefined || at > current) {
+          userMessageByWorkspace.set(session.workspaceId, at)
+        }
+      }
+      for (const [workspaceId, at] of userMessageByWorkspace) {
+        const lastReported = reportedUserMessageRef.current.get(workspaceId)
+        if (lastReported !== undefined && lastReported >= at) continue
+        reportedUserMessageRef.current.set(workspaceId, at)
+        recordWorkspaceUserMessage(workspaceId, at)
+      }
+
       // Persist "last finished" the same way, from the hook-reported turn end
       // each session carries, so a parked chat still knows when its agent
       // stopped after the session is gone (owner, 2026-09-05).
@@ -2268,6 +2297,7 @@ export default function WorkspaceManager() {
     }
   }, [
     recordWorkspaceTerminalActivity,
+    recordWorkspaceUserMessage,
     recordWorkspaceTurnEnd,
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
@@ -2476,6 +2506,21 @@ export default function WorkspaceManager() {
     }
     return map
   }, [workspaces, terminalSessions])
+
+  // The sidebar's "finished while you were away" marks, reported up: the
+  // sidebar owns them (it is the layer that knows what the person has looked
+  // at), and the rail's Home badge counts them alongside the chats blocked on
+  // a prompt. A chat under a door is off screen, so it counts too.
+  const [unseenDoneIds, setUnseenDoneIds] = useState<ReadonlySet<string>>(() => new Set())
+  const railBadges = useRailBadges({
+    workspaces: visibleWorkspaces,
+    activityByWorkspaceId,
+    unseenDoneIds,
+    onScreenWorkspaceId: activeGlobalSurface ? null : windowActiveWorkspaceId,
+    section: sidebarSection,
+    activeGlobalSurface,
+    sprintsEnabled: selectModuleEnabled(moduleEnablement, 'sprint-engine'),
+  })
 
 
   // Create the git worktree an agent spawn requested ("+ Worktree" in the
@@ -4426,6 +4471,7 @@ export default function WorkspaceManager() {
       <AppRail
         section={sidebarSection}
         onSelectSection={selectSidebarSection}
+        badges={railBadges}
         surfaces={railSurfaces}
         activeGlobalSurface={activeGlobalSurface}
         onOpenSurface={openRailSurface}
@@ -4485,6 +4531,7 @@ export default function WorkspaceManager() {
         activityByWorkspaceId={activityByWorkspaceId}
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+        onUnseenDoneChange={setUnseenDoneIds}
         onOpenRemoteSession={openRemoteSession}
         onSelectWorkspace={(id) => {
           // Park explicitly: selecting the very workspace New chat sits over

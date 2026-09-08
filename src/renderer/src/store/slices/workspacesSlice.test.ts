@@ -1282,6 +1282,23 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(rowOf(settleId).settledAt ?? null, null, 'typing wakes a settled row')
   assert.equal(rowOf(settleId).settledOverride ?? null, null, 'and leaves no hand decision behind')
 
+  // The message clock — what the sidebar orders by — only ever advances, so a
+  // re-listed session replaying a prompt it already reported cannot deal the
+  // list a different order than the one the person left.
+  useWorkspaceStore.getState().recordWorkspaceUserMessage(settleId, bornAt + 34 * DAY)
+  assert.equal(rowOf(settleId).lastUserMessageAt, bornAt + 34 * DAY, 'the message is recorded')
+  useWorkspaceStore.getState().recordWorkspaceUserMessage(settleId, bornAt + 30 * DAY)
+  assert.equal(rowOf(settleId).lastUserMessageAt, bornAt + 34 * DAY, 'an older reading never rolls it back')
+
+  // A message is the person returning, so it wakes a resting row the way a
+  // keystroke does — and a replayed stamp, which is not a new message, does not.
+  useWorkspaceStore.getState().setWorkspaceSettled(settleId, true)
+  useWorkspaceStore.getState().recordWorkspaceUserMessage(settleId, bornAt + 34 * DAY)
+  assert.equal(typeof rowOf(settleId).settledAt, 'number', 'a replayed message stamp does not wake a settled row')
+  useWorkspaceStore.getState().recordWorkspaceUserMessage(settleId, bornAt + 34 * DAY + 1)
+  assert.equal(rowOf(settleId).settledAt ?? null, null, 'saying something wakes a settled row')
+  assert.equal(rowOf(settleId).settledOverride ?? null, null, 'and leaves no hand decision behind')
+
   // The agent's turn end is activity for the idle clock, but never a wake.
   useWorkspaceStore.getState().setWorkspaceSettled(settleId, true)
   useWorkspaceStore.getState().recordWorkspaceTurnEnd(settleId, bornAt + 35 * DAY)

@@ -343,6 +343,7 @@ export interface WorkspacesSliceActions {
     heldIds: ReadonlySet<WorkspaceId>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
+  recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   forgetFolder: (folderPath: string) => void
   addWorkspace: (
@@ -1105,6 +1106,43 @@ export function createWorkspacesSlice(
         activityClockSyncedAt.set(id, lastInputAt)
         void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
       }
+    },
+
+    // Monotonic like the stamp above, fed from the hook-reported
+    // `UserPromptSubmit` of any agent in the workspace (WorkspaceManager
+    // mirrors it off the session snapshots) and, for a conversation-runtime
+    // chat that has no pty to report one, from the chat pane's own send.
+    //
+    // This is what the sidebar orders by, so it goes to main on every advance
+    // rather than on the coarse cadence the keystroke clock uses: messages are
+    // rare, and a restart that rebuilt the row from a minute-old copy would
+    // deal the list a different order than the one the person left.
+    //
+    // A message wakes a resting row exactly as a keystroke does — it is the
+    // person returning, and it spends any hand decision about rest with them.
+    // Only a message that ADVANCES the clock counts, for the reason the
+    // keystroke path gives: a re-listed session replays the stamp it already
+    // had, and that must not un-settle a row the person put to rest after
+    // speaking.
+    recordWorkspaceUserMessage: (id, at) => {
+      let patch: WorkspaceFieldsPatch | null = null
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        if (typeof ws.lastUserMessageAt === 'number' && ws.lastUserMessageAt >= at) return
+        ws.lastUserMessageAt = at
+        const speaks = thisWindowSpeaksFor(state, id)
+        if (isSettledWorkspace(ws) || ws.settledOverride != null) {
+          // The wake lands locally whichever window saw the message; only the
+          // window that speaks for the row tells main, exactly as the
+          // keystroke path does.
+          Object.assign(ws, wakeWorkspacePatch(null))
+          if (speaks) patch = { ...wakeWorkspacePatch(null), lastUserMessageAt: at }
+        } else if (speaks) {
+          patch = { lastUserMessageAt: at }
+        }
+      })
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
     // Monotonic like the stamp above, fed from the hook-reported turn end of any
