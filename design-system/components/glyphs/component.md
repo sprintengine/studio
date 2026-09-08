@@ -1,10 +1,12 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The twelve SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The twenty-two SVGs in
 `glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
-commit, worktree, history, folder, file-typescript, file-generic) are the
-framework-neutral assets; the shipped vocabulary lives in React —
+commit, worktree, history, folder, file-typescript, file-generic, and the ten
+Commit-window action marks — rollback, move-to-changelist, stash, group-by,
+expand-all, collapse-all, next-difference, side-by-side, unified, gear) are
+the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
 and color a glyph without reading the React source.
@@ -255,8 +257,36 @@ the first set had to be learned from the tooltip.
 | Changes | A commit node on a line identifies changes | `glyphs/commit.svg` |
 | Worktrees | A folder holding that node: a checkout in its own directory | `glyphs/worktree.svg` |
 | Log | The history clock | `glyphs/history.svg` |
-| Stashes | The drawer | — |
+| Stashes | The drawer — the same one drawing the Stash *action* wears, extracted to `ui/GitActionGlyphs.tsx` so the view strip and the toolbar cannot drift | `glyphs/stash.svg` |
 | Terminal | The prompt in a frame | — |
+
+### Git and diff actions (16-grid — `ui/GitActionGlyphs.tsx`)
+
+*What will this toolbar button do* on the Commit window and the diff window
+(epic `git-commit-window`, 2026-09-09).
+Action glyphs, not identity: they answer the sixth question, so they sit here
+rather than in the Git-views strip above, and the two families share `stash`
+because putting changes away is one concept whether it is a view or a verb.
+16-grid, `currentColor`, `fill="none"`; frame 1.3, line work 1.4. Every one is
+`aria-hidden` — the icon-only button that hosts it carries the `aria-label`.
+
+| Export | Concept | Shape | Asset |
+|---|---|---|---|
+| `RollbackGlyph` | Discard a file's changes | The undo arrow: a hook doubling back on itself. **Not** `ResetIcon` — that is "restore a default", a 24-grid settings act, and this one throws work away | `glyphs/rollback.svg` |
+| `MoveToChangelistGlyph` | Move files between changelists | Two opposed arrows, one over the other | `glyphs/move-to-changelist.svg` |
+| `StashGlyph` | Stash uncommitted work | The drawer. One drawing, shared with the Stashes view above | `glyphs/stash.svg` |
+| `GroupByGlyph` | Grouping options | The target: a ring crossed by four ticks | `glyphs/group-by.svg` |
+| `ExpandAllGlyph` | Expand every group | Two chevrons apart | `glyphs/expand-all.svg` |
+| `CollapseAllGlyph` | Collapse every group | The same two chevrons, together | `glyphs/collapse-all.svg` |
+| `NextDifferenceGlyph` · `PreviousDifferenceGlyph` | Step to the next / previous hunk | An arrow travelling to a rule — the hunk boundary it lands on. One drawing, mirrored for the other direction, the way `ChevronDownIcon` is rotated rather than twinned; a bare chevron would say *disclosure*, which stepping is not | `glyphs/next-difference.svg` |
+| `SideBySideGlyph` | Diff layout: two panes | A frame split by one vertical line | `glyphs/side-by-side.svg` |
+| `UnifiedGlyph` | Diff layout: one pane | The same frame, unsplit. The pair is a two-state toggle, and the presence or absence of the divider *is* the difference | `glyphs/unified.svg` |
+| `GearGlyph` | Settings on a toolbar | A real toothed gear. `GeneralSettingsIcon` is sliders on the 24-grid rail and the `config` file kind is an identity mark, so neither serves an action toolbar | `glyphs/gear.svg` |
+
+Reused, not redrawn, by the same two surfaces: `RefreshIcon` (re-read the
+working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
+`glyphs/worktree.svg`, `glyphs/history.svg` (the view strip), and
+`ChevronDownIcon` rotated for disclosure.
 
 ### Utility marks (16-grid)
 
@@ -377,8 +407,10 @@ Cite these rather than matching the code you happen to be nearest.
    inconsistency, resolved by consuming the shared exports (item 3).
 5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
    convention is `Glyph`. Rename when it next moves.
-6. **The `glyphs/` folder holds twelve assets** against a shipped vocabulary of
+6. **The `glyphs/` folder holds twenty-two assets** against a shipped vocabulary of
    roughly sixty. This entry closes the documentation gap; extracting
    framework-neutral SVGs for the core-action set into `glyphs/` (and
    registering them in `design-system.json`) remains open. *2026-09-05:* the
    Git view marks, the folder and two file-type samples joined the folder.
+   *2026-09-09:* the ten Commit-window and diff-window action marks joined
+   it (Git and diff actions, above).

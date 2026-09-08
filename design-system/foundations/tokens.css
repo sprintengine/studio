@@ -77,6 +77,10 @@
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
   --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
+  --sem-color-diff-added: var(--ref-color-emerald-700);
+  --sem-color-diff-removed: var(--ref-color-red-600);
+  --sem-color-diff-changed: rgba(43, 108, 212, 0.14);
+  --sem-color-diff-changed-strong: rgba(43, 108, 212, 0.34);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-color-mark-blue: var(--ref-color-blue-600);
   --sem-color-mark-yellow: var(--ref-color-amber-800);
@@ -181,6 +185,10 @@
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
   --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
+  --sem-color-diff-added: var(--ref-color-emerald-400);
+  --sem-color-diff-removed: var(--ref-color-coral-400);
+  --sem-color-diff-changed: rgba(94, 160, 242, 0.14);
+  --sem-color-diff-changed-strong: rgba(94, 160, 242, 0.34);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-color-mark-blue: var(--ref-color-blue-400);
   --sem-color-mark-yellow: var(--ref-color-amber-400);

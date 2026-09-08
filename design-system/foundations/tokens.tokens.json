@@ -732,6 +732,84 @@
           }
         }
       },
+      "diff": {
+        "added": {
+          "$type": "color",
+          "$value": "{ref.color.emerald-700}",
+          "$description": "Added material in a diff \u2014 the same value as status.good, spent on a diff channel rather than on health (ruled 2026-09-09). The app has drawn added lines and added-file marks in this colour since before the system existed; the token is where that value now lives.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "diff",
+              "use": "The ink of an added line, an added-file mark, or the A status letter, and the hue a renderer derives its added-line wash from. One set of four so Monaco's theme, a gutter and any future unified renderer read the same values.",
+              "doNotUse": "Health or success (that is status.good), a button fill, or chrome. Added-ness is a property of a line, not a state of the app.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.emerald-700}",
+                "dark": "{ref.color.emerald-400}"
+              }
+            }
+          }
+        },
+        "removed": {
+          "$type": "color",
+          "$value": "{ref.color.red-600}",
+          "$description": "Removed material in a diff \u2014 the same value as status.danger, spent on a diff channel rather than on failure (ruled 2026-09-09). A deletion is not an error, and the shared value is a legibility inheritance, not a claim that it is.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "diff",
+              "use": "The ink of a removed line, a deleted-file name, or the D status letter, and the hue a renderer derives its removed-line wash from.",
+              "doNotUse": "Errors or destructive actions (that is status.danger). A removed line is not a failure and must never be read as one.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "{ref.color.red-600}",
+                "dark": "{ref.color.coral-400}"
+              }
+            }
+          }
+        },
+        "changed": {
+          "$type": "color",
+          "$value": "rgba(43, 108, 212, 0.14)",
+          "$description": "The wash under a CHANGED line in a diff: identity blue at 14%. Neither added nor removed \u2014 the line exists on both sides and reads differently \u2014 so it takes the one neutral-of-the-two hue rather than borrowing green or red.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "diff",
+              "use": "The row wash on a changed line in a side-by-side or unified diff. Derived from mark.blue so the two modes track the same hue the file glyphs use.",
+              "doNotUse": "A changed WORD inside that line (that is diff.changed-strong), and never as a hover, selection or status fill \u2014 a wash that also means 'selected' makes both unreadable.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "rgba(43, 108, 212, 0.14)",
+                "dark": "rgba(94, 160, 242, 0.14)"
+              }
+            }
+          }
+        },
+        "changed-strong": {
+          "$type": "color",
+          "$value": "rgba(43, 108, 212, 0.34)",
+          "$description": "The wash under the CHANGED WORDS inside a changed line: identity blue at 34%. One step of the same hue, so word-level detail reads inside the line wash without a second colour.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "diff",
+              "use": "The inline word-diff mark inside a line already wearing diff.changed.",
+              "doNotUse": "A whole line (that is diff.changed), and never on its own \u2014 the strong step only ever appears inside the soft one, or it reads as a selection.",
+              "components": [
+                "glyphs"
+              ],
+              "modes": {
+                "light": "rgba(43, 108, 212, 0.34)",
+                "dark": "rgba(94, 160, 242, 0.34)"
+              }
+            }
+          }
+        }
+      },
       "overlay": {
         "scrim": {
           "$type": "color",
