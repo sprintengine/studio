@@ -36,6 +36,7 @@ import { useSkillSources } from './skills/useSkillSources'
 import { INSTALLED_TAB_ID } from './catalogue/catalogueTabs'
 import {
   consumePendingExtensionsSurfaceTarget,
+  peekPendingExtensionsSurfaceTarget,
   subscribeExtensionsSurfaceTarget,
   EXTENSIONS_DRAWER_VIEWS,
   type ExtensionsDrawerView,
@@ -105,7 +106,13 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     return SKILL_PACK_HARNESSES.filter((harness) => wanted.has(harness))
   }, [pluginCatalogEntries, cliAvailability])
 
-  const [view, setView] = useState<ExtensionsDrawerView>(EXTENSIONS_DRAWER_VIEWS.plugins)
+  // Seeded from the latch, not from the default: the first publish below is
+  // what the host reads as "which row is on screen", and a default that was
+  // corrected an effect later had already read the Plugins news on a click
+  // that asked for Skills (review, 2026-09-09).
+  const [view, setView] = useState<ExtensionsDrawerView>(
+    () => peekPendingExtensionsSurfaceTarget()?.view ?? EXTENSIONS_DRAWER_VIEWS.plugins,
+  )
   // The open tab, held ACROSS views: Installed, or a source id. The ruling asks
   // that the chosen source survive a switch between Plugins and Skills, and a
   // source id is what "the chosen source" is — so one piece of state answers

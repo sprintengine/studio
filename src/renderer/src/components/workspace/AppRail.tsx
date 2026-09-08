@@ -112,6 +112,8 @@ function ExtensionsGlyph({ className }: { className?: string }) {
 // tone of the loudest one. Null (or absent) is no badge at all — a zero is
 // never drawn (badge spec: "a number that really is nothing is words").
 export type RailBadge = {
+  /** What is counted, without the place ("2 waiting on you, 1 new") — for a row that already names the place. */
+  detail?: string
   count: number
   tone: Tone
   /** The accessible name — a bare "3" tells a screen reader nothing. */

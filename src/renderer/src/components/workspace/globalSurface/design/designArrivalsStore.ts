@@ -158,13 +158,21 @@ async function load(): Promise<void> {
  * The dates every consumer reads. The snapshot is shared, so the drawer row and
  * anything else that counts arrivals see the same library.
  */
-export function useDesignArrivals(): DesignArrivalsSnapshot {
+export function useDesignArrivals(enabled = true): DesignArrivalsSnapshot {
+  // Off, the hook subscribes to nothing: the rail hook lives in every window
+  // for the app's life, and with the design module disabled there is no row
+  // to count for — so no listing, no `git log` per bundle, no hourly timer
+  // (review, 2026-09-09).
   return useSyncExternalStore(
-    subscribeDesignArrivals,
-    getDesignArrivalsSnapshot,
-    getDesignArrivalsSnapshot,
+    enabled ? subscribeDesignArrivals : subscribeNothing,
+    enabled ? getDesignArrivalsSnapshot : getEmptySnapshot,
+    enabled ? getDesignArrivalsSnapshot : getEmptySnapshot,
   )
 }
+
+const EMPTY_SNAPSHOT: DesignArrivalsSnapshot = { bundles: EMPTY, loadState: 'ready' }
+const getEmptySnapshot = (): DesignArrivalsSnapshot => EMPTY_SNAPSHOT
+const subscribeNothing = (): (() => void) => () => {}
 
 /**
  * Drop all store state. Tests only: the module state deliberately outlives

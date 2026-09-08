@@ -522,9 +522,12 @@ walks. Its anatomy:
    would otherwise wear (one status idiom per surface), with the row's name in
    its accessible name. Opening a ROW reads its news; opening the section reads
    nothing, and the square keeps counting while the drawer is on screen, the
-   way a workspace icon does above its unread channels. The home reads its own
-   cards as it mounts, and marks the ones that were new with the New mark, so
-   what the count pointed at is still on screen when the person arrives.
+   way a workspace icon does above its unread channels. The one thing the
+   square counts that no row wears is the hosted cards: the square's own
+   click opens the home that shows them, so the square is their row. The home
+   reads its own cards as it mounts, and marks the ones that were new with
+   the New mark, so what the count pointed at is still on screen when the
+   person arrives.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.
