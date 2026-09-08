@@ -80,7 +80,7 @@ import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShel
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
-import { sourceUpdateCadenceLine } from '../../../../shared/skills'
+import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
 
 interface Props {
   onClose: () => void
@@ -906,6 +906,11 @@ export default function SettingsPanel({
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
+  // Which transport the skills service reads repositories over, because the
+  // cadence line below is a different sentence on each (git-transport ruling,
+  // owner 2026-09-08). 'api' until the answer lands, which is the cautious half
+  // of the pair: it is the one that still names the token.
+  const [skillRepoTransport, setSkillRepoTransport] = useState<SkillRepoTransport>('api')
   const [githubTokenDraft, setGithubTokenDraft] = useState('')
   const [githubTokenMessage, setGithubTokenMessage] = useState('')
   const [githubTokenPending, setGithubTokenPending] = useState(false)
@@ -1099,6 +1104,20 @@ export default function SettingsPanel({
     void window.api.getGitHubTokenStatus().then((status) => {
       if (!cancelled) setGithubTokenStatus(status)
     })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window.api.skillsListSources !== 'function') return
+    let cancelled = false
+    void window.api
+      .skillsListSources()
+      .then((result) => {
+        if (!cancelled && result.ok) setSkillRepoTransport(result.transport ?? 'api')
+      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
@@ -1623,13 +1642,16 @@ export default function SettingsPanel({
                   </p>
                 ) : null}
 
-                {/* The cadence the token decides, said where the decision is
-                    made (MC-2519). Without a token GitHub allows 60 requests an
-                    hour for the whole machine, so plugin sources are checked
-                    once a day rather than hourly — a person who finds updates
-                    slow to appear should read why here, not guess. */}
+                {/* The cadence, said where the token that used to decide it
+                    lives (MC-2519). On the API fallback, without a token,
+                    GitHub allows 60 requests an hour for the whole machine, so
+                    plugin sources are checked once a day rather than hourly.
+                    Over git the check is a `ls-remote` the limit does not
+                    count, so it is hourly whatever this field says (owner
+                    ruling, 2026-09-08) — a person who finds updates slow to
+                    appear should read why here, not guess. */}
                 <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
-                  {sourceUpdateCadenceLine(githubTokenStatus?.configured === true)}
+                  {sourceUpdateCadenceLine(githubTokenStatus?.configured === true, skillRepoTransport)}
                 </p>
               </div>
             }

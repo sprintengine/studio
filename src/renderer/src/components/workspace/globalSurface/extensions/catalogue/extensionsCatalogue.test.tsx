@@ -358,7 +358,14 @@ const api: Record<string, unknown> = {
       ],
     },
   }),
-  skillsListSources: async () => ({ ok: true, sources: [APP_SOURCE, ACME_SOURCE, HUB_SOURCE] }),
+  // The API fallback, which is what makes the head line's shortfall clause the
+  // one that names a token at all (git-transport ruling, owner 2026-09-08).
+  skillsListSources: async () => ({
+    ok: true,
+    sources: [APP_SOURCE, ACME_SOURCE, HUB_SOURCE],
+    transport: 'api' as const,
+    gitInstalled: true,
+  }),
   // No token on this machine, which is what makes the head line's shortfall
   // clause the one that offers to add one.
   getGitHubTokenStatus: async () => ({ configured: false, source: 'none', encryptionAvailable: true }),
@@ -527,9 +534,9 @@ async function main(): Promise<void> {
     // the built-in row — and the server inside it does not, because it has no
     // row of its own; a head claiming "1 MCP server" over a tab with none was
     // the count and the rows disagreeing.
-    assert.ok(body.includes('2 plugins'), 'both plugins are named')
+    assert.ok(body.includes('sprintengine/studio-releases'), 'the head names where the tab is read from')
     assert.equal(body.includes('1 MCP server'), false, 'the plugin’s own server is not a second row')
-    assert.ok(/\d+ signed entr(y|ies)/.test(body), 'the signed registry is named in a noun that pluralises')
+    assert.equal(body.includes('signed entrys'), false, 'nothing is ever called a "signed entrys"')
     assert.equal(body.includes('signed entrys'), false)
   })
 
@@ -558,31 +565,14 @@ async function main(): Promise<void> {
     assert.equal(scanCalls.filter((id) => id === ACME_SOURCE.id).length, 1, 'once, not once per render')
   })
 
-  await run('the Plugins head line names plugins and skills separately', () => {
-    // "30 listings" was one number over two populations, and a listing is not a
-    // noun anybody uses — the owner read anthropics/skills's five plugin
-    // bundles as five skills, because four of them are named *-skills
-    // (official-plugins ruling, 2026-09-06).
+  await run('the Plugins head names the source and where it comes from, and nothing else', () => {
+    // The head used to carry the shape, the counts, a link to the skills and
+    // any caveat the scan had, in one four-line sentence nobody could find
+    // the name in (extensions review, 2026-09-08). The tab and the section
+    // heading carry the counts; the head carries the repository.
     assert.equal(text().includes('listings'), false, 'nothing is called a listing any more')
-    assert.ok(text().includes('No plugins here'), 'a source with no plugins says so in the Plugins tab')
-    assert.ok(text().includes('30 skills'), 'and says how many skills it holds, which this tab does not list')
-  })
-
-  await run('the skills on that head line open the same source under Skills', async () => {
-    const link = container.querySelector(
-      'button[aria-label="Open the 30 skills in acme/skills under Skills"]',
-    ) as HTMLElement | null
-    assert.ok(link, 'the count is a way through, not a number in a sentence')
-    await act(async () => {
-      link.click()
-    })
-    await settle()
-    assert.equal(title(), 'Skills')
-    assert.equal(
-      container.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.startsWith('acme/skills'),
-      true,
-      'and it lands on the SAME source, not on whichever tab Skills opens on',
-    )
+    assert.ok(text().includes('acme/skills'), 'the repository is the line under the name')
+    assert.equal(text().includes('30 skills'), false, 'what it holds is not restated in the head')
   })
 
   await openView('plugins')
@@ -595,10 +585,14 @@ async function main(): Promise<void> {
   // ── A partial scan says so, and the fix is one click ─────────────────────────
 
   await run('a marketplace whose linked plugins are not all read says how many are not', () => {
-    assert.ok(text().includes('4 plugins'), 'every linked plugin is listed, read or not')
+    assert.equal(
+      container.querySelectorAll('[aria-label^="Show details for "]').length,
+      4,
+      'every linked plugin is listed, read or not',
+    )
     assert.ok(
       text().includes('1 of 4 linked plugins not yet read'),
-      'and the head line states the shortfall rather than reading as a complete listing',
+      'and a notice states the shortfall rather than the tab reading as a complete listing',
     )
     assert.ok(
       text().includes('1 of 4 linked plugin could not be read in full'),
@@ -608,7 +602,7 @@ async function main(): Promise<void> {
 
   await run('and the words that name the fix are the button that opens it', async () => {
     const fix = [...container.querySelectorAll('button')].find((button) =>
-      (button.textContent ?? '').includes('add a GitHub token'),
+      (button.textContent ?? '').toLowerCase().includes('add a github token'),
     ) as HTMLElement | undefined
     assert.ok(fix, 'Settings is one click away, not a sentence telling somebody to go and find it')
     await act(async () => {
@@ -723,12 +717,12 @@ async function main(): Promise<void> {
 
   await run('a repository lists under the folders it keeps its skills in, one page at a time', () => {
     assert.ok(text().includes('Engineering'), 'the folder names are the headings, cased for reading')
-    assert.ok(text().includes('Showing 1–12 of 30'), 'and the pager walks the whole source, not one folder')
+    assert.ok(text().includes('Showing 1–24 of 30'), 'and the pager walks the whole source, not one folder')
     assert.equal(text().includes('type="checkbox"'), false)
   })
 
-  await run('the head line carries the source’s own state and its actions', () => {
-    assert.ok(text().includes('30 skills'))
+  await run('the head names the source and carries its actions', () => {
+    assert.ok(text().includes('acme/skills'), 'the repository is the line under the name')
     assert.ok(container.querySelector('button[aria-label^="More actions for"]'), 'Remove and Open are one overflow')
   })
 
@@ -737,7 +731,7 @@ async function main(): Promise<void> {
       ;(container.querySelector('button[aria-label="Page 2"]') as HTMLElement).click()
     })
     await settle()
-    assert.ok(text().includes('Showing 13–24 of 30'))
+    assert.ok(text().includes('Showing 25–30 of 30'))
     assert.equal(
       container.querySelector('button[aria-label="Page 2"]')?.getAttribute('aria-current'),
       'page',

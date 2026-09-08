@@ -8,6 +8,14 @@
 // Relative links inside a document resolve against this skill's own manifest,
 // so SKILL.md → LOGIC.md opens in place. A link whose target the scan never
 // carried is stated as missing rather than rendered as if it would work.
+//
+// It is laid out as a workbench: a rail on the left carrying what the skill
+// declares about itself (`rail`) and then its files, and the open document on
+// the right at a reading measure. The two scroll independently, so a long
+// SKILL.md never carries the file list off screen, and the rail never pushes
+// the document down. It used to be a 196px column inside a 420px side pane,
+// where the document wrapped at thirty characters (extensions review,
+// 2026-09-08).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -34,9 +42,12 @@ type SkillFileRead =
 export function SkillReader({
   source,
   skill,
+  rail,
 }: {
   source: SkillSource
   skill: ScannedSkill
+  /** What the skill declares about itself, set above its file list in the rail. */
+  rail?: React.ReactNode
 }): JSX.Element {
   const files = useMemo(() => orderSkillFiles(skill.files), [skill.files])
   const [activePath, setActivePath] = useState(() => defaultSkillFilePath(files))
@@ -53,17 +64,19 @@ export function SkillReader({
       firstFile.current = false
       return
     }
+    // The document pane is its own scroll container now, so "back to the top"
+    // is its scrollTop, not the page's.
     const pane = documentPane.current
-    if (pane && pane.getBoundingClientRect().top < 0) pane.scrollIntoView({ block: 'start' })
+    if (pane) pane.scrollTop = 0
   }, [activePath])
 
   return (
-    <div className="mt-5 grid min-w-0 items-start gap-0 lg:grid-cols-[196px_minmax(0,1fr)]">
-      <SkillFileList files={files} activePath={active?.path ?? ''} onOpen={setActivePath} />
-      <div
-        ref={documentPane}
-        className="min-w-0 border-t border-[color:var(--border-subtle)] pt-4 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0"
-      >
+    <div className="grid h-full min-h-0 min-w-0 grid-cols-[280px_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-[color:var(--border-subtle)] py-5 pl-6 pr-5">
+        {rail}
+        <SkillFileList files={files} activePath={active?.path ?? ''} onOpen={setActivePath} />
+      </div>
+      <div ref={documentPane} className="min-h-0 min-w-0 overflow-y-auto px-8 py-5">
         <div className="max-w-[74ch] min-w-0">
           {!active ? (
             <p className="text-body text-[color:var(--text-subtle)]">This skill lists no files.</p>
@@ -92,8 +105,8 @@ function SkillFileList({
   onOpen: (path: string) => void
 }): JSX.Element {
   return (
-    <nav aria-label="Files in this skill" className="min-w-0 pb-4 lg:sticky lg:top-0 lg:pb-0 lg:pr-4">
-      <p className="px-2 pb-2 text-meta text-[color:var(--text-subtle)]">
+    <nav aria-label="Files in this skill" className="min-w-0">
+      <p className="px-2 pb-2 text-meta font-medium text-[color:var(--text-muted)]">
         {`${files.length} file${files.length === 1 ? '' : 's'}`}
       </p>
       <ul role="list" className="flex flex-col gap-px">
@@ -101,8 +114,8 @@ function SkillFileList({
           const current = file.path === activePath
           return (
             <li key={file.path} className="min-w-0">
-              {/* The rail is 196px, so `scripts/block-dangerous-git.sh` reads
-                  truncated: hover or focus carries the path it would install. */}
+              {/* A long path still truncates in the rail: hover or focus
+                  carries the whole path it would install. */}
               <Tooltip content={file.path} placement="right" wrapperClassName="block w-full">
                 {/* The kit's row button: this rail entry is the shape it names
                     — a file path with a size on the end. The fill, its inset
@@ -119,9 +132,18 @@ function SkillFileList({
                   {file.isEntry ? (
                     <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">Entry</span>
                   ) : null}
-                  <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
-                    {formatSkillFileSize(file.size)}
-                  </span>
+                  {/* A size is drawn only when one is known. A repository read
+                      over git lists its files without their sizes — a size is
+                      only knowable from the blob, and fetching every blob to
+                      print a number is what the transport exists to avoid — so
+                      the gutter is simply empty there rather than "0 B", which
+                      would be a measurement nobody took (git-transport ruling,
+                      owner 2026-09-08). */}
+                  {file.size > 0 ? (
+                    <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
+                      {formatSkillFileSize(file.size)}
+                    </span>
+                  ) : null}
                 </RowButton>
               </Tooltip>
             </li>

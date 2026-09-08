@@ -13,10 +13,12 @@ import {
   sourceHasUpdate,
   sourceUpdateCadenceLine,
   sourceUpdateIntervalMs,
+  sourceUpdateSkipMessage,
   SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS,
   SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS,
   type SkillSource,
 } from '../../shared/skills'
+import type { SkillRepoReader } from './repo-reader'
 import { createSkillSourceStore } from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
 
@@ -176,7 +178,95 @@ async function main(): Promise<void> {
   assert.match(sourceUpdateCadenceLine(false), /GitHub token/)
   assert.match(sourceUpdateCadenceLine(true), /once an hour/)
 
+  await overGit()
+
   console.log('skills source update tests passed')
+}
+
+/**
+ * Over git: the head check is the injected reader's, and the cadence is hourly
+ * for everyone (git-transport ruling, owner 2026-09-08).
+ *
+ * `git ls-remote` is not a REST request, so the 60-an-hour limit the daily
+ * window exists to protect is not being spent — and a token, which buys nothing
+ * against a protocol GitHub does not meter, stops deciding anything. The copy
+ * follows: no line here names one.
+ */
+async function overGit(): Promise<void> {
+  const userData = await mkdtemp(join(tmpdir(), 'multicode-source-updates-git-'))
+  const store = createSkillSourceStore(userData)
+  await store.putSource(source('anthropics/claude-plugins-official', 'aaa'), null)
+
+  const asked: string[] = []
+  let clock = Date.parse('2026-09-08T10:00:00Z')
+  const reader: SkillRepoReader = {
+    resolveCommit: async (repo, ref) => {
+      asked.push(`${repo}#${ref}`)
+      return 'aaa2'
+    },
+    readTree: async () => {
+      throw new Error('the update check lists nothing')
+    },
+    readFile: async () => {
+      throw new Error('the update check reads nothing')
+    },
+  }
+  const checker = createSourceUpdateChecker({
+    store,
+    // No token at all, which on the API path would mean a daily window.
+    resolveToken: async () => '',
+    repoReader: reader,
+    transport: 'git',
+    now: () => new Date(clock),
+  })
+
+  const first = await checker.check()
+  assert.deepEqual(
+    asked,
+    // Our own marketplace is always in the list; both are asked through the
+    // reader, and the empty ref after `#` is "the default branch".
+    ['sprintengine/studio-releases#', 'anthropics/claude-plugins-official#'],
+    'the reader resolved the head, not the API',
+  )
+  assert.deepEqual(first.newlyChanged, ['github:anthropics/claude-plugins-official'])
+
+  // Half an hour in, still inside the hourly window — and the sentence says so
+  // without mentioning a token.
+  clock += 30 * MINUTE
+  asked.length = 0
+  const inWindow = await checker.check()
+  assert.deepEqual(asked, [], 'half an hour is inside the hourly window')
+  const message = inWindow.skipped.find(
+    (entry) => entry.sourceId === 'github:anthropics/claude-plugins-official'
+  )?.message
+  assert.equal(message, 'Checked 30 minutes ago; the studio checks each source once an hour over git.')
+  assert.doesNotMatch(message ?? '', /token/, 'the token is not what decides this cadence')
+
+  // Past the hour it is asked again, with no token anywhere in sight.
+  clock += 31 * MINUTE
+  await checker.check()
+  assert.deepEqual(
+    asked,
+    ['sprintengine/studio-releases#', 'anthropics/claude-plugins-official#'],
+    'past an hour they are asked again',
+  )
+
+  // The cadence itself, and the two sentences Settings and the door say.
+  assert.equal(sourceUpdateIntervalMs(false, 'git'), SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS)
+  assert.equal(sourceUpdateIntervalMs(true, 'git'), SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS)
+  assert.equal(sourceUpdateIntervalMs(false, 'api'), SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS)
+  assert.equal(
+    sourceUpdateSkipMessage(2 * HOUR, false, 'api'),
+    'Checked 2 hours ago; without a GitHub token the studio checks each source once a day.',
+    'the API fallback keeps every word it had',
+  )
+  assert.match(sourceUpdateCadenceLine(false, 'git'), /once an hour/)
+  assert.match(sourceUpdateCadenceLine(false, 'git'), /git ls-remote/)
+  assert.match(
+    sourceUpdateCadenceLine(false, 'git'),
+    /not what decides the cadence/,
+    'it names the token only to say it decides nothing here',
+  )
 }
 
 main().catch((error) => {

@@ -785,7 +785,12 @@ async function main(): Promise<void> {
       commitSha: '',
       scannedAt: '',
     }
-    api.skillsListSources = async () => ({ ok: true, sources: [studioSource, acmeSource] })
+    api.skillsListSources = async () => ({
+      ok: true,
+      sources: [studioSource, acmeSource],
+      transport: 'api' as const,
+      gitInstalled: true,
+    })
     const acmeScan = {
       skills: [
         {

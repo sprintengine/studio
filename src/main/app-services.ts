@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { access, readdir, readFile, stat } from 'fs/promises'
 import { hostname } from 'os'
+import { spawnSync } from 'child_process'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
@@ -54,6 +55,7 @@ import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
+import { createGitRepoReader } from './skills/git-repo-reader'
 import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
   createAgentCapabilityService,
@@ -685,8 +687,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
   // directory would be.
+  // Repositories are read over git, not the GitHub API (git-transport ruling,
+  // owner 2026-09-08): the API's anonymous limit is what capped a Sync at
+  // twenty linked repositories, and git's protocol is not counted by it. The
+  // check is synchronous because this constructor is, and it is one `git
+  // --version`; a machine without git keeps the API reader and its cap, and
+  // the door says to install git rather than to add a token.
+  const gitInstalled = isGitInstalled()
   const skillsService = createSkillsService(app.getPath('userData'), {
     resolveToken: () => githubTokenStore.resolveToken(),
+    repoReader: gitInstalled
+      ? createGitRepoReader({
+          cacheDir: join(app.getPath('userData'), 'skill-repos'),
+          resolveToken: () => githubTokenStore.resolveToken(),
+        })
+      : undefined,
+    repoTransport: gitInstalled ? 'git' : 'api',
+    gitInstalled,
     // The same bundled tree the plugin installer materialises, read here as the
     // offline seed of our marketplace tab (studio-marketplace ruling,
     // 2026-09-06). One resolver, so a build that ships the plugin can never
@@ -1202,4 +1219,13 @@ function getBundledStudioPluginRoot(): string | null {
 function getBundledAgentStateReporterTemplatePath(template: string): string | null {
   if (!template || template.includes('/') || template.includes('\\') || template.includes('..')) return null
   return getBundledHookReporterPath(template)
+}
+
+/** Whether `git` answers on PATH — one process, at construction, because the reader choice is static for the app's life. */
+function isGitInstalled(): boolean {
+  try {
+    return spawnSync('git', ['--version'], { windowsHide: true, timeout: 5_000 }).status === 0
+  } catch {
+    return false
+  }
 }

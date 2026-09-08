@@ -57,12 +57,17 @@ import type {
   SkillDiscoveryResult,
   SkillHarness,
   SkillRepoHit,
+  SkillRepoTransport,
   SkillSearchHit,
   SkillSource,
 } from './skills'
 // Re-exported because the harness identity is part of this IPC contract: it
 // rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
 export type { SkillHarness } from './skills'
+// Which transport the skills service reads repositories over. It rides
+// `SkillSourcesResult` because every surface that says why a cadence or a
+// shortfall applies has to know (git-transport ruling, owner 2026-09-08).
+export type { SkillRepoTransport } from './skills'
 // The capability query's shapes live with the other skill shapes; these are its
 // IPC envelopes, same split as the skill-source calls below.
 export type {
@@ -1394,7 +1399,23 @@ export type AgentSkillWriteResult =
 // envelopes). Sources are app-level; installing is workspace-level, so
 // skillsInstall is the only call here that needs a workspace root.
 export type SkillSourcesResult =
-  | { ok: true; sources: SkillSource[] }
+  | {
+      ok: true
+      sources: SkillSource[]
+      /**
+       * How this build reads repositories: 'git' when a git reader is wired,
+       * 'api' on the GitHub-REST fallback (git-transport ruling, owner
+       * 2026-09-08). The copy about cadences and unread plugins changes with
+       * it, so it travels with the list rather than being guessed at.
+       */
+      transport: SkillRepoTransport
+      /**
+       * False only when this machine has no git at all, which is the one thing
+       * an 'api' reader's shortfall can actually name as the remedy. Absent
+       * means yes.
+       */
+      gitInstalled?: boolean
+    }
   | { ok: false; message: string }
 
 export type SkillAddSourceInput = {
