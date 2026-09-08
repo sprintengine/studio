@@ -47,6 +47,22 @@ export { LinkButton } from './LinkButton'
 export type { LinkButtonProps, LinkInk, LinkUnderline } from './LinkButton'
 export { RefreshIcon } from './RefreshIcon'
 export { FileTypeGlyph } from './FileTypeGlyph'
+// The Commit window's and diff window's action vocabulary (git-commit-window
+// T2). Ten concepts, mirrored in design-system/glyphs/ — import them, never
+// paste a path into a toolbar.
+export {
+  CollapseAllGlyph,
+  ExpandAllGlyph,
+  GearGlyph,
+  GroupByGlyph,
+  MoveToChangelistGlyph,
+  NextDifferenceGlyph,
+  PreviousDifferenceGlyph,
+  RollbackGlyph,
+  SideBySideGlyph,
+  StashGlyph,
+  UnifiedGlyph,
+} from './GitActionGlyphs'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
