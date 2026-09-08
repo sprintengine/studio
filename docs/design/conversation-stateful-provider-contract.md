@@ -1,8 +1,7 @@
 # Stateful conversation-provider contract (Claude Agent SDK)
 
-Design note for MC-1480 (epic `claude-agent-conversations`). Written before
-implementation per the item's guardrail; reviewed against the running code on
-2026-07-07.
+Design note for the Claude Agent SDK conversation provider. Written before
+implementation; reviewed against the running code on 2026-07-07.
 
 ## Problem
 

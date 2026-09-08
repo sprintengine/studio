@@ -36,9 +36,9 @@ frozen-snapshots retirement (2026-09-06) cut that catalogue to the 16 servers no
 plugin carries, and Playwright, GitHub and Context7 are all plugins in
 `anthropics/claude-plugins-official`. The three signed bundles that wrap them are
 therefore a second route to a server the Anthropic tab already offers — recorded
-here rather than removed, because this item's brief is the registry's data and
-these are signed entries, and unpicking a signed bundle is its own change. See
-backlog/2026-09-06-the-frozen-snapshots-retire.md, "What this item leaves".
+here rather than removed, because the change that cut the catalogue was scoped
+to the registry's data and these are signed entries, and unpicking a signed
+bundle is its own change.
 
 These use `publisher.verified: true` for `Multicode Labs`. First-party
 verification is represented by the publisher fingerprint in

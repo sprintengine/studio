@@ -8,9 +8,8 @@ registries:
 - Backlog link providers: resolvers and openers for stored links on a Backlog
   item.
 
-This document describes the implemented renderer contracts. Related durable
-context lives in [[multicode/backlog]] and [[multicode/sprint-engine]]; the item
-field schema (v2 frontmatter + the epic concept-file convention) is in
+This document describes the implemented renderer contracts. The item field
+schema (v2 frontmatter + the epic concept-file convention) is in
 [`docs/backlog-item-schema.md`](./backlog-item-schema.md).
 
 ## Service Boundary

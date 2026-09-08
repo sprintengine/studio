@@ -103,8 +103,8 @@ how to launch, resume, inject prompts into, and detect completion for a CLI.
 - The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`;
   `validateCliPluginManifest` is the **same validator the app runs** on load
   (the app imports it from the SDK), so a manifest it accepts will load.
-- Worked examples: [`../2026-05-16-plugin-manifests-worked-examples.md`](../2026-05-16-plugin-manifests-worked-examples.md);
-  design rationale: [`../2026-05-16-byo-cli-plugin-system.md`](../2026-05-16-byo-cli-plugin-system.md).
+- The bundled CLI plugins under `resources/plugins/` are the worked examples:
+  each is a `plugin.json` in the shape a user plugin takes.
 - Install by dropping the folder into `~/.multicode/plugins/<id>/`, or from
   **Settings → Agents → "Install CLI from folder"**. New plugins are picked up
   immediately on install, or on the next launch / Settings refresh.

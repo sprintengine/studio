@@ -59,9 +59,8 @@ jobs:
   # and the seams roster-effort, model-catalog-effort, skill-sources,
   # premium-feel and combobox-keyboard. Steps 1-405 pass. Those six are real
   # breakage in this repo's own code, not gate artifacts, and they are exactly
-  # what having no gate allowed to accumulate; they are tracked in
-  # backlog/2026-08-06-verify-app-is-red-in-six-places.md. Do not narrow this
-  # step to make the badge green.
+  # what having no gate allowed to accumulate; each is tracked separately. Do
+  # not narrow this step to make the badge green.
   #
   # Linux only: `verify:app` has never been measured on Windows, and an
   # unmeasured 422-step chain would fail that leg for reasons unrelated to the

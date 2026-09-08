@@ -1,7 +1,6 @@
 /**
- * The multi-window reconciliation cases of MC-2158 (§4 of
- * `docs/workspace-registry-ownership-design.md`), each driven as two simulated
- * window sources against one registry.
+ * The multi-window reconciliation cases for the main-owned workspace registry,
+ * each driven as two simulated window sources against one registry.
  *
  * Every case asserts BOTH the accepted state and that no echo loop occurs — a
  * fixed number of broadcasts per command. A rule that converges but re-emits is

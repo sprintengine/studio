@@ -47,8 +47,7 @@ electron.vite.config.*.mjs
 .mcp.json
 # ...except the one the app SHIPS. `.mcp.json` above is unanchored, so it matches
 # at every depth, and the SprintEngine Studio plugin's own server declaration is
-# a source file, not a generated workspace config
-# (backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md).
+# a source file, not a generated workspace config.
 !resources/studio-plugin/**/.mcp.json
 
 # Backlog link cache: resolved link statuses, the agent terminal holding an item,

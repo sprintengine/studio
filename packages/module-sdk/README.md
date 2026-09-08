@@ -417,9 +417,8 @@ if (!result.ok) console.error(result.issues) // [{ path, message }, …]
 `validateCliPluginManifest` is pure (no Node/DOM) and is **the same validator the
 Multicode app runs** when it loads a `plugin.json` (the app imports it from this
 package), so a manifest it accepts is loadable by Multicode — the authoring
-contract and the loader cannot drift. See
-`docs/2026-05-16-plugin-manifests-worked-examples.md` in the repository for
-worked `plugin.json` examples.
+contract and the loader cannot drift. The bundled manifests under
+`resources/plugins/` in the app repository are worked `plugin.json` examples.
 
 ## Signing and packaging: the `multicode-module` CLI
 

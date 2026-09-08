@@ -25,10 +25,10 @@ Use this checklist for every preview or stable desktop release.
   workflow's own `GITHUB_TOKEN` cannot write to another repo. Without it the
   `validate` job now stops the release before anything is built.
 - Draft release notes with user-visible changes, fixes, known issues, and rollback guidance.
-- Update `lib/releaseNotes.ts` in `sprintengine-website` to the version being
-  released. The download page only renders What's New when its `version` equals
-  the version it is serving, so notes left on the previous version do not go
-  stale on screen -- they vanish from the page entirely.
+- Update the download site's release-notes data to the version being released.
+  The download page only renders What's New when its `version` equals the
+  version it is serving, so notes left on the previous version do not go stale
+  on screen -- they vanish from the page entirely.
 - Confirm signing credentials are configured for any stable release.
 
 ## Retirements To State In Release Notes

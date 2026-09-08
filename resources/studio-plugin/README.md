@@ -20,7 +20,6 @@ resources/studio-plugin/
     skills/use-*/SKILL.md             the skill that teaches that server
 ```
 
-Backlog: `backlog/2026-09-06-sprintengine-studio-ships-as-a-plugin.md`.
 Installer: `src/main/skills/studio-plugin.ts` (what it writes) and
 `src/main/studio-plugin-service.ts` (when).
 
@@ -122,7 +121,6 @@ them would be a second copy to keep in step.
 
 ## The MCP servers we ship as plugins
 
-`backlog/2026-09-06-shipped-mcp-servers-are-plugins.md`, and
 `src/main/skills/studio-server-plugins.test.ts` holds this section to its word.
 
 Every server here is a plugin: `.claude-plugin/plugin.json`, a `.mcp.json`

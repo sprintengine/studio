@@ -1,7 +1,7 @@
 // Plugin manifest schema for the BYO-CLI system.
 //
-// See docs/2026-05-16-byo-cli-plugin-system.md for the design rationale and
-// docs/2026-05-16-plugin-manifests-worked-examples.md for worked examples.
+// The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`; the
+// bundled manifests under `resources/plugins/` are the worked examples.
 //
 // The running app consumes the registry for terminal agent launches, the
 // renderer agent CLI catalog, and provider-only conversation manifests. Provider

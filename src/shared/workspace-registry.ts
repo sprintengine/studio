@@ -1,6 +1,5 @@
 /**
- * The workspace registry main owns (MC-2158; design in
- * `docs/workspace-registry-ownership-design.md`).
+ * The workspace registry main owns.
  *
  * Before this, the registry lived in the renderer's zustand store (localStorage)
  * and main held an explicitly non-authoritative mirror: restart survivors came

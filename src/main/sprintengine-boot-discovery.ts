@@ -5,7 +5,7 @@
  * Until this ran, `SprintRuntime` learned about a run only when a renderer
  * announced it (`sprintengineRuntimeBridge.ts`), so after a full app restart
  * scheduling resumed when a window opened — the honest scope limit the
- * sprint-runtime-ownership epic recorded (`docs/sprint-runtime-ownership-design.md`).
+ * sprint-runtime-ownership work recorded.
  * At app ready the sprint-engine module now scans the project roots main already
  * knows (`workspace-roots.ts`) with the SHARED run-index scan, reads each run's
  * `automation.json` intent, and registers the ones the user left auto-running.

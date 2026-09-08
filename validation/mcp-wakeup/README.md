@@ -28,7 +28,6 @@ Expected output is an initialize response followed by a server-originated notifi
 
 For startup diagnostics, add `--trace-path validation/mcp-wakeup/<target>-startup-trace.jsonl`. The trace records process start, request methods received, response ids sent, and whether stdin closed before initialization.
 
-Additional target compatibility findings from 2026-05-19 are recorded in `validation/mcp-wakeup/compatibility-notes.md`.
 
 ## Codex Target
 
