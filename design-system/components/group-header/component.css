@@ -1,0 +1,191 @@
+/* Group header — the collapsible band above a run of rows, with a tri-state
+ * checkbox that governs the whole group.
+ *
+ * The Git panel's changelists are what it was drawn for: "Changes · 26 files",
+ * a chevron that folds them away, a box that stages all of them at once and
+ * shows a dash when only some are staged, and a chip on the one list new
+ * changes land in.
+ *
+ * `section` could not be it: it is structure with no states — no hover, no
+ * collapse, no focus — with a one-trailing-control ceiling and no checkbox
+ * anywhere. Nothing else in the system collapses.
+ *
+ * HEIGHT: 26px (`size.control.xs`), not the 24px floor. Stated because the
+ * spec left the choice open: this band carries the only genuinely FOCUSABLE
+ * checkbox in the list, and the shared focus ring is 2px of outline at a 2px
+ * offset — on a 24px band with the 16px box centred, that ring lands exactly
+ * on the band's own edge. The 24px floor belongs to the row that repeats four
+ * hundred times; a header appears once per group and can afford the two
+ * pixels its focus indicator needs. */
+
+.ds-group-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  min-height: var(--sem-size-control-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  background: transparent;
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a ground change and nothing else — the band is a header, not a row
+ * a person picks, so it never takes the selection fill or the accent edge. */
+.ds-group-header:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────────
+ * A real `<button>`, because collapsing is an action and `aria-expanded` +
+ * `aria-controls` have to sit on the thing that performs it. It is the whole
+ * disclosure control: the title beside it is not a second trigger, so a person
+ * using a pointer and a person using a screen reader operate the same one
+ * element.
+ *
+ * It pads out to the hit-target floor with a transparent target rather than
+ * growing the mark — the glyph rule, and the reason the band can stay at 26px
+ * with a 13px chevron in it. */
+.ds-group-header-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  margin-left: calc(-1 * var(--sem-space-2xs));
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header-twisty[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.ds-group-header-twisty:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-twisty:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Check ───────────────────────────────────────────────────────────────
+ * The kit checkbox, whole — input, label and all. Unlike `check-row`'s, this
+ * one IS a control: there is one per group rather than one per file, so it
+ * costs a handful of tab stops and buys a real one for the keyboard.
+ *
+ * It is tri-state by construction. `indeterminate` is the group's normal
+ * resting state — some of its files staged, some not — and the dash is what
+ * says so; a header box that could only be on or off would have to lie about
+ * every partly-staged group. */
+.ds-group-header-check {
+  flex: none;
+}
+
+/* ── Title, count, chip ──────────────────────────────────────────────────
+ * The title is the group's name and the only thing at emphasis weight. The
+ * count is a fact about it, so it stays at regular weight in muted ink — a
+ * bolded count reads as a second name. */
+.ds-group-header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-group-header-count {
+  flex: none;
+  font-weight: var(--sem-font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+/* One chip, and only for a fact that was true before the person arrived —
+ * which list is active. Not a status, not a tone: `micro-chip`'s whole
+ * argument. */
+.ds-group-header-chip {
+  flex: none;
+  margin-left: var(--sem-space-3xs);
+}
+
+/* The gap that pushes the trailing slot to the end, so the title and count sit
+ * together at the head rather than being spread across the band. */
+.ds-group-header-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * ONE control, withheld until the band is pointed at or focused, and it is an
+ * overflow menu rather than a row of glyphs: a header that revealed three
+ * actions would be a second toolbar under the first one. The slot reserves its
+ * width at rest, so revealing never reflows the band. */
+.ds-group-header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header:hover .ds-group-header-actions,
+.ds-group-header:focus-within .ds-group-header-actions,
+.ds-group-header-actions:focus-within {
+  opacity: 1;
+}
+
+.ds-group-header-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-group-header-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-group-header,
+  .ds-group-header-twisty svg,
+  .ds-group-header-actions {
+    transition: none;
+  }
+}

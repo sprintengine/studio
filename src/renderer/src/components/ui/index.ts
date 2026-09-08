@@ -128,6 +128,8 @@ export { Checkbox } from './Checkbox'
 // rather than hand-rolling at 24px.
 export { CheckRow } from './CheckRow'
 export type { CheckRowCheckedState, CheckRowProps } from './CheckRow'
+export { GroupHeader, GroupHeaderAction } from './GroupHeader'
+export type { GroupHeaderProps } from './GroupHeader'
 export { Badge } from './Badge'
 export { NewChip } from './NewChip'
 export { Table } from './Table'

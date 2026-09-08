@@ -591,6 +591,8 @@ code {
 #ds-view-component-field:checked ~ .ds-catalog #component-field { display: block; }
 #ds-view-component-glyphs:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-glyphs:checked ~ .ds-catalog #component-glyphs { display: block; }
+#ds-view-component-group-header:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-group-header:checked ~ .ds-catalog #component-group-header { display: block; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog #component-inbox-row { display: block; }
 #ds-view-component-inline-notice:checked ~ .ds-catalog #components { display: block; }
@@ -691,6 +693,8 @@ code {
 #ds-view-component-field:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-field"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-glyphs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-glyphs"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-glyphs:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-glyphs"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-group-header:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-group-header"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-group-header:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-group-header"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-inbox-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-inbox-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-inbox-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-inline-notice:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-inline-notice"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -2810,6 +2814,199 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .ds-glyph--spin {
     animation: none;
+  }
+}
+
+/* components/group-header/component.css */
+/* Group header — the collapsible band above a run of rows, with a tri-state
+ * checkbox that governs the whole group.
+ *
+ * The Git panel's changelists are what it was drawn for: "Changes · 26 files",
+ * a chevron that folds them away, a box that stages all of them at once and
+ * shows a dash when only some are staged, and a chip on the one list new
+ * changes land in.
+ *
+ * `section` could not be it: it is structure with no states — no hover, no
+ * collapse, no focus — with a one-trailing-control ceiling and no checkbox
+ * anywhere. Nothing else in the system collapses.
+ *
+ * HEIGHT: 26px (`size.control.xs`), not the 24px floor. Stated because the
+ * spec left the choice open: this band carries the only genuinely FOCUSABLE
+ * checkbox in the list, and the shared focus ring is 2px of outline at a 2px
+ * offset — on a 24px band with the 16px box centred, that ring lands exactly
+ * on the band's own edge. The 24px floor belongs to the row that repeats four
+ * hundred times; a header appears once per group and can afford the two
+ * pixels its focus indicator needs. */
+
+.ds-group-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  min-height: var(--sem-size-control-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  background: transparent;
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a ground change and nothing else — the band is a header, not a row
+ * a person picks, so it never takes the selection fill or the accent edge. */
+.ds-group-header:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────────
+ * A real `<button>`, because collapsing is an action and `aria-expanded` +
+ * `aria-controls` have to sit on the thing that performs it. It is the whole
+ * disclosure control: the title beside it is not a second trigger, so a person
+ * using a pointer and a person using a screen reader operate the same one
+ * element.
+ *
+ * It pads out to the hit-target floor with a transparent target rather than
+ * growing the mark — the glyph rule, and the reason the band can stay at 26px
+ * with a 13px chevron in it. */
+.ds-group-header-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  margin-left: calc(-1 * var(--sem-space-2xs));
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header-twisty[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.ds-group-header-twisty:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-twisty:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Check ───────────────────────────────────────────────────────────────
+ * The kit checkbox, whole — input, label and all. Unlike `check-row`'s, this
+ * one IS a control: there is one per group rather than one per file, so it
+ * costs a handful of tab stops and buys a real one for the keyboard.
+ *
+ * It is tri-state by construction. `indeterminate` is the group's normal
+ * resting state — some of its files staged, some not — and the dash is what
+ * says so; a header box that could only be on or off would have to lie about
+ * every partly-staged group. */
+.ds-group-header-check {
+  flex: none;
+}
+
+/* ── Title, count, chip ──────────────────────────────────────────────────
+ * The title is the group's name and the only thing at emphasis weight. The
+ * count is a fact about it, so it stays at regular weight in muted ink — a
+ * bolded count reads as a second name. */
+.ds-group-header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-group-header-count {
+  flex: none;
+  font-weight: var(--sem-font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+/* One chip, and only for a fact that was true before the person arrived —
+ * which list is active. Not a status, not a tone: `micro-chip`'s whole
+ * argument. */
+.ds-group-header-chip {
+  flex: none;
+  margin-left: var(--sem-space-3xs);
+}
+
+/* The gap that pushes the trailing slot to the end, so the title and count sit
+ * together at the head rather than being spread across the band. */
+.ds-group-header-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * ONE control, withheld until the band is pointed at or focused, and it is an
+ * overflow menu rather than a row of glyphs: a header that revealed three
+ * actions would be a second toolbar under the first one. The slot reserves its
+ * width at rest, so revealing never reflows the band. */
+.ds-group-header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header:hover .ds-group-header-actions,
+.ds-group-header:focus-within .ds-group-header-actions,
+.ds-group-header-actions:focus-within {
+  opacity: 1;
+}
+
+.ds-group-header-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-group-header-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-group-header,
+  .ds-group-header-twisty svg,
+  .ds-group-header-actions {
+    transition: none;
   }
 }
 
@@ -7590,6 +7787,41 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-glyphs .demo-tone-danger { color: var(--sem-color-status-danger); }
 .ds-embed-component-glyphs .demo-tone-merged { color: var(--sem-color-status-merged); }
 .ds-embed-component-glyphs .demo-tone-disabled { color: var(--sem-color-text-disabled); }
+.ds-embed-component-group-header {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-group-header .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-group-header .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-group-header .demo-list {
+    max-width: 460px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+.ds-embed-component-group-header .demo-mixed .ds-checkbox-box {
+    border-color: var(--sem-color-accent-primary);
+    background: var(--sem-color-accent-primary);
+  }
+.ds-embed-component-group-header .demo-mixed .ds-checkbox-mark--dash {
+    display: block;
+  }
+.ds-embed-component-group-header .demo-row {
+    margin: 0;
+    padding: var(--sem-space-3xs) var(--sem-space-sm) var(--sem-space-3xs) var(--sem-space-3xl);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
 .ds-embed-component-inbox-row {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -9735,6 +9967,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-extension-icon" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-field" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-glyphs" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-group-header" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-inbox-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-inline-notice" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
@@ -9805,6 +10038,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-extension-icon">Extension icon</label>
 <label class="catalog-nav-item" for="ds-view-component-field">Field</label>
 <label class="catalog-nav-item" for="ds-view-component-glyphs">Glyphs</label>
+<label class="catalog-nav-item" for="ds-view-component-group-header">Group header</label>
 <label class="catalog-nav-item" for="ds-view-component-inbox-row">Inbox row</label>
 <label class="catalog-nav-item" for="ds-view-component-inline-notice">Inline notice</label>
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
@@ -18084,6 +18318,746 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   &lt;/div&gt;
 &lt;/div&gt;
 
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-group-header" class="catalog-view catalog-component">
+<h3>Group header</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-group-header">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — an expanded group with every file staged and the active chip, a collapsed group that keeps its count, and a partly-staged group showing the dash. The overflow control appears on hover and on focus.</p>
+  <div class="demo-list">
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="l-1-body" aria-label="Collapse Modal header group">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="l-1-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-1-all" type="checkbox" checked aria-label="Stage every file in Modal header group" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Modal header group</span>
+    <span class="ds-group-header-count">4 files</span>
+    <span class="ds-micro-chip ds-group-header-chip">active</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Modal header group options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="l-1-body">
+      <p class="demo-row">component.css</p>
+      <p class="demo-row">component.html</p>
+      <p class="demo-row">component.md</p>
+      <p class="demo-row">Modal.tsx</p>
+    </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="false" aria-controls="l-2-body" aria-label="Expand Skills catalogue paging">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="l-2-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-2-all" type="checkbox" aria-label="Stage every file in Skills catalogue paging" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Skills catalogue paging</span>
+    <span class="ds-group-header-count">9 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Skills catalogue paging options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="l-3-body" aria-label="Collapse Changes">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check demo-mixed" for="l-3-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-3-all" type="checkbox" aria-label="Stage every file in Changes" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Changes</span>
+    <span class="ds-group-header-count">11 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Changes options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="l-3-body">
+      <p class="demo-row">app-services.ts</p>
+      <p class="demo-row">arrivals.ts</p>
+      <p class="demo-row">contract.ts</p>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same bands from the same tokens.</p>
+  <div class="demo-list">
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="d-1-body" aria-label="Collapse Modal header group">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="d-1-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-1-all" type="checkbox" checked aria-label="Stage every file in Modal header group" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Modal header group</span>
+    <span class="ds-group-header-count">4 files</span>
+    <span class="ds-micro-chip ds-group-header-chip">active</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Modal header group options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="d-1-body">
+      <p class="demo-row">component.css</p>
+      <p class="demo-row">component.html</p>
+      <p class="demo-row">component.md</p>
+      <p class="demo-row">Modal.tsx</p>
+    </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="false" aria-controls="d-2-body" aria-label="Expand Skills catalogue paging">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="d-2-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-2-all" type="checkbox" aria-label="Stage every file in Skills catalogue paging" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Skills catalogue paging</span>
+    <span class="ds-group-header-count">9 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Skills catalogue paging options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="d-3-body" aria-label="Collapse Changes">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check demo-mixed" for="d-3-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-3-all" type="checkbox" aria-label="Stage every file in Changes" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Changes</span>
+    <span class="ds-group-header-count">11 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Changes options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="d-3-body">
+      <p class="demo-row">app-services.ts</p>
+      <p class="demo-row">arrivals.ts</p>
+      <p class="demo-row">contract.ts</p>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The collapsible band above a run of rows, with a tri-state checkbox that governs the whole group.</p>
+<p>The Git panel's changelists are what it was drawn for — &quot;Changes · 26 files&quot;, a chevron that folds them away, a box that stages all of them at once and shows a dash when only some are staged, and a chip on the one list new changes land in — but the shape is general: any list that groups its rows and lets a person collapse a group or act on all of it at once.</p>
+<p><strong>Why <code>section</code> could not be it.</strong> [section](../section/component.md) is structure with no states: no hover, no collapse, no focus, a ceiling of one trailing control, and no checkbox anywhere. Nothing else in the system collapses. Use <code>section</code> when a heading groups content a person only reads; use this when the group is something they operate.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Band | <code>.ds-group-header</code> | yes | | Chevron | <code>.ds-group-header-twisty</code> | yes — a real <code>&lt;button&gt;</code> with <code>aria-expanded</code> and <code>aria-controls</code> | | Check | <code>.ds-group-header-check</code> | no — the kit <code>checkbox</code>, whole, tri-state | | Title | <code>.ds-group-header-title</code> | yes — <code>font.size.meta</code> at <code>font.weight.emphasis</code>, <code>text.primary</code> | | Count | <code>.ds-group-header-count</code> | no — <code>tabular-nums</code>, <strong>regular</strong> weight, <code>text.muted</code> | | Chip | <code>.ds-group-header-chip</code> | no — one [micro-chip](../micro-chip/component.md) | | Spacer | <code>.ds-group-header-spacer</code> | yes when there is a trailing slot | | Actions | <code>.ds-group-header-actions</code> | no — <strong>one</strong> control, revealed on hover and focus | | Action | <code>.ds-group-header-action</code> | — |</p>
+<h4>The height is 26px, and that is a decision</h4>
+<p><code>size.control.xs</code>, not the 24px hit-target floor the rows beneath it use.</p>
+<p>This band carries the only genuinely <strong>focusable</strong> checkbox in the list, and the shared focus ring is 2px of outline at a 2px offset. On a 24px band with a 16px box centred there are exactly 4px above and below it — so the ring lands on the band's own edge and is clipped by the row above. The 24px floor belongs to the row that repeats four hundred times, where every pixel is paid for four hundred times; a header appears once per group and can afford the two pixels its focus indicator needs.</p>
+<p>The two pixels come out of the band's padding, never out of the type: the title stays at <code>font.size.meta</code> with the rows.</p>
+<h4>The count is not bold</h4>
+<p>The title is the group's name and is the only thing on the band at emphasis weight. The count is a *fact about* it, so it stays at regular weight in muted ink. A bolded count reads as a second name, and a band with two names has no title.</p>
+<h4>The chevron is the whole disclosure control</h4>
+<p><code>aria-expanded</code> and <code>aria-controls</code> sit on the button that performs the collapse, so a pointer user and a screen-reader user operate the same one element. The title is <strong>not</strong> a second trigger: two controls for one action is two things to explain and two places for the state to disagree.</p>
+<p>The chevron pads out to the 24px hit-target floor with a transparent target rather than growing the mark (the glyph rule) — which is what lets a 13px chevron sit in a 26px band and still be comfortably clickable.</p>
+<h4>The box is tri-state by construction</h4>
+<p><code>indeterminate</code> is the group's <strong>normal resting state</strong> — some of its files staged, some not — not an edge case. A header box that could only be on or off would have to lie about every partly-staged group, and &quot;lies about the common case&quot; is not a state model.</p>
+<p>Unlike [check-row](../check-row/component.md)'s box, this one is the kit checkbox <strong>whole</strong>, input and all: there is one per group rather than one per file, so it costs a handful of tab stops and buys the keyboard a real control.</p>
+<h4>Variants</h4>
+<p>There is one group header. What changes is how much of it is there: the check, the count, the chip and the trailing slot are each optional, and the band closes up around whichever are absent.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | Transparent ground; trailing slot invisible but holding its width | | Hover | <code>bg.hover</code>. The trailing control appears | | Focus-visible (chevron / check / action) | <code>focus.ring</code> on the control itself | | Focus-within (band) | The trailing control appears, exactly as on hover | | Expanded | <code>aria-expanded=&quot;true&quot;</code>; the chevron rotates 90° | | Collapsed | <code>aria-expanded=&quot;false&quot;</code>; the chevron points right — <strong>and the count stays</strong>, which is the whole reason a collapsed group is still useful | | Checked / mixed / unchecked | The checkbox's own three states |</p>
+<p><strong>The band never takes the selection fill or the accent edge.</strong> It is a header, not a row a person picks. A group header that looked selected would be a third answer to &quot;where am I&quot; in a list that already has two.</p>
+<h4>Usage</h4>
+<ul><li><strong>One trailing control, and make it an overflow menu.</strong> A band that revealed three glyphs would be a second toolbar under the first one. The slot reserves its width at rest so revealing never reflows the band.</li><li><strong>The revealed control appears on focus as well as hover.</strong> A control that only exists under a pointer is unreachable by keyboard and by touch.</li><li><strong>A collapsed group keeps its count.</strong> Folding a group away must not also hide how much was folded — that is the difference between collapsing and hiding.</li><li><strong>One chip, and only for a fact that was true before the person arrived</strong> (&quot;active&quot;). Not a status, not a tone — <code>micro-chip</code>'s own argument.</li><li>The title truncates; the count, the chip and the trailing slot do not. What is cut is the part with the most redundancy in it.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The chevron is a <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> pointing at the <code>id</code> of the region it folds. The region is not removed from the DOM by a collapse if <code>aria-controls</code> is to resolve; hide it instead.</li><li>The chevron needs an accessible name that says what collapses (&quot;Collapse Changes&quot;), because it is read out of the band's context.</li><li>The checkbox is the kit's: a real <code>&lt;input type=&quot;checkbox&quot;&gt;</code> with the <code>indeterminate</code> DOM property set for the mixed state, and an <code>aria-label</code> naming what it governs (&quot;Stage every file in Changes&quot;) — the visible title is the group's name, not the box's.</li><li>The trailing control carries an <code>aria-label</code> naming both the verb and the group, and is in the tab order.</li><li>The band itself takes no role and no tab stop: three controls sit in it, and a fourth wrapping them would be a composite widget nobody asked for.</li><li>Reduced motion removes the chevron's rotation *transition* and the reveal fade, never the rotation or the reveal.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/GroupHeader.tsx</code>, exporting <code>GroupHeader</code>.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/group-header/component.css</summary><pre><code>/* Group header — the collapsible band above a run of rows, with a tri-state
+ * checkbox that governs the whole group.
+ *
+ * The Git panel's changelists are what it was drawn for: &quot;Changes · 26 files&quot;,
+ * a chevron that folds them away, a box that stages all of them at once and
+ * shows a dash when only some are staged, and a chip on the one list new
+ * changes land in.
+ *
+ * `section` could not be it: it is structure with no states — no hover, no
+ * collapse, no focus — with a one-trailing-control ceiling and no checkbox
+ * anywhere. Nothing else in the system collapses.
+ *
+ * HEIGHT: 26px (`size.control.xs`), not the 24px floor. Stated because the
+ * spec left the choice open: this band carries the only genuinely FOCUSABLE
+ * checkbox in the list, and the shared focus ring is 2px of outline at a 2px
+ * offset — on a 24px band with the 16px box centred, that ring lands exactly
+ * on the band's own edge. The 24px floor belongs to the row that repeats four
+ * hundred times; a header appears once per group and can afford the two
+ * pixels its focus indicator needs. */
+
+.ds-group-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  min-height: var(--sem-size-control-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  background: transparent;
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a ground change and nothing else — the band is a header, not a row
+ * a person picks, so it never takes the selection fill or the accent edge. */
+.ds-group-header:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────────
+ * A real `&lt;button&gt;`, because collapsing is an action and `aria-expanded` +
+ * `aria-controls` have to sit on the thing that performs it. It is the whole
+ * disclosure control: the title beside it is not a second trigger, so a person
+ * using a pointer and a person using a screen reader operate the same one
+ * element.
+ *
+ * It pads out to the hit-target floor with a transparent target rather than
+ * growing the mark — the glyph rule, and the reason the band can stay at 26px
+ * with a 13px chevron in it. */
+.ds-group-header-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  margin-left: calc(-1 * var(--sem-space-2xs));
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header-twisty[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.ds-group-header-twisty:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-twisty:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Check ───────────────────────────────────────────────────────────────
+ * The kit checkbox, whole — input, label and all. Unlike `check-row`'s, this
+ * one IS a control: there is one per group rather than one per file, so it
+ * costs a handful of tab stops and buys a real one for the keyboard.
+ *
+ * It is tri-state by construction. `indeterminate` is the group's normal
+ * resting state — some of its files staged, some not — and the dash is what
+ * says so; a header box that could only be on or off would have to lie about
+ * every partly-staged group. */
+.ds-group-header-check {
+  flex: none;
+}
+
+/* ── Title, count, chip ──────────────────────────────────────────────────
+ * The title is the group's name and the only thing at emphasis weight. The
+ * count is a fact about it, so it stays at regular weight in muted ink — a
+ * bolded count reads as a second name. */
+.ds-group-header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-group-header-count {
+  flex: none;
+  font-weight: var(--sem-font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+/* One chip, and only for a fact that was true before the person arrived —
+ * which list is active. Not a status, not a tone: `micro-chip`'s whole
+ * argument. */
+.ds-group-header-chip {
+  flex: none;
+  margin-left: var(--sem-space-3xs);
+}
+
+/* The gap that pushes the trailing slot to the end, so the title and count sit
+ * together at the head rather than being spread across the band. */
+.ds-group-header-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * ONE control, withheld until the band is pointed at or focused, and it is an
+ * overflow menu rather than a row of glyphs: a header that revealed three
+ * actions would be a second toolbar under the first one. The slot reserves its
+ * width at rest, so revealing never reflows the band. */
+.ds-group-header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-group-header:hover .ds-group-header-actions,
+.ds-group-header:focus-within .ds-group-header-actions,
+.ds-group-header-actions:focus-within {
+  opacity: 1;
+}
+
+.ds-group-header-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ds-group-header-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-group-header-action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-group-header-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-group-header,
+  .ds-group-header-twisty svg,
+  .ds-group-header-actions {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/group-header/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Group header&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../checkbox/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../micro-chip/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-list {
+    max-width: 460px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  /* `indeterminate` is a DOM property with no HTML attribute, and the catalog
+     renders demos with scripts off — so the mixed band is drawn here from a
+     class. Same box, same marks, same fill: only the selector that reveals the
+     dash differs, which is the move check-row makes for the same reason. */
+  .demo-mixed .ds-checkbox-box {
+    border-color: var(--sem-color-accent-primary);
+    background: var(--sem-color-accent-primary);
+  }
+  .demo-mixed .ds-checkbox-mark--dash {
+    display: block;
+  }
+  /* Stand-in rows, so the header has something to be the head of. */
+  .demo-row {
+    margin: 0;
+    padding: var(--sem-space-3xs) var(--sem-space-sm) var(--sem-space-3xs) var(--sem-space-3xl);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — an expanded group with every file staged and the active chip, a collapsed group that keeps its count, and a partly-staged group showing the dash. The overflow control appears on hover and on focus.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;l-1-body&quot; aria-label=&quot;Collapse Modal header group&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check&quot; for=&quot;l-1-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;l-1-all&quot; type=&quot;checkbox&quot; checked aria-label=&quot;Stage every file in Modal header group&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Modal header group&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;4 files&lt;/span&gt;
+    &lt;span class=&quot;ds-micro-chip ds-group-header-chip&quot;&gt;active&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Modal header group options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;demo-body&quot; id=&quot;l-1-body&quot;&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.css&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.html&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.md&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;Modal.tsx&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;l-2-body&quot; aria-label=&quot;Expand Skills catalogue paging&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check&quot; for=&quot;l-2-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;l-2-all&quot; type=&quot;checkbox&quot; aria-label=&quot;Stage every file in Skills catalogue paging&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Skills catalogue paging&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;9 files&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Skills catalogue paging options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;l-3-body&quot; aria-label=&quot;Collapse Changes&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check demo-mixed&quot; for=&quot;l-3-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;l-3-all&quot; type=&quot;checkbox&quot; aria-label=&quot;Stage every file in Changes&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Changes&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;11 files&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Changes options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;demo-body&quot; id=&quot;l-3-body&quot;&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;app-services.ts&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;arrivals.ts&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;contract.ts&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same bands from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;d-1-body&quot; aria-label=&quot;Collapse Modal header group&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check&quot; for=&quot;d-1-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;d-1-all&quot; type=&quot;checkbox&quot; checked aria-label=&quot;Stage every file in Modal header group&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Modal header group&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;4 files&lt;/span&gt;
+    &lt;span class=&quot;ds-micro-chip ds-group-header-chip&quot;&gt;active&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Modal header group options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;demo-body&quot; id=&quot;d-1-body&quot;&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.css&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.html&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;component.md&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;Modal.tsx&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;d-2-body&quot; aria-label=&quot;Expand Skills catalogue paging&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check&quot; for=&quot;d-2-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;d-2-all&quot; type=&quot;checkbox&quot; aria-label=&quot;Stage every file in Skills catalogue paging&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Skills catalogue paging&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;9 files&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Skills catalogue paging options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;ds-group-header&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-group-header-twisty&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;d-3-body&quot; aria-label=&quot;Collapse Changes&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+        &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;label class=&quot;ds-checkbox ds-group-header-check demo-mixed&quot; for=&quot;d-3-all&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; id=&quot;d-3-all&quot; type=&quot;checkbox&quot; aria-label=&quot;Stage every file in Changes&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+    &lt;span class=&quot;ds-group-header-title&quot;&gt;Changes&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-count&quot;&gt;11 files&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-group-header-actions&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-group-header-action&quot; aria-label=&quot;Changes options&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;3.6&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;circle cx=&quot;8&quot; cy=&quot;12.4&quot; r=&quot;1.2&quot; stroke-width=&quot;1.2&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+    &lt;div class=&quot;demo-body&quot; id=&quot;d-3-body&quot;&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;app-services.ts&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;arrivals.ts&lt;/p&gt;
+      &lt;p class=&quot;demo-row&quot;&gt;contract.ts&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

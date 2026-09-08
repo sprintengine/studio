@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Group header</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../checkbox/component.css" />
+<link rel="stylesheet" href="../micro-chip/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-list {
+    max-width: 460px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  /* `indeterminate` is a DOM property with no HTML attribute, and the catalog
+     renders demos with scripts off — so the mixed band is drawn here from a
+     class. Same box, same marks, same fill: only the selector that reveals the
+     dash differs, which is the move check-row makes for the same reason. */
+  .demo-mixed .ds-checkbox-box {
+    border-color: var(--sem-color-accent-primary);
+    background: var(--sem-color-accent-primary);
+  }
+  .demo-mixed .ds-checkbox-mark--dash {
+    display: block;
+  }
+  /* Stand-in rows, so the header has something to be the head of. */
+  .demo-row {
+    margin: 0;
+    padding: var(--sem-space-3xs) var(--sem-space-sm) var(--sem-space-3xs) var(--sem-space-3xl);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — an expanded group with every file staged and the active chip, a collapsed group that keeps its count, and a partly-staged group showing the dash. The overflow control appears on hover and on focus.</p>
+  <div class="demo-list">
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="l-1-body" aria-label="Collapse Modal header group">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="l-1-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-1-all" type="checkbox" checked aria-label="Stage every file in Modal header group" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Modal header group</span>
+    <span class="ds-group-header-count">4 files</span>
+    <span class="ds-micro-chip ds-group-header-chip">active</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Modal header group options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="l-1-body">
+      <p class="demo-row">component.css</p>
+      <p class="demo-row">component.html</p>
+      <p class="demo-row">component.md</p>
+      <p class="demo-row">Modal.tsx</p>
+    </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="false" aria-controls="l-2-body" aria-label="Expand Skills catalogue paging">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="l-2-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-2-all" type="checkbox" aria-label="Stage every file in Skills catalogue paging" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Skills catalogue paging</span>
+    <span class="ds-group-header-count">9 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Skills catalogue paging options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="l-3-body" aria-label="Collapse Changes">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check demo-mixed" for="l-3-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="l-3-all" type="checkbox" aria-label="Stage every file in Changes" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Changes</span>
+    <span class="ds-group-header-count">11 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Changes options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="l-3-body">
+      <p class="demo-row">app-services.ts</p>
+      <p class="demo-row">arrivals.ts</p>
+      <p class="demo-row">contract.ts</p>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same bands from the same tokens.</p>
+  <div class="demo-list">
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="d-1-body" aria-label="Collapse Modal header group">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="d-1-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-1-all" type="checkbox" checked aria-label="Stage every file in Modal header group" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Modal header group</span>
+    <span class="ds-group-header-count">4 files</span>
+    <span class="ds-micro-chip ds-group-header-chip">active</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Modal header group options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="d-1-body">
+      <p class="demo-row">component.css</p>
+      <p class="demo-row">component.html</p>
+      <p class="demo-row">component.md</p>
+      <p class="demo-row">Modal.tsx</p>
+    </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="false" aria-controls="d-2-body" aria-label="Expand Skills catalogue paging">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check" for="d-2-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-2-all" type="checkbox" aria-label="Stage every file in Skills catalogue paging" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Skills catalogue paging</span>
+    <span class="ds-group-header-count">9 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Skills catalogue paging options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="ds-group-header">
+    <button type="button" class="ds-group-header-twisty" aria-expanded="true" aria-controls="d-3-body" aria-label="Collapse Changes">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <label class="ds-checkbox ds-group-header-check demo-mixed" for="d-3-all">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" id="d-3-all" type="checkbox" aria-label="Stage every file in Changes" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+    <span class="ds-group-header-title">Changes</span>
+    <span class="ds-group-header-count">11 files</span>
+    <span class="ds-group-header-spacer"></span>
+    <span class="ds-group-header-actions">
+      <button type="button" class="ds-group-header-action" aria-label="Changes options">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+          <circle cx="8" cy="3.6" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="8" r="1.2" stroke-width="1.2" />
+          <circle cx="8" cy="12.4" r="1.2" stroke-width="1.2" />
+        </svg>
+      </button>
+    </span>
+  </div>
+    <div class="demo-body" id="d-3-body">
+      <p class="demo-row">app-services.ts</p>
+      <p class="demo-row">arrivals.ts</p>
+      <p class="demo-row">contract.ts</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
