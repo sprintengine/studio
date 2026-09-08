@@ -38,17 +38,19 @@ const ROOT = resolve(process.cwd(), 'resources', 'studio-plugin')
 const CATALOG = resolve(process.cwd(), 'resources', 'mcps', 'catalog.json')
 
 /**
- * The connector-catalogue id each shipped server plugin took over, pinned now
- * that the catalogue's own row for it is retired (frozen-snapshots retirement,
+ * The connector-catalogue id each shipped server plugin takes over, pinned so
+ * the catalogue's own row for it can retire (frozen-snapshots retirement,
  * 2026-09-06). Renaming one of these is the duplicate-row bug rule 3 exists to
  * catch; leaving one in the catalogue as well is the two-routes bug the
  * retirement exists to catch, and both are asserted below.
+ *
+ * EMPTY since 2026-09-08: the studio stopped shipping third-party MCP servers
+ * (owner), so the three ids that used to be pinned here — brave-search,
+ * io-github-containers-kubernetes-mcp-server, io-snyk-mcp — went with their
+ * plugins. The set stays as the tripwire: a server plugin added without pinning
+ * its catalogue id fails the assertion below rather than shipping a second row.
  */
-const CONVERTED_CATALOG_IDS = new Set([
-  'brave-search',
-  'io-github-containers-kubernetes-mcp-server',
-  'io-snyk-mcp',
-])
+const CONVERTED_CATALOG_IDS = new Set<string>([])
 
 /** The Agent Skills specification's ceiling on a description. */
 const MAX_DESCRIPTION_LENGTH = 1024
@@ -163,7 +165,11 @@ async function main(): Promise<void> {
     }
   }
 
-  assert.equal(serverPlugins > 0, true, 'the marketplace ships at least one MCP server as a plugin')
+  // The count is free to be zero. The studio stopped shipping third-party MCP
+  // servers (owner, 2026-09-08), so this suite polices the three rules for
+  // whatever the marketplace DOES carry rather than requiring it to carry a
+  // server at all — a floor of one would have to be deleted the moment the last
+  // one left, which is the same day it stopped being a rule.
   console.log(`studio server plugins: ok (${serverPlugins} of ${manifest.plugins.length} entries are servers)`)
 }
 

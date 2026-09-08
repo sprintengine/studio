@@ -22,7 +22,6 @@ async function main(): Promise<void> {
 
   assert.equal(first.url, second.url)
   assert.equal(first.adminToken, second.adminToken)
-  assert.equal(process.env.MULTICODE_TEST_SPRINTENGINE_MCP_TOKEN, undefined)
   assert.match(first.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   const readyStatus = service.status()
   assert.equal(readyStatus.state, 'ready')

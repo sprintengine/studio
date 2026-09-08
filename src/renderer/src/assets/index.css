@@ -185,7 +185,6 @@
      chrome while every other --bg-app consumer stays opaque. Panels inside
      the workspace card must never paint these tokens. */
   --bg-canvas: var(--bg-app);
-  --bg-title-strip: var(--bg-surface);
   /* Fill for a text field that sits IN the chrome (the rails' search box). The
      raised tone is right on an opaque window, where the field reads as a step
      above the panel behind it. Under glass it is not: the chrome around it goes
@@ -267,7 +266,6 @@
      override --tone-good, and the bundle's two literals would not follow. The
      ratios are the bundle's — 10% wash, 55% edge. */
   --tone-good-faint: color-mix(in oklab, var(--tone-good) 10%, transparent);
-  --tone-good-edge: color-mix(in oklab, var(--tone-good) 55%, transparent);
 
   /* Ink for solid --tone-error fills (danger buttons). Borrowing
      --text-on-accent broke here: that token is tuned for the blue accent and
@@ -465,11 +463,6 @@
   --z-modal: var(--sem-z-modal);
   --z-toast: var(--sem-z-toast);
 
-  /* How much theme ink is mixed into the FileExplorer file-type badge label.
-     0% on dark = the badge keeps its pure language hue; the Light theme raises
-     this so the same hue is darkened toward ink and clears AA on white instead
-     of washing out (e.g. amber-on-pale-amber at ~1.6:1). */
-  --file-badge-ink-mix: 0%;
 }
 
 /* Light theme — paper-warm whites, dark ink text. References: Linear Light,
@@ -558,10 +551,6 @@
      graph still has depth without a blue vignette reading as a colour cast. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.045), transparent 52%);
-
-  /* Darken file-type badge labels toward ink so language hues clear AA on the
-     near-white chip surface instead of washing out. */
-  --file-badge-ink-mix: 50%;
 }
 
 /* ── Theme catalogue ────────────────────────────────────────────────────────
@@ -826,10 +815,6 @@
      the graph keeps depth without a colour cast. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(176, 68, 40, 0.05), transparent 52%);
-
-  /* Darken file-type badge labels toward ink so language hues clear AA on the
-     warm chip surface instead of washing out. */
-  --file-badge-ink-mix: 50%;
 }
 
 /* Herbarium — green-forward light sibling of Vellum, pulling the sage/olive of
@@ -917,10 +902,6 @@
   /* Faint emerald atmosphere leans the graph into the green identity. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(44, 124, 92, 0.06), transparent 52%);
-
-  /* Darken file-type badge labels toward ink so language hues clear AA on the
-     warm chip surface (same as Vellum). */
-  --file-badge-ink-mix: 50%;
 }
 
 /* Paper — the Sprint Engine signature light theme: warm cream canvas, sage
@@ -995,10 +976,6 @@
   /* Faint green atmosphere leans the graph into the brand accent. */
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.05), transparent 52%);
-
-  /* Darken file-type badge labels toward ink so language hues clear AA on the
-     warm chip surface (same as the other light themes). */
-  --file-badge-ink-mix: 50%;
 }
 
 /* Sage — mid-tone muted gray-green ("slate, but green"). Desaturated relative
@@ -1249,15 +1226,9 @@ samp,
 .highlight-text-purple { color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa); }
 .highlight-text-pink   { color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
 
-/* Theme-portable chip surfaces for tone-coded badges (backlog priority,
- * level chips, etc.). Same color-mix approach as highlight palette.
+/* Theme-portable chip ink for tone-coded badges (git status letters, level
+ * chips, etc.). Same color-mix approach as the highlight palette.
  * design-tokens-allow-block: semantic tone hue literals */
-.chip-bg-good { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-good)); }
-.chip-bg-warn { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-warn)); }
-.chip-bg-error { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-error)); }
-.chip-border-good { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-good)); }
-.chip-border-warn { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-warn)); }
-.chip-border-error { border-color: color-mix(in oklab, var(--bg-surface) 65%, var(--tone-error)); }
 .chip-text-good { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-good)); }
 .chip-text-warn { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-warn)); }
 .chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
@@ -1270,8 +1241,8 @@ samp,
  *
  * Mixed against --bg-surface rather than stated as a hex, because the app
  * ships twelve themes and four of them are light: a wash tuned on the dark
- * default washes out on Vellum and muddies Paper. Same recipe as .chip-bg-*
- * above, one step weaker - a whole row is a lot of area, and this has to read
+ * default washes out on Vellum and muddies Paper. Same color-mix recipe as
+ * .chip-text-* above, one step weaker - a whole row is a lot of area, and this has to read
  * as a tint rather than a fill.
  *
  * These sit UNDER interaction state on purpose. A wash is a property of the
@@ -1741,21 +1712,6 @@ samp,
   background: var(--text-muted);
 }
 
-@keyframes chip-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.chip-enter {
-  animation: chip-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
 /* Suspense fallback: hold invisible briefly, then fade in. A code-split chunk
  * that resolves under the delay unmounts the fallback before it ever paints, so
  * fast lazy loads don't flash a spinner. */
@@ -2053,24 +2009,6 @@ samp,
   }
 }
 
-/* Full-app Settings route surface. Owns the entrance fade so consumers don't
- * roll their own. Stays inside the "≤ 1 motion treatment animating" budget by
- * using opacity only — no translate to compete with content. */
-.settings-route,
-.automations-route {
-  opacity: 0;
-}
-.settings-route[data-state="open"],
-.automations-route[data-state="open"] {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .settings-route,
-  .automations-route {
-    transition: opacity var(--motion-normal) var(--motion-ease);
-  }
-}
-
 /* Canonical modal/overlay scrim. A plain composited translucent layer — never
  * add `backdrop-filter` here or on any full-viewport backdrop: the blur
  * re-runs every frame anything behind it repaints (streaming terminals
@@ -2177,46 +2115,6 @@ samp,
   animation-delay: 300ms;
 }
 
-/* Creation-hub page turn: the incoming page slides in from the direction of
- * travel, so Continue and Back read as movement through the flow rather than a
- * swap. Applied by NewWorkspacePanel from its `direction` state. */
-@keyframes wizard-step-in-forward {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes wizard-step-in-backward {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.wizard-step-in-forward {
-  animation: wizard-step-in-forward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.wizard-step-in-backward {
-  animation: wizard-step-in-backward 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wizard-step-in-forward,
-  .wizard-step-in-backward {
-    animation: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .agent-working-dots .agent-working-dot {
     animation: none;
@@ -2253,24 +2151,7 @@ samp,
   }
 }
 
-/* Conversation-agent thinking indicator. The motion is intentionally tiny:
- * enough to prove the model is alive, not enough to become ambient decoration. */
-@keyframes thinking-dot-wave {
-  0%, 80%, 100% {
-    opacity: 0.45;
-    transform: translateY(0);
-  }
-  35% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .thinking-dot-wave {
-    animation: thinking-dot-wave 900ms var(--motion-ease) infinite;
-  }
-
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
   }
@@ -2305,7 +2186,6 @@ samp,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chip-enter,
   .toast-enter,
   .popover-enter,
   .skeleton-shimmer,
@@ -3065,7 +2945,6 @@ body:has([data-selection-pane]:focus-within)
  * so glass works over every theme with no per-theme block. */
 :root[data-window-material="glass"] {
   --bg-canvas: transparent;
-  --bg-title-strip: transparent;
   /* A field in the chrome tints the frost instead of replacing it, so it stays
      the same material as the bar it sits in and reads as a field by its border
      and its depth rather than by being a different colour. Mixed from --bg-app,

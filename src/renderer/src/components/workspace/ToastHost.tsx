@@ -10,9 +10,9 @@ import { shortMachineName } from '../remote/machineRowModel'
 // producers that have no pane of their own (MC: remote-sessions-ux /
 // toast-host-region). Pane-owned producers call `showToast` directly.
 //
-// First producers: fleet connection lifecycle. Per the toast spec these
+// First producers: remote connection lifecycle. Per the toast spec these
 // announce and never act — pairing state stays readable in Settings → Remote
-// and the Fleet panel, link state on the pane itself.
+// and the top bar's Remote glyph, link state on the pane itself.
 export function ToastHost() {
   useFleetToastBridge()
   usePairRequestToastBridge()

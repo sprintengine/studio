@@ -39,7 +39,6 @@ export const terminalApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalStatus: (sessionId: string): Promise<{ processAlive: boolean; suspended: boolean }> => ipcRenderer.invoke('terminal:status', sessionId),
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
-  terminalDefaultShellName: (): Promise<string> => ipcRenderer.invoke('terminal:default-shell-name'),
   terminalSetVisible: (sessionId: string, visible: boolean) => ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
   terminalSuspend: (sessionId: string) => ipcRenderer.invoke('terminal:suspend', sessionId),
   terminalResume: (
@@ -114,7 +113,6 @@ export const terminalApi = {
   | 'terminalResize'
   | 'terminalStatus'
   | 'terminalList'
-  | 'terminalDefaultShellName'
   | 'terminalSetVisible'
   | 'terminalSuspend'
   | 'terminalResume'

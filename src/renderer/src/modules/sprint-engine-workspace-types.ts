@@ -55,8 +55,7 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     // hub reroutes any selection of it to the dialog.
     pickerOrder: 20,
   })
-  // The `roadmap` workspace type retired (MC-1692): Roadmap is now an
-  // instance-global door in the sidebar (the `roadmap` capability module's
-  // sidebar-nav contribution), not a per-project workspace you mint from the
-  // picker. Its board panel + sidebar door live in `roadmap-module.ts`.
+  // The `roadmap` workspace type retired (MC-1692) and its door was deleted on
+  // 2026-09-05, so nothing registers it. The plans it steered are still files
+  // under the home project's `backlog/roadmaps/`.
 }

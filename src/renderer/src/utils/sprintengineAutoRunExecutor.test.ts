@@ -12,7 +12,7 @@ import {
   writeBracketedPrompt,
   TERMINAL_LIST_IPC_NOTICE_COOLDOWN_MS,
   type SprintEngineAutoRunExecutorPorts,
-} from './sprintengineAutoRunExecutor'
+} from '../../../shared/sprintengine/auto-run-executor'
 
 type Call = {
   method: string

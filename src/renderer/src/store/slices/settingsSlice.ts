@@ -77,12 +77,6 @@ export type SettingsOverlayState = {
   checkForUpdatesRequestId: number | null
 }
 
-export type RunSummaryOverlayState = {
-  open: boolean
-  /** Which workspace's run summary the overlay is showing. */
-  workspaceId: string | null
-}
-
 export const defaultLearningSettings = (): LearningSettings => ({
   showTipsOnStartup: true,
   lastShownTipId: null,
@@ -120,10 +114,6 @@ export function normalizeLearningSettings(input: unknown): LearningSettings {
         : null,
     seenTipIds: normalizeLearningStringList(candidate.seenTipIds),
     completedLessonIds: normalizeLearningStringList(candidate.completedLessonIds),
-    dismissedVersion:
-      typeof candidate.dismissedVersion === 'string' && candidate.dismissedVersion.trim()
-        ? candidate.dismissedVersion.trim()
-        : undefined,
   }
 }
 
@@ -1132,9 +1122,8 @@ export const DEFAULT_CHECK_CLI_VERSIONS = true
 export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
-  runSummaryOverlay: RunSummaryOverlayState
   // The active door-routed full-page surface for this window (global-surfaces
-  // epic 1704): a registered surface id (e.g. 'roadmap') or null when a
+  // epic 1704): a registered surface id (e.g. 'sprints') or null when a
   // workspace — not a door — owns the card region. Per-window and transient
   // (omitted from extractSettingsFields / partializeWorkspaceStoreState, so
   // never persisted and never replicated across windows). Unlike the Settings
@@ -1222,8 +1211,6 @@ export interface SettingsSliceActions {
   setCheckCliVersions: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
-  openRunSummaryOverlay: (workspaceId: string) => void
-  closeRunSummaryOverlay: () => void
   // Opens the Plugins modal on the requested view: every legacy caller — the
   // command palette, Settings → Modules, the agent "Manage skills" footers —
   // lands on the modal with its deep-link latched. (Was the Extensions door
@@ -1411,7 +1398,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null },
-    runSummaryOverlay: { open: false, workspaceId: null },
     activeGlobalSurface: null,
     activeModalSurface: null,
     sidebarSection: 'home',
@@ -1508,18 +1494,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         clearSettingsRequest(state)
       }),
 
-
-    openRunSummaryOverlay: (workspaceId) =>
-      set((state) => {
-        state.runSummaryOverlay.open = true
-        state.runSummaryOverlay.workspaceId = workspaceId
-      }),
-
-    closeRunSummaryOverlay: () =>
-      set((state) => {
-        state.runSummaryOverlay.open = false
-        state.runSummaryOverlay.workspaceId = null
-      }),
 
     openExtensionsSurface: (opts) => {
       // Latch the deep-link first (the surface drains it on mount or live),

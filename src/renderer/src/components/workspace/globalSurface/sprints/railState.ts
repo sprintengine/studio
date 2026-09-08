@@ -73,7 +73,7 @@ export type SprintProjectChip = {
 
 // The aggregate the sidebar door dot carries while the surface is closed: any run
 // waiting on the operator outranks any run merely running (the backlog-glyph
-// precedence rule, same shape as RoadmapAttention).
+// precedence rule).
 export type SprintDoorAttention = {
   waiting: boolean
   running: boolean

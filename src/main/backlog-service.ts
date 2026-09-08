@@ -435,9 +435,8 @@ export type BacklogFrontmatterFields = {
   risk?: BacklogObjectRecord['risk']
   epic?: string
   // Prerequisite slugs from the `dependsOn:` CSV line, valid-slug filtered.
-  // Exposed for the roadmap orchestrator's eligibility (MC-1619), which needs
-  // the dependency axis the panel read model derives in the renderer; empty when
-  // the line is absent.
+  // Exposed so a main-process caller has the dependency axis the panel read
+  // model derives in the renderer; empty when the line is absent.
   dependsOn?: string[]
   // The epic's `dependenciesPlanned:` mark (MC-2137). Only meaningful on an epic
   // — a leaf item carrying it means nothing — but parsed for any file, since the
@@ -449,8 +448,8 @@ export function readBacklogFrontmatterFields(content: string): BacklogFrontmatte
   const { fields } = parseBacklogFrontmatter(content)
   // The parser lowercases every key, so a camelCase field is read at its
   // lowercased spelling. Reading `fields.dependsOn` matched nothing and silently
-  // dropped every prerequisite edge this reader exists to expose — the roadmap
-  // orchestrator's whole dependency axis (MC-1619) was empty here.
+  // dropped every prerequisite edge this reader exists to expose — the whole
+  // dependency axis was empty here.
   const dependsOn = parseBacklogCsvList(fields.dependson).filter(isValidBacklogSlug)
   const dependenciesPlanned = backlogDependenciesPlannedFromFields(fields)
   return {
@@ -486,8 +485,8 @@ type BacklogListedItem = {
   criticality?: BacklogObjectRecord['criticality']
   risk?: BacklogObjectRecord['risk']
   epic?: string
-  // Prerequisite slugs (`dependsOn:`), for the roadmap orchestrator's
-  // eligibility (MC-1619). Present only when the item declares dependencies.
+  // Prerequisite slugs (`dependsOn:`). Present only when the item declares
+  // dependencies.
   dependsOn?: string[]
   // The epic's "ordering is done" mark (MC-2137). Present only when set, so an
   // unflagged epic reads exactly as it did before the field existed.

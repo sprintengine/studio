@@ -18,10 +18,6 @@ import {
   sprintEngineAutomationShouldRun,
 } from './sprintengineAutomationLifecycle'
 import {
-  createAutoRunPollerController,
-  enterDormancyIfRunComplete,
-} from './sprintengineAutoRunRendererHost'
-import {
   createProjectionPollLoop,
   sprintEngineWorkspacesNeedProjectionPolling,
 } from '../components/workspace/SprintEngineProjectionSupervisor'
@@ -35,7 +31,6 @@ import { getTimerRegistrations } from './diagnostics/timerRegistry'
 // just how each behaves alone — fails here.
 
 const PROJECTION_LABEL = 'SprintEngine projection poll'
-const AUTO_RUN_LABEL = 'SprintEngine auto-run poll'
 const FIXED_NOW = 4321
 
 // The reconcile fires teardown without awaiting it; drain the microtask queue so
@@ -85,13 +80,12 @@ function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
   } as unknown as Workspace
 }
 
-// ── 1. Dual-path teardown-once ────────────────────────────────────────────────
-// A run first driven complete by the auto-run hard-completion gate
-// (`enterDormancyIfRunComplete`) and then re-entered by the projection reconcile
-// path (`enterSprintEngineDormancy`) fires `runner_complete` and tears its agents
-// down EXACTLY ONCE — because both paths share the persisted completion-teardown
-// marker on the same `sprintEngineAutoState`.
-async function testDualPathTeardownRunsExactlyOnce(): Promise<void> {
+// ── 1. Repeat-entry teardown-once ────────────────────────────────────────────
+// A run driven complete by the projection reconcile path
+// (`enterSprintEngineDormancy`) and then re-entered on a later tick fires
+// `runner_complete` and tears its agents down EXACTLY ONCE — because every entry
+// reads the same persisted completion-teardown marker on `sprintEngineAutoState`.
+async function testRepeatEntryTeardownRunsExactlyOnce(): Promise<void> {
   const state = { ...autoState({ runtimeState: 'running', completionTeardownAt: undefined }) }
   const workspace = { id: 'ws', sprintEngineAutoState: state } as Pick<
     Workspace,
@@ -114,22 +108,19 @@ async function testDualPathTeardownRunsExactlyOnce(): Promise<void> {
     },
     now: () => FIXED_NOW,
   }
-  const completedRun = { tasks: [{ id: 'T1', status: 'done' }] } as unknown as SprintEngineState
-
-  // Path A: the auto-run 4s poll detects completion first.
-  const enteredA = enterDormancyIfRunComplete(workspace, completedRun, ports)
+  // First entry: the projection reconcile detects completion.
+  enterSprintEngineDormancy(workspace, ports)
   await flushMicrotasks()
-  assert.equal(enteredA, true, 'auto-run gate enters dormancy for a completed run')
   assert.equal(applierCount, 1, 'runner_complete fired once on the first entry')
   assert.equal(teardownCount, 1, 'agents torn down once on the first entry')
   assert.equal(state.completionTeardownAt, FIXED_NOW, 'shared teardown marker is set')
   assert.equal(events[0]?.type, 'runner_complete', 'the single event is the completion transition')
 
-  // Path B: the projection reconcile re-enters dormancy on a later tick.
+  // A later tick re-enters dormancy on the same state.
   enterSprintEngineDormancy(workspace, ports)
   await flushMicrotasks()
-  assert.equal(applierCount, 1, 'runner_complete NOT re-fired via the projection path')
-  assert.equal(teardownCount, 1, 'agents NOT re-torn-down via the projection path (marker gates it)')
+  assert.equal(applierCount, 1, 'runner_complete NOT re-fired on the second entry')
+  assert.equal(teardownCount, 1, 'agents NOT re-torn-down on the second entry (marker gates it)')
 }
 
 // ── 2. Dormant is skipped by BOTH supervisor gates ────────────────────────────
@@ -255,11 +246,14 @@ async function testForcedRefreshIsDisplayOnlyOnDormantRun(): Promise<void> {
   assert.deepEqual(backlogMutations, [], 'no backlog-link mutation on a dormant refresh')
 }
 
-// ── 4. All-dormant ⇒ both supervisor intervals + registered timers are gone ──
+// ── 4. All-dormant ⇒ the projection interval + its registered timer are gone ──
 // The two "needs me" derivations both return false when every run is dormant, so
-// neither supervisor holds a live interval and NEITHER label remains in the live
-// diagnostics timer registry. Flipping one run live re-arms both; going dormant
-// again empties the registry. This is the observable quiescence signal.
+// the projection supervisor holds no live interval and its label leaves the live
+// diagnostics timer registry. Flipping one run live re-arms both derivations and
+// the timer; going dormant again empties the registry. This is the observable
+// quiescence signal. (The auto-run cycle itself runs in the main process — see
+// `src/shared/sprintengine/auto-run-cycle.ts`; only its demand derivation is
+// asserted here.)
 function testAllDormantEmptiesBothTimerRegistrations(): void {
   const runs: Workspace[] = [
     sprintWorkspace('r1', {
@@ -285,43 +279,29 @@ function testAllDormantEmptiesBothTimerRegistrations(): void {
     setInterval: () => (nextId += 1),
     clearInterval: () => {},
   })
-  const autoRunController = createAutoRunPollerController({
-    isPollerNeeded: autoRunNeeded,
-    tick: () => {},
-    setInterval: () => (nextId += 1),
-    clearInterval: () => {},
-  })
 
   try {
     // All dormant: both derivations false, nothing armed, registry empty for both.
     assert.equal(projectionNeeded(), false, 'projection supervisor needs nothing when all runs dormant')
     assert.equal(autoRunNeeded(), false, 'auto-run supervisor needs nothing when all runs dormant')
     projectionLoop.sync(projectionNeeded())
-    autoRunController.sync()
     assert.equal(labelCount(PROJECTION_LABEL), 0, 'no projection poll timer while all dormant')
-    assert.equal(labelCount(AUTO_RUN_LABEL), 0, 'no auto-run poll timer while all dormant')
 
     // A user resumes r1 to a running mode: both derivations flip true, both re-arm.
     runs[0].sprintEngineAutoState = autoState({ runtimeState: 'running' })
     assert.equal(projectionNeeded(), true, 'a resumed run re-arms projection demand')
     assert.equal(autoRunNeeded(), true, 'a resumed run re-arms auto-run demand')
     projectionLoop.sync(projectionNeeded())
-    autoRunController.sync()
     assert.equal(labelCount(PROJECTION_LABEL), 1, 'projection poll timer re-registered on demand')
-    assert.equal(labelCount(AUTO_RUN_LABEL), 1, 'auto-run poll timer re-registered on demand')
 
     // The run finishes again → back to dormant → both registrations disappear.
     runs[0].sprintEngineAutoState = autoState({ runtimeState: 'complete', completionTeardownAt: 500 })
     projectionLoop.sync(projectionNeeded())
-    autoRunController.sync()
     assert.equal(labelCount(PROJECTION_LABEL), 0, 'projection poll timer unregistered on re-dormancy')
-    assert.equal(labelCount(AUTO_RUN_LABEL), 0, 'auto-run poll timer unregistered on re-dormancy')
   } finally {
     projectionLoop.dispose()
-    autoRunController.dispose()
   }
   assert.equal(labelCount(PROJECTION_LABEL), 0, 'dispose leaves no projection registration')
-  assert.equal(labelCount(AUTO_RUN_LABEL), 0, 'dispose leaves no auto-run registration')
 }
 
 // ── 5. Interrupted-teardown non-quiescence heals on reload (T9) ───────────────
@@ -414,7 +394,7 @@ async function testInterruptedTeardownHealsOnReload(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await testDualPathTeardownRunsExactlyOnce()
+  await testRepeatEntryTeardownRunsExactlyOnce()
   console.log('sprintengineDormancy: dual-path teardown-once — ok')
   testDormantRunSkippedByBothSupervisorGates()
   console.log('sprintengineDormancy: dormant skipped by both supervisor gates — ok')

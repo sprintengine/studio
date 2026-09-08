@@ -18,10 +18,8 @@ import type {
   SprintEngineRosterEnableInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
-  SprintEngineTaskCreateInput,
   SprintEngineTaskResolveInput,
   SprintEngineTaskStatusSetInput,
-  SprintEngineTaskUpdateInput,
   SprintEngineTaskWorktreeInput,
   SprintEngineTaskWorktreeResult,
 } from '../../shared/electron-api'
@@ -61,14 +59,6 @@ export const sprintEngineApi = {
     input: SprintEngineStateInitializeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:state:initialize', input),
-  updateSprintEngineTask: (
-    input: SprintEngineTaskUpdateInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:task:update', input),
-  createSprintEngineTask: (
-    input: SprintEngineTaskCreateInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:task:create', input),
   commentSprintEngineTask: (
     input: SprintEngineTaskCommentInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -197,8 +187,6 @@ export const sprintEngineApi = {
   | 'autoApproveSprintEngineArtifact'
   | 'requestSprintEngineArtifactChanges'
   | 'initializeSprintEngineState'
-  | 'updateSprintEngineTask'
-  | 'createSprintEngineTask'
   | 'commentSprintEngineTask'
   | 'resolveSprintEngineTaskInput'
   | 'setSprintEngineTaskStatus'

@@ -92,8 +92,8 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   const workflow = await readdir(join(TEMPLATE_ROOT, STUDIO_SKILLS_PLUGIN_ID, 'skills'), { withFileTypes: true })
   assert.equal(
     workflow.filter((entry) => entry.isDirectory()).length,
-    12,
-    'the twelve workflow skills ship inside the marketplace'
+    10,
+    'the ten workflow skills ship inside the marketplace'
   )
   // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
   // particular: the root `.gitignore` entry for the generated workspace config

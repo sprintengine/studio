@@ -25,7 +25,6 @@ function firstSentence(text: string): string {
 function mcpIconSlug(id: string): string | null {
   if (id === 'context7') return null
   if (id === 'openai-docs') return 'openai'
-  if (id === 'brave-search') return 'brave'
   return id
 }
 

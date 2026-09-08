@@ -63,7 +63,6 @@ const CATEGORY_LABELS: Record<CommandCategory, string> = {
   panel: 'Panels',
   specialist: 'Specialists',
   voice: 'Voice',
-  editor: 'Editor',
   sprintengine: 'Sprint',
   git: 'Git',
   terminal: 'Terminal',

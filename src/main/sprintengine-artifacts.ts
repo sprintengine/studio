@@ -659,7 +659,7 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
     // validation (--agent role:id) resolves exactly
     // the roles the menu offered — plugin roots are dynamic and only the
     // running app knows them (the user-install root the engine now finds
-    // natively; see MULTICODE_USER_REGISTRY_ROOT in role_registry.py).
+    // natively; see MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT in role_registry.py).
     const registryRoots = sprintEngineRegistryRootsForRead()
     const cliEnv: NodeJS.ProcessEnv = {
       ...process.env,

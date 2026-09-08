@@ -24,9 +24,9 @@ export function plainSkillInvocation(skillId: string): string {
 }
 
 /**
- * The CLI-native explicit invocation for a skill (e.g. `/debug` / `/use-railway`
- * for Claude, `Use $debug.` / `Use $use-railway.` for Codex), read from a
- * plugin's declared skill-invocation template with `{{skillId}}` substituted.
+ * The CLI-native explicit invocation for a skill (e.g. `/debug` / `/handoff`
+ * for Claude, `Use $debug.` / `Use $handoff.` for Codex), read from a plugin's
+ * declared skill-invocation template with `{{skillId}}` substituted.
  * Undefined when the plugin declares no native skill support or no explicit
  * template, so callers fall back to the plain directive/instruction.
  *

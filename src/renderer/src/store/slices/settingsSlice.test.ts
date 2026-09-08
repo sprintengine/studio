@@ -133,7 +133,6 @@ assert.deepEqual(normalized.learning, {
   lastShownTipId: 'tip-intro',
   seenTipIds: ['tip-intro', 'tip-next'],
   completedLessonIds: ['lesson-a'],
-  dismissedVersion: undefined,
 })
 assert.deepEqual(normalized.keybindings, defaultKeybindingSettings())
 
@@ -417,7 +416,6 @@ const carrier = {
   appSettings: defaultAppSettings(),
   settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null } as SettingsOverlayState,
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
-  runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null as string | null,
   activeModalSurface: null as string | null,
   sidebarSection: 'home' as SidebarSection,
@@ -519,7 +517,7 @@ carrier.sidebarSection = 'home'
 // The door-routed full-page surface (global-surfaces epic 1704) is a mount kind,
 // not an overlay: openGlobalSurface sets the active surface id, closeGlobalSurface
 // clears it. Per-window and transient (unsynced/unpersisted — see
-// extractSettingsFields, which omits it), like the Connectors/Roadmap flags.
+// extractSettingsFields, which omits it), like the other per-window flags.
 slice.openGlobalSurface('roadmap')
 assert.equal(carrier.activeGlobalSurface, 'roadmap')
 slice.openGlobalSurface('backlog')
@@ -616,7 +614,6 @@ const permissionCarrier = {
   appSettings: defaultAppSettings(),
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
-  runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null,
   activeModalSurface: null,
   sidebarSection: 'home' as SidebarSection,

@@ -57,7 +57,11 @@ const CATALOG_IDS = [
 /**
  * Servers a person can install as a plugin instead, and therefore must not find
  * here as well: the 39 measured against the official marketplace's manifest at
- * its head on 2026-09-06, and the 3 we published as plugins ourselves.
+ * its head on 2026-09-06, plus brave-search, io-github-containers-kubernetes-
+ * mcp-server and io-snyk-mcp — the three the studio published as plugins itself
+ * until it stopped shipping third-party servers (owner, 2026-09-08). All 42
+ * stay excluded here: the official marketplace still carries them, so a
+ * catalogue row would still be a second route to the same server.
  */
 const CARRIED_BY_A_PLUGIN = [
   'ai-exa-exa',

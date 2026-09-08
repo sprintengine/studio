@@ -394,8 +394,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
 
   /**
    * Adopt a full record composed elsewhere — the renderer's creation path for
-   * the modes it still composes (a Sprint Engine roster, a guided brief), which
-   * carry roster/layout logic that lives in the window. Main stays the only
+   * a Sprint Engine roster, the one mode it still composes, which carries
+   * roster/layout logic that lives in the window. Main stays the only
    * WRITER: the record is normalized to what the registry owns, stamped, and
    * persisted here. The renderer proposes; main decides and persists.
    */

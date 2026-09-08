@@ -298,7 +298,6 @@ export type LearningSettings = {
   lastShownTipId: string | null
   seenTipIds: string[]
   completedLessonIds: string[]
-  dismissedVersion?: string
 }
 
 // Whisper model ids understood by a Multivoice transcription host (the lowercase
@@ -560,7 +559,6 @@ export type DiagnosticSource =
   | 'automations'
   | 'cli'
   | 'filesystem'
-  | 'git'
   | 'marketplace'
   | 'models'
   | 'sprintengine'

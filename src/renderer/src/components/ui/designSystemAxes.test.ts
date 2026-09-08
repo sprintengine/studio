@@ -138,11 +138,12 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
   // knowledge-graph drawer, both HTML-artifact bands — gave up their local
   // buttons for `ui/PanelHeader` and the kit primitives inside it.
-  // The 2026-08-06 radius drop — workspace 174 → 169 — is MC-2122's spawn
+  // The 2026-08-06 radius drop — workspace 174 → 169 — was MC-2122's spawn
   // consolidation: `AgentComposerPopover` was deleted outright and its
-  // replacement, `agentComposer/SpawnPicker.tsx`, hangs off the model picker's
-  // own popover surface instead of hand-rolling a second one, so five
-  // `rounded-*` spellings left the tree with it. Locked in here rather than
+  // replacement hung off the model picker's own popover surface instead of
+  // hand-rolling a second one, so five `rounded-*` spellings left the tree with
+  // it. (That replacement, `agentComposer/SpawnPicker.tsx`, was itself deleted
+  // on 2026-09-08 — nothing had mounted it since `NewAgentPanel` took over.) Locked in here rather than
   // left as headroom, which is what lets the next regression show up as one.
   radius: {
     // 42 → 40: the launch panel's MenuRow and MenuValueRow gave up their
@@ -229,9 +230,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 6,
     'components/diagnostics': 2,
   },
-  // icon workspace 43 → 38 is the same MC-2122 consolidation as the radius drop
-  // above: the deleted composer popover spelled its own icon boxes, and
-  // `SpawnPicker` takes the ramp classes the picker surface already uses.
+  // icon workspace 43 → 38 was the same MC-2122 consolidation as the radius
+  // drop above: the deleted composer popover spelled its own icon boxes, and
+  // `SpawnPicker` took the ramp classes the picker surface already used.
+  // `SpawnPicker` itself was deleted on 2026-09-08 (see the workspace note
+  // below); `NewAgentPanel` is the surface that mounts the picker now.
   icon: {
     // 30 → 21, 2026-09-06. This one is a repair, not a sweep. The ratchet had
     // actually GROWN to 31: the remote-machine tab chip (8866d95e6,
@@ -259,7 +262,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // to `components/htmlArtifact` (see its entry below) — the same off-ramps
     // at a new address, not a win. The other two went with the wizard's own
     // panes. Banked either way, so the next regression shows up as one.
-    'components/workspace': 12,
+    // workspace 12 → 11, 2026-09-08: `agentComposer/SpawnPicker.tsx` left the
+    // tree in the orphan sweep — the MC-2122 picker-as-spawner that nothing has
+    // mounted since NewAgentPanel became the live surface, so its one
+    // hand-spelled icon box goes with it. Banked, not left as headroom.
+    'components/workspace': 11,
     'components/panels': 12,
     'components/ui': 14,
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard

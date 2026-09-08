@@ -13,9 +13,9 @@
  * polling now, and the renderer supervisor is retired, so opening a second window
  * no longer doubles the `gh` probes. The decision-scoped probes elsewhere are
  * unaffected and are not pollers: one shot when a run surface opens
- * (`useRunPullRequestMergePoll`, `roadmapBoardData.ts`), and one when a caller
- * must not decide on stale merge state (`roadmap-orchestrator-ports.ts`, and the
- * `run-landed` automation trigger, which carries its own throttle).
+ * (`useRunPullRequestMergePoll`), and one when a caller must not decide on
+ * stale merge state (the `run-landed` automation trigger, which carries its
+ * own throttle).
  *
  * WHICH RUNS. Not the scheduler's registry — a PR is normally opened as the run
  * finishes, and boot discovery deliberately skips terminal runs, so the runs whose

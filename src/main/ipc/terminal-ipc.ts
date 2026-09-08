@@ -11,7 +11,6 @@ import type {
   TerminalSpawnResult,
 } from '../../shared/electron-api'
 import type { AgentLaunchRecord } from '../../shared/agent-launch'
-import { resolveDefaultShellName } from '../terminal-launch'
 
 export type TerminalSpawnPayload = {
   sessionId: string
@@ -124,11 +123,6 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
   ipcMain.handle('terminal:list', (): TerminalSessionSnapshot[] => {
     return deps.listTerminals()
   })
-
-  // The name of the shell a plain terminal actually launches, for surfaces that
-  // name it rather than saying "terminal" (MC-2122). Resolved by the launcher
-  // itself, so the name and the process cannot drift.
-  ipcMain.handle('terminal:default-shell-name', (): string => resolveDefaultShellName())
 
   ipcMain.handle('terminal:set-visible', (event, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
     deps.setTerminalVisible(sessionId, visible, event.sender)

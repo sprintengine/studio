@@ -50,7 +50,7 @@ function provider(
 {
   let revealed: string | null = null
   const actions = resolveNotificationActions({
-    notification: notification({ source: 'git', workspaceId: 'ws-1' }),
+    notification: notification({ source: 'terminal', workspaceId: 'ws-1' }),
     providers: [],
     revealWorkspace: (id) => { revealed = id },
   })
@@ -63,7 +63,7 @@ function provider(
 // --- No provider match + no workspaceId -> no actions. ------------------------
 {
   const actions = resolveNotificationActions({
-    notification: notification({ source: 'git', workspaceId: undefined }),
+    notification: notification({ source: 'terminal', workspaceId: undefined }),
     providers: [],
     revealWorkspace: () => assert.fail('nothing to reveal'),
   })

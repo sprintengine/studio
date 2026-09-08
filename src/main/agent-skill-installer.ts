@@ -311,10 +311,9 @@ function harnessTargets(
 
 /**
  * A built-in that names its harnesses is restricting where it may go, not
- * describing where it happens to be: `use-codex` must never land in
- * `.codex/skills` — it would tell Codex to delegate to itself — and
- * `frontend-design` is Claude-only. `targetPolicy: 'all-native'` and an
- * undeclared list both mean every skill-capable harness.
+ * describing where it happens to be: `frontend-design` is Claude-only, so it
+ * resolves `.claude/skills` and nothing else. `targetPolicy: 'all-native'` and
+ * an undeclared list both mean every skill-capable harness.
  */
 function allowsHarness(builtin: BuiltinSkill | null, harnessId: string): boolean {
   if (!builtin?.harnesses?.length) return true

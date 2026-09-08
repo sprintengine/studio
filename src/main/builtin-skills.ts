@@ -89,27 +89,6 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
   {
-    id: 'use-railway',
-    name: 'Use Railway',
-    version: '1.0.0',
-    description: 'Explore and operate a Railway environment from chat: auth check, projects, deploy status, health, and follow-ups.',
-    // The Railway connector installs this into whichever CLI it launches so the
-    // seed prompt can invoke it natively (.claude/skills, .codex/skills), not
-    // just .agents/. launchConnectorChat ensure-installs it at spawn.
-    targetPolicy: ALL_NATIVE_TARGET_POLICY,
-  },
-  {
-    id: 'use-codex',
-    name: 'Use Codex',
-    version: '1.0.0',
-    description:
-      'Delegate non-UI implementation, second-opinion reviews, image generation, and chores to the local Codex CLI.',
-    // Deliberately not all-native: installing "delegate to Codex" into
-    // .codex/skills would tell Codex to delegate to itself. Static targets
-    // only — .agents plus Claude Code's native skill dir.
-    harnesses: ['agents', 'claude'],
-  },
-  {
     id: 'review-guide',
     name: 'Review Guide',
     version: '1.0.0',

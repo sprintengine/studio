@@ -11,8 +11,8 @@ import type { ExtensionsSurfaceTarget } from './extensions/extensionsSurfaceTarg
 // their own contract; this one covers the seams between them, which is where an
 // epic assembled by six agents actually breaks:
 //
-//  1. The doors coexist on the REAL renderer kernel — Sprints joined
-//     Roadmap/Reviews at the orders the mockup's sidebar shows, each with a
+//  1. The doors coexist on the REAL renderer kernel — Sprints sits beside
+//     Reviews at the orders the mockup's sidebar shows, each with a
 //     surface behind it, and each vanishes with its module.
 //  2. The Sprints door survives an unreadable run index and RECOVERS from it —
 //     the degraded state is a way back, not a dead end (the leg the composition
@@ -939,7 +939,8 @@ async function main(): Promise<void> {
   // has resolved to nothing (no project open, no runs, unstubbed IPC).
   //
   // This is the leg that regressed silently: three doors gated the prop on
-  // having data (`runs.length > 0`, `entries.length > 0`, `hasRoadmaps`) and one
+  // having data (`runs.length > 0`, `entries.length > 0`, and the retired
+  // Roadmap door's `hasRoadmaps`) and one
   // withheld it while loading, so "drilling in replaces the sidebar" held only
   // once a door had something in it — and an empty or slow door sat beside the
   // projects rail as a second column of things to choose. Reading the presence

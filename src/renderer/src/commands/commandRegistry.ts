@@ -24,7 +24,7 @@ export const COMMAND_REGISTRY = [
     title: 'Check For Updates',
     category: 'settings',
     scopes: ['global'],
-    handlerPath: { kind: 'app-menu', command: 'check-for-updates' },
+    handlerPath: { kind: 'app-menu', command: 'app.updates.check' },
   }),
   command({
     id: 'commandPalette.open',
@@ -207,7 +207,7 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+E'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'app-menu', command: 'toggle-explorer' },
+    handlerPath: { kind: 'app-menu', command: 'panel.files.toggle' },
   }),
   command({
     id: 'panel.editor.toggle',
@@ -216,7 +216,7 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+O'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'app-menu', command: 'toggle-editor' },
+    handlerPath: { kind: 'app-menu', command: 'panel.editor.toggle' },
   }),
   command({
     id: 'panel.git.toggle',
@@ -225,7 +225,7 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+G'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'app-menu', command: 'toggle-git' },
+    handlerPath: { kind: 'app-menu', command: 'panel.git.toggle' },
   }),
   // The Knowledge Graph has no rail glyph (the rail is reserved for the
   // navigational core: Files / Git / Backlog), so this

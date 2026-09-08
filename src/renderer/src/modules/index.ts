@@ -51,8 +51,8 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true
 
 // Active renderer modules for this build channel. Dev-only modules (Voice,
-// Mobile Relay, and the not-yet-production-
-// ready Roadmap and Review) are dropped from a packaged (production) renderer
+// Mobile Relay, and the not-yet-production-ready Review) are dropped from a
+// packaged (production) renderer
 // bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev
 // build the full set is active and the modules remain user-toggleable. See

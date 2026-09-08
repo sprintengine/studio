@@ -7,7 +7,6 @@ export type CommandCategory =
   | 'panel'
   | 'specialist'
   | 'voice'
-  | 'editor'
   | 'sprintengine'
   | 'git'
   | 'terminal'
@@ -68,7 +67,6 @@ type CommandHandlerPath =
   | { kind: 'workspace-manager'; handler: string }
   | { kind: 'panel-event'; eventId: string }
   | { kind: 'app-menu'; command: string }
-  | { kind: 'command-palette'; handler: string }
   | { kind: 'context-bound'; owner: string; action: string }
 
 // The published context view a module availability predicate is evaluated
@@ -97,7 +95,6 @@ export type CommandContribution = {
   // the same availability gate the palette and dispatcher share; absent a
   // context (early boot) the command is unavailable, never a silent no-op.
   availabilityPredicate?: (context: ModuleCommandContext) => boolean
-  keybindingContext?: string
   allowInEditableTarget?: boolean
 }
 

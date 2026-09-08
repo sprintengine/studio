@@ -1576,8 +1576,7 @@ function PickRow({
   // pick, the normal state of this list — and on an unpicked row it is
   // indistinguishable from plain pointer hover. So the cursor takes a channel of
   // its own that composes with both fills: the kit's leading rule
-  // (`LIST_CURSOR_MARK_CLASS`), which is neither a fill nor a ring. Same mark the
-  // roadmap plan column's j/k cursor draws.
+  // (`LIST_CURSOR_MARK_CLASS`), which is neither a fill nor a ring.
   // A child that will NOT be imported reads as excluded: struck, and without the
   // implied rule its open siblings carry (MC-2129). The count on the source chip
   // and this styling answer the same question — what actually goes in — so they

@@ -187,8 +187,6 @@ async function main(): Promise<void> {
       'architecture-deepening',
       'handoff',
       'backlog',
-      'use-railway',
-      'use-codex',
       'review-guide',
       'frontend-design',
     ]
@@ -329,33 +327,6 @@ async function main(): Promise<void> {
   assert.equal(
     await readFile(join(workspaceRoot, '.pi', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
     'version three\n'
-  )
-
-  // Selective-harness skills (harnesses: ['agents', 'claude']) resolve static
-  // targets only — no all-native plugin fan-out, and never the Codex harness.
-  const useCodexMissing = await manager.getStatus(workspaceRoot, 'use-codex')
-  assert.equal(useCodexMissing.ok, true)
-  assert.equal(useCodexMissing.ok && useCodexMissing.status, 'missing')
-  assert.deepEqual(
-    useCodexMissing.ok && useCodexMissing.targets.map((target) => target.harness).sort(),
-    ['agents', 'claude'],
-    'use-codex targets exactly .agents and .claude'
-  )
-
-  const useCodexInstalled = await manager.install(workspaceRoot, 'use-codex')
-  assert.equal(useCodexInstalled.ok, true)
-  assert.equal(useCodexInstalled.ok && useCodexInstalled.status, 'installed')
-  for (const dir of ['.agents', '.claude']) {
-    assert.equal(
-      await readFile(join(workspaceRoot, dir, 'skills', 'use-codex', 'SKILL.md'), 'utf-8'),
-      'version three\n',
-      `use-codex installs to ${dir}/skills/use-codex`
-    )
-  }
-  await assert.rejects(
-    readFile(join(workspaceRoot, '.pi', 'skills', 'use-codex', 'SKILL.md'), 'utf-8'),
-    /ENOENT/,
-    'use-codex must not fan out to other native CLI harnesses'
   )
 
   // frontend-design (MC-1511) is Claude-only: harnesses: ['claude'] resolves a

@@ -159,8 +159,8 @@ export const FOCUS_RING_TERMINAL_CLASS = 'terminal-focus-ring'
  * The row it sits in must be `relative`. Mark the span `aria-hidden` — the cursor
  * is already announced through `aria-activedescendant` or DOM focus.
  *
- * Shared so the two lists that carry a cursor — the New Sprint backlog listbox
- * and the roadmap plan column's j/k cursor — cannot drift into two idioms.
+ * Shared so every list that carries a cursor — the New Sprint backlog listbox
+ * is the one that draws it today — cannot drift into two idioms.
  */
 export const LIST_CURSOR_MARK_CLASS =
   'pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-[color:var(--text-strong)]'

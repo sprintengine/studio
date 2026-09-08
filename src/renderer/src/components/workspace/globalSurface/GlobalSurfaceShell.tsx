@@ -10,15 +10,14 @@ import { useGlobalSurfaceBarSlot } from './surfaceBarSlot'
 // 1704, mockup §1/§2 anatomy): a surface bar (title · status chip · context sub
 // · actions), an optional attention strip, and a body of an optional internal
 // list rail beside a full-width canvas. It owns only layout, the token surface,
-// and the region landmark — every surface (Roadmap here, Automations and Reviews
-// in their own tasks) supplies its own bar content, rail, and canvas. The rail
-// belongs to the surface, never the app sidebar.
+// and the region landmark — every surface (Sprints, Automations, Reviews)
+// supplies its own bar content, rail, and canvas. The rail belongs to the
+// surface, never the app sidebar.
 //
-// Slots are optional so a surface can adopt the anatomy incrementally: the
-// Roadmap tenant (T1) renders canvas-only while its board keeps its own header,
-// and the roadmap-page rebuild (T2) plus the Automations/Reviews pages lift their
-// bar and rail into these slots. This is not a modal — it fills the card region
-// as a page — so it carries no scrim and no focus trap.
+// Slots are optional so a surface can adopt the anatomy incrementally: a
+// tenant may render canvas-only while its board keeps its own header, and lift
+// its bar and rail into these slots later. This is not a modal — it fills the
+// card region as a page — so it carries no scrim and no focus trap.
 //
 // Both chrome slots LIFT into the app shell when the host offers a destination:
 // the bar into the top strip, and (item 1993) the rail into the app sidebar's own
@@ -121,7 +120,7 @@ export function ModalSurfaceFrame({
 }
 
 export type GlobalSurfaceShellProps = {
-  /** Accessible name for the surface region landmark, e.g. "Roadmap". */
+  /** Accessible name for the surface region landmark, e.g. "Sprints". */
   ariaLabel: string
   /** The surface bar. Omit for a canvas-only surface that self-chromes. */
   bar?: GlobalSurfaceBar

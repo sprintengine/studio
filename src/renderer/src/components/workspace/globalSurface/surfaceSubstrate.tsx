@@ -1,6 +1,6 @@
-// The shared substrate for the three door surfaces (Roadmap / Automations /
-// Reviews) — the "Door substrate" view of mockups/2026-07-20-post-merge-ui-polish
-// (#view-doors). The three surfaces landed as copy-paste triplets that drifted:
+// The shared substrate for the door surfaces (Sprints / Automations / Reviews)
+// — the "Door substrate" view of mockups/2026-07-20-post-merge-ui-polish
+// (#view-doors). They landed as copy-paste triplets that drifted:
 // loading, empty, and error each grew three dialects, only one rail had keyboard
 // navigation, and one error state withheld its rail with no retry. This module is
 // the single source for those three shared pieces, so every door reads and behaves
@@ -153,7 +153,7 @@ export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 // lifecycle/type iconography, or nothing — the state line carries the words.
 
 export interface SurfaceRailRow {
-  /** Stable selection id (roadmapRef / automation id / reviewId). */
+  /** Stable selection id (run slug / automation id / reviewId). */
   id: string
   title: string
   /** The one-line at-a-glance state ("Active · step 3 of 7", "Ran 2h ago · passed"). */
@@ -463,7 +463,7 @@ export function SurfaceRail({
   afterRows,
   afterRowsScope = 'rows',
 }: {
-  /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
+  /** The rail's section label ("Sprints", "Automations", "Reviews"). */
   label: string
   /** One line under the door's name — see `SurfaceRailHeader`'s `intro`. */
   intro?: React.ReactNode

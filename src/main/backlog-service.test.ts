@@ -304,7 +304,7 @@ async function main(): Promise<void> {
     assert.equal((await readDeps()).body, depsBody)
 
     // The written line keeps the field's documented spelling, and the main-side
-    // reader (the roadmap orchestrator's dependency axis) actually sees it —
+    // reader (the main-process dependency axis) actually sees it —
     // reading `fields.dependsOn` against a lowercasing parser silently returned
     // nothing for every item.
     await updateBacklogDependencies({

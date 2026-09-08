@@ -3,8 +3,8 @@ import React from 'react'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 
-// Top-nav row (New chat, Automations, Sprints, Connectors, and module-contributed
-// doors like Roadmap). One quiet muted row that lights to the canonical selected
+// Top-nav row (New chat, Automations, Sprints, Connectors, and any door a
+// capability module contributes). One quiet muted row that lights to the canonical selected
 // fill when active; the collapsed rail shows the icon with a hover tooltip
 // carrying the label. An optional `indicator` (a status dot) rides the trailing
 // edge when expanded, or the top-right corner when collapsed.

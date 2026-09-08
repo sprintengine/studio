@@ -42,8 +42,9 @@ export type SprintEngineAutomationFrontDoors = {
   refreshPullRequestStatus(input: { statePath: string }): Promise<SprintEngineArtifactCommandResult>
   /**
    * Merge one project's delivered pull request (`vcs pr-merge`). The engine
-   * re-probes state, enforces merge order, and is idempotent. Used by the
-   * roadmap orchestrator's `merge: auto` advance (MC-1619).
+   * re-probes state, enforces merge order, and is idempotent. Driven by the
+   * `run-landed` automation trigger; the Sprints door's repositories strip is
+   * the other route to the same engine call.
    */
   mergePullRequest(input: { statePath: string; repo?: string }): Promise<SprintEngineArtifactCommandResult>
 }

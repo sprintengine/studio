@@ -43,7 +43,7 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // slots so this header never threads the ~50 workspace/agent props they need.
   identitySlot: React.ReactNode
   actionsSlot: React.ReactNode
-  // True when a global "door" surface (Roadmap, Reviews, Automations) covers the
+  // True when a global "door" surface (Sprints, Reviews, Automations) covers the
   // workspace card. The workspace-scoped left cluster (panel switches + identity)
   // is chrome for the active workspace — with the card hidden behind a full-page
   // door it has nothing to act on, so it's replaced by the surface's own bar,

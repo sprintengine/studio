@@ -918,12 +918,12 @@ export function migratePersistedWorkspaceState(
     }
   }
   if (version < 65) {
-    // The `roadmap` workspace mode retired (MC-1692): Roadmap is now an
-    // instance-global sidebar surface, not a per-project workspace you mint from
-    // the picker. Drop any persisted roadmap-mode workspace — its only content
-    // was the board lens, and the roadmap plan itself lives on disk under the
-    // home project's `backlog/roadmaps/`, read by the global surface, so nothing
-    // the user authored is lost. Window membership is reconciled by
+    // The `roadmap` workspace mode retired (MC-1692): Roadmap became an
+    // instance-global sidebar surface, itself deleted on 2026-09-05. Drop any
+    // persisted roadmap-mode workspace — its only content was the board lens,
+    // and the roadmap plans themselves live on disk under the home project's
+    // `backlog/roadmaps/`, so nothing the user authored is lost. Window
+    // membership is reconciled by
     // normalizeWorkspaceWindows during merge; keep the top-level active pointer
     // honest too (mirrors the v62 automations-mode drop).
     migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])

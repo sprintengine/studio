@@ -29,9 +29,8 @@ import type { Workspace } from '../types/workspace'
 // substrate the Backlog door surface (T9) renders. Storage does NOT move: this
 // wraps the SAME per-project shared scan (useSharedBacklogScan) that a single
 // BacklogPanel uses, so a project with an open panel is scanned once, not twice
-// (shared-scan dedupe), and no new poller is introduced. Following the proven
-// roadmap aggregator (roadmapBoardData.ts / useMultiRootBacklogScan), a distinct
-// project root subscribes exactly one scan.
+// (shared-scan dedupe), and no new poller is introduced. A distinct project
+// root subscribes exactly one scan.
 //
 // Wrap, never widen (plan D6): each item stays the EXISTING BacklogItem; its
 // project is carried in a sibling `{ project, item }` wrapper, so every

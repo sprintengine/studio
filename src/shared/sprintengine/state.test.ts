@@ -365,7 +365,7 @@ function testMergeRollupZeroCommitSiblingHasNoBranchToMerge(): void {
   // branch, no PR — e.g. its only task was canceled, which is terminal under
   // MC-1749) has no branch to merge. The engine skips it (`vcs.pr` reports
   // `no_commits`) so its PR state can never advance; counting it would hold
-  // `allMerged` false forever and wedge run-landed chaining + roadmap advance.
+  // `allMerged` false forever and wedge run-landed chaining.
   const state = mergeRollupState([
     { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
     { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: null, status: 'ready' },

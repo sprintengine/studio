@@ -418,40 +418,6 @@ assert.ok(
   'PanelHeader.progress does not assign a tabIndex (must not steal keyboard focus)',
 )
 
-// WizardProgress — labeled step indicator with optional back-jump. The
-// role="progressbar" element is a non-interactive status indicator that
-// announces the current step name; the back-jump controls live in a separate
-// role="group" layered over the dashes, and are gated to already-completed
-// steps via the same isDone state that fills the completed dashes.
-const wizardProgress = read('src/renderer/src/components/ui/WizardProgress.tsx')
-expectIncludes(wizardProgress, 'role="progressbar"', 'WizardProgress exposes the progressbar role')
-expectIncludes(wizardProgress, 'aria-label={fullLabel}', 'WizardProgress announces the current step name via the progressbar label')
-expectIncludes(wizardProgress, 'role="group"', 'WizardProgress renders back-jump controls in a separate group, not inside the progressbar')
-expectIncludes(wizardProgress, 'idx < doneCount && !isCurrent', 'WizardProgress derives completed-step state (and jump gating) from doneCount, not the raw active index')
-assert.ok(
-  !/idx < active\b/.test(wizardProgress),
-  'WizardProgress does not expose jump controls via idx < active; it gates on the completed-step state',
-)
-{
-  const progressbarIndex = wizardProgress.indexOf('role="progressbar"')
-  const groupIndex = wizardProgress.indexOf('role="group"')
-  assert.ok(
-    progressbarIndex >= 0 && groupIndex > progressbarIndex,
-    'WizardProgress declares the progressbar before the interactive back-jump group',
-  )
-  assert.ok(
-    !wizardProgress.slice(progressbarIndex, groupIndex).includes('<button'),
-    'WizardProgress renders back-jump buttons only inside the group, never inside the progressbar element',
-  )
-}
-// The labeled variant (the sprint wizard's named stations) is a nav whose only
-// interactive elements are the completed-step back-jumps; the current step is
-// announced via aria-current, not a control.
-expectIncludes(wizardProgress, "variant === 'labeled'", 'WizardProgress offers the labeled variant behind an explicit opt-in')
-expectIncludes(wizardProgress, '<nav aria-label={fullLabel}', 'the labeled variant is a nav announcing the current step name')
-expectIncludes(wizardProgress, "aria-current={isCurrent ? 'step' : undefined}", 'the labeled variant marks the current step with aria-current')
-expectIncludes(wizardProgress, 'isDone && onStepSelect', 'the labeled variant gates its jump buttons on the completed-step state')
-
 // KbdChord — purely presentational. Each key is a real <kbd> element wearing
 // the mono token; the wrapper is role="img" with an accessible name so screen
 // readers announce the chord without exposing an interactive role.

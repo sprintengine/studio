@@ -77,8 +77,6 @@ export const sprintEngineModule: CapabilityModule = {
     registerSprintEngineIpc(host.ipcMain, {
       reviewArtifact: artifacts.reviewArtifact,
       initializeSprintEngineState: artifacts.initializeSprintEngineState,
-      updateTask: artifacts.updateTask,
-      createTask: artifacts.createTask,
       commentTask: artifacts.commentTask,
       // A successful resolution lifts the external-input blocker, so wake the
       // scheduler from `blocked` (paused/failed/terminal states untouched) —

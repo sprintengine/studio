@@ -4,7 +4,7 @@ import { revealAgentTab, type AgentTabRevealTarget } from './modelRegistry'
 // The one store-bound "show me this agent's terminal" path.
 //
 // Revealing an agent terminal is never just a layout mutation. A door-routed
-// full-page surface (the Sprints/Reviews/Backlog/Roadmap doors, epic 1704)
+// full-page surface (the Sprints/Reviews/Backlog doors, epic 1704)
 // paints an opaque layer OVER the workspace layers, which stay mounted and
 // inert beneath it — and a modal surface (Settings/Plugins/Automations/Design,
 // doors→modals 2026-09-01) floats a scrim over them. So a caller that only

@@ -795,7 +795,7 @@ export type CompanionAgentSpec = {
   workspaceId: string
   /** Stable, module-chosen id (e.g. 'review-guide'); the projection key. */
   agentId: string
-  /** Display name in the Sessions popover / Attention Queue. */
+  /** Display name in the Sessions popover. */
   name: string
   /** Absolute workspace folder (the main process has no id → folder registry). */
   workspaceRoot: string

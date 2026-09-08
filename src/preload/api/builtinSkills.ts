@@ -1,7 +1,6 @@
 import { ipcRenderer } from 'electron'
 import type {
   BuiltinSkill,
-  BuiltinSkillInstallResult,
   BuiltinSkillStatus,
   ElectronApi,
   StudioPluginStatus,
@@ -16,11 +15,6 @@ export const builtinSkillsApi = {
   ): Promise<BuiltinSkillStatus> =>
     ipcRenderer.invoke('builtin-skills:status', input),
 
-  builtinSkillInstall: (
-    input: { workspaceRoot: string | null; skillId: string }
-  ): Promise<BuiltinSkillInstallResult> =>
-    ipcRenderer.invoke('builtin-skills:install', input),
-
   // The app's own plugin. Beside the built-in skills because it is the same
   // idea one level up: something the app puts in a workspace and keeps there.
   studioPluginStatus: (input: { workspaceRoot: string | null }): Promise<StudioPluginStatus> =>
@@ -29,6 +23,5 @@ export const builtinSkillsApi = {
   ElectronApi,
   | 'builtinSkillsList'
   | 'builtinSkillStatus'
-  | 'builtinSkillInstall'
   | 'studioPluginStatus'
 >

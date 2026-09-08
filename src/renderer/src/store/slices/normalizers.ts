@@ -20,8 +20,9 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 // persisted state written by an older build can be filtered.
 //
 //   `roadmap`   — store v65: the per-project Roadmap workspace became an
-//                 instance-global sidebar surface. The plan on disk (the home
-//                 project's `backlog/roadmaps/`) is untouched; the surface reads it.
+//                 instance-global sidebar surface, and that surface was itself
+//                 deleted on 2026-09-05. The plans on disk (the home project's
+//                 `backlog/roadmaps/`) are untouched files.
 //   `multiloop` — store v66: the feature was removed outright. Any loop state on
 //                 disk under the project folder is untouched.
 //   `guided-brief` — 2026-09-08: the Design Wizard was deleted outright. The

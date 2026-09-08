@@ -39,12 +39,12 @@ const list = [
   note({ id: 'b', source: 'automations', read: true }),
   note({ id: 'c', source: 'marketplace' }),
   note({ id: 'd', source: 'sprintengine', level: 'warning' }),
-  note({ id: 'e', source: 'git', level: 'error' }),
+  note({ id: 'e', source: 'terminal', level: 'error' }),
   note({ id: 'f', source: 'cli' }),
 ]
 assert.deepEqual(unreadNotificationsFrom(list, AUTOMATIONS_NOTIFICATION_SOURCES).map((n) => n.id), ['a'], 'read rows do not count')
 assert.deepEqual(unreadNotificationsFrom(list, EXTENSIONS_NOTIFICATION_SOURCES).map((n) => n.id), ['c', 'd', 'f'])
-assert.ok(!EXTENSIONS_NOTIFICATION_SOURCES.has('git') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('git'), 'a git failure badges no section')
+assert.ok(!EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('terminal'), 'a terminal crash badges no section')
 
 // ── Automations ───────────────────────────────────────────────────────────────
 assert.equal(automationsRailBadge([]), null)

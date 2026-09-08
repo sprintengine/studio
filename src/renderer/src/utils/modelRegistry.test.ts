@@ -354,8 +354,8 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
-// Guided Brief layouts historically set global tabEnableClose=false to protect
-// the root Guided Brief tab. File editor tabs must still be explicitly
+// A layout may set global tabEnableClose=false to protect a sticky root tab
+// (the retired Guided Brief did). File editor tabs must still be explicitly
 // closeable so their close affordance and close-active-tab command work.
 {
   const json: IJsonModel = {

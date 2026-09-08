@@ -60,8 +60,7 @@ export function deriveSprintEngineRepoMergeRollup(
   // ordering treats it as "in nobody's way" — and a canceled sibling task is
   // terminal (MC-1749), so a zero-commit leg is a routine end state. Counting
   // it as forever-unmerged would hold `allMerged` false for good, wedging
-  // run-landed chaining and roadmap advancement on a run the engine considers
-  // delivered.
+  // run-landed chaining on a run the engine considers delivered.
   const mustMerge = survivors.filter(
     (repo) => repo.pullRequestState != null || optionalTrimmedString(repo.lastCommitSha ?? undefined) !== undefined,
   )

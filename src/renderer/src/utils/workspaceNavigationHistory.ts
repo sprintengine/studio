@@ -5,7 +5,7 @@
 // WorkspaceManager owns its own instance.
 //
 // An entry is a workspace card, a full-page "door" global surface
-// (Roadmap/Reviews/Automations), or the New chat door. All share the stack so
+// (Sprints/Reviews/Automations), or the New chat door. All share the stack so
 // Back returns to the previously-visited door, not just the workspace
 // underneath it — and so New chat is a place Forward can come back to
 // (new-chat-survives-back-and-forward, 2026-09-04): before it was an entry,

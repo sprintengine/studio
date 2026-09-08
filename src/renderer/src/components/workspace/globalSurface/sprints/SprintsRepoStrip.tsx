@@ -6,8 +6,8 @@
 // branches read as simply "done".
 //
 // The PR vocabulary, the merge-order derivation, and the merge action are the
-// shared `repoMergeSurface` module — the same ones the Roadmap lane's PR list
-// renders (extracted, not rebuilt). This file owns only the card anatomy, and the
+// shared `repoMergeSurface` module (extracted from the retired Roadmap lane's PR
+// list, not rebuilt). This file owns only the card anatomy, and the
 // engine's `pr-merge` stays the final authority for every merge.
 
 import type { SprintEngineTask, SprintEngineVcsRepo } from '../../../../../../shared/sprintengine/run-types'

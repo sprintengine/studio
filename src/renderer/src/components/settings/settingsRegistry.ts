@@ -1,7 +1,13 @@
-// settingsRegistry — single typed source of truth for application-level
-// settings fields. Read by T18 (SettingsPanel rewrite), T19 (MobileSettingsTab
-// and the per-panel popovers) so the same field shows up with the same label,
-// help text, and field shape everywhere.
+// settingsRegistry — the typed descriptors for the application-level settings
+// fields that more than one surface would otherwise spell for itself: label,
+// help text, and field shape in one place.
+//
+// It holds ONLY fields a consumer actually fetches. Four descriptors nothing
+// ever asked for — appearance-theme, last-selected-cli,
+// last-agent-spawn-permission-preset, learning-show-tips-on-startup — were
+// deleted on 2026-09-08: SettingsPanel renders those controls directly, and a
+// descriptor no one reads is a second spelling that can drift from the one on
+// screen. Add one back when a second surface needs the same field.
 //
 // Design contract:
 // - The registry is pure data: descriptors only, no live read/write closures.
@@ -17,12 +23,6 @@
 //   per-workspace knowledge-root inputs) are intentionally *not* expressed
 //   here; they are rendered by their existing bespoke components.
 //   T18/T19 still consume those components directly.
-
-import type {
-  AgentCli,
-  SprintEngineCliPermissionPreset,
-} from '../../types/workspace'
-import { APP_THEMES, type AppTheme } from '../../types/appTheme'
 
 // Scope marks where a field is surfaced:
 // - 'app'   — app-wide preferences shown in SettingsPanel.
@@ -92,36 +92,7 @@ export type SettingDescriptor = {
   writeVia?: string
 }
 
-const CLI_OPTIONS: ReadonlyArray<SelectOption<AgentCli>> = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
-]
-
-const PERMISSION_PRESET_OPTIONS: ReadonlyArray<
-  SelectOption<SprintEngineCliPermissionPreset>
-> = [
-  { value: 'none', label: 'None — pass no flag, let the CLI decide' },
-  { value: 'manual', label: 'Manual — ask before every action' },
-  { value: 'auto', label: 'Auto — the CLI reviews each action instead of you' },
-  { value: 'bypass', label: 'Bypass all — no permission checks' },
-]
-
-const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
-  (t) => ({ value: t.id, label: t.label }),
-)
-
 const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
-  // Appearance — app-wide theme.
-  {
-    id: 'appearance-theme',
-    label: 'Theme',
-    scope: 'app',
-    group: 'appearance',
-    field: { type: 'select', items: APP_THEME_OPTIONS },
-    storePath: 'appSettings.appearance.theme',
-    storeSetter: 'setAppearanceTheme',
-  },
-
   // Background mode — whether the process outlives its last window (MC-2156).
   {
     id: 'keep-running-in-background',
@@ -135,26 +106,6 @@ const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   },
 
   // Agent runtime defaults.
-  {
-    id: 'last-selected-cli',
-    label: 'Default CLI runtime',
-    help: 'For new agents with no CLI chosen.',
-    scope: 'app',
-    group: 'agents',
-    field: { type: 'select', items: CLI_OPTIONS },
-    storePath: 'appSettings.lastSelectedCli',
-    storeSetter: 'setLastSelectedCli',
-  },
-  {
-    id: 'last-agent-spawn-permission-preset',
-    label: 'Default agent permission preset',
-    help: 'For new agents and sprint runs.',
-    scope: 'app',
-    group: 'agents',
-    field: { type: 'select', items: PERMISSION_PRESET_OPTIONS },
-    storePath: 'appSettings.lastAgentSpawnPermissionPreset',
-    storeSetter: 'setLastAgentSpawnPermissionPreset',
-  },
   {
     id: 'terminal-idle-suspend-minutes',
     label: 'Pause idle terminals after',
@@ -174,17 +125,6 @@ const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     field: { type: 'number', min: 0, max: 20, step: 1 },
     storePath: 'appSettings.terminalKeepRecentAlive',
     storeSetter: 'setTerminalKeepRecentAlive',
-  },
-  // Learn center — tips startup toggle.
-  {
-    id: 'learning-show-tips-on-startup',
-    label: 'Show tips on startup',
-    help: 'One tip, the first time the app opens each day.',
-    scope: 'app',
-    group: 'learn',
-    field: { type: 'switch' },
-    storePath: 'appSettings.learning.showTipsOnStartup',
-    storeSetter: 'setLearningShowTipsOnStartup',
   },
 ] as const
 

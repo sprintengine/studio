@@ -1,9 +1,10 @@
-// The per-repo pull-request model shared by every surface that renders a run's
-// declared repositories: the Roadmap lane's PR list (`RoadmapPullRequests`) and
-// the Sprints door's repositories strip (`SprintsRepoStrip`). Extracted from the
-// Roadmap surface, which owned it first — the two draw different anatomy (a row
-// list vs. a card strip) but must never disagree about what "Open" means, which
-// tone a merged branch carries, or what merging actually does.
+// The per-repo pull-request model for every surface that renders a run's
+// declared repositories — today the Sprints door's repositories strip
+// (`SprintsRepoStrip`). It was extracted from the retired Roadmap surface,
+// which owned it first and drew a row list where the strip draws cards; the
+// point of the extraction was that two surfaces must never disagree about what
+// "Open" means, which tone a merged branch carries, or what merging does, and
+// the module keeps that guarantee for the next one.
 //
 // It never invents CI/checks data — the engine collects none — so the truthful
 // per-repo status is the PULL REQUEST lifecycle (open / merged / closed / none).
@@ -111,8 +112,8 @@ export type RepoMergeAction = {
 }
 
 // The merge action itself: one confirm, one `pr-merge` call, one place the
-// engine's refusal is captured. Shared so the Roadmap list and the Sprints strip
-// cannot drift on the confirm copy or on treating a failure as a success.
+// engine's refusal is captured, so no two surfaces can drift on the confirm copy
+// or on treating a failure as a success.
 export function useRepoMergeAction({
   statePath,
   onMerged,

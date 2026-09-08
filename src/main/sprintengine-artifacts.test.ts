@@ -1043,8 +1043,6 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     reviewArtifact: async () => ({ ok: true, data: {} }),
     ensureTaskWorktree: async () => ({ ok: true, isolated: false, worktreePath: null }),
     initializeSprintEngineState: async () => ({ ok: true, data: {} }),
-    updateTask: async () => ({ ok: true, data: {} }),
-    createTask: async () => ({ ok: true, data: {} }),
     commentTask: async () => ({ ok: true, data: {} }),
     resolveTaskInput: async () => ({ ok: true, data: {} }),
     setTaskStatus: async () => ({ ok: true, data: {} }),

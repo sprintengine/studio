@@ -283,7 +283,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // Reference-mode (backlog/plan-sourced) launches seed the source into run.yaml
   // at init, so the run carries its "Started from" seed at t=0 and the architect
   // startup prompt drops the (now redundant, and on a second call erroring)
-  // handover step. Copy-mode paths (Guided Brief) still seed via handover.
+  // handover step. Copy-mode paths still seed via handover.
   const seedSourceAtInit = sourceReference === true && Boolean(initializeSprintEngineState)
   const initSourceSeed = seedSourceAtInit
     ? buildSprintEngineInitSourceSeed(trimmedSourcePath, sourcePlanKind, sourceBundle)

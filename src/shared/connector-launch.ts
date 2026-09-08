@@ -32,10 +32,11 @@ type ResolvedConnectorLaunch = {
   /** Identity for naming the launched chat (workspace title, kickoff prompt). */
   server: { id: string; name: string }
   /**
-   * The driving builtin skill when the catalog pairs one (e.g. railway →
-   * use-railway). Undefined for a plain MCP launch: no skill install and no
-   * seeded skill invocation — the chat still gets the isolated single-server
-   * MCP config below.
+   * The driving builtin skill when the catalog pairs one with the server.
+   * Undefined for a plain MCP launch — which is every shipped connector since
+   * the studio stopped shipping third-party servers and their paired skills
+   * (2026-09-08): no skill install and no seeded skill invocation, and the chat
+   * still gets the isolated single-server MCP config below.
    */
   skillId?: string
   mcpSettings: McpSettings

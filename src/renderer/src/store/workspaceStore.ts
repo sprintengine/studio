@@ -195,19 +195,13 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   }
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
-  runSummaryOverlay: {
-    open: boolean
-    workspaceId: string | null
-  }
-  openRunSummaryOverlay: (workspaceId: string) => void
-  closeRunSummaryOverlay: () => void
   // Opens the Extensions door on one of its three views, optionally on that
   // view's Installed tab (source-tabs ruling, 2026-09-05).
   openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // The door-routed full-page surface for this window (global-surfaces epic
   // 1704): a registered surface id or null when a workspace owns the card
-  // region. Transient/unsynced like roadmapSurface (absent from
-  // extractSettingsFields / partializeWorkspaceStoreState). Opening a door sets
+  // region. Transient and unsynced (absent from extractSettingsFields /
+  // partializeWorkspaceStoreState). Opening a door sets
   // it; activating any workspace clears it — the sidebar's one-selected-thing
   // invariant.
   activeGlobalSurface: string | null

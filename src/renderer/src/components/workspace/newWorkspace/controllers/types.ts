@@ -104,9 +104,9 @@ export type SprintEnginePlanSourcedInput = {
   // Per-task worktrees (MC-2136): every task works in its own checkout branched
   // off the run branch. Layered on useWorktrees, which the engine requires.
   taskIsolation?: boolean
-  // No `repos` here on purpose (item 1765): a launch sourced from a backlog item,
-  // an epic, or the roadmap orchestrator runs in that item's own project, and the
-  // "Also works in" field is withheld for those paths. Such a run brings another
+  // No `repos` here on purpose (item 1765): a launch sourced from a backlog
+  // item or an epic runs in that item's own project, and the "Also works in"
+  // field is withheld for those paths. Such a run brings another
   // project in through `sprintengine.vcs.request_repo` when an agent finds it needs
   // one.
   // The run's post-implementation phase list, same contract as

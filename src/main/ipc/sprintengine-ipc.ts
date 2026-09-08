@@ -9,10 +9,8 @@ import type {
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
-  SprintEngineTaskCreateInput,
   SprintEngineTaskResolveInput,
   SprintEngineTaskStatusSetInput,
-  SprintEngineTaskUpdateInput,
   SprintEngineTaskWorktreeInput,
   SprintEngineTaskWorktreeResult,
 } from '../../shared/electron-api'
@@ -66,8 +64,6 @@ type SprintEngineIpcDependencies = {
     mode: SprintEngineArtifactReviewMode
   ): Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
-  updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
-  createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   commentTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
   resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
@@ -101,14 +97,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.initializeSprintEngineState(payload)
-  })
-
-  ipcMain.handle('sprintengine:task:update', async (_, payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.updateTask(payload)
-  })
-
-  ipcMain.handle('sprintengine:task:create', async (_, payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.createTask(payload)
   })
 
   ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {

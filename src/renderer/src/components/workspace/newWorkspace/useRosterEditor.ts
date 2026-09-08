@@ -3,9 +3,9 @@
 // already fully controlled and presentational; everything behind it lived
 // inline in a ~3500-line component and was reachable from nowhere else.
 //
-// This is a PURE MOVE. It ships no behaviour change: every setter keeps the
-// order and the side effects it had inline, because the wizard is the app's
-// most load-bearing flow and a subtle regression here is expensive.
+// This was a PURE MOVE. It shipped no behaviour change: every setter kept the
+// order and the side effects it had inline, because the hub was the app's most
+// load-bearing flow at the time and a subtle regression there was expensive.
 //
 // BOUNDARY (deliberate, so the hook stays small): this hook is about EDITING a
 // roster. The wizard's create-time derivations — `sprintEnginePlainAgents`,

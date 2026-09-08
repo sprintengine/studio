@@ -89,7 +89,6 @@
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
   --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
-  --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-color-mark-blue: var(--ref-color-blue-600);
   --sem-color-mark-yellow: var(--ref-color-amber-800);
@@ -149,13 +148,11 @@
   --sem-size-control-md: 34px;
   --sem-size-control-lg: 40px;
   --sem-size-hit-target-min: 24px;
-  --sem-focus-ring-width: 2px;
   --sem-focus-ring-offset: 2px;
   --sem-focus-ring: 2px solid var(--sem-color-border-focus);
   --sem-glass-blur: 12px;
   --sem-glass-opacity: 0.8;
   --sem-glass-saturation: 1.14;
-  --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
   --sem-z-float: 30;
@@ -196,7 +193,6 @@
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
   --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
-  --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-color-mark-blue: var(--ref-color-blue-400);
   --sem-color-mark-yellow: var(--ref-color-amber-400);
@@ -247,7 +243,6 @@
   --sem-color-status-warn-soft: rgba(252, 192, 48, 0.18);
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
   --sem-color-status-good-faint: rgba(48, 208, 88, 0.10);
-  --sem-color-status-good-edge: rgba(48, 208, 88, 0.55);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-color-mark-blue: var(--ref-color-blue-400);
   --sem-color-mark-yellow: var(--ref-color-amber-400);
@@ -295,7 +290,6 @@
   --sem-color-status-warn-soft: rgba(204, 132, 0, 0.20);
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
   --sem-color-status-good-faint: rgba(21, 127, 55, 0.10);
-  --sem-color-status-good-edge: rgba(21, 127, 55, 0.55);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-color-mark-blue: var(--ref-color-blue-600);
   --sem-color-mark-yellow: var(--ref-color-amber-800);
@@ -561,8 +555,6 @@ code {
 #ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
 #ds-view-component-checkbox:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-checkbox:checked ~ .ds-catalog #component-checkbox { display: block; }
-#ds-view-component-combobox:checked ~ .ds-catalog #components { display: block; }
-#ds-view-component-combobox:checked ~ .ds-catalog #component-combobox { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #component-definition-list { display: block; }
 #ds-view-component-drawer:checked ~ .ds-catalog #components { display: block; }
@@ -629,8 +621,6 @@ code {
 #ds-view-component-tooltip:checked ~ .ds-catalog #component-tooltip { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #component-truncated-text { display: block; }
-#ds-view-component-wizard-progress:checked ~ .ds-catalog #components { display: block; }
-#ds-view-component-wizard-progress:checked ~ .ds-catalog #component-wizard-progress { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-badge:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -643,8 +633,6 @@ code {
 #ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-checkbox:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-checkbox"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-checkbox:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-checkbox"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-component-combobox:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-combobox"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
-#ds-view-component-combobox:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-combobox"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-definition-list:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-definition-list:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-drawer:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-drawer"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -711,8 +699,6 @@ code {
 #ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-truncated-text:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
-#ds-view-component-wizard-progress:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-wizard-progress"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
-#ds-view-component-wizard-progress:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-wizard-progress"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
 #ds-view-pattern-context-rail:checked ~ .ds-catalog #patterns { display: block; }
@@ -1316,178 +1302,6 @@ code {
   .ds-checkbox-box {
     transition: none;
   }
-}
-
-/* components/combobox/component.css */
-/* Combobox — a text field that filters a listbox, for choosing from a set
- * large enough to search. Extracted from the shipped Combobox primitive
- * (src/renderer/src/components/ui/Combobox.tsx).
- *
- * Family contract with `select`: a select opens a closed set and has no
- * query; a combobox exists because the set is too long to scan. Reach for
- * this only when filtering is genuinely the point — a searchable four-item
- * list is a select with a search box bolted on.
- *
- * The ARIA is the part the five bespoke versions each got differently, and
- * it is the part that matters: THE INPUT IS THE COMBOBOX and keeps focus
- * throughout, options are never focused, and the highlighted one is named by
- * aria-activedescendant. That is what lets typing and arrowing work at the
- * same time — moving real focus onto an option takes it off the field, and
- * the next keystroke goes nowhere.
- *
- * One shape: a trigger opens a surface carrying the field above the list.
- * There is deliberately no inline-field variant — the popover engine owns
- * anchoring, flipping, clamping and outside-click, and an inline field would
- * have to either fight that contract or hand-roll a second popover shell. A
- * caller wanting the field to BE the control passes a full-width trigger
- * styled as one; the list still opens on the shared engine.
- *
- * The surface itself is `popover` — this file styles only what rides on it. */
-
-/* ── Trigger ─────────────────────────────────────────────────────────────
- * The default: a full-width button reading as a field. Muted ink, because
- * what it shows is a prompt rather than a chosen value. */
-.ds-combobox-trigger {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-sm);
-  border: 1px solid var(--sem-color-border-default);
-  border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface);
-  color: var(--sem-color-text-muted);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-meta);
-  text-align: left;
-  cursor: pointer;
-}
-
-.ds-combobox-trigger:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-/* ── Field ───────────────────────────────────────────────────────────────
- * The query field sits ABOVE the list inside the surface, divided from it by
- * a hairline: the person is typing at the thing they are filtering, and a
- * field docked at the bottom would put the caret below the rows it moves. */
-.ds-combobox-field {
-  padding: var(--sem-space-2xs);
-  border-bottom: 1px solid var(--sem-color-border-subtle);
-}
-
-.ds-combobox-input {
-  box-sizing: border-box;
-  width: 100%;
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-sm);
-  border: 1px solid var(--sem-color-border-default);
-  border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface);
-  color: var(--sem-color-text-primary);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-meta);
-}
-
-.ds-combobox-input::placeholder {
-  color: var(--sem-color-text-disabled);
-}
-
-/* Focus is the ring and only the ring — and it stays on this field for the
- * whole life of the popup, however far the highlight has arrowed down the
- * list. A ring that moves onto an option is the bug this contract prevents. */
-.ds-combobox-input:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-/* ── Listbox ─────────────────────────────────────────────────────────────
- * Capped and scrolling past roughly ten rows: a filtered list that grows
- * past the viewport has stopped being a list of candidates. A cap, not a
- * spacing step. */
-.ds-combobox-listbox {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: var(--sem-space-2xs);
-}
-
-.ds-combobox-option {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-sm);
-  padding: var(--sem-space-2xs) var(--sem-space-sm);
-  border-radius: var(--sem-radius-control);
-  color: var(--sem-color-text-default);
-  font-size: var(--sem-font-size-meta);
-  cursor: pointer;
-}
-
-/* Active tracks the keyboard and the pointer through ONE treatment, so there
- * is never a hovered row and a different arrowed row lit at once. The state
- * lives in aria-selected; the paint is its echo, which is why the selector
- * reads off the attribute rather than a parallel class. */
-.ds-combobox-option[aria-selected='true'] {
-  background: var(--sem-color-bg-selected);
-  color: var(--sem-color-text-primary);
-}
-
-/* Disabled rows are skipped by the arrow keys rather than parked on, so this
- * is the resting look of a row the highlight will step over. */
-.ds-combobox-option[aria-disabled='true'] {
-  color: var(--sem-color-text-disabled);
-  cursor: not-allowed;
-}
-
-.ds-combobox-option[aria-disabled='true'][aria-selected='true'] {
-  background: transparent;
-  color: var(--sem-color-text-disabled);
-}
-
-.ds-combobox-option-icon {
-  display: flex;
-  flex: none;
-  width: var(--sem-icon-size-sm);
-  height: var(--sem-icon-size-sm);
-  align-items: center;
-  justify-content: center;
-}
-
-/* The label takes the slack and truncates; the hint never does. A hint is
- * short by construction, and a truncated one ("clau…") says nothing. */
-.ds-combobox-option-label {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ds-combobox-option-hint {
-  flex: none;
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-subtle);
-}
-
-/* Group headings are decoration over a flat option list — consecutive
- * options sharing a group get one. Hidden from assistive tech: the listbox
- * is flat to a screen reader, and a heading announced as an option would be
- * a row that cannot be chosen. */
-.ds-combobox-group {
-  padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
-  font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-emphasis);
-  color: var(--sem-color-text-subtle);
-}
-
-/* No matches. Readable ink, and phrased about the query rather than about
- * the list — "no matches" in an empty popup tells the person nothing they
- * did not already see. */
-.ds-combobox-empty {
-  margin: 0;
-  padding: var(--sem-space-sm);
-  font-size: var(--sem-font-size-meta);
-  color: var(--sem-color-text-muted);
 }
 
 /* components/definition-list/component.css */
@@ -5413,92 +5227,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   overflow-wrap: anywhere;
 }
 
-/* components/wizard-progress/component.css */
-/* Wizard progress — position in a flow of known length.
- *
- * The strip is a status indicator and nothing else. Where back-jumping is
- * offered the controls are a SIBLING group layered over it, because a
- * role="progressbar" that is also a button carries two contracts on one element
- * and assistive tech announces the wrong one. */
-
-.ds-wizard {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-}
-
-.ds-wizard-step {
-  height: 2px;
-  min-width: 24px;
-  flex: 1 1 auto;
-  border-radius: var(--sem-radius-pill);
-  background: var(--sem-color-border-default);
-}
-
-.ds-wizard-step[data-state='done'],
-.ds-wizard-step[data-state='current'] {
-  background: var(--sem-color-accent-primary);
-}
-
-/* Current is distinguished from done by weight rather than by hue: the accent
- * already means "progressed", and a second accent would need a second meaning. */
-.ds-wizard-step[data-state='current'] {
-  height: 3px;
-}
-
-/* ── labeled variant ───────────────────────────────────────────────────────── */
-
-.ds-wizard--labeled {
-  gap: var(--sem-space-lg);
-}
-
-.ds-wizard--labeled .ds-wizard-step {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-  height: auto;
-  min-width: 0;
-  flex: 0 1 auto;
-  border-radius: 0;
-  background: none;
-  color: var(--sem-color-text-subtle);
-  font-size: var(--sem-font-size-meta);
-}
-
-.ds-wizard--labeled .ds-wizard-step[data-state='done'] {
-  color: var(--sem-color-text-muted);
-}
-
-.ds-wizard--labeled .ds-wizard-step[data-state='current'] {
-  color: var(--sem-color-text-primary);
-  font-weight: var(--sem-font-weight-medium);
-}
-
-.ds-wizard-glyph {
-  width: var(--sem-icon-size-xs);
-  height: var(--sem-icon-size-xs);
-  flex: none;
-}
-
-/* ── back-jump controls ────────────────────────────────────────────────────── */
-
-/* Back, never forward: only a completed step gets one of these. */
-.ds-wizard-jump {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.ds-wizard-jump:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-  border-radius: var(--sem-radius-chip);
-}
-
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
@@ -5681,28 +5409,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     flex-direction: column;
     gap: var(--sem-space-md);
     padding-left: var(--sem-space-3xl);
-  }
-.ds-embed-component-combobox {
-    margin: 0;
-    font-family: var(--sem-font-family-ui);
-  }
-.ds-embed-component-combobox .demo-stage {
-    padding: var(--sem-space-3xl);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-default);
-  }
-.ds-embed-component-combobox .demo-label {
-    margin: 0 0 var(--sem-space-sm);
-    font-size: var(--sem-font-size-meta);
-    color: var(--sem-color-text-subtle);
-  }
-.ds-embed-component-combobox .demo-column {
-    max-width: 300px;
-    margin-bottom: var(--sem-space-3xl);
-  }
-.ds-embed-component-combobox .demo-surface {
-    position: static;
-    margin-top: var(--sem-space-2xs);
   }
 .ds-embed-component-definition-list {
     margin: 0;
@@ -7233,18 +6939,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-muted);
   }
-.ds-embed-component-wizard-progress { margin: 0; font-family: var(--sem-font-family-ui); }
-.ds-embed-component-wizard-progress .demo-stage {
-    padding: var(--sem-space-3xl);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-default);
-  }
-.ds-embed-component-wizard-progress .demo-label {
-    margin: 0 0 var(--sem-space-sm);
-    font-size: var(--sem-font-size-meta);
-    color: var(--sem-color-text-subtle);
-  }
-.ds-embed-component-wizard-progress .demo-box { max-width: 420px; margin-bottom: var(--sem-space-3xl); }
 .ds-embed-pattern-context-rail {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -7782,7 +7476,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-board-lane" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-checkbox" />
-<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-combobox" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-definition-list" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-drawer" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-empty-state" />
@@ -7816,7 +7509,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toast" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-truncated-text" />
-<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-wizard-progress" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-context-rail" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-list-surface" />
@@ -7843,7 +7535,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-board-lane">Board lane</label>
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-checkbox">Checkbox</label>
-<label class="catalog-nav-item" for="ds-view-component-combobox">Combobox</label>
 <label class="catalog-nav-item" for="ds-view-component-definition-list">Definition list</label>
 <label class="catalog-nav-item" for="ds-view-component-drawer">Drawer</label>
 <label class="catalog-nav-item" for="ds-view-component-empty-state">Empty state</label>
@@ -7877,7 +7568,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-toast">Toast</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-item" for="ds-view-component-truncated-text">Truncated text</label>
-<label class="catalog-nav-item" for="ds-view-component-wizard-progress">Wizard progress</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
 <label class="catalog-nav-item" for="ds-view-pattern-context-rail">Context rail</label>
 <label class="catalog-nav-item" for="ds-view-pattern-list-surface">List surface</label>
@@ -7959,8 +7649,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-soft</code><code class="catalog-token-value">rgba(21, 127, 55, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft success fill for banners and chips. Success banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-warn-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-warn-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.warn-soft</code><code class="catalog-token-value">rgba(204, 132, 0, 0.20)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft warning fill for banners and chips. Warning banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-danger-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-danger-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.danger-soft</code><code class="catalog-token-value">rgba(220, 40, 40, 0.16)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Soft error fill for banners and chips. Error banner and chip fills in inspectors and drawers. <strong>Do not:</strong> Default panel chrome.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-faint)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-faint)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-faint</code><code class="catalog-token-value">rgba(21, 127, 55, 0.10)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">The quietest success fill: a wash for a whole row that has finished while the person was elsewhere. list-row --finished: the row-wide wash under a good-edge ring. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable. <strong>Do not:</strong> Chips, banners, or anything smaller than a row — those take good-soft. Never as a hover or selection fill.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-edge)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-edge)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-edge</code><code class="catalog-token-value">rgba(21, 127, 55, 0.55)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">Success ring at edge strength: the good tone let down so a 1px ring reads as an edge, not a wire. list-row --finished: the inset ring around a finished row. Full-strength status.good is for marks and ink; on a hairline around a whole row it out-shouts the needs-input gold it is meant to sit under. <strong>Do not:</strong> Text, icons, dots, or a focus ring — ink stays full strength, and focus is border.focus.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-status-good-faint)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-status-good-faint)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.status.good-faint</code><code class="catalog-token-value">rgba(21, 127, 55, 0.10)</code><span class="catalog-badge">status</span></p><p class="catalog-token-meta">The quietest success fill: a wash for a whole row that has finished while the person was elsewhere. list-row --finished: the row-wide wash a finished row wears. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable. <strong>Do not:</strong> Chips, banners, or anything smaller than a row — those take good-soft. Never as a hover or selection fill.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-overlay-scrim)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-overlay-scrim)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.overlay.scrim</code><code class="catalog-token-value">rgba(20, 24, 28, 0.42)</code><span class="catalog-badge">overlay</span></p><p class="catalog-token-meta">Modal/dialog backdrop above panel chrome. A plain translucent layer — never add backdrop-filter to a full-viewport scrim. The backdrop layer behind modals, dialogs, and drawers. <strong>Do not:</strong> Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-blue)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-blue)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.blue</code><code class="catalog-token-value">{ref.color.blue-600}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity blue. The mark colour of TypeScript, Python and Markdown file glyphs (ruled 2026-09-06). Ink of a file-type glyph whose language wears blue; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-yellow)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-yellow)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.yellow</code><code class="catalog-token-value">{ref.color.amber-800}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity yellow — the same value as status.warn, spent on identity rather than warning. JavaScript, JSON and lockfile glyphs. Ink of a file-type glyph whose kind wears yellow; nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
@@ -8018,7 +7707,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell</code><code class="catalog-token-value">9px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Large overlay and modal shells. Modal shells and the largest overlay surfaces. <strong>Do not:</strong> Operational chrome — larger radii are marketing-only.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-pill)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.pill</code><code class="catalog-token-value">999px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Fully-rounded ends. An idiom, not a step of the shape ramp. Badges, status chips, switch tracks and progress rails — anything whose shape says &quot;this is a marker, not a control&quot;. Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square. <strong>Do not:</strong> Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-pill)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.pill</code><code class="catalog-token-value">999px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Fully-rounded ends. An idiom, not a step of the shape ramp. Badges, status chips, switch tracks and progress rails — anything whose shape says &quot;this is a marker, not a control&quot;. Referenced by liveness and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square. <strong>Do not:</strong> Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.fast</code><code class="catalog-token-value">120ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Hover, focus, and small state flips. Hover and focus transitions, small state flips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
@@ -8029,13 +7718,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes. <strong>Do not:</strong> Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.lg</code><code class="catalog-token-value">40px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The app rail's glyph square: the one control drawn to be found from across the window rather than read in a row. The app rail's section and tool glyphs, and the account + Settings cluster at its foot (owner ruling 2026-09-07: the app's rail squares are a step above the product's largest control, and that step is what makes them findable). Pairs with icon.size.lg. <strong>Do not:</strong> Anything inside a panel, a row, a toolbar or an overlay — those stop at md. This step exists for one column of window chrome, and a second consumer is a ruling, not a styling choice.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.blur</code><code class="catalog-token-value">12px</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Backdrop blur radius of the one glass surface — the toast card. The toast card only (owner ruling 2026-09-04): a corner-sized surface whose blur area is a fraction of the viewport. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane. <strong>Do not:</strong> Any scrim, modal, drawer, popover, menu, or full-width surface — blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim. The conformance lint pins glass to the toast.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.opacity</code><code class="catalog-token-value">0.8</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">How much of bg.surface-raised the glass keeps; the rest is the page showing through. The toast card's ground: color-mix(bg.surface-raised, glass.opacity) over the blur. Where backdrop-filter is unsupported the card falls back to solid bg.surface-raised. <strong>Do not:</strong> Tinting any other surface translucent.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.saturation</code><code class="catalog-token-value">1.14</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Saturation boost applied with the blur so what shows through stays lively rather than grey. Paired with glass.blur in the toast's backdrop-filter. Dark mode boosts less: near-black grounds have little to saturate and over-boosting shows as colour fringing. <strong>Do not:</strong> Anywhere glass.blur is not.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.base</code><code class="catalog-token-value">0</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Default in-flow content. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.pane</code><code class="catalog-token-value">20</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay. The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins. <strong>Do not:</strong> Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.float</code><code class="catalog-token-value">30</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: panel-internal popovers and HUDs that float over a pane's own content — above docked panes, below every overlay. The top in-flow depth step: a panel-internal popover, HUD or tray that floats over its own pane's content and must clear a docked `z.pane` sibling, but stays inside the pane and portals nowhere. Sits directly below `z.drawer`. <strong>Do not:</strong> Surfaces that leave their pane (portalled popovers, menus, dialogs) — they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface.</p></div></div>
@@ -10327,507 +10014,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;/html&gt;
 </code></pre></details>
 </div>
-<div id="component-combobox" class="catalog-view catalog-component">
-<h3>Combobox</h3>
-<div class="catalog-component-grid">
-<div class="catalog-stage ds-embed-component-combobox">
-<div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — closed. The trigger carries the popup ARIA; muted ink, because this is a prompt rather than a chosen value.</p>
-  <div class="demo-column">
-    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="false">
-      Choose a model…
-    </button>
-  </div>
-
-  <p class="demo-label">Open, mid-query. The field keeps focus and the ring; the highlight is on a row named by aria-activedescendant, not focused.</p>
-  <div class="demo-column">
-    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="true" aria-controls="model-listbox">
-      Choose a model…
-    </button>
-    <div class="ds-popover demo-surface">
-      <div class="ds-combobox-field">
-        <input
-          class="ds-combobox-input"
-          type="text"
-          role="combobox"
-          aria-label="Choose a model"
-          aria-expanded="true"
-          aria-controls="model-listbox"
-          aria-autocomplete="list"
-          aria-activedescendant="model-option-1"
-          value="op"
-          placeholder="Filter models…"
-        />
-      </div>
-      <div id="model-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
-        <div class="ds-combobox-group" aria-hidden="true">Anthropic</div>
-        <div id="model-option-0" class="ds-combobox-option" role="option" aria-selected="false">
-          <span class="ds-combobox-option-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
-            </svg>
-          </span>
-          <span class="ds-combobox-option-label">Opus 5</span>
-          <span class="ds-combobox-option-hint">1M</span>
-        </div>
-        <div id="model-option-1" class="ds-combobox-option" role="option" aria-selected="true">
-          <span class="ds-combobox-option-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
-            </svg>
-          </span>
-          <span class="ds-combobox-option-label">Opus 4.8</span>
-          <span class="ds-combobox-option-hint">200K</span>
-        </div>
-        <div id="model-option-2" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
-          <span class="ds-combobox-option-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
-            </svg>
-          </span>
-          <span class="ds-combobox-option-label">Opus 4.1 — retired</span>
-        </div>
-        <div class="ds-combobox-group" aria-hidden="true">Local</div>
-        <div id="model-option-3" class="ds-combobox-option" role="option" aria-selected="false">
-          <span class="ds-combobox-option-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-              <rect x="2.5" y="4.5" width="11" height="7" rx="1.5" />
-            </svg>
-          </span>
-          <span class="ds-combobox-option-label">operator-local-7b</span>
-          <span class="ds-combobox-option-hint">32K</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <p class="demo-label">A query that matches nothing. The message names what was typed — “no matches”, in a popup showing no rows, tells the person nothing they cannot already see.</p>
-  <div class="demo-column">
-    <div class="ds-popover demo-surface">
-      <div class="ds-combobox-field">
-        <input
-          class="ds-combobox-input"
-          type="text"
-          role="combobox"
-          aria-label="Choose a model"
-          aria-expanded="true"
-          aria-controls="empty-listbox"
-          aria-autocomplete="list"
-          value="gpt"
-        />
-      </div>
-      <div id="empty-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
-        <p class="ds-combobox-empty">No models match “gpt”.</p>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark — one highlight at a time: the arrowed row and the hovered row are the same treatment, so the list never shows two candidates.</p>
-  <div class="demo-column">
-    <div class="ds-popover demo-surface">
-      <div class="ds-combobox-field">
-        <input
-          class="ds-combobox-input"
-          type="text"
-          role="combobox"
-          aria-label="Assign to"
-          aria-expanded="true"
-          aria-controls="assignee-listbox"
-          aria-autocomplete="list"
-          aria-activedescendant="assignee-option-0"
-          value=""
-          placeholder="Filter people…"
-        />
-      </div>
-      <div id="assignee-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Assign to">
-        <div id="assignee-option-0" class="ds-combobox-option" role="option" aria-selected="true">
-          <span class="ds-combobox-option-label">Planner</span>
-          <span class="ds-combobox-option-hint">agent</span>
-        </div>
-        <div id="assignee-option-1" class="ds-combobox-option" role="option" aria-selected="false">
-          <span class="ds-combobox-option-label">Implementer</span>
-          <span class="ds-combobox-option-hint">agent</span>
-        </div>
-        <div id="assignee-option-2" class="ds-combobox-option" role="option" aria-selected="false">
-          <span class="ds-combobox-option-label">Reviewer with a very long role name that has to truncate</span>
-          <span class="ds-combobox-option-hint">agent</span>
-        </div>
-        <div id="assignee-option-3" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
-          <span class="ds-combobox-option-label">Release manager — no runtime configured</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-</div>
-<div class="catalog-doc">
-<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>. <strong>Keyboard model ruled and adopted 2026-08-06</strong> (MC-2134) — see the ruling below.</p>
-<p>The filter-as-you-type input over a listbox — for choosing from a set large enough to search. <code>Select</code> is select-only by design, so every filterable case rebuilt the pattern, and the rebuilds disagreed about the part that matters least visually and most functionally: <strong>the keyboard model</strong>. This entry is the one contract they now share.</p>
-<h4>As shipped</h4>
-<p>The ARIA is <code>CommandPalette</code>'s: <strong>the input is the combobox and keeps focus throughout</strong>, options are never focused, and the highlighted one is named by <code>aria-activedescendant</code>.</p>
-<p>| Key | Behaviour | |---|---| | <code>↑</code> / <code>↓</code> | move the highlighted option, skipping disabled rows | | <code>Enter</code> | commit the highlighted option | | <code>Escape</code> | close the list only — <code>stopPropagation</code>, so a dialog hosting a combobox does not close with it | | <code>Home</code> / <code>End</code> | jump to the ends of the list — <strong>only while the field is empty</strong>, and only where a picker binds them at all; see the ruling | | <code>→</code> | enter the highlighted row's own controls, where it has any — see the ruling |</p>
-<p>Options commit on <code>pointerdown</code>, not <code>click</code>: a click fires after the field has lost focus, and the blur closes the popup out from under the pointer.</p>
-<p><strong>Ruling — one shape: a trigger opening a surface that carries the field above the list.</strong> There is deliberately no inline-field variant. <code>Popover</code> hands its trigger a button ref and owns anchoring, flipping, clamping and outside-click; an inline field would have to either fight that contract or hand-roll an absolutely-positioned surface — which <code>lint-panel-composition</code>'s <code>no-bespoke-popover-shell</code> rule forbids outright. A caller wanting the field to *be* the control passes a full-width trigger styled as one.</p>
-<h4>Ruling — the keyboard model (MC-2134)</h4>
-<p>Two incompatible models shipped, and both were defensible. <strong>Focus stays in the field</strong>, highlight named by <code>aria-activedescendant</code>. Or <strong>real DOM focus moves onto the option</strong>, which lets each row hold its own controls, and is what <code>CliModelPicker</code> did so that its favourite star had somewhere to be reached from.</p>
-<p><strong>Ruled: <code>aria-activedescendant</code>, always.</strong> Narrowing and walking in one motion is what a searchable list is *for*; with real focus on the row, every keystroke after the first arrow goes to the row instead of the query, so you can filter or you can walk, never both. Adopted in <code>CliModelPicker</code> on 2026-08-06 — the only picker that was on the other model.</p>
-<p><strong>A row may hold its own controls, and must then offer a keyboard path into them.</strong> The ruling does not shrink what a row can carry; it moves the cost onto the picker that carries it. With focus pinned to the field, a row-level control is unreachable unless the picker gives it a key: <code>→</code> (ArrowRight) moves real focus into the highlighted row's control — <code>←</code> returns to the field, and Escape still closes the surface from anywhere inside it. Both call sites with row-level controls implement it: <code>CliModelPicker</code>'s favourite star, and <code>AgentComposerPopover</code>'s per-row engine chip, which before the ruling was a <code>tabIndex={-1}</code> span no key could reach at all.</p>
-<p><strong>Keys the caret has a claim on reach the list only when the caret cannot use them.</strong> <code>↑</code>/<code>↓</code>/<code>Enter</code>/<code>Escape</code> are unconditionally the list's — a single-line field has no use for them. <code>Home</code>/<code>End</code> are the caret's whenever the field has text: a filter you cannot reach the end of the query in is worse than one you cannot jump the list in. A picker MAY give them to the list while the field is empty (<code>ui/Combobox</code>, <code>CliModelPicker</code> and <code>AgentComposerPopover</code> do; <code>CommandPalette</code> leaves them to the caret always, which is the same prohibition observed more strictly). <code>→</code> only leaves the caret when the caret is already at the end of the query.</p>
-<p>The prohibition is the ruled part. Which of the optional halves a picker takes is its own call — what no picker may do is take a key the caret is currently using.</p>
-<p><strong>A key the field consumes stops at the field.</strong> <code>preventDefault</code> is not enough: a combobox can be hosted inside a menu — <code>CliModelPicker</code> is, twice, in the Sprint Engine roster — and a menu surface answers <code>↑</code>/<code>↓</code>/<code>Home</code>/<code>End</code> by moving real focus onto one of its own items. Left to bubble, the host takes focus off the field on the first arrow, which is the failure this ruling exists to end. Escape is the exception and is never consumed: it must reach the surface that closes.</p>
-<p><strong>A row-level control that a pointer reveals must also be revealed by the keyboard highlight.</strong> <code>CliModelPicker</code>'s star appears on hover; it now appears on the highlighted row too, because <code>→</code> is otherwise an affordance only a mouse user could discover.</p>
-<p><strong>The highlight and the current value are two different marks.</strong> Where a picker has both — a persistent chosen value AND a moving highlight — the highlight uses <code>--bg-hover</code> (what <code>Select</code> gives its own active option) and the current value keeps the stronger <code>--bg-selected</code> fill. Never the focus ring: that belongs to the field, which is the thing actually holding focus.</p>
-<h4>Conformance, measured 2026-08-06</h4>
-<p>| Picker | Verdict | |---|---| | <code>CommandPalette</code> | conformant — the reference the primitive was built from; binds no <code>Home</code>/<code>End</code>, so the caret always keeps them | | <code>ui/Combobox</code> | conformant — the primitive; <code>Home</code>/<code>End</code> made caret-aware by this ruling | | <code>AgentComposerPopover</code> | conformant — gained <code>→</code> into its row engine chip, caret-aware <code>Home</code>/<code>End</code>, and an Escape that peels the flyout rather than the picker | | <code>CliModelPicker</code> | conformant — <strong>migrated</strong> off DOM-focus roving to <code>aria-activedescendant</code> | | <code>SkillPickerPopover</code> | <strong>not a combobox.</strong> <code>role=&quot;menu&quot;</code> with <code>menuitem</code> rows and a filter field. Picking a skill to insert chooses an *action*, not a value — the shape <code>components/menu</code> already specifies. Struck from MC-2117's list rather than migrated. | | <code>newSprint/NewSprintDialog</code> | <strong>not a combobox.</strong> A multi-selectable listbox with an external filter: rows toggle rather than commit, <code>aria-multiselectable</code> is not a property a combobox may carry, the list is permanently rendered and is its own tab stop running its own cursor, and <code>Space</code> (the toggle) cannot coexist with a field that owns focus. Given the link that DOES fit that shape — the field naming the list through <code>aria-controls</code> (<code>ui/InboxSearchInput</code>'s <code>controlsId</code>). |</p>
-<h4>Adoption is the contract, not the chrome</h4>
-<p>Four of the six surfaces above are comboboxes. Three of those are call sites, and none of the three renders its rows through the primitive — <code>ui/Combobox</code> still has no consumer, which is the honest state and a deliberate one. Each carries behaviour past filter-plus-listbox — favourites and model families (<code>CliModelPicker</code>), per-row engine editors and specialist sections (<code>AgentComposerPopover</code>), grouped results with keybinding hints (<code>CommandPalette</code>) — and growing <code>Combobox</code> an escape hatch per picker is how a shared primitive stops being shared. What they share is the keyboard model above; <code>ui/Combobox</code> is for the cases that are genuinely a filter over a flat list.</p>
-</div>
-</div>
-<details class="catalog-source"><summary>components/combobox/component.css</summary><pre><code>/* Combobox — a text field that filters a listbox, for choosing from a set
- * large enough to search. Extracted from the shipped Combobox primitive
- * (src/renderer/src/components/ui/Combobox.tsx).
- *
- * Family contract with `select`: a select opens a closed set and has no
- * query; a combobox exists because the set is too long to scan. Reach for
- * this only when filtering is genuinely the point — a searchable four-item
- * list is a select with a search box bolted on.
- *
- * The ARIA is the part the five bespoke versions each got differently, and
- * it is the part that matters: THE INPUT IS THE COMBOBOX and keeps focus
- * throughout, options are never focused, and the highlighted one is named by
- * aria-activedescendant. That is what lets typing and arrowing work at the
- * same time — moving real focus onto an option takes it off the field, and
- * the next keystroke goes nowhere.
- *
- * One shape: a trigger opens a surface carrying the field above the list.
- * There is deliberately no inline-field variant — the popover engine owns
- * anchoring, flipping, clamping and outside-click, and an inline field would
- * have to either fight that contract or hand-roll a second popover shell. A
- * caller wanting the field to BE the control passes a full-width trigger
- * styled as one; the list still opens on the shared engine.
- *
- * The surface itself is `popover` — this file styles only what rides on it. */
-
-/* ── Trigger ─────────────────────────────────────────────────────────────
- * The default: a full-width button reading as a field. Muted ink, because
- * what it shows is a prompt rather than a chosen value. */
-.ds-combobox-trigger {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-sm);
-  border: 1px solid var(--sem-color-border-default);
-  border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface);
-  color: var(--sem-color-text-muted);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-meta);
-  text-align: left;
-  cursor: pointer;
-}
-
-.ds-combobox-trigger:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-/* ── Field ───────────────────────────────────────────────────────────────
- * The query field sits ABOVE the list inside the surface, divided from it by
- * a hairline: the person is typing at the thing they are filtering, and a
- * field docked at the bottom would put the caret below the rows it moves. */
-.ds-combobox-field {
-  padding: var(--sem-space-2xs);
-  border-bottom: 1px solid var(--sem-color-border-subtle);
-}
-
-.ds-combobox-input {
-  box-sizing: border-box;
-  width: 100%;
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-sm);
-  border: 1px solid var(--sem-color-border-default);
-  border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface);
-  color: var(--sem-color-text-primary);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-meta);
-}
-
-.ds-combobox-input::placeholder {
-  color: var(--sem-color-text-disabled);
-}
-
-/* Focus is the ring and only the ring — and it stays on this field for the
- * whole life of the popup, however far the highlight has arrowed down the
- * list. A ring that moves onto an option is the bug this contract prevents. */
-.ds-combobox-input:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-/* ── Listbox ─────────────────────────────────────────────────────────────
- * Capped and scrolling past roughly ten rows: a filtered list that grows
- * past the viewport has stopped being a list of candidates. A cap, not a
- * spacing step. */
-.ds-combobox-listbox {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: var(--sem-space-2xs);
-}
-
-.ds-combobox-option {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-sm);
-  padding: var(--sem-space-2xs) var(--sem-space-sm);
-  border-radius: var(--sem-radius-control);
-  color: var(--sem-color-text-default);
-  font-size: var(--sem-font-size-meta);
-  cursor: pointer;
-}
-
-/* Active tracks the keyboard and the pointer through ONE treatment, so there
- * is never a hovered row and a different arrowed row lit at once. The state
- * lives in aria-selected; the paint is its echo, which is why the selector
- * reads off the attribute rather than a parallel class. */
-.ds-combobox-option[aria-selected='true'] {
-  background: var(--sem-color-bg-selected);
-  color: var(--sem-color-text-primary);
-}
-
-/* Disabled rows are skipped by the arrow keys rather than parked on, so this
- * is the resting look of a row the highlight will step over. */
-.ds-combobox-option[aria-disabled='true'] {
-  color: var(--sem-color-text-disabled);
-  cursor: not-allowed;
-}
-
-.ds-combobox-option[aria-disabled='true'][aria-selected='true'] {
-  background: transparent;
-  color: var(--sem-color-text-disabled);
-}
-
-.ds-combobox-option-icon {
-  display: flex;
-  flex: none;
-  width: var(--sem-icon-size-sm);
-  height: var(--sem-icon-size-sm);
-  align-items: center;
-  justify-content: center;
-}
-
-/* The label takes the slack and truncates; the hint never does. A hint is
- * short by construction, and a truncated one (&quot;clau…&quot;) says nothing. */
-.ds-combobox-option-label {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ds-combobox-option-hint {
-  flex: none;
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-subtle);
-}
-
-/* Group headings are decoration over a flat option list — consecutive
- * options sharing a group get one. Hidden from assistive tech: the listbox
- * is flat to a screen reader, and a heading announced as an option would be
- * a row that cannot be chosen. */
-.ds-combobox-group {
-  padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
-  font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-emphasis);
-  color: var(--sem-color-text-subtle);
-}
-
-/* No matches. Readable ink, and phrased about the query rather than about
- * the list — &quot;no matches&quot; in an empty popup tells the person nothing they
- * did not already see. */
-.ds-combobox-empty {
-  margin: 0;
-  padding: var(--sem-space-sm);
-  font-size: var(--sem-font-size-meta);
-  color: var(--sem-color-text-muted);
-}
-</code></pre></details>
-<details class="catalog-source"><summary>components/combobox/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
-&lt;html lang=&quot;en&quot;&gt;
-&lt;head&gt;
-&lt;meta charset=&quot;utf-8&quot; /&gt;
-&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;Combobox&lt;/title&gt;
-&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
-&lt;link rel=&quot;stylesheet&quot; href=&quot;../popover/component.css&quot; /&gt;
-&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
-&lt;style&gt;
-  body {
-    margin: 0;
-    font-family: var(--sem-font-family-ui);
-  }
-  .demo-stage {
-    padding: var(--sem-space-3xl);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-default);
-  }
-  .demo-label {
-    margin: 0 0 var(--sem-space-sm);
-    font-size: var(--sem-font-size-meta);
-    color: var(--sem-color-text-subtle);
-  }
-  .demo-column {
-    max-width: 300px;
-    margin-bottom: var(--sem-space-3xl);
-  }
-  /* The surface is `position: fixed` in the product, anchored to its trigger.
-     Pinned in flow here, directly under the trigger it belongs to, so the
-     spec renders as a static page. */
-  .demo-surface {
-    position: static;
-    margin-top: var(--sem-space-2xs);
-  }
-&lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — closed. The trigger carries the popup ARIA; muted ink, because this is a prompt rather than a chosen value.&lt;/p&gt;
-  &lt;div class=&quot;demo-column&quot;&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-combobox-trigger&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
-      Choose a model…
-    &lt;/button&gt;
-  &lt;/div&gt;
-
-  &lt;p class=&quot;demo-label&quot;&gt;Open, mid-query. The field keeps focus and the ring; the highlight is on a row named by aria-activedescendant, not focused.&lt;/p&gt;
-  &lt;div class=&quot;demo-column&quot;&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-combobox-trigger&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;model-listbox&quot;&gt;
-      Choose a model…
-    &lt;/button&gt;
-    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
-      &lt;div class=&quot;ds-combobox-field&quot;&gt;
-        &lt;input
-          class=&quot;ds-combobox-input&quot;
-          type=&quot;text&quot;
-          role=&quot;combobox&quot;
-          aria-label=&quot;Choose a model&quot;
-          aria-expanded=&quot;true&quot;
-          aria-controls=&quot;model-listbox&quot;
-          aria-autocomplete=&quot;list&quot;
-          aria-activedescendant=&quot;model-option-1&quot;
-          value=&quot;op&quot;
-          placeholder=&quot;Filter models…&quot;
-        /&gt;
-      &lt;/div&gt;
-      &lt;div id=&quot;model-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Choose a model&quot;&gt;
-        &lt;div class=&quot;ds-combobox-group&quot; aria-hidden=&quot;true&quot;&gt;Anthropic&lt;/div&gt;
-        &lt;div id=&quot;model-option-0&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
-              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
-            &lt;/svg&gt;
-          &lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 5&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;1M&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div id=&quot;model-option-1&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
-              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
-            &lt;/svg&gt;
-          &lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 4.8&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;200K&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div id=&quot;model-option-2&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
-              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
-            &lt;/svg&gt;
-          &lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 4.1 — retired&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div class=&quot;ds-combobox-group&quot; aria-hidden=&quot;true&quot;&gt;Local&lt;/div&gt;
-        &lt;div id=&quot;model-option-3&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
-              &lt;rect x=&quot;2.5&quot; y=&quot;4.5&quot; width=&quot;11&quot; height=&quot;7&quot; rx=&quot;1.5&quot; /&gt;
-            &lt;/svg&gt;
-          &lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;operator-local-7b&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;32K&lt;/span&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/div&gt;
-
-  &lt;p class=&quot;demo-label&quot;&gt;A query that matches nothing. The message names what was typed — “no matches”, in a popup showing no rows, tells the person nothing they cannot already see.&lt;/p&gt;
-  &lt;div class=&quot;demo-column&quot;&gt;
-    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
-      &lt;div class=&quot;ds-combobox-field&quot;&gt;
-        &lt;input
-          class=&quot;ds-combobox-input&quot;
-          type=&quot;text&quot;
-          role=&quot;combobox&quot;
-          aria-label=&quot;Choose a model&quot;
-          aria-expanded=&quot;true&quot;
-          aria-controls=&quot;empty-listbox&quot;
-          aria-autocomplete=&quot;list&quot;
-          value=&quot;gpt&quot;
-        /&gt;
-      &lt;/div&gt;
-      &lt;div id=&quot;empty-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Choose a model&quot;&gt;
-        &lt;p class=&quot;ds-combobox-empty&quot;&gt;No models match “gpt”.&lt;/p&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/div&gt;
-&lt;/div&gt;
-
-&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Dark — one highlight at a time: the arrowed row and the hovered row are the same treatment, so the list never shows two candidates.&lt;/p&gt;
-  &lt;div class=&quot;demo-column&quot;&gt;
-    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
-      &lt;div class=&quot;ds-combobox-field&quot;&gt;
-        &lt;input
-          class=&quot;ds-combobox-input&quot;
-          type=&quot;text&quot;
-          role=&quot;combobox&quot;
-          aria-label=&quot;Assign to&quot;
-          aria-expanded=&quot;true&quot;
-          aria-controls=&quot;assignee-listbox&quot;
-          aria-autocomplete=&quot;list&quot;
-          aria-activedescendant=&quot;assignee-option-0&quot;
-          value=&quot;&quot;
-          placeholder=&quot;Filter people…&quot;
-        /&gt;
-      &lt;/div&gt;
-      &lt;div id=&quot;assignee-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Assign to&quot;&gt;
-        &lt;div id=&quot;assignee-option-0&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Planner&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div id=&quot;assignee-option-1&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Implementer&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div id=&quot;assignee-option-2&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Reviewer with a very long role name that has to truncate&lt;/span&gt;
-          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
-        &lt;/div&gt;
-        &lt;div id=&quot;assignee-option-3&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
-          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Release manager — no runtime configured&lt;/span&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/div&gt;
-&lt;/div&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-</code></pre></details>
-</div>
 <div id="component-definition-list" class="catalog-view catalog-component">
 <h3>Definition list</h3>
 <div class="catalog-component-grid">
@@ -12667,19 +11853,20 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h4>Variants</h4>
 <p>The variants of this system are its families. Within a family, glyphs share a grid, a stroke, and a naming pattern; across families they share nothing but the ramp and <code>currentColor</code>.</p>
 <h5>Core actions and navigation (24-grid)</h5>
-<p>| Export | Meaning | |---|---| | <code>PlusIcon</code> | Create. The system's single *add* mark — a second plus on the same surface reads as the same action | | <code>MinusIcon</code> | Remove / decrement | | <code>CloseIcon</code> | Dismiss (the 24-grid sibling of <code>glyphs/close.svg</code>) | | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>ArrowRightIcon</code> | Forward navigation, go-to | | <code>CopyIcon</code> | Copy to clipboard | | <code>CommentIcon</code> | Comment thread (empty speech bubble) | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because the plus means create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character |</p>
+<p>| Export | Meaning | |---|---| | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>CopyIcon</code> | Copy to clipboard | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because compose is not create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character | | <code>FolderPlusIcon</code> | Install from a folder on disk — a folder wearing the plus | | <code>ResetIcon</code> | Restore a default: the shortcut a person rebound, a setting they changed | | <code>ReleaseNotesIcon</code> | What changed in this version |</p>
+<p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Export | Mark | |---|---| | <code>StandardWorkspaceTypeIcon</code> | Terminal-in-frame — the generic fallback | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; |</p>
-<h5>Status and priority (24-grid, parameterized, self-labelling)</h5>
-<p>| Export | Meaning | |---|---| | <code>PriorityIcon(priority)</code> | Backlog priority as signal bars: urgent (filled disc + <code>!</code>), high / medium / low (3-bar fill), none (three dashes). Carries <code>role=&quot;img&quot;</code> + label itself | | <code>StatusIcon(status)</code> | The 11 task folder states of <code>FOLDER_STATUSES</code>: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while <code>_in_progress</code>), done disc-check, canceled slash ring |</p>
-<p>These two are the 24-grid cousins of <code>LifecycleGlyph</code>. One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a lifecycle/status glyph, never both.</p>
+<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<h5>Status (16-grid)</h5>
+<p>There is one status vocabulary, and it is <code>LifecycleGlyph</code> (below). The 24-grid <code>PriorityIcon</code> / <code>StatusIcon</code> pair that used to sit here is gone: it was a second answer to the same question, drawn on a different grid, and the folder status enum it keyed off is now <code>FolderStatus</code> in the shared layer with no glyph family of its own.</p>
+<p>One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a <code>LifecycleGlyph</code>, never both.</p>
 <h5>Lifecycle (16-grid — <code>ui/LifecycleGlyph.tsx</code>)</h5>
 <p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint Engine task state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
 <p>| Shape | States | |---|---| | Ring (plain / dashed) | <code>todo</code>, <code>ready</code> (heavier stroke), <code>idea</code> (dashed) | | Ring + inner mark | <code>blocked</code> (bar), <code>paused</code> (pause bars), <code>needs_input</code> (!), <code>changes_requested</code> (return arrow), <code>archived</code> (slash), <code>failed</code> (×) | | Filling gauge arc | <code>in_progress</code> ¼ (spins when <code>live</code>), <code>review</code> ½, <code>testing</code> ¾, <code>product</code> ⅞ | | Disc / ring + check | <code>done</code> (filled), <code>approved_auto</code> (outline) | | Branch fork | <code>done_unmerged</code> (<code>--tone-good</code>), <code>done_merged</code> (<code>--tone-merged</code>) — same shape, tone carries merged-ness | | Document + tick | <code>recorded</code> |</p>
 <p>Held states (<code>blocked</code>, <code>paused</code>) are neutral ink, never the accent — the accent means *startable or live right now*, and never <code>--tone-error</code> — waiting is calm, not a defect.</p>
 <h5>Role (24-grid drawings, 16-grid wrappers)</h5>
-<p><code>SprintEngineRoleIcon(role, registry)</code> dispatches to module-private drawings (architect, product, developer, frontend, tester, security, performance, production-readiness, cross-platform) and falls back to a neutral disc for an absent or unrecognised role. <code>SpecialistActionIcon(icon)</code> keys the same drawings by specialist-action id (adding writing, spaghetti, nuclear, infra). The drawings are private on purpose: going through the dispatcher is what makes unknown ids degrade instead of crash.</p>
+<p><code>SprintEngineRoleIcon(role, registry)</code> dispatches to module-private drawings (architect, product, developer, frontend and ui/ux reviewer, tester, security, performance, production-readiness, cross-platform) and falls back to a neutral disc for an absent or unrecognised role. <code>SpecialistActionIcon(icon)</code> keys the same drawings by specialist-action id (adding writing, spaghetti, nuclear, infra, shield and the two design ids). The drawings are private on purpose: going through the dispatcher is what makes unknown ids degrade instead of crash.</p>
 <p>Two wrappers apply role *tone* — the documented exception to the one-accent rule, and the only one:</p>
 <ul><li><code>RoleGlyph</code> — the bare toned glyph, for a single inline slot (kanban-card trailing slot, task-graph node label). Sizes sm/md/lg (12/14/16 px).</li><li><code>RoleAvatar</code> — the toned identity disc with the glyph centered, for roster rows, running-agents lists, chips, spawn-dialog headers. Sizes xs/sm/md (16/24/28 px disc).</li></ul>
 <p>Role tone never bleeds into panel chrome, list rows, headers, or inspector sections; status and selection stay on <code>--accent-primary</code> and <code>--tone-*</code>.</p>
@@ -12687,12 +11874,13 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>| Export | Meaning | |---|---| | <code>SkillsGlyph</code> | The Skills category mark (framed panel) | | <code>McpGlyph</code> | The MCP plug mark |</p>
 <p>Shared by Extensions and capability inventory rows so a category reads the same everywhere; default themselves to <code>icon-xs</code> + <code>--text-muted</code>.</p>
 <h5>CLI / runtime marks (<code>CliIcon.tsx</code>)</h5>
-<p><code>CliIcon(cli)</code> resolves an agent CLI to one of eight marks: <code>claude-code</code> (the brand starburst — the one glyph with its own fill), <code>codex</code> (the knot mark, <code>currentColor</code>), <code>opencode</code>, and four original rounded-square tile marks (<code>zai</code>, <code>grok</code>, <code>kimi</code>, <code>cursor</code> — placeholders until official brand SVGs are bundled; both Kimi runtimes share one mark so they read as one provider), with <code>terminal</code> as the fallback. Tile marks keep the 24-grid discipline: 1.7 frame, 1.9 letterform.</p>
+<p><code>CliIcon(cli)</code> resolves an agent CLI to one of eight marks: <code>claude-code</code> (the brand starburst — the one glyph with its own fill), <code>codex</code> (the knot mark, <code>currentColor</code>), <code>opencode</code>, and five original rounded-square tile marks (<code>zai</code>, <code>grok</code>, <code>kimi</code>, <code>cursor</code>, <code>muse</code> — placeholders until official brand SVGs are bundled; both Kimi runtimes share one mark so they read as one provider), with <code>terminal</code> as the fallback. Tile marks keep the 24-grid discipline: 1.7 frame, 1.9 letterform.</p>
 <h5>File type (16-grid — <code>ui/FileTypeGlyph.tsx</code>)</h5>
-<p>*Which kind of file is this row about*, answered by shape first. One drawing per kind in the 16 px leading slot every tree and list row reserves — the File Explorer and the Git changes list wear the same mark for the same file, so a <code>.ts</code> reads as a <code>.ts</code> on both (owner 2026-09-05, the IDE Project-view idiom). <code>fileTypeKind(name)</code> is the pure resolver; <code>FILE_TYPE_LABEL</code> names each kind for a tooltip or <code>aria-label</code>; <code>fileTypeKindInk(kind)</code> is the identity hue a kind wears when coloured.</p>
-<p>| Kind | Shape | |---|---| | <code>typescript</code> · <code>javascript</code> · <code>python</code> · <code>rust</code> · <code>go</code> | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the <code>CliIcon</code> placeholder tile | | <code>typescript-test</code> · <code>javascript-test</code> | The same tile with its bottom-right corner notched for a tick — <code>*.test.*</code> and <code>*.spec.*</code> | | <code>react</code> | The atom — <code>.tsx</code> / <code>.jsx</code> | | <code>json</code> | Braces <code>{ }</code> | | <code>markdown</code> | M with a down arrow | | <code>yaml</code> | Indented list lines | | <code>html</code> | Angle brackets <code>&lt; &gt;</code> | | <code>css</code> | Hash <code>#</code> | | <code>shell</code> | Prompt <code>&gt;_</code> | | <code>java</code> | Cup | | <code>image</code> | Framed landscape | | <code>lock</code> | Padlock — lockfiles (<code>package-lock.json</code>, <code>yarn.lock</code>, <code>Cargo.lock</code> …) | | <code>config</code> | Gear — dotfiles, <code>.env*</code>, <code>Dockerfile</code>, <code>.toml</code> / <code>.ini</code> / <code>.xml</code> | | <code>text</code> | Document with lines — <code>.txt</code>, <code>.csv</code>, <code>LICENSE</code>, <code>README</code> | | <code>generic</code> | Plain document — anything unrecognised |</p>
+<p>*Which kind of file is this row about*, answered by shape first. One drawing per kind in the 16 px leading slot every tree and list row reserves — the File Explorer and the Git changes list wear the same mark for the same file, so a <code>.ts</code> reads as a <code>.ts</code> on both (owner 2026-09-05, the IDE Project-view idiom). <code>fileTypeKind(name)</code> is the pure resolver and <code>FILE_TYPE_LABEL</code> names each kind for a tooltip or <code>aria-label</code>; the identity hue a kind wears when coloured is private to the component, applied through its <code>tone</code> prop.</p>
+<p>| Kind | Shape | |---|---| | <code>typescript</code> · <code>javascript</code> · <code>python</code> · <code>rust</code> · <code>go</code> | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the <code>CliIcon</code> placeholder tile | | <code>typescript-test</code> · <code>javascript-test</code> · <code>python-test</code> · <code>rust-test</code> · <code>go-test</code> · <code>react-test</code> | The same drawing with its bottom-right corner notched for a tick — <code>*.test.*</code> and <code>*.spec.*</code> | | <code>react</code> | The atom — <code>.tsx</code> / <code>.jsx</code> | | <code>json</code> | Braces <code>{ }</code> | | <code>markdown</code> | M with a down arrow | | <code>yaml</code> | Indented list lines | | <code>html</code> | Angle brackets <code>&lt; &gt;</code> | | <code>css</code> | Hash <code>#</code> | | <code>shell</code> | Prompt <code>&gt;_</code> | | <code>java</code> | Cup | | <code>image</code> | Framed landscape | | <code>lock</code> | Padlock — lockfiles (<code>package-lock.json</code>, <code>yarn.lock</code>, <code>Cargo.lock</code> …) | | <code>config</code> | Gear — dotfiles, <code>.env*</code>, <code>Dockerfile</code>, <code>.toml</code> / <code>.ini</code> / <code>.xml</code> | | <code>text</code> | Document with lines — <code>.txt</code>, <code>.csv</code>, <code>LICENSE</code>, <code>README</code> | | <code>generic</code> | Plain document — anything unrecognised |</p>
 <p>Colour is the <code>tone</code> axis, and the surface picks it (ruled 2026-09-06, principles.md → &quot;Identity colour&quot;). <code>tone=&quot;ink&quot;</code>, the default, is the monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is the rule wherever the filename already carries a status tint — the Git changes list — so that tint stays the row's one colour. <code>tone=&quot;kind&quot;</code> inks the glyph in its language's identity hue from the <code>--sem-color-mark-*</code> ramp, the pairings people know from their editors:</p>
-<p>| Hue | Kinds | |---|---| | <code>mark.blue</code> | <code>typescript</code> · <code>typescript-test</code> · <code>python</code> · <code>markdown</code> | | <code>mark.yellow</code> | <code>javascript</code> · <code>javascript-test</code> · <code>json</code> · <code>lock</code> | | <code>mark.cyan</code> | <code>react</code> · <code>go</code> | | <code>mark.orange</code> | <code>html</code> · <code>rust</code> | | <code>mark.red</code> | <code>yaml</code> · <code>java</code> | | <code>mark.teal</code> | <code>shell</code> | | <code>mark.violet</code> | <code>css</code> · <code>image</code> | | *(row ink)* | <code>config</code> · <code>text</code> · <code>generic</code> — they name no language |</p>
+<p>| Hue | Kinds | |---|---| | <code>mark.blue</code> | <code>typescript</code> · <code>python</code> · <code>markdown</code> | | <code>mark.yellow</code> | <code>javascript</code> · <code>json</code> · <code>lock</code> | | <code>mark.cyan</code> | <code>react</code> · <code>go</code> | | <code>mark.orange</code> | <code>html</code> · <code>rust</code> | | <code>mark.red</code> | <code>yaml</code> · <code>java</code> | | <code>mark.teal</code> | <code>shell</code> | | <code>mark.violet</code> | <code>css</code> · <code>image</code> | | *(row ink)* | <code>config</code> · <code>text</code> · <code>generic</code> — they name no language |</p>
+<p>A <code>*-test</code> kind takes its base language's hue: the notch says &quot;test&quot;, the hue still says which language.</p>
 <p>The File Explorer is the surface that qualifies: nothing else in its rows is coloured. The hue identifies and never grades — it is not a status ramp, and a <code>.ts</code> row is not &quot;more&quot; than a <code>.md</code> row for being bluer. <code>glyphs/file- typescript.svg</code> and <code>glyphs/file-generic.svg</code> are the framework-neutral samples of the tile and document idioms, in <code>currentColor</code>.</p>
 <p><code>FolderGlyph(open)</code> is the family's folder: the outlined folder in the same 16 px slot, so a folder row's name starts at the same x as a file row's. The chevron beside it carries expanded state, so a tree may leave <code>open</code> off and let the folder read the same either way. <code>glyphs/folder.svg</code>.</p>
 <h5>Git views (16-grid — <code>panels/GitPanel.tsx</code>)</h5>
@@ -16225,7 +15413,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 </div>
 <div class="catalog-doc">
 <p>A list of actions, summoned onto a popover surface. Right-click a row, press a kebab, or open a narrowing glyph: whichever way it was asked for, what appears is this.</p>
-<p>Use a menu when the list is *actions*. Use [select](../select/component.md) when it is a value being chosen, [combobox](../combobox/component.md) when that value has to be filtered for, and the detail pane when the answer is something to read rather than something to do.</p>
+<p>Use a menu when the list is *actions*. Use [select](../select/component.md) when it is a value being chosen — including when that value has to be filtered for — and the detail pane when the answer is something to read rather than something to do.</p>
 <h4>Why this spec exists</h4>
 <p>The system shipped three menus and no spec, so each host answered the same questions alone — and a row could be right-clicked and kebab-pressed into two menus that disagreed about radius, border, ground, item type, hover shape and divider colour. <code>OverflowMenu.tsx:200</code> admitted the split in a comment.</p>
 <p>Measured 2026-08-05, before this ruling:</p>
@@ -25593,205 +24781,6 @@ targets.forEach((el) =&gt; {
 window.addEventListener('resize', measureAll)
 measureAll()
 &lt;/script&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-</code></pre></details>
-</div>
-<div id="component-wizard-progress" class="catalog-view catalog-component">
-<h3>Wizard progress</h3>
-<div class="catalog-component-grid">
-<div class="catalog-stage ds-embed-component-wizard-progress">
-<div class="demo-stage">
-    <div class="demo-box">
-      <p class="demo-label">Dashes — short flow, position is the whole message</p>
-      <div class="ds-wizard" role="progressbar" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3" aria-label="Step 3 of 4: Roster">
-        <span class="ds-wizard-step" data-state="done"></span>
-        <span class="ds-wizard-step" data-state="done"></span>
-        <span class="ds-wizard-step" data-state="current" aria-current="step"></span>
-        <span class="ds-wizard-step" data-state="upcoming"></span>
-      </div>
-    </div>
-
-    <div class="demo-box">
-      <p class="demo-label">Labeled — past four steps, people need to know which stations they passed</p>
-      <div class="ds-wizard ds-wizard--labeled" role="progressbar" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3" aria-label="Step 3 of 4: Roster">
-        <span class="ds-wizard-step" data-state="done">
-          <svg class="ds-wizard-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <button type="button" class="ds-wizard-jump">Project</button>
-        </span>
-        <span class="ds-wizard-step" data-state="done">
-          <svg class="ds-wizard-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <button type="button" class="ds-wizard-jump">Goal</button>
-        </span>
-        <span class="ds-wizard-step" data-state="current" aria-current="step">Roster</span>
-        <span class="ds-wizard-step" data-state="upcoming">Review</span>
-      </div>
-    </div>
-  </div>
-</div>
-<div class="catalog-doc">
-<p>Where you are in a flow that has a known number of steps, and — once a step is behind you — a way back to it.</p>
-<p>Use it only when the total is known and fixed. A flow whose length depends on what the person picks needs a different affordance: a count that changes as you go is worse than no count, because it removes the one thing this component is for. For an indeterminate wait use [liveness](../liveness/component.md); for navigation between peers use [tabs](../tabs/component.md).</p>
-<h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Strip | <code>.ds-wizard</code> | yes — <code>role=&quot;progressbar&quot;</code> with <code>aria-valuenow/min/max</code> | | Step | <code>.ds-wizard-step</code> | yes — one per step, in order | | Jump control | <code>.ds-wizard-jump</code> | no — only over already-completed steps | | Step label | <code>.ds-wizard-label</code> | labeled variant only |</p>
-<p><strong>The progressbar itself is never interactive.</strong> Where back-jumping is offered, the controls are a sibling group layered over the strip — a <code>role=&quot;progressbar&quot;</code> that is also a button is two contracts on one element, and screen readers announce the wrong one.</p>
-<h4>Variants</h4>
-<ul><li><strong>Dashes</strong> (default) — anonymous hairline segments. Right when the steps have no names worth reading, or the flow is short enough that position is the whole message.</li><li><strong>Labeled</strong> — each step's name inline, done steps ticked, the current one marked. Right past about four steps, where a count stops being orientation and people need to know *which* stations they have passed. Requires step names; without them it is dashes.</li></ul>
-<h4>States</h4>
-<p>| State | Treatment | |---|---| | Done | filled in <code>accent.primary</code>; ticked in the labeled variant | | Current | filled, and the only step carrying <code>aria-current=&quot;step&quot;</code> | | Upcoming | <code>border.default</code> hairline, unfilled, inert | | Jumpable | a done step that is also focusable and activates the back-jump |</p>
-<p><strong>Done and current are separable.</strong> By default every step before the active one counts as done, which is what a simple wizard wants. A flow whose active step can itself still be working passes the completed count explicitly, so the current step reads as &quot;in progress&quot; rather than &quot;finished&quot; — the difference between &quot;you are on step 3&quot; and &quot;you have finished 3&quot;.</p>
-<h4>Usage</h4>
-<ul><li><strong>Back, never forward.</strong> Completed steps are reachable; upcoming ones are not. A wizard exists because the order matters, and a jump-ahead control quietly says it does not.</li><li>One strip per flow, at the top of the surface it describes.</li><li>Do not animate the fill between steps. Movement here would mean &quot;alive right now&quot;, which is not what a step change is.</li><li>Never the only statement of where you are. The surface should also say it in words — a heading naming the current step — because a person returning to a half-finished flow reads the heading, not the dashes.</li></ul>
-<h4>Accessibility</h4>
-<ul><li>The strip is <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code> and <code>aria-valuenow</code>, and an accessible name that reads &quot;Step 3 of 6&quot; — with the current step's own name appended when there is one.</li><li>The current step carries <code>aria-current=&quot;step&quot;</code>.</li><li>Jump controls are real buttons with their own names (&quot;Back to Project&quot;), not bare dashes: &quot;button&quot; repeated six times orients nobody.</li><li>Upcoming steps are not focusable and are not announced as available.</li><li>State is never carried by fill colour alone — done steps tick in the labeled variant, and the accessible name always carries the position.</li></ul>
-<h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/WizardProgress.tsx</code>.</p>
-</div>
-</div>
-<details class="catalog-source"><summary>components/wizard-progress/component.css</summary><pre><code>/* Wizard progress — position in a flow of known length.
- *
- * The strip is a status indicator and nothing else. Where back-jumping is
- * offered the controls are a SIBLING group layered over it, because a
- * role=&quot;progressbar&quot; that is also a button carries two contracts on one element
- * and assistive tech announces the wrong one. */
-
-.ds-wizard {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-}
-
-.ds-wizard-step {
-  height: 2px;
-  min-width: 24px;
-  flex: 1 1 auto;
-  border-radius: var(--sem-radius-pill);
-  background: var(--sem-color-border-default);
-}
-
-.ds-wizard-step[data-state='done'],
-.ds-wizard-step[data-state='current'] {
-  background: var(--sem-color-accent-primary);
-}
-
-/* Current is distinguished from done by weight rather than by hue: the accent
- * already means &quot;progressed&quot;, and a second accent would need a second meaning. */
-.ds-wizard-step[data-state='current'] {
-  height: 3px;
-}
-
-/* ── labeled variant ───────────────────────────────────────────────────────── */
-
-.ds-wizard--labeled {
-  gap: var(--sem-space-lg);
-}
-
-.ds-wizard--labeled .ds-wizard-step {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-  height: auto;
-  min-width: 0;
-  flex: 0 1 auto;
-  border-radius: 0;
-  background: none;
-  color: var(--sem-color-text-subtle);
-  font-size: var(--sem-font-size-meta);
-}
-
-.ds-wizard--labeled .ds-wizard-step[data-state='done'] {
-  color: var(--sem-color-text-muted);
-}
-
-.ds-wizard--labeled .ds-wizard-step[data-state='current'] {
-  color: var(--sem-color-text-primary);
-  font-weight: var(--sem-font-weight-medium);
-}
-
-.ds-wizard-glyph {
-  width: var(--sem-icon-size-xs);
-  height: var(--sem-icon-size-xs);
-  flex: none;
-}
-
-/* ── back-jump controls ────────────────────────────────────────────────────── */
-
-/* Back, never forward: only a completed step gets one of these. */
-.ds-wizard-jump {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.ds-wizard-jump:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-  border-radius: var(--sem-radius-chip);
-}
-</code></pre></details>
-<details class="catalog-source"><summary>components/wizard-progress/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
-&lt;html lang=&quot;en&quot;&gt;
-&lt;head&gt;
-&lt;meta charset=&quot;utf-8&quot; /&gt;
-&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;Wizard progress&lt;/title&gt;
-&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
-&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
-&lt;style&gt;
-  body { margin: 0; font-family: var(--sem-font-family-ui); }
-  .demo-stage {
-    padding: var(--sem-space-3xl);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-default);
-  }
-  .demo-label {
-    margin: 0 0 var(--sem-space-sm);
-    font-size: var(--sem-font-size-meta);
-    color: var(--sem-color-text-subtle);
-  }
-  .demo-box { max-width: 420px; margin-bottom: var(--sem-space-3xl); }
-&lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-  &lt;div class=&quot;demo-stage&quot;&gt;
-    &lt;div class=&quot;demo-box&quot;&gt;
-      &lt;p class=&quot;demo-label&quot;&gt;Dashes — short flow, position is the whole message&lt;/p&gt;
-      &lt;div class=&quot;ds-wizard&quot; role=&quot;progressbar&quot; aria-valuemin=&quot;1&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-label=&quot;Step 3 of 4: Roster&quot;&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;&lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;&lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;current&quot; aria-current=&quot;step&quot;&gt;&lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;upcoming&quot;&gt;&lt;/span&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-
-    &lt;div class=&quot;demo-box&quot;&gt;
-      &lt;p class=&quot;demo-label&quot;&gt;Labeled — past four steps, people need to know which stations they passed&lt;/p&gt;
-      &lt;div class=&quot;ds-wizard ds-wizard--labeled&quot; role=&quot;progressbar&quot; aria-valuemin=&quot;1&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-label=&quot;Step 3 of 4: Roster&quot;&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;
-          &lt;svg class=&quot;ds-wizard-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
-          &lt;/svg&gt;
-          &lt;button type=&quot;button&quot; class=&quot;ds-wizard-jump&quot;&gt;Project&lt;/button&gt;
-        &lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;
-          &lt;svg class=&quot;ds-wizard-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
-          &lt;/svg&gt;
-          &lt;button type=&quot;button&quot; class=&quot;ds-wizard-jump&quot;&gt;Goal&lt;/button&gt;
-        &lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;current&quot; aria-current=&quot;step&quot;&gt;Roster&lt;/span&gt;
-        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;upcoming&quot;&gt;Review&lt;/span&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

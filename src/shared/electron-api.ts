@@ -2256,7 +2256,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'automations' | 'cli' | 'filesystem' | 'git' | 'marketplace' | 'models' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
@@ -2562,8 +2562,8 @@ export type SprintEngineStateInitializeInput = {
   events?: unknown[]
   artifacts?: unknown[]
   // The root source seed and its bundle, persisted into run.yaml at creation.
-  // Set only for app-created reference-mode launches (backlog/plan-sourced); the
-  // Guided Brief and CLI/headless paths seed the source through handover instead.
+  // Set only for app-created reference-mode launches (backlog/plan-sourced);
+  // copy-mode and CLI/headless paths seed the source through handover instead.
   source?: SprintEngineStateInitializeSource
   sourceBundle?: SprintEngineStateInitializeSourceBundleItem[]
   // How this run gets its task graph (MC-2128). `direct` imports it from the
@@ -3697,9 +3697,6 @@ export type ElectronApi = {
   builtinSkillStatus: (
     input: { workspaceRoot: string | null; skillId: string }
   ) => Promise<BuiltinSkillStatus>
-  builtinSkillInstall: (
-    input: { workspaceRoot: string | null; skillId: string }
-  ) => Promise<BuiltinSkillInstallResult>
   /**
    * The app's own plugin: what this build ships against what the open workspace
    * holds. Read-only — the built-in plugin has no Install and no Remove.
@@ -3940,8 +3937,6 @@ export type ElectronApi = {
     feedback: string
   ) => Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState: (input: SprintEngineStateInitializeInput) => Promise<SprintEngineArtifactCommandResult>
-  updateSprintEngineTask: (input: SprintEngineTaskUpdateInput) => Promise<SprintEngineArtifactCommandResult>
-  createSprintEngineTask: (input: SprintEngineTaskCreateInput) => Promise<SprintEngineArtifactCommandResult>
   commentSprintEngineTask: (input: SprintEngineTaskCommentInput) => Promise<SprintEngineArtifactCommandResult>
   resolveSprintEngineTaskInput: (input: SprintEngineTaskResolveInput) => Promise<SprintEngineArtifactCommandResult>
   setSprintEngineTaskStatus: (input: SprintEngineTaskStatusSetInput) => Promise<SprintEngineArtifactCommandResult>
@@ -4023,7 +4018,15 @@ export type ElectronApi = {
   regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
-  /** Run a bundle's own scripts/lint.mjs on demand (the bundle author's contribution gate). */
+  /**
+   * Run a bundle's own scripts/lint.mjs on demand (the bundle author's
+   * contribution gate). NO CALLER as of 2026-09-08 — the orphan sweep found the
+   * method reachable from nothing but its preload implementation. Kept rather
+   * than deleted because it is the only programmatic route to a real, tested
+   * capability (`src/main/design-system/bundle-lint-run.ts` and the
+   * pipeline round-trip's author gate); the owner decides whether the Design
+   * door's bundle view should call it or the whole chain should go.
+   */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
   /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
   readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
@@ -4072,10 +4075,6 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
-  // The name of the shell a plain terminal session launches on this machine
-  // ('zsh', 'bash', 'powershell'), resolved by the launcher itself so a surface
-  // that names it cannot advertise one shell and start another.
-  terminalDefaultShellName: () => Promise<string>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,
   // resumable session; resume relaunches it (mirrors terminalSpawn's payload,

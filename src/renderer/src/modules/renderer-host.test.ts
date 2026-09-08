@@ -437,9 +437,10 @@ const surfaceHost = createRendererHost()
 const surfaceComponent = () => {
   throw new Error('surface component should not be evaluated during registration')
 }
-// The roadmap surface (first-party) and a third-party module's surface register
-// through the same contract — the seam that lets Automations/Reviews (and SDK
-// modules) contribute a full page without editing WorkspaceManager.
+// A first-party surface and a third-party module's surface register through the
+// same contract — the seam that lets Sprints/Automations/Reviews (and SDK
+// modules) contribute a full page without editing WorkspaceManager. ('roadmap'
+// below is an arbitrary module id; the door of that name is long gone.)
 surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent })
 surfaceHost.hostFor('acme.compass').registerGlobalSurface({ id: 'compass', Component: surfaceComponent })
 

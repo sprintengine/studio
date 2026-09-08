@@ -302,9 +302,6 @@ def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None
     # decides, the main scheduler binds its ports (sprint-runtime-ownership).
     cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
     runtime_source = (repo_root / "src/main/sprint-runtime.ts").read_text(encoding="utf-8")
-    renderer_executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
-        encoding="utf-8"
-    )
     artifacts_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
 
     # The cycle must not push approval through the agent terminal; it routes
@@ -313,14 +310,11 @@ def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None
     assert "Sent the user approval intent to the responsible agent terminal." not in cycle_source
     assert "ports.autoApproveSprintEngineArtifact(statePath, artifact.id)" in cycle_source
     assert "Artifact auto-approved through the sprint" in cycle_source
-    # Both hosts bind the port to the real engine call: main in-process, the
-    # renderer's historical test surface through window.api.
+    # The main process is the only host that binds the port now: the renderer
+    # auto-run shims were deleted on 2026-09-08 (nothing in the app imported
+    # them), so `src/main/sprint-runtime.ts` is the single binding site.
     assert "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in runtime_source
     assert "deps.artifacts.autoApproveArtifact({ statePath, artifactId })" in runtime_source
-    assert (
-        "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in renderer_executor_source
-        and "window.api.autoApproveSprintEngineArtifact(statePath, artifactId)" in renderer_executor_source
-    )
     assert "action: 'approve-intent'" not in artifacts_source
     assert "await assertAutoApprovalAllowed(state, artifactId)" in artifacts_source
     assert "sprintengine.artifact.approve" in artifacts_source

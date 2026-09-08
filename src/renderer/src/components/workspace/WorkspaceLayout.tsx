@@ -108,7 +108,6 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 // Lazy so the run-summary / plan-reader bundles only load with their tabs — and
 // never when Sprint Engine is disabled. They stay local (not host-registered)
 // because they take an onClose callback the generic host panel contract omits.
-const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
@@ -653,18 +652,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                 connectionId={config.connectionId}
                 machineName={config.machineName ?? 'Remote machine'}
                 sessionId={config.remoteSessionId}
-              />
-            ))
-            : DISABLED_SURFACE
-        case 'sprintengine-run-summary':
-          return sprintEngineEnabled
-            ? timedPanel('SprintEngineRunSummaryPanel', (
-              <SprintEngineRunSummaryPanel
-                workspaceId={workspaceId}
-                onClose={() => {
-                  const model = modelRef.current
-                  if (model) deleteTabPreservingRails(model, node.getId())
-                }}
               />
             ))
             : DISABLED_SURFACE

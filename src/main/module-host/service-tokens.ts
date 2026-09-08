@@ -65,8 +65,7 @@ export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEng
   'core.sprintengine-mcp-hub'
 )
 // Sprint creation in main (MC-2160): the automations module's `sprint-engine-start`
-// action and the roadmap orchestrator's `startSprint` both create runs through it,
-// so neither needs a window any more.
+// action creates runs through it, so it needs no window.
 export const SprintCreateServiceToken = createServiceToken<AppServices['sprintCreateService']>(
   'core.sprint-create-service'
 )

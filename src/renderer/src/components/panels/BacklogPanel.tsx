@@ -353,7 +353,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // never written back by the link sync (MC-1617, backlog/2026-07-15-backlog-epic-
   // status-derives-from-children.md). Deriving it here, once over the full scan,
   // means every downstream surface — rows, detail, lens filtering, the dependency
-  // graph, sort order, and roadmap eligibility — reads the corrected status with no
+  // graph and sort order — reads the corrected status with no
   // special-casing. Leaf items pass through untouched, so their behavior is
   // byte-identical. A never-launched epic (zero links) still derives from its
   // children; a childless epic falls back to the leaf link rule.
@@ -412,10 +412,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     const query = search.trim().toLowerCase()
     const matched = items.filter((item) => {
       // Roadmap objects live in the backlog store (backlog/roadmaps/) but are
-      // not backlog work items: the instance-global Roadmap door (MC-1689) is
-      // their surface. Listing them here reads as project-scoped items with
-      // MC ids — exactly the impression the global redesign retired. They stay
-      // in `items` so navigation/reveal still opens the authoring editor.
+      // not backlog work items: they are ordered plans, authored as files. The
+      // door that steered them retired on 2026-09-05, so nothing renders them
+      // as a surface any more — but listing them here would read as
+      // project-scoped items with MC ids, which they are not. They stay in
+      // `items` so navigation/reveal still opens the authoring editor.
       if (isRoadmapContent(item.relativePath, item.rawType)) return false
       // Files under backlog/mockups/ are attachments other items reference via
       // `mockups:` frontmatter, not work items — listing them here gave them
@@ -994,10 +995,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, refreshAndSelect, scan],
   )
 
-  // The roadmap is instance-global (one plan per Multicode, MC-1689), created and
-  // steered from the sidebar Roadmap door. The Backlog carries NO second door into
-  // it: a duplicate entry point earns nothing here, and the header space is worth
-  // more as the refresh affordance.
+  // The Backlog carries no door into the roadmap files under backlog/roadmaps/.
+  // The instance-global Roadmap door that steered them retired on 2026-09-05;
+  // the header space is worth more as the refresh affordance than as a second
+  // route to an editor the rows already open.
 
   const openInEditor = useCallback(
     (item: BacklogItem) =>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
-} from './sprintengineAutoRun'
+} from '../../../shared/sprintengine/auto-run'
 import type {
   SprintEngineRuntimeAgent,
   SprintEngineState,

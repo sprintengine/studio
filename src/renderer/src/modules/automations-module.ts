@@ -105,8 +105,8 @@ export const automationsRendererModule: RendererModule = {
               // Latch the automation to select first (the surface drains it on
               // mount), then open the door. Dynamic store import keeps the
               // eager module registry — and the bundled-ids drift test — free
-              // of the workspace store / FlexLayout graph, matching the roadmap
-              // and sprint-engine module pattern.
+              // of the workspace store / FlexLayout graph, matching the
+              // sprint-engine module pattern.
               dispatchAutomationSurfaceTarget(target)
               void import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
                 useWorkspaceStore.getState().openGlobalSurface('automations')

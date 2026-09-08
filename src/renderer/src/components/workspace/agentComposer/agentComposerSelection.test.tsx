@@ -271,17 +271,9 @@ run('the zero-CLI state is derived from a ready catalog and answered with the in
     /noAgentCliInstalled\s*=\s*pluginCatalogStatus === 'ready' && agentCliOptions\.length === 0/,
     'the flag is "ready and nothing installed", never "the list looks empty"',
   )
-  // The spawn picker answers the same state; it is not a roster, so it says so
-  // in its own module rather than through this roster's shape.
-  const spawnPickerSource = readFileSync(
-    join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/SpawnPicker.tsx'),
-    'utf8',
-  )
-  for (const [name, source] of [['panel', panelSource], ['spawn picker', spawnPickerSource]] as const) {
-    assert.match(source, /composer\.noAgentCliInstalled/, `${name}: reads the zero-CLI state`)
-    assert.match(source, /<CliInstallRosterRow/, `${name}: offers the shared install route in its place`)
-    assert.match(source, /No agent CLI is installed\./, `${name}: says what the machine reported`)
-  }
+  assert.match(panelSource, /composer\.noAgentCliInstalled/, 'panel: reads the zero-CLI state')
+  assert.match(panelSource, /<CliInstallRosterRow/, 'panel: offers the shared install route in its place')
+  assert.match(panelSource, /No agent CLI is installed\./, 'panel: says what the machine reported')
 })
 
 if (failures > 0) {

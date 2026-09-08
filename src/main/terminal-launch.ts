@@ -219,7 +219,6 @@ function withSprintEngineEnv(
   cwd: string,
   sprintEngineStatePath?: string,
   memoryRootPath?: string,
-  memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>
 ): Record<string, string> {
   const bundledToolPath = getBundledSprintEngineToolPath()
@@ -248,9 +247,6 @@ function withSprintEngineEnv(
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
     ...(managedMcpEnv ?? {}),
     ...(memoryRootPath ? { MULTICODE_KNOWLEDGE_ROOT: memoryRootPath, MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
-    ...(memoryRelativeRoot
-      ? { MULTICODE_KNOWLEDGE_RELATIVE_ROOT: memoryRelativeRoot, MULTICODE_MEMORY_RELATIVE_ROOT: memoryRelativeRoot }
-      : {}),
   }
 
   // Never let a stale registry-roots value inherited from the base env (e.g. the
@@ -542,7 +538,6 @@ function getBundledSoulsRoot(): string | null {
 function buildSprintEngineShellBootstrap(
   sprintEngineStatePath?: string,
   memoryRootPath?: string,
-  memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
   providerLaunchEnv?: Record<string, string>
 ): string {
@@ -597,11 +592,6 @@ function buildSprintEngineShellBootstrap(
   if (shellMemoryRootPath) {
     lines.push(`export MULTICODE_KNOWLEDGE_ROOT=${quotePosix(shellMemoryRootPath)}`)
     lines.push(`export MULTICODE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
-  }
-
-  if (memoryRelativeRoot) {
-    lines.push(`export MULTICODE_KNOWLEDGE_RELATIVE_ROOT=${quotePosix(memoryRelativeRoot)}`)
-    lines.push(`export MULTICODE_MEMORY_RELATIVE_ROOT=${quotePosix(memoryRelativeRoot)}`)
   }
 
   if (shellBundledToolPath) {
@@ -679,18 +669,6 @@ function assertExistingDirectory(dirPath: string): void {
   }
 
   throw new Error(`Terminal working directory does not exist: ${dirPath}`)
-}
-
-/**
- * What a plain terminal session in this app will actually run, by name:
- * `zsh`, `bash`, `powershell`. Resolved from the same shell the spawn uses, so
- * a surface that names the shell (the spawn picker's terminal row, MC-2122)
- * cannot advertise one and launch another.
- */
-export function resolveDefaultShellName(): string {
-  if (process.platform === 'win32') return 'powershell'
-  const path = getPosixShellPath()
-  return path.split('/').pop() || path
 }
 
 function getPosixShellPath(): string {
@@ -892,7 +870,6 @@ function buildWslShellScript(
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   memoryRootPath?: string,
-  memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
   debugMode = false,
   providerLaunchEnv?: Record<string, string>,
@@ -903,7 +880,7 @@ function buildWslShellScript(
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext),
     'exec bash -li',
   ].join('; ')
@@ -1004,7 +981,7 @@ export function getShellLaunchConfig(
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: mergeProviderLaunchEnv(
-        withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, memoryRelativeRoot, managedMcpEnv),
+        withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, managedMcpEnv),
         providerLaunchEnv
       ),
       cwd: windowsCwd,
@@ -1029,7 +1006,6 @@ export function getShellLaunchConfig(
         cliPermissionPreset,
         cliModel,
         memoryRootPath,
-        memoryRelativeRoot,
         managedMcpEnv,
         debugMode,
         providerLaunchEnv,
@@ -1054,7 +1030,7 @@ export function getShellLaunchConfig(
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
+    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1077,7 +1053,7 @@ export function getShellLaunchConfig(
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
     env: mergeProviderLaunchEnv(
-      withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv),
+      withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, managedMcpEnv),
       providerLaunchEnv
     ),
     pathStyle: 'posix',

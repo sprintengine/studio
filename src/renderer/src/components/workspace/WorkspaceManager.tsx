@@ -4127,25 +4127,10 @@ export default function WorkspaceManager() {
         runCommand(definition.id)
         return
       }
-      if (command === 'show-settings') {
-        runCommand('app.settings.open')
-        return
-      }
-      if (command === 'show-about') {
-        openSettings(false)
-        return
-      }
-      if (command === 'check-for-updates') {
-        runCommand('app.updates.check')
-        return
-      }
-      if (command === 'toggle-explorer') {
-        runCommand('panel.files.toggle')
-      } else if (command === 'toggle-editor') {
-        runCommand('panel.editor.toggle')
-      } else if (command === 'toggle-git') {
-        runCommand('panel.git.toggle')
-      }
+      // Everything the app menu sends is a command id, resolved above. The
+      // About item is the one exception: it opens Settings rather than running
+      // a command, so it has no id to send.
+      if (command === 'show-about') openSettings(false)
     })
   }, [openSettings, runCommand])
 

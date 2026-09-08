@@ -82,8 +82,12 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         templatesDir: resolveDesignSystemTemplatesDir(),
       }),
   )
+  // The Design door's reader (item 2002): one call returns everything the door
+  // draws for one bundle directory. Read-only — it opens files and nothing else.
   // On-demand bundle lint: forks the bundle's own scripts/lint.mjs. It is the
-  // author's contribution gate — no viewer surface calls it.
+  // author's contribution gate — no surface calls it yet (orphan sweep,
+  // 2026-09-08), and it is kept as the seam the Design door's bundle view would
+  // use rather than deleted along with the runner it is the only route to.
   ipcMain.handle(
     'design-system:lint-bundle',
     (_event, bundleDir: unknown): Promise<DesignSystemBundleLintRunResult> => {
@@ -93,8 +97,6 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       return runDesignSystemBundleLint(bundleDir, forkBundleScriptInUtilityProcess)
     },
   )
-  // The Design door's reader (item 2002): one call returns everything the door
-  // draws for one bundle directory. Read-only — it opens files and nothing else.
   ipcMain.handle(
     'design-system:read-bundle',
     (_event, bundleDir: unknown): Promise<DesignSystemBundleReadResult> =>

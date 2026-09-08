@@ -24,7 +24,7 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 //
 // The sidebar renders this only while the module is enabled, so it assumes it is
 // live. It carries the run index's aggregate signal into the rail even while the
-// surface is closed, the way the Roadmap door carries its orchestrator's.
+// surface is closed.
 export function RunDoorNavEntry({
   door,
   collapsed,

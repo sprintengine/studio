@@ -363,7 +363,7 @@ export type SidebarNavEntryDefinition = {
   /**
    * Sort key within the top-nav cluster; lower renders first. The shell's
    * built-in doors reserve Create=0, Automations=10, Sprints=20, Connectors=30,
-   * so a module door slots deterministically around them (Roadmap uses 40, after
+   * so a module door slots deterministically around them (40 and up lands after
    * Connectors). Ties break on id.
    */
   order: number
