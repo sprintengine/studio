@@ -64,7 +64,7 @@
 // What T19 verified in its place, in the same real app: the rail row holds the
 // full-strength fill while focus sits outside every pane, the pane inventory with
 // and without a door, and the dark rail-head ground —
-// `scripts/testing/context-rail-door-pass.mjs`.
+// the context-rail door pass, since deleted.
 //
 // Prereqs: `npm run build` (needs out/main), playwright available:
 //   tmp=/tmp/multicode-playwright
