@@ -174,10 +174,10 @@ function LogViewGlyph({ className }: { className?: string }) {
   )
 }
 
-// Stashes is the one view mark that is also an ACTION — the Commit toolbar's
-// "Stash changes…" is the same concept — so the drawer moved to the kit as
+// `StashesViewGlyph` used to be drawn here, with no asset behind it. Stashes is
+// the one view mark that is also an ACTION — the Commit toolbar's "Stash
+// changes…" is the same concept — so the drawer moved to the kit as
 // `StashGlyph` (design-system/glyphs/stash.svg) and both hosts import it.
-// It was drawn inline here with no asset behind it.
 
 function TerminalViewGlyph({ className }: { className?: string }) {
   return (
