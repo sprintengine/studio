@@ -2,14 +2,17 @@
 //
 // Component HTML and CSS are THIRD-PARTY CONTENT. They must not restyle app
 // chrome, and app tokens must not bleed into them. Both directions are handled
-// by rendering each preview in its own `<iframe sandbox="" srcDoc={…}>`:
+// by rendering each preview in its own sandboxed `<iframe srcDoc={…}>`:
 //
 //  - a separate document means a component's `body { … }` reaches its own body
 //    and nothing else, and our `--text-*` / `--control-*` aliases are simply
 //    absent inside it;
-//  - `sandbox=""` (empty, not omitted) disables scripts AND same-origin, so the
-//    frame cannot reach the parent even if it tried;
-//  - the meta CSP below is the belt to that braces: `default-src 'none'` with
+//  - the sandbox NEVER carries `allow-scripts`, so nothing in a preview can
+//    run. A frame the door has to MEASURE takes `allow-same-origin` and nothing
+//    else (`PreviewFrame`'s `sizeToContent`, 2026-09-08 — a specimen sheet has
+//    to size itself to its content); every other frame keeps `sandbox=""`,
+//    which denies the origin as well;
+//  - the meta CSP below is the belt to those braces: `default-src 'none'` with
 //    only inline styles and `data:` images/fonts allowed, so nothing can be
 //    fetched from disk or network even if the sandbox attribute were dropped by
 //    a future edit.
@@ -77,6 +80,27 @@ export interface ComposePreviewInput {
   /** Which mode the frame paints; drives the `data-mode` the tokens key off. */
   mode: PreviewMode
   /**
+   * What to do with the demo's own prose captions.
+   *
+   *  - `'none'` (default) — the `<p class="demo-label">` sentences are REMOVED
+   *    from the body markup before the document is composed.
+   *  - `'as-authored'` — the bundle's markup is passed through untouched.
+   *
+   * Removed, not restyled (owner ruling 2026-09-08). Every bundled stage opens
+   * with a sentence explaining the rows under it; on a specimen sheet that prose
+   * is the noise — the rows themselves are the statement, and a caption under
+   * each of fifty specimens turns a page of live components into a page of
+   * reading. A stylesheet override would leave the text on the page at a
+   * quieter size, still read, still pushing the next specimen down. Removing the
+   * element is also the only version that is honest about height: the frame's
+   * measured height shrinks because the text genuinely is not there.
+   *
+   * Composition is the right place for it, and the reason it is the DEFAULT is
+   * that the door is the only consumer that composes at all — `build-catalog`
+   * builds its page a different way and is untouched by this option.
+   */
+  captions?: 'as-authored' | 'none'
+  /**
    * Let the document size itself to its content rather than filling the frame.
    * Tiles centre a single specimen; the detail view stacks stages top-down.
    */
@@ -92,7 +116,15 @@ export interface ComposePreviewInput {
  * specificity ties exactly as it does in its own repo.
  */
 export function composePreviewSrcDoc(input: ComposePreviewInput): string {
-  const { tokensCss, componentCss, inlineStyles, bodyHtml, mode, layout = 'center' } = input
+  const {
+    tokensCss,
+    componentCss,
+    inlineStyles,
+    bodyHtml,
+    mode,
+    layout = 'center',
+    captions = 'none',
+  } = input
   const styles = [tokensCss, ...inlineStyles, componentCss]
     .map((block) => block.trim())
     .filter(Boolean)
@@ -127,9 +159,23 @@ ${styles}
 </style>
 </head>
 <body>
-${stripActiveContent(bodyHtml)}
+${stripActiveContent(captions === 'none' ? stripDemoCaptions(bodyHtml) : bodyHtml)}
 </body>
 </html>`
+}
+
+/**
+ * Remove the demo's prose captions from a stage's markup.
+ *
+ * The bundle format is regular here, which is what makes one expression enough:
+ * `demo-label` only ever appears on a `<p>`, one class among others, and never
+ * nests another `<p>`. Everything else in the stage is kept exactly as authored
+ * — `demo-row`, `demo-grid`, `demo-pane`, and the state names drawn inside the
+ * specimens themselves — so the rows still read visually and the states are
+ * still legible by shape. Only the sentences about them go.
+ */
+export function stripDemoCaptions(html: string): string {
+  return html.replace(/<p\b[^>]*class="[^"]*\bdemo-label\b[^"]*"[^>]*>[\s\S]*?<\/p\s*>/gi, '')
 }
 
 /**

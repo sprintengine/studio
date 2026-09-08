@@ -243,6 +243,70 @@ run('the full view: specimen, manifest-ordered groups, real component previews',
   }
 })
 
+run('the token families the door draws are resolved by the reader, never re-parsed', async () => {
+  const dir = exampleCopy()
+  try {
+    const result = await readDesignSystemBundle(dir)
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    const { tokens } = result.view.specimen
+
+    // The Colour / Type / Spacing tabs draw these. They must arrive RESOLVED:
+    // the example declares its spacing entirely in `{ref.space.N}` aliases, and
+    // a door handed the alias text would draw a square `{ref.space.2}` wide.
+    assert.ok(tokens.space.length > 0, 'the example declares a space scale')
+    for (const token of tokens.space) {
+      assert.match(token.path, /^sem\.space\./, 'the path is the only string the tab prints')
+      assert.ok(!token.light.includes('{'), `unresolved alias: ${token.path} = ${token.light}`)
+      assert.match(token.light, /^[\d.]+(px|rem|em)$/, token.light)
+      // No dark override for a length: both modes carry the same value rather
+      // than one of them being empty.
+      assert.equal(token.dark, token.light)
+    }
+    assert.ok(tokens.radius.length > 0, 'and a radius ramp')
+    assert.ok(tokens.fontSize.length > 0, 'and a type scale')
+    for (const token of tokens.fontSize) assert.match(token.path, /^sem\.font\.size\./)
+    assert.ok(tokens.fontWeight.length > 0)
+
+    // A family the bundle does not declare is EMPTY, not absent and not
+    // fabricated — the door then draws no section for it.
+    assert.deepEqual(tokens.shadow, [], 'the example ships no elevation ramp')
+    assert.deepEqual(tokens.size, [], 'nor a control-height ramp')
+    assert.deepEqual(tokens.fontTracking, [])
+
+    // Group metadata is not a token: a `$description` beside the steps must not
+    // arrive as a row with a path of `sem.space.$description`.
+    for (const family of Object.values(tokens)) {
+      for (const token of family) assert.ok(!token.path.includes('$'), token.path)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+run('a token value that is not drawable is refused rather than passed through', async () => {
+  const dir = exampleCopy()
+  try {
+    // Token documents are third-party content, and these values end up in a
+    // style attribute. Anything carrying a fetch or a rule separator is dropped
+    // at the reader, so the renderer never has to decide.
+    editTokens(dir, (tokens) => {
+      tokens.sem.space.hostile = { $type: 'dimension', $value: 'url(http://evil/x.png)' }
+      tokens.sem.space.injected = { $type: 'dimension', $value: '10px; background:red' }
+      tokens.sem.space.fine = { $type: 'dimension', $value: '11px' }
+    })
+    const result = await readDesignSystemBundle(dir)
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    const paths = result.view.specimen.tokens.space.map((token) => token.path)
+    assert.ok(!paths.includes('sem.space.hostile'), 'a url() never reaches the renderer')
+    assert.ok(!paths.includes('sem.space.injected'), 'nor does a value carrying a separator')
+    assert.ok(paths.includes('sem.space.fine'), 'and an ordinary length still does')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 run('path-form pattern and glyph entries read — the manifest canonical form', async () => {
   const dir = exampleCopy()
   try {

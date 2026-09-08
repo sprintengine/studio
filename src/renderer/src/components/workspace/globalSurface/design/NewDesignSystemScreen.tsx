@@ -2,8 +2,7 @@ import { useMemo } from 'react'
 
 import { composePreviewSrcDoc, type PreviewMode } from '../../../../../../shared/design-system/preview-doc'
 import type { DesignSystemBundleView } from '../../../../../../shared/design-system/bundle-view'
-import { GhostButton, InlineNotice } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { CardButton, GhostButton, InlineNotice } from '../../../ui'
 import { PreviewFrame } from './PreviewFrame'
 
 // The create path behind the rail's New affordance (item 2005). Owner
@@ -121,17 +120,17 @@ function StartCard({
 }): JSX.Element {
   const srcDoc = useMemo(() => (source.view ? cardSpecimen(source.view, mode) : null), [source.view, mode])
   return (
-    <button
-      type="button"
+    // The kit's card button, `plain`: the boxless tile whose content is a live
+    // specimen. Hover changes the ground and nothing else, and the disabled
+    // canon — the opacity step, `not-allowed`, and the hover fill pinned back
+    // off, since `:hover` still matches a disabled button — is the primitive's,
+    // so a dead card can no longer light up under the pointer here or anywhere
+    // else. Only the card's 4px inset stays: a tile's padding is composition.
+    <CardButton
       onClick={onSelect}
       disabled={disabled}
       aria-label={source.path ? `Start from ${source.name}` : 'Start from an empty system'}
-      // Hover is a background change only — no scale, no shadow, no border
-      // appearing. `rounded-md` is radius.control, one of this view's two radii.
-      // Disabled is the button canon (ui/Buttons): opacity step, `not-allowed`,
-      // and the hover fill pinned off — `:hover` still matches a disabled
-      // button, so without the pin a dead card lit up under the pointer.
-      className={`group flex flex-col rounded-md p-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
+      className="group p-1"
     >
       {srcDoc ? (
         <PreviewFrame
@@ -148,7 +147,7 @@ function StartCard({
           Creating…
         </span>
       ) : null}
-    </button>
+    </CardButton>
   )
 }
 

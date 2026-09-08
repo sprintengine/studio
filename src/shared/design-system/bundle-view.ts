@@ -54,6 +54,51 @@ export interface DesignSystemRampSwatch {
   dark: string
 }
 
+/**
+ * One resolved token, per mode — the shape every specimen row on the Colour,
+ * Type and Spacing tabs is drawn from.
+ *
+ * Both modes are carried for the same reason the ramp carries both: the door
+ * paints whichever the app is in, and a shadow (the one family that really does
+ * differ) would otherwise be drawn in the light value on a dark ground. A token
+ * with no dark override simply repeats its light value.
+ */
+export interface DesignSystemTokenView {
+  /** Dotted token path, e.g. `sem.space.md` — the only string the tab prints. */
+  path: string
+  light: string
+  dark: string
+}
+
+/**
+ * The `sem` families the door draws as specimens, beside the colour ramp.
+ *
+ * Resolved by the reader through the same `resolveTokenValue` the ramp uses, so
+ * the renderer never re-parses `tokens.tokens.json` — the door has one source
+ * for what a token is worth, and it is the reader.
+ *
+ * Each list is in the token document's own order (the author's), empty when the
+ * bundle declares no such family. A bundle is not required to ship any of them.
+ */
+export interface DesignSystemTokenFamiliesView {
+  /** `sem.font.size.*` */
+  fontSize: DesignSystemTokenView[]
+  /** `sem.font.weight.*` */
+  fontWeight: DesignSystemTokenView[]
+  /** `sem.font.line.*` */
+  fontLine: DesignSystemTokenView[]
+  /** `sem.font.tracking.*` */
+  fontTracking: DesignSystemTokenView[]
+  /** `sem.space.*` */
+  space: DesignSystemTokenView[]
+  /** `sem.size.control.*` */
+  size: DesignSystemTokenView[]
+  /** `sem.radius.*` */
+  radius: DesignSystemTokenView[]
+  /** `sem.shadow.*` */
+  shadow: DesignSystemTokenView[]
+}
+
 export interface DesignSystemSpecimenView {
   /**
    * The emitted `:root` / `[data-mode="dark"]` block, shared by the specimen and
@@ -69,6 +114,14 @@ export interface DesignSystemSpecimenView {
    */
   fontFamilyUi: string | null
   fontFamilyMono: string | null
+  /**
+   * The non-colour token families the Type and Spacing tabs draw.
+   *
+   * Beside the ramp rather than inside it: the ramp is the palette — the one
+   * thing a system is recognised by — and these are the measurements. Both are
+   * resolved the same way and neither is derived in the renderer.
+   */
+  tokens: DesignSystemTokenFamiliesView
   /** Token problems, surfaced rather than swallowed (see emitTokensCss). */
   problems: string[]
 }

@@ -517,6 +517,7 @@
     "src/renderer/src/components/workspace/globalSurface/automations/builtinAutomations.test.tsx": "cjs-external-jsx-jsdom-flexlayout",
     "src/renderer/src/components/workspace/globalSurface/backlog/backlogDoorActions.test.ts": "cjs-bundled-jsx-flexlayout",
     "src/renderer/src/components/workspace/globalSurface/contextRail.test.tsx": "cjs-bundled-jsx-jsdom",
+    "src/renderer/src/components/workspace/globalSurface/design/designCanvas.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/workspace/globalSurface/extensions/catalogue/extensionsCatalogue.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/workspace/globalSurface/extensions/home/cardSplash.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/workspace/globalSurface/extensions/plugins/PluginsSurface.test.tsx": "cjs-bundled-jsx",

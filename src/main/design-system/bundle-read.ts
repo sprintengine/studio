@@ -11,6 +11,7 @@ import {
   parseTokenDocument,
   resolveAccentColor,
   resolveFontFamilies,
+  resolveTokenScalar,
   resolveTokenValue,
 } from '../../shared/design-system/tokens-css'
 import {
@@ -31,6 +32,8 @@ import type {
   DesignSystemPatternView,
   DesignSystemRampSwatch,
   DesignSystemSpecimenView,
+  DesignSystemTokenFamiliesView,
+  DesignSystemTokenView,
 } from '../../shared/design-system/bundle-view'
 
 // The Design door's reader (items 2002/2003). Reads a bundle directory and
@@ -336,7 +339,14 @@ async function readTokenDocument(bundleDir: string): Promise<Record<string, unkn
 
 function buildSpecimen(document: Record<string, unknown> | null): DesignSystemSpecimenView {
   if (!document) {
-    return { tokensCss: '', ramp: [], fontFamilyUi: null, fontFamilyMono: null, problems: [] }
+    return {
+      tokensCss: '',
+      ramp: [],
+      fontFamilyUi: null,
+      fontFamilyMono: null,
+      tokens: emptyTokenFamilies(),
+      problems: [],
+    }
   }
   const { css, problems } = emitTokensCss(document)
   const families = resolveFontFamilies(document)
@@ -345,8 +355,94 @@ function buildSpecimen(document: Record<string, unknown> | null): DesignSystemSp
     ramp: buildRamp(document),
     fontFamilyUi: families.ui,
     fontFamilyMono: families.mono,
+    tokens: buildTokenFamilies(document),
     problems,
   }
+}
+
+function emptyTokenFamilies(): DesignSystemTokenFamiliesView {
+  return {
+    fontSize: [],
+    fontWeight: [],
+    fontLine: [],
+    fontTracking: [],
+    space: [],
+    size: [],
+    radius: [],
+    shadow: [],
+  }
+}
+
+/**
+ * The `sem` families the Type and Spacing tabs draw, resolved once, here.
+ *
+ * The renderer must not re-parse `tokens.tokens.json`: the reader is the one
+ * thing that knows a bundle's layout, and a second parser in the door would be a
+ * second answer to "what is this token worth". Alias chains are followed by
+ * `resolveTokenValue`, exactly as the ramp's colours are, so a family declared
+ * entirely in aliases resolves to the concrete values it points at.
+ */
+function buildTokenFamilies(document: Record<string, unknown>): DesignSystemTokenFamiliesView {
+  return {
+    fontSize: tokenFamily(document, 'sem.font.size'),
+    fontWeight: tokenFamily(document, 'sem.font.weight'),
+    fontLine: tokenFamily(document, 'sem.font.line'),
+    fontTracking: tokenFamily(document, 'sem.font.tracking'),
+    space: tokenFamily(document, 'sem.space'),
+    size: tokenFamily(document, 'sem.size.control'),
+    radius: tokenFamily(document, 'sem.radius'),
+    shadow: tokenFamily(document, 'sem.shadow'),
+  }
+}
+
+/**
+ * One family's LEAF tokens, in the document's own order.
+ *
+ * Only the immediate leaves: `sem.size.control.sm` is a control height, and
+ * walking deeper would sweep up whatever a bundle nests under a step. The
+ * author's order is kept — a ramp has an intended reading order, and sorting it
+ * would invent one.
+ */
+function tokenFamily(document: Record<string, unknown>, prefix: string): DesignSystemTokenView[] {
+  let node: unknown = document
+  for (const segment of prefix.split('.')) {
+    if (typeof node !== 'object' || node === null || Array.isArray(node)) return []
+    node = (node as Record<string, unknown>)[segment]
+  }
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) return []
+  const out: DesignSystemTokenView[] = []
+  for (const key of Object.keys(node as Record<string, unknown>)) {
+    // `$type` / `$description` / `$extensions` are DTCG group metadata.
+    if (key.startsWith('$')) continue
+    const path = `${prefix}.${key}`
+    // The SCALAR resolver: a weight and a line height are numbers in DTCG, and
+    // a family the door draws as a specimen cannot be missing because of it.
+    const light = resolveTokenScalar(document, path, 'light')
+    if (light === null || !isDrawableTokenValue(light)) continue
+    const dark = resolveTokenScalar(document, path, 'dark')
+    out.push({
+      path,
+      light,
+      dark: dark !== null && isDrawableTokenValue(dark) ? dark : light,
+    })
+  }
+  return out
+}
+
+/**
+ * A token value the door is willing to put in a style attribute.
+ *
+ * Token documents are THIRD-PARTY content — the same rule that makes
+ * `isColorValue` guard the ramp. A length, a weight and a shadow are all made of
+ * numbers, units, functions and separators, so the permitted alphabet is small;
+ * anything carrying a `url(`, a quote, a semicolon or a brace is refused rather
+ * than passed through to the renderer, where it would be drawn.
+ */
+function isDrawableTokenValue(value: string): boolean {
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || trimmed.length > 300) return false
+  if (/url\s*\(/i.test(trimmed)) return false
+  return /^[-+0-9a-zA-Z.,%()/#\s]+$/.test(trimmed)
 }
 
 /**

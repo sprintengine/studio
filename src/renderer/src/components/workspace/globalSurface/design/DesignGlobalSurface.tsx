@@ -15,7 +15,7 @@ import { useSurfaceBackNav } from '../surfaceBackNav'
 import type { DesignSystemLibraryEntry } from '../../../../../../shared/design-system/library'
 import { designSystemRegistrationId } from '../../../../../../shared/design-system/library'
 import { newDesignSystemEntryKeys } from '../../../../../../shared/design-system/new-entries'
-import { DesignCanvas } from './DesignCanvas'
+import { DesignCanvas, type DesignCanvasTabId } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
 import {
@@ -144,9 +144,15 @@ export default function DesignGlobalSurface(): JSX.Element {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<DesignRailStatusFilter>('all')
   const [pointError, setPointError] = useState<string | null>(null)
-  // Which component's variants are open, and which bundle is being re-read.
-  // Both are transient view state, like every other door's selection.
-  const [openComponent, setOpenComponent] = useState<string | null>(null)
+  // Where in the canvas the person is looking, and which bundle is being
+  // re-read. All transient view state, like every other door's selection —
+  // never the URL: a tab is where you are looking, not where you are.
+  //
+  // `null` means "the door has not chosen", which is not the same as any
+  // particular tab: the canvas opens on the components when the system has
+  // some, and on whatever it does have when it has none.
+  const [canvasTab, setCanvasTab] = useState<DesignCanvasTabId | null>(null)
+  const [canvasPages, setCanvasPages] = useState<Partial<Record<DesignCanvasTabId, number>>>({})
   const [reloadingPath, setReloadingPath] = useState<string | null>(null)
   // The name of the source a new system is being created from, while that is in
   // flight — so the card that was clicked is the one that says "Creating…".
@@ -378,9 +384,11 @@ export default function DesignGlobalSurface(): JSX.Element {
     setNewSelected(false)
     setPointError(null)
     setSelectedId(id)
-    // A new system opens on its overview, never on the previous system's
-    // component detail.
-    setOpenComponent(null)
+    // A new system opens where a system opens, on page one: a tab the previous
+    // system had and this one does not is an empty panel, and "page 4" means
+    // nothing in a list it was not counted from.
+    setCanvasTab(null)
+    setCanvasPages({})
   }, [])
 
   // Point at a folder: the one create path that works today. Item 2005 builds
@@ -452,7 +460,8 @@ export default function DesignGlobalSurface(): JSX.Element {
       await loadLibrary()
       if (!mounted.current) return
       setNewSelected(false)
-      setOpenComponent(null)
+      setCanvasTab(null)
+      setCanvasPages({})
       setSelectedId(libraryRowId(registered.entry.path))
     } finally {
       if (mounted.current) setCreatingFrom(null)
@@ -552,7 +561,6 @@ export default function DesignGlobalSurface(): JSX.Element {
         // action on it, not the whole of it.
         setPointError(null)
         setSelectedId(null)
-        setOpenComponent(null)
         setNewSelected(true)
       }}
       newSelected={newSelected}
@@ -620,9 +628,10 @@ export default function DesignGlobalSurface(): JSX.Element {
         selectedView={selectedView}
         newEntries={newEntries}
         mode={scheme === 'light' ? 'light' : 'dark'}
-        openComponent={openComponent}
-        onOpenComponent={setOpenComponent}
-        onCloseComponent={() => setOpenComponent(null)}
+        canvasTab={canvasTab}
+        onCanvasTab={setCanvasTab}
+        canvasPages={canvasPages}
+        onCanvasPage={(tab, page) => setCanvasPages((current) => ({ ...current, [tab]: page }))}
         onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
         onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
         pointError={pointError}
@@ -646,9 +655,10 @@ function DesignSurfaceBody({
   selectedView,
   newEntries,
   mode,
-  openComponent,
-  onOpenComponent,
-  onCloseComponent,
+  canvasTab,
+  onCanvasTab,
+  canvasPages,
+  onCanvasPage,
   onRepoint,
   onForget,
   pointError,
@@ -663,9 +673,12 @@ function DesignSurfaceBody({
   /** Entry keys that arrived since this bundle was last shown here. */
   newEntries?: ReadonlySet<string>
   mode: 'light' | 'dark'
-  openComponent: string | null
-  onOpenComponent: (name: string) => void
-  onCloseComponent: () => void
+  /** Which canvas tab is showing, or null while the door has not chosen. */
+  canvasTab: DesignCanvasTabId | null
+  onCanvasTab: (tab: DesignCanvasTabId) => void
+  /** Tab id → 1-based page, for the two paged tabs. */
+  canvasPages: Readonly<Partial<Record<DesignCanvasTabId, number>>>
+  onCanvasPage: (tab: DesignCanvasTabId, page: number) => void
   onRepoint: () => void
   onForget: () => void
   pointError: string | null
@@ -748,9 +761,10 @@ function DesignSurfaceBody({
       view={selectedView}
       mode={mode}
       newEntries={newEntries}
-      openComponent={openComponent}
-      onOpenComponent={onOpenComponent}
-      onCloseComponent={onCloseComponent}
+      tab={canvasTab}
+      onTabChange={onCanvasTab}
+      pages={canvasPages}
+      onPageChange={onCanvasPage}
     />
   )
 }

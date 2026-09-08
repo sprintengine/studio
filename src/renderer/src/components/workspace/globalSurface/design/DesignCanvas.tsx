@@ -9,49 +9,85 @@ import type {
   DesignSystemBundleView,
   DesignSystemComponentView,
   DesignSystemGroupView,
+  DesignSystemTokenView,
 } from '../../../../../../shared/design-system/bundle-view'
 import { designSystemEntryKey } from '../../../../../../shared/design-system/new-entries'
-import { GhostButton, NewChip, TruncatedText } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import {
+  InboxRow,
+  NewChip,
+  Pager,
+  Section,
+  TabPanel,
+  Tabs,
+  TabsScroller,
+  TruncatedText,
+  type TabItem,
+} from '../../../ui'
 import { PreviewFrame } from './PreviewFrame'
 
 // The Design door's canvas (item 2003) — the heart of the epic. Owner
 // (2026-07-29): "I want to see my design system. I want to see what everything
 // looks like. I want to see what a list row looks like."
 //
-// Build-to-it mockup: backlog/mockups/2026-07-30-design-system-canvas.html.
+// Rebuilt 2026-09-08 to the approved v2 mock-up, on the owner's ruling: **one
+// font, and no text but the names.**
 //
-// Three rules the mockup and `principles.md` fix, easy to lose in an edit:
+//  1. **Six tabs, one band.** Colour · Type · Spacing · Components · Patterns ·
+//     Glyphs, in the kit's `Tabs` inside a 36px band that owns the hairline (the
+//     `GitPanel` idiom exactly). The three token tabs are `foundations` exploded
+//     into the families it actually holds; the other three are the manifest's own
+//     groups. Nothing stacks between the door bar and this band
+//     (`principles.md` → The door surface): the folder path rides the band's
+//     trailing edge, and Reveal / Reload ride the door bar.
+//  2. **A specimen is three things: the name, the New chip, the demo.** No
+//     counts line under a component that is sitting live underneath its own
+//     heading, no collapsed spec disclosure, no captions — those are stripped in
+//     composition (`preview-doc`'s `captions: 'none'`), not restyled. And no
+//     click-into detail view: the stage IS the component, at full size.
+//  3. **The token tabs print token paths and nothing else.** The swatch is the
+//     hex, the row is drawn at the value, and a reader who needs the string has
+//     the path to grep. Hover names what a shape is (`title` + `aria-label`).
+//  4. **No boxes and no monospace.** Whitespace groups; the app's one UI face
+//     sets every string in this door, including the token paths.
 //
-//  1. **No boxes.** A border around every component is chrome competing with the
-//     thing it frames, and components carry their own edges. Whitespace groups;
-//     the name sits beneath; a quiet hover background is the hit target.
-//  2. **The specimen has no container and the name appears exactly once** — here,
-//     in the system's own display face. The folder path is a quiet provenance
-//     line under the specimen — never a second chrome bar: the app strip is the
-//     door's one title bar, and nothing stacks between it and the content
-//     (`principles.md` → The door surface). Reveal and Reload ride that strip's
-//     `bar.actions`, the way Automations' controls do.
-//  3. **Sections come from the manifest, not from us.** One per declared group,
-//     in manifest order, with its count. No hard-coded taxonomy.
-//
-// Two radii only (`rounded-md` = radius.control, `rounded-lg` = radius.overlay),
+// Two radii only (`rounded-sm` = radius.control, `rounded-lg` = radius.shell),
 // three type sizes (title / body / meta, with micro collapsing into meta), and
 // hover is a background change — never a scale, shadow, or appearing border.
 
-/** Reserved preview heights. Tiles are uniform so the grid cannot jitter. */
-const TILE_PREVIEW_HEIGHT = 132
-const GLYPH_PREVIEW_HEIGHT = 64
-const PATTERN_PREVIEW_HEIGHT = 220
-const DETAIL_STAGE_HEIGHT = 260
+/** The canvas's tabs, in the order the band draws them. */
+export type DesignCanvasTabId =
+  | 'colour'
+  | 'type'
+  | 'spacing'
+  | 'components'
+  | 'patterns'
+  | 'glyphs'
+
+/**
+ * How many specimens a page of Components or Patterns holds.
+ *
+ * Eight, because a specimen is a live document: forty-eight of them on one page
+ * is forty-eight documents laid out at once, and the pager states where you are
+ * in words rather than growing the page until it stops.
+ */
+export const DESIGN_CANVAS_PAGE_SIZE = 8
+
+/** Reserved heights, corrected by the frame once it has measured its document. */
+const COMPONENT_STAGE_RESERVE = 160
+const PATTERN_STAGE_RESERVE = 260
+const GLYPH_STRIP_RESERVE = 140
+
+const STAGE_CLASS = 'overflow-hidden rounded-lg bg-[color:var(--bg-surface-raised)]'
+const PANEL_CLASS = 'px-3 pb-8 pt-2'
 
 export function DesignCanvas({
   view,
   mode,
   newEntries,
-  openComponent,
-  onOpenComponent,
-  onCloseComponent,
+  tab,
+  onTabChange,
+  pages,
+  onPageChange,
 }: {
   view: DesignSystemBundleView
   mode: PreviewMode
@@ -64,126 +100,703 @@ export function DesignCanvas({
    * rail needs the same set to count it.
    */
   newEntries?: ReadonlySet<string>
-  /** The component whose variants are open, or null for the overview. */
-  openComponent: string | null
-  onOpenComponent: (name: string) => void
-  onCloseComponent: () => void
+  /**
+   * Which tab is showing, or null while the door has not chosen — the canvas
+   * then opens on the components, which is what the door is for.
+   *
+   * View state, held by the door beside `selectedId` and `search`, never in the
+   * URL: a tab is where you are looking, not where you are.
+   */
+  tab: DesignCanvasTabId | null
+  onTabChange: (tab: DesignCanvasTabId) => void
+  /** Tab id → 1-based page, for the two paged tabs. Absent means page 1. */
+  pages: Readonly<Partial<Record<DesignCanvasTabId, number>>>
+  onPageChange: (tab: DesignCanvasTabId, page: number) => void
 }): JSX.Element {
-  const component = openComponent
-    ? (view.components.find((entry) => entry.name === openComponent) ?? null)
-    : null
+  const items = useMemo(() => designCanvasTabs(view), [view])
+  const active = resolveDesignCanvasTab(items, tab)
+  const idPrefix = 'design-canvas'
 
-  // No chrome bar of its own: the door bar carries Reveal / Reload (see
-  // `DesignGlobalSurface`'s `bar.actions`), and the folder path is a provenance
-  // line in the overview. Deliberately NOT anywhere here: Release, version
-  // history, an upstream-behind count, a lint or regenerate affordance. The
-  // system is a folder in a repo the user manages with git, and linting is the
-  // author's gate, not a viewer's.
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      {component ? (
-        <ComponentDetail
-          component={component}
-          specimenCss={view.specimen.tokensCss}
-          mode={mode}
-          onBack={onCloseComponent}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* One band, and the strip earns it: the tabs on the left, and the folder
+          this system lives in clipped from the left-hand end on the right, with
+          the full path one hover or focus away. */}
+      <div className="flex h-[36px] shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3">
+        <TabsScroller className="flex min-w-0 flex-1 items-end self-stretch">
+          <Tabs<DesignCanvasTabId>
+            ariaLabel={`${view.identity.name} contents`}
+            idPrefix={idPrefix}
+            items={items}
+            value={active ?? items[0]?.id ?? 'components'}
+            onChange={onTabChange}
+            borderless
+          />
+        </TabsScroller>
+        <TruncatedText
+          as="span"
+          text={view.identity.path}
+          className="block min-w-0 max-w-[40%] shrink text-meta text-[color:var(--text-muted)]"
         />
+      </div>
+      {/* What the READER could not do, said once and quietly — never swallowed,
+          and never a tinted pill. A token file that half-parsed is why a colour
+          looks wrong, and an exhausted asset budget is why a preview looks
+          broken; both are the door's to admit. */}
+      {view.specimen.problems.length > 0 ? (
+        <p className="px-3 pt-2 text-meta text-[color:var(--text-muted)]">
+          {view.specimen.problems.length} token
+          {view.specimen.problems.length === 1 ? '' : 's'} could not be read
+        </p>
+      ) : null}
+      {view.assetBudgetExhausted ? (
+        <p className="px-3 pt-2 text-meta text-[color:var(--text-muted)]">
+          Some assets were too large to preview
+        </p>
+      ) : null}
+      {active ? (
+        <TabPanel
+          idPrefix={idPrefix}
+          tabId={active}
+          active
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <CanvasPanel
+            tab={active}
+            view={view}
+            mode={mode}
+            newEntries={newEntries}
+            page={pages[active] ?? 1}
+            onPageChange={onPageChange}
+          />
+        </TabPanel>
       ) : (
-        <BundleOverview
-          view={view}
-          mode={mode}
-          newEntries={newEntries}
-          onOpenComponent={onOpenComponent}
-        />
+        // A readable bundle that declares nothing this door can draw. Said
+        // plainly rather than as six empty tabs.
+        <p className="px-3 pt-3 text-meta text-[color:var(--text-muted)]">
+          This system declares nothing to show yet.
+        </p>
       )}
     </div>
   )
 }
 
-function BundleOverview({
+/**
+ * The tabs this bundle has something to put in, in the fixed order.
+ *
+ * Sections come from the manifest, not from us (the rule this canvas has carried
+ * since item 2003): a tab for a group the manifest declares empty would be the
+ * door claiming a system has patterns when it has none. The three token tabs ask
+ * the same question of the token document — a bundle with no space scale gets no
+ * Spacing tab rather than an empty one.
+ */
+export function designCanvasTabs(view: DesignSystemBundleView): TabItem<DesignCanvasTabId>[] {
+  const tokens = tokenFamilies(view)
+  const items: TabItem<DesignCanvasTabId>[] = []
+  const push = (id: DesignCanvasTabId, label: string, count: number): void => {
+    if (count > 0) items.push({ id, label, count })
+  }
+  push('colour', 'Colour', view.specimen.ramp.length)
+  push(
+    'type',
+    'Type',
+    tokens.fontSize.length + tokens.fontWeight.length + tokens.fontLine.length +
+      tokens.fontTracking.length,
+  )
+  push('spacing', 'Spacing', tokens.space.length + tokens.size.length + tokens.radius.length + tokens.shadow.length)
+  push('components', 'Components', groupOf(view, 'components')?.count ?? 0)
+  push('patterns', 'Patterns', groupOf(view, 'patterns')?.count ?? 0)
+  push('glyphs', 'Glyphs', groupOf(view, 'glyphs')?.count ?? 0)
+  return items
+}
+
+/**
+ * Which tab is actually showing: the door's pick when this bundle has it, else
+ * the components, else whatever this bundle does have.
+ *
+ * The fallback matters on every bundle switch — a person on the Patterns tab who
+ * selects a system with no patterns must land somewhere real rather than on an
+ * empty panel whose tab is not in the strip.
+ */
+export function resolveDesignCanvasTab(
+  items: readonly TabItem<DesignCanvasTabId>[],
+  requested: DesignCanvasTabId | null,
+): DesignCanvasTabId | null {
+  if (requested && items.some((item) => item.id === requested)) return requested
+  if (items.some((item) => item.id === 'components')) return 'components'
+  return items[0]?.id ?? null
+}
+
+function CanvasPanel({
+  tab,
   view,
   mode,
   newEntries,
-  onOpenComponent,
+  page,
+  onPageChange,
+}: {
+  tab: DesignCanvasTabId
+  view: DesignSystemBundleView
+  mode: PreviewMode
+  newEntries?: ReadonlySet<string>
+  page: number
+  onPageChange: (tab: DesignCanvasTabId, page: number) => void
+}): JSX.Element {
+  switch (tab) {
+    case 'colour':
+      return <ColourPanel view={view} mode={mode} />
+    case 'type':
+      return <TypePanel view={view} />
+    case 'spacing':
+      return <SpacingPanel view={view} mode={mode} />
+    case 'glyphs':
+      return <GlyphStrip view={view} mode={mode} />
+    case 'patterns':
+      return (
+        <PatternsPanel
+          view={view}
+          mode={mode}
+          newEntries={newEntries}
+          page={page}
+          onPageChange={onPageChange}
+        />
+      )
+    case 'components':
+    default:
+      return (
+        <ComponentsPanel
+          view={view}
+          mode={mode}
+          newEntries={newEntries}
+          page={page}
+          onPageChange={onPageChange}
+        />
+      )
+  }
+}
+
+// ── Components and patterns ──────────────────────────────────────────────────
+
+function ComponentsPanel({
+  view,
+  mode,
+  newEntries,
+  page,
+  onPageChange,
 }: {
   view: DesignSystemBundleView
   mode: PreviewMode
   newEntries?: ReadonlySet<string>
-  onOpenComponent: (name: string) => void
+  page: number
+  onPageChange: (tab: DesignCanvasTabId, page: number) => void
 }): JSX.Element {
+  const group = groupOf(view, 'components')
+  const rendered = useMemo(
+    () =>
+      group
+        ? view.components.filter((component) => matchesEntry(group.entries, component.name))
+        : view.components,
+    [group, view.components],
+  )
+  const range = pageWindow(rendered.length, page)
   return (
-    <div className="px-6 pb-8 pt-6">
-      <Specimen view={view} mode={mode} />
-      {/* Where this system lives: a quiet provenance line, clipped from the
-          left-hand end with the full path one hover/focus away. */}
-      <TruncatedText
-        as="p"
-        text={view.identity.path}
-        className="mt-3 font-mono text-meta text-[color:var(--text-muted)]"
-      />
-      {view.specimen.problems.length > 0 ? (
-        <QuietNote>
-          {view.specimen.problems.length} token{view.specimen.problems.length === 1 ? '' : 's'} could
-          not be read
-        </QuietNote>
-      ) : null}
-      {view.assetBudgetExhausted ? (
-        <QuietNote>Some assets were too large to preview</QuietNote>
-      ) : null}
-      {view.groups.map((group) => (
-        <Section
-          key={group.key}
-          group={group}
-          view={view}
+    <div className={PANEL_CLASS}>
+      {rendered.slice(range.from, range.to).map((component) => (
+        <ComponentSpecimen
+          key={component.name}
+          component={component}
+          tokensCss={view.specimen.tokensCss}
           mode={mode}
-          newEntries={newEntries}
-          onOpenComponent={onOpenComponent}
+          isNew={isNewEntry(newEntries, 'components', group?.entries ?? [], component.name)}
         />
+      ))}
+      {/* Declared but not on disk: named, never silently missing. */}
+      <MissingEntries
+        declared={group?.entries ?? []}
+        present={rendered.map((component) => component.name)}
+      />
+      <SpecimenPager
+        tab="components"
+        noun="Components"
+        systemName={view.identity.name}
+        total={rendered.length}
+        page={page}
+        onPageChange={onPageChange}
+      />
+    </div>
+  )
+}
+
+/** One specimen, and only three things: the name, the New chip, the demo. */
+function ComponentSpecimen({
+  component,
+  tokensCss,
+  mode,
+  isNew,
+}: {
+  component: DesignSystemComponentView
+  tokensCss: string
+  mode: PreviewMode
+  isNew: boolean
+}): JSX.Element {
+  const stage = representativeStage(component.stages, mode)
+  const srcDoc = useMemo(
+    () =>
+      composePreviewSrcDoc({
+        tokensCss,
+        componentCss: component.css,
+        inlineStyles: component.inlineStyles,
+        bodyHtml: stage?.html ?? '',
+        mode,
+        // The sheet stacks stages top-down and the frame measures what it gets;
+        // centring inside a fixed box is what the retired tile grid did.
+        layout: 'flow',
+      }),
+    [tokensCss, component.css, component.inlineStyles, stage?.html, mode],
+  )
+  return (
+    <Section
+      title={component.name}
+      action={isNew ? <NewChip /> : undefined}
+      inset={false}
+    >
+      {stage ? (
+        <PreviewFrame
+          height={COMPONENT_STAGE_RESERVE}
+          sizeToContent
+          title={`${component.name} — ${mode}`}
+          className={STAGE_CLASS}
+          srcDoc={srcDoc}
+        />
+      ) : (
+        // A component whose demo document is empty: said plainly, never a
+        // placeholder graphic pretending to be a rendering.
+        <p className="text-meta text-[color:var(--text-muted)]">No preview in this component</p>
+      )}
+      {component.unresolvedRefs.length > 0 ? (
+        <p className="text-meta text-[color:var(--text-muted)]">
+          {component.unresolvedRefs.length} reference
+          {component.unresolvedRefs.length === 1 ? '' : 's'} could not be loaded
+        </p>
+      ) : null}
+    </Section>
+  )
+}
+
+function PatternsPanel({
+  view,
+  mode,
+  newEntries,
+  page,
+  onPageChange,
+}: {
+  view: DesignSystemBundleView
+  mode: PreviewMode
+  newEntries?: ReadonlySet<string>
+  page: number
+  onPageChange: (tab: DesignCanvasTabId, page: number) => void
+}): JSX.Element {
+  const group = groupOf(view, 'patterns')
+  const rendered = useMemo(
+    () =>
+      group ? view.patterns.filter((pattern) => matchesEntry(group.entries, pattern.name)) : view.patterns,
+    [group, view.patterns],
+  )
+  const range = pageWindow(rendered.length, page)
+  return (
+    <div className={PANEL_CLASS}>
+      {rendered.slice(range.from, range.to).map((pattern) => (
+        <Section
+          key={pattern.name}
+          title={pattern.name}
+          action={
+            isNewEntry(newEntries, 'patterns', group?.entries ?? [], pattern.name) ? <NewChip /> : undefined
+          }
+          inset={false}
+        >
+          <PreviewFrame
+            height={PATTERN_STAGE_RESERVE}
+            sizeToContent
+            title={`${pattern.name} — ${mode}`}
+            className={STAGE_CLASS}
+            srcDoc={composePreviewSrcDoc({
+              tokensCss: view.specimen.tokensCss,
+              componentCss: '',
+              inlineStyles: pattern.inlineStyles,
+              bodyHtml: pattern.html,
+              mode,
+              layout: 'flow',
+            })}
+          />
+        </Section>
+      ))}
+      <MissingEntries
+        declared={group?.entries ?? []}
+        present={rendered.map((pattern) => pattern.name)}
+      />
+      <SpecimenPager
+        tab="patterns"
+        noun="Patterns"
+        systemName={view.identity.name}
+        total={rendered.length}
+        page={page}
+        onPageChange={onPageChange}
+      />
+    </div>
+  )
+}
+
+/** The foot of a paged tab: the position in words, and the numbered pages. */
+function SpecimenPager({
+  tab,
+  noun,
+  systemName,
+  total,
+  page,
+  onPageChange,
+}: {
+  tab: DesignCanvasTabId
+  noun: string
+  systemName: string
+  total: number
+  page: number
+  onPageChange: (tab: DesignCanvasTabId, page: number) => void
+}): JSX.Element | null {
+  if (total === 0) return null
+  const range = pageWindow(total, page)
+  return (
+    <Pager
+      page={range.page}
+      pageCount={range.pageCount}
+      rangeLabel={`Showing ${range.from + 1}–${range.to} of ${total}`}
+      onPageChange={(next) => onPageChange(tab, next)}
+      ariaLabel={`${noun} in ${systemName}`}
+      className="px-3"
+    />
+  )
+}
+
+/** The slice one page shows, with the page clamped to what exists. */
+export function pageWindow(
+  total: number,
+  page: number,
+): { page: number; pageCount: number; from: number; to: number } {
+  const pageCount = Math.max(1, Math.ceil(total / DESIGN_CANVAS_PAGE_SIZE))
+  // A page number outlives the list it was taken on — a search, a reload, a
+  // bundle that lost a component — so it is clamped rather than trusted.
+  const clamped = Math.min(Math.max(1, Math.floor(page) || 1), pageCount)
+  const from = (clamped - 1) * DESIGN_CANVAS_PAGE_SIZE
+  return { page: clamped, pageCount, from, to: Math.min(total, from + DESIGN_CANVAS_PAGE_SIZE) }
+}
+
+// ── Glyphs ───────────────────────────────────────────────────────────────────
+
+/**
+ * All the glyphs at once, in one wrapping strip of equal cells.
+ *
+ * A glyph is a 16-grid drawing that means one thing; a page that gives each one
+ * a heading, a card and a caption spends a screen and a half saying twelve
+ * words. The strip is the honest shape: the marks side by side at the ramp's
+ * `lg` step inside `control-md` cells (an interactive glyph pads out to a
+ * control-sized hit area and never grows to fill it), and the name carried by
+ * `title` + `aria-label` so a pointer or a reader can ask which is which without
+ * it being printed.
+ *
+ * ONE composed document, not one per glyph: the strip is a single preview, so it
+ * is still the product's own frame and still inert in the same ways.
+ */
+function GlyphStrip({ view, mode }: { view: DesignSystemBundleView; mode: PreviewMode }): JSX.Element {
+  const group = groupOf(view, 'glyphs')
+  const rendered = useMemo(
+    () =>
+      group ? view.glyphs.filter((glyph) => matchesEntry(group.entries, glyph.name)) : view.glyphs,
+    [group, view.glyphs],
+  )
+  const srcDoc = useMemo(() => {
+    const cells = rendered
+      .map(
+        (glyph) =>
+          `<span class="glyph-cell" role="img" title="${escapeAttribute(glyph.name)}" aria-label="${escapeAttribute(glyph.name)}">${glyph.svg}</span>`,
+      )
+      .join('\n')
+    const css = [
+      'body{padding:var(--sem-space-2xl)}',
+      '.glyph-strip{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sem-space-3xl)}',
+      '.glyph-cell{display:inline-flex;align-items:center;justify-content:center;',
+      'width:var(--sem-size-control-md);height:var(--sem-size-control-md);',
+      'color:var(--sem-color-text-default)}',
+      '.glyph-cell svg{display:block;width:var(--sem-icon-size-lg);height:var(--sem-icon-size-lg)}',
+    ].join('')
+    return composePreviewSrcDoc({
+      tokensCss: view.specimen.tokensCss,
+      componentCss: css,
+      inlineStyles: [],
+      bodyHtml: `<div class="glyph-strip">\n${cells}\n</div>`,
+      mode,
+      layout: 'flow',
+    })
+  }, [rendered, view.specimen.tokensCss, mode])
+  return (
+    <div className={PANEL_CLASS}>
+      <PreviewFrame
+        height={GLYPH_STRIP_RESERVE}
+        sizeToContent
+        title={`Glyphs — ${mode}`}
+        className={STAGE_CLASS}
+        srcDoc={srcDoc}
+      />
+      <MissingEntries declared={group?.entries ?? []} present={rendered.map((glyph) => glyph.name)} />
+    </div>
+  )
+}
+
+/** A glyph name lands in an attribute of a document we compose. */
+function escapeAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// ── The token tabs ───────────────────────────────────────────────────────────
+
+/**
+ * The colour ramp as rows: the swatch, and the token path.
+ *
+ * The hex is not printed. The swatch IS the hex, and a reader who needs the
+ * string has the token name to grep; the swatch carries `title` and `aria-label`
+ * set to the path, so hovering a colour names it and a screen reader gets the
+ * same string the row prints.
+ */
+function ColourPanel({ view, mode }: { view: DesignSystemBundleView; mode: PreviewMode }): JSX.Element {
+  const families = useMemo(() => {
+    const out: Array<{ name: string; swatches: DesignSystemBundleView['specimen']['ramp'] }> = []
+    for (const swatch of view.specimen.ramp) {
+      const name = rampFamily(swatch.path)
+      const found = out.find((family) => family.name === name)
+      if (found) found.swatches.push(swatch)
+      else out.push({ name, swatches: [swatch] })
+    }
+    return out
+  }, [view.specimen.ramp])
+  return (
+    <div className={PANEL_CLASS}>
+      {families.map((family) => (
+        <Section key={family.name} title={family.name} count={family.swatches.length} inset={false}>
+          {family.swatches.map((swatch) => (
+            <InboxRow
+              key={swatch.path}
+              leading={
+                <span
+                  role="img"
+                  aria-label={swatch.path}
+                  title={swatch.path}
+                  className="block size-icon-lg shrink-0 rounded-sm border border-[color:var(--border-subtle)]"
+                  // The previewed system's own colours, validated as colours by
+                  // the token resolver before they reach a style attribute.
+                  style={{ background: mode === 'dark' ? swatch.dark : swatch.light }}
+                />
+              }
+              title={swatch.path}
+            />
+          ))}
+        </Section>
       ))}
     </div>
   )
 }
 
 /**
- * The specimen: the system's name in its own face, and its palette as one bar.
+ * Which family a ramp entry belongs to: `ref.color.ink-950` → "ink",
+ * `ref.color.green.600` → "green".
  *
- * That is all. No container (`principles.md`: group with space and a heading
- * before reaching for one), no "Inter / JetBrains Mono · 12 components" line —
- * every one of those facts is visible below, and a count shown twice is a count
- * that can appear to disagree with itself.
+ * Both spellings are in the wild and neither is the door's to correct.
  */
-function Specimen({ view, mode }: { view: DesignSystemBundleView; mode: PreviewMode }): JSX.Element {
-  const { specimen, identity } = view
+function rampFamily(path: string): string {
+  const parts = path.split('.')
+  const leaf = parts[parts.length - 1] ?? path
+  if (/^\d+$/.test(leaf)) return parts[parts.length - 2] ?? leaf
+  const stripped = leaf.replace(/-\d+$/, '')
+  return stripped.length > 0 ? stripped : leaf
+}
+
+/**
+ * The type tab: each row sets ITS OWN token name in ITS OWN step.
+ *
+ * A type ramp needs something set in it, and the only string on a page that
+ * prints no prose is the token's own name. There is no specimen sentence and no
+ * `sem.font.family` section — the door has exactly one face now, so a family
+ * specimen would show the reader the same thing twice.
+ */
+function TypePanel({ view }: { view: DesignSystemBundleView }): JSX.Element {
+  const tokens = tokenFamilies(view)
   return (
-    <section aria-label={`${identity.name} specimen`}>
-      <h2
-        className="truncate text-[length:2rem] leading-tight text-[color:var(--text-strong)]"
-        // A specimen set in OUR font is not a specimen. The previewed system's
-        // face is content; app chrome stays on the two families we ship. A bundle
-        // declaring none falls back here and must still be legible.
-        style={specimen.fontFamilyUi ? { fontFamily: specimen.fontFamilyUi } : undefined}
-      >
-        {identity.name}
-      </h2>
-      {specimen.ramp.length > 0 ? (
-        <div
-          role="img"
-          aria-label={`${identity.name} colour ramp, ${specimen.ramp.length} colours`}
-          className="mt-4 flex h-8 overflow-hidden rounded-md"
-        >
-          {specimen.ramp.map((swatch) => (
-            <span
-              key={swatch.path}
-              className="flex-1"
-              // The previewed system's own colours, validated as colours by the
-              // token resolver before they reach a style attribute.
-              style={{ background: mode === 'dark' ? swatch.dark : swatch.light }}
-            />
-          ))}
-        </div>
-      ) : null}
-    </section>
+    <div className={PANEL_CLASS}>
+      <TokenSection title="Size" tokens={tokens.fontSize}>
+        {(token, value) => (
+          <span title={token.path} style={{ fontSize: value, lineHeight: 1.4 }}>
+            {token.path}
+          </span>
+        )}
+      </TokenSection>
+      <TokenSection title="Weight" tokens={tokens.fontWeight}>
+        {(token, value) => (
+          <span title={token.path} style={{ fontWeight: value }}>
+            {token.path}
+          </span>
+        )}
+      </TokenSection>
+      <TokenSection title="Line height" tokens={tokens.fontLine}>
+        {(token, value) => (
+          // Leading only exists BETWEEN lines, so the specimen has to be more
+          // than one: the name three times, wrapped, and nothing else.
+          <span
+            title={token.path}
+            className="block max-w-[24ch] whitespace-normal"
+            style={{ lineHeight: value }}
+          >
+            {`${token.path} ${token.path} ${token.path}`}
+          </span>
+        )}
+      </TokenSection>
+      <TokenSection title="Tracking" tokens={tokens.fontTracking}>
+        {(token, value) => (
+          <span title={token.path} style={{ letterSpacing: value }}>
+            {token.path}
+          </span>
+        )}
+      </TokenSection>
+    </div>
   )
+}
+
+/**
+ * The spacing tab: the shape drawn at the token's value, and the path.
+ *
+ * The value is not printed — the square IS the value. Every drawing carries the
+ * path as `title` and `aria-label`, so pointing at one names it.
+ */
+function SpacingPanel({ view, mode }: { view: DesignSystemBundleView; mode: PreviewMode }): JSX.Element {
+  const tokens = tokenFamilies(view)
+  const draw = mode === 'dark' ? 'dark' : 'light'
+  return (
+    <div className={PANEL_CLASS}>
+      <Section title="Space" count={tokens.space.length} inset={false}>
+        {tokens.space.map((token) => (
+          <InboxRow
+            key={token.path}
+            leading={
+              <span
+                role="img"
+                aria-label={token.path}
+                title={token.path}
+                className="block shrink-0 bg-[color:var(--accent-primary-soft)]"
+                style={{ width: token[draw], height: token[draw] }}
+              />
+            }
+            title={token.path}
+          />
+        ))}
+      </Section>
+      <Section title="Size" count={tokens.size.length} inset={false}>
+        {tokens.size.map((token) => (
+          <InboxRow
+            key={token.path}
+            leading={
+              <span
+                role="img"
+                aria-label={token.path}
+                title={token.path}
+                className="block w-16 shrink-0 rounded-sm bg-[color:var(--bg-selected)]"
+                style={{ height: token[draw] }}
+              />
+            }
+            title={token.path}
+          />
+        ))}
+      </Section>
+      <Section title="Radius" count={tokens.radius.length} inset={false}>
+        {tokens.radius.map((token) => (
+          <InboxRow
+            key={token.path}
+            leading={
+              <span
+                role="img"
+                aria-label={token.path}
+                title={token.path}
+                className="block size-control-sm shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+                style={{ borderRadius: token[draw] }}
+              />
+            }
+            title={token.path}
+          />
+        ))}
+      </Section>
+      <Section title="Shadow" count={tokens.shadow.length} inset={false}>
+        {tokens.shadow.map((token) => (
+          <InboxRow
+            key={token.path}
+            leading={
+              <span
+                role="img"
+                aria-label={token.path}
+                title={token.path}
+                className="block size-control-sm shrink-0 rounded-sm bg-[color:var(--bg-surface-raised)]"
+                // The previewed system's own elevation, in the mode the app is
+                // in — a light shadow drawn on a dark ground is not the token.
+                style={{ boxShadow: token[draw] }}
+              />
+            }
+            title={token.path}
+          />
+        ))}
+      </Section>
+    </div>
+  )
+}
+
+/** A token family as rows, each drawn by the caller in its own step. */
+function TokenSection({
+  title,
+  tokens,
+  children,
+}: {
+  title: string
+  tokens: readonly DesignSystemTokenView[]
+  children: (token: DesignSystemTokenView, value: string) => JSX.Element
+}): JSX.Element | null {
+  if (tokens.length === 0) return null
+  return (
+    <Section title={title} count={tokens.length} inset={false}>
+      {tokens.map((token) => (
+        <InboxRow key={token.path} hideDot title={children(token, token.light)} />
+      ))}
+    </Section>
+  )
+}
+
+// ── Shared derivations ───────────────────────────────────────────────────────
+
+/**
+ * The token families the reader resolved.
+ *
+ * Defensive about absence rather than about SHAPE: a bundle read by an older
+ * main process (or a fixture written before the families existed) carries none,
+ * and the tabs should be missing rather than the door throwing.
+ */
+function tokenFamilies(view: DesignSystemBundleView): DesignSystemBundleView['specimen']['tokens'] {
+  const tokens = view.specimen.tokens as DesignSystemBundleView['specimen']['tokens'] | undefined
+  return {
+    fontSize: tokens?.fontSize ?? [],
+    fontWeight: tokens?.fontWeight ?? [],
+    fontLine: tokens?.fontLine ?? [],
+    fontTracking: tokens?.fontTracking ?? [],
+    space: tokens?.space ?? [],
+    size: tokens?.size ?? [],
+    radius: tokens?.radius ?? [],
+    shadow: tokens?.shadow ?? [],
+  }
+}
+
+function groupOf(view: DesignSystemBundleView, key: string): DesignSystemGroupView | null {
+  return view.groups.find((group) => group.key === key) ?? null
 }
 
 /**
@@ -215,174 +828,11 @@ function isNewEntry(
   return declared !== null && newEntries.has(designSystemEntryKey(groupKey, declared))
 }
 
-/** How many of a group's entries are new — the number its heading carries. */
-function countNewInGroup(
-  newEntries: ReadonlySet<string> | undefined,
-  group: DesignSystemGroupView,
-): number {
-  if (!newEntries || newEntries.size === 0) return 0
-  return group.entries.filter((entry) => newEntries.has(designSystemEntryKey(group.key, entry)))
-    .length
-}
-
-/** One manifest-declared group, with its count and the tiles it holds. */
-function Section({
-  group,
-  view,
-  mode,
-  newEntries,
-  onOpenComponent,
-}: {
-  group: DesignSystemGroupView
-  view: DesignSystemBundleView
-  mode: PreviewMode
-  newEntries?: ReadonlySet<string>
-  onOpenComponent: (name: string) => void
-}): JSX.Element {
-  const newCount = countNewInGroup(newEntries, group)
-  return (
-    <section aria-labelledby={`design-group-${group.key}`} className="mt-8">
-      <div className="mb-3 flex items-baseline gap-2">
-        {/* Sentence case, derived from the manifest key. */}
-        <h3
-          id={`design-group-${group.key}`}
-          className="text-body font-semibold text-[color:var(--text-strong)]"
-        >
-          {group.label}
-        </h3>
-        <span className="font-mono text-meta tabular-nums text-[color:var(--text-muted)]">
-          {group.count}
-        </span>
-        {/* The roll-up beside the total, never instead of it: "42" is how big
-            this system is and "3 new" is what changed, and a heading that showed
-            only the second would have lost the first. */}
-        {newCount > 0 ? <NewChip>{`${newCount} new`}</NewChip> : null}
-      </div>
-      <GroupBody
-        group={group}
-        view={view}
-        mode={mode}
-        newEntries={newEntries}
-        onOpenComponent={onOpenComponent}
-      />
-    </section>
-  )
-}
-
-function GroupBody({
-  group,
-  view,
-  mode,
-  newEntries,
-  onOpenComponent,
-}: {
-  group: DesignSystemGroupView
-  view: DesignSystemBundleView
-  mode: PreviewMode
-  newEntries?: ReadonlySet<string>
-  onOpenComponent: (name: string) => void
-}): JSX.Element {
-  if (group.key === 'components') {
-    const rendered = view.components.filter((component) => group.entries.includes(component.name))
-    return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5 gap-y-8">
-        {rendered.map((component) => (
-          <ComponentTile
-            key={component.name}
-            component={component}
-            tokensCss={view.specimen.tokensCss}
-            mode={mode}
-            isNew={isNewEntry(newEntries, group.key, group.entries, component.name)}
-            onOpen={() => onOpenComponent(component.name)}
-          />
-        ))}
-        {/* Declared but not on disk: named, never silently missing. */}
-        <MissingEntries declared={group.entries} present={rendered.map((entry) => entry.name)} />
-      </div>
-    )
-  }
-  if (group.key === 'patterns') {
-    const rendered = view.patterns.filter((pattern) => matchesEntry(group.entries, pattern.name))
-    return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-x-5 gap-y-8">
-        {rendered.map((pattern) => (
-          <figure key={pattern.name} className="m-0">
-            <PreviewFrame
-              height={PATTERN_PREVIEW_HEIGHT}
-              title={`${pattern.name} pattern preview`}
-              className="overflow-hidden rounded-lg bg-[color:var(--bg-surface-raised)]"
-              srcDoc={composePreviewSrcDoc({
-                tokensCss: view.specimen.tokensCss,
-                componentCss: '',
-                inlineStyles: pattern.inlineStyles,
-                bodyHtml: pattern.html,
-                mode,
-                layout: 'flow',
-              })}
-            />
-            <figcaption className="mt-2 flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-default)]">
-              <span className="truncate">{pattern.name}</span>
-              {isNewEntry(newEntries, group.key, group.entries, pattern.name) ? <NewChip /> : null}
-            </figcaption>
-          </figure>
-        ))}
-      </div>
-    )
-  }
-  if (group.key === 'glyphs') {
-    const rendered = view.glyphs.filter((glyph) => matchesEntry(group.entries, glyph.name))
-    return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-3 gap-y-5">
-        {rendered.map((glyph) => (
-          <figure key={glyph.name} className="m-0">
-            <PreviewFrame
-              height={GLYPH_PREVIEW_HEIGHT}
-              title={`${glyph.name} glyph`}
-              className="overflow-hidden rounded-md transition-colors hover:bg-[color:var(--bg-hover)]"
-              srcDoc={composePreviewSrcDoc({
-                tokensCss: view.specimen.tokensCss,
-                componentCss:
-                  'svg{width:24px;height:24px;color:var(--sem-color-text-default,currentColor)}',
-                inlineStyles: [],
-                bodyHtml: glyph.svg,
-                mode,
-              })}
-            />
-            <figcaption className="mt-1 flex min-w-0 items-center justify-center gap-1 text-center text-meta text-[color:var(--text-muted)]">
-              <span className="truncate">{glyph.name}</span>
-              {isNewEntry(newEntries, group.key, group.entries, glyph.name) ? <NewChip /> : null}
-            </figcaption>
-          </figure>
-        ))}
-      </div>
-    )
-  }
-  // Foundations, assets, and any group a bundle declares that we did not
-  // anticipate: the manifest's entries, named. We render what the system says it
-  // has rather than inventing a viewer for a shape we have never seen.
-  return (
-    <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-5 gap-y-2">
-      {group.entries.map((entry) => (
-        <li key={entry} className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-meta text-[color:var(--text-muted)]">{entry}</span>
-          {/* Foundations are listed one entry per file, so the token source
-              gets its own marker rather than the whole group wearing one. */}
-          {newEntries?.has(designSystemEntryKey(group.key, entry)) ? <NewChip /> : null}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 // Manifest entries come in two forms — bare stems and bundle-relative paths
 // ("patterns/context-rail.html") — while view names are always the stem the
 // reader derives. Compare stems, or a path-form manifest empties its section.
 function matchesEntry(entries: readonly string[], name: string): boolean {
-  return entries.some((entry) => {
-    if (entry === name) return true
-    const stem = (entry.split('/').pop() ?? entry).replace(/\.[a-z]+$/i, '')
-    return stem === name
-  })
+  return entries.some((entry) => entry === name || stemOf(entry) === name)
 }
 
 function MissingEntries({
@@ -392,203 +842,11 @@ function MissingEntries({
   declared: readonly string[]
   present: readonly string[]
 }): JSX.Element | null {
-  const missing = declared.filter((entry) => !present.includes(entry))
+  const missing = declared.filter((entry) => !present.includes(stemOf(entry)) && !present.includes(entry))
   if (missing.length === 0) return null
   return (
-    <p className="col-span-full text-meta text-[color:var(--text-muted)]">
+    <p className="px-3 pt-3 text-meta text-[color:var(--text-muted)]">
       {missing.length} declared but not on disk: {missing.join(', ')}
     </p>
   )
-}
-
-/**
- * One component tile: its real rendered appearance, no border, with a hover
- * background as the hit target.
- *
- * The tile shows ONE representative stage — the one matching the app's mode — and
- * the variant/state count beneath is the affordance that says there is more.
- */
-function ComponentTile({
-  component,
-  tokensCss,
-  mode,
-  isNew,
-  onOpen,
-}: {
-  component: DesignSystemComponentView
-  tokensCss: string
-  mode: PreviewMode
-  /** Arrived since this person last opened this bundle. */
-  isNew?: boolean
-  onOpen: () => void
-}): JSX.Element {
-  const stage = representativeStage(component.stages, mode)
-  const srcDoc = useMemo(
-    () =>
-      composePreviewSrcDoc({
-        tokensCss,
-        componentCss: component.css,
-        inlineStyles: component.inlineStyles,
-        bodyHtml: stage?.html ?? '',
-        mode,
-      }),
-    [tokensCss, component.css, component.inlineStyles, stage?.html, mode],
-  )
-  const count = countLabel(component)
-  // The tile writes its own accessible name, so the chip's word has to be
-  // composed into it: a nested span's text is not read when `aria-label` wins.
-  const label = [component.name, isNew ? 'new' : null, count].filter(Boolean).join(' — ')
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={label}
-      // No border: whitespace does the grouping, and hover is a background
-      // change only — no scale, no shadow, no border appearing and shifting the
-      // grid. `rounded-md` is radius.control, one of this view's two radii.
-      className={`group flex flex-col rounded-md p-2 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-    >
-      {stage ? (
-        <PreviewFrame
-          height={TILE_PREVIEW_HEIGHT}
-          title={`${component.name} preview`}
-          className="pointer-events-none w-full overflow-hidden rounded-md"
-          srcDoc={srcDoc}
-        />
-      ) : (
-        // A component whose demo document is empty: said plainly, never a
-        // placeholder graphic pretending to be a rendering.
-        <div
-          style={{ height: TILE_PREVIEW_HEIGHT }}
-          className="flex items-center justify-center text-meta text-[color:var(--text-muted)]"
-        >
-          No preview in this component
-        </div>
-      )}
-      <span className="mt-2 flex min-w-0 items-center gap-1.5">
-        <span className="truncate text-body text-[color:var(--text-strong)]">{component.name}</span>
-        {/* Hidden from assistive tech here ONLY because `aria-label` above
-            already carries the word — the row would otherwise say "new" twice. */}
-        {isNew ? <NewChip decorative /> : null}
-      </span>
-      {count ? <span className="truncate text-meta text-[color:var(--text-muted)]">{count}</span> : null}
-      {component.unresolvedRefs.length > 0 ? (
-        <span className="truncate text-meta text-[color:var(--text-muted)]">
-          {component.unresolvedRefs.length} reference
-          {component.unresolvedRefs.length === 1 ? '' : 's'} could not be loaded
-        </span>
-      ) : null}
-    </button>
-  )
-}
-
-/**
- * "3 variants · 4 states", from `component.md`'s own sections.
- *
- * Null when the doc declares neither: the bundle format has no variant MARKUP
- * contract, so a number we could not read is a number we do not show.
- */
-function countLabel(component: DesignSystemComponentView): string | null {
-  const parts: string[] = []
-  if (component.variantCount !== null) {
-    parts.push(`${component.variantCount} variant${component.variantCount === 1 ? '' : 's'}`)
-  }
-  if (component.stateCount !== null) {
-    parts.push(`${component.stateCount} state${component.stateCount === 1 ? '' : 's'}`)
-  }
-  return parts.length > 0 ? parts.join(' · ') : null
-}
-
-/**
- * A component opened: every stage the author wrote, labelled, then its
- * `component.md` sections as authored.
- *
- * The five headings are fixed and test-enforced by the bundle format, so they are
- * rendered, never summarised.
- */
-function ComponentDetail({
-  component,
-  specimenCss,
-  mode,
-  onBack,
-}: {
-  component: DesignSystemComponentView
-  specimenCss: string
-  mode: PreviewMode
-  onBack: () => void
-}): JSX.Element {
-  const count = countLabel(component)
-  return (
-    <div className="px-6 pb-8 pt-4">
-      <div className="mb-4 flex items-baseline gap-3">
-        <GhostButton onClick={onBack}>← All components</GhostButton>
-        <h2 className="truncate text-title font-semibold text-[color:var(--text-strong)]">
-          {component.name}
-        </h2>
-        {count ? (
-          <span className="shrink-0 text-meta text-[color:var(--text-muted)]">{count}</span>
-        ) : null}
-      </div>
-
-      {component.stages.length > 0 ? (
-        <div className="flex flex-col gap-6">
-          {component.stages.map((stage, index) => (
-            <figure key={`${stage.mode ?? 'stage'}-${index}`} className="m-0">
-              <PreviewFrame
-                height={DETAIL_STAGE_HEIGHT}
-                title={`${component.name} — ${stage.mode ?? `stage ${index + 1}`}`}
-                className="overflow-hidden rounded-lg bg-[color:var(--bg-surface-raised)]"
-                srcDoc={composePreviewSrcDoc({
-                  tokensCss: specimenCss,
-                  componentCss: component.css,
-                  inlineStyles: component.inlineStyles,
-                  bodyHtml: stage.html,
-                  mode: stage.mode === 'dark' ? 'dark' : stage.mode === 'light' ? 'light' : mode,
-                  layout: 'flow',
-                })}
-              />
-              <figcaption className="mt-1.5 text-meta text-[color:var(--text-muted)]">
-                {stage.mode ?? `Stage ${index + 1}`}
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      ) : (
-        <p className="text-meta text-[color:var(--text-muted)]">
-          This component ships no demo document.
-        </p>
-      )}
-
-      {component.doc ? (
-        <div className="mt-8 flex max-w-[80ch] flex-col gap-5">
-          {(
-            [
-              ['Anatomy', component.doc.anatomy],
-              ['Variants', component.doc.variants],
-              ['States', component.doc.states],
-              ['Usage', component.doc.usage],
-              ['Accessibility', component.doc.accessibility],
-            ] as const
-          )
-            .filter(([, body]) => body.trim().length > 0)
-            .map(([heading, body]) => (
-              <section key={heading}>
-                <h3 className="text-body font-semibold text-[color:var(--text-strong)]">{heading}</h3>
-                {/* As authored: the door renders the author's prose verbatim and
-                    never summarises it. Plain text, so markdown source shows as
-                    written rather than being half-rendered. */}
-                <p className="mt-1 whitespace-pre-wrap text-meta leading-5 text-[color:var(--text-default)]">
-                  {body}
-                </p>
-              </section>
-            ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/** A quiet, non-blocking note. Never a tinted pill — those are reject-on-sight. */
-function QuietNote({ children }: { children: React.ReactNode }): JSX.Element {
-  return <p className="mt-3 text-meta text-[color:var(--text-muted)]">{children}</p>
 }

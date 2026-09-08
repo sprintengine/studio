@@ -9,7 +9,7 @@ import {
   representativeStage,
   sentenceCaseLabel,
 } from './bundle-parse'
-import { composePreviewSrcDoc, stripActiveContent } from './preview-doc'
+import { composePreviewSrcDoc, stripActiveContent, stripDemoCaptions } from './preview-doc'
 
 // The isolation contract and the extraction that feeds it. Component HTML and
 // CSS are third-party content: they must not restyle app chrome, app tokens must
@@ -92,6 +92,75 @@ run('the mode rides the root, and reduced motion is honoured', () => {
   })
   assert.match(dark, /<html lang="en" data-mode="dark">/)
   assert.match(dark, /prefers-reduced-motion: reduce/)
+})
+
+run('the demo’s prose captions are REMOVED from the composed document', () => {
+  // The owner's ruling (2026-09-08): the caption is not demoted, it is not on
+  // the page. A stylesheet override would leave a paragraph of prose under
+  // every specimen — quieter, still read, still pushing the next component off
+  // the screen — and would leave the frame's measured height paying for text
+  // nobody wanted. Removing the element is the only version that is honest
+  // about the height.
+  const stage =
+    '<p class="demo-label">Light — labels: the tone classifies the row.</p>\n' +
+    '<div class="demo-row"><button class="ds-button">Continue</button></div>'
+  const html = composePreviewSrcDoc({
+    tokensCss: ':root{--sem-color-bg-app:#fff}',
+    componentCss: '',
+    inlineStyles: [],
+    bodyHtml: stage,
+    mode: 'light',
+  })
+  assert.ok(!html.includes('demo-label'), 'the element is gone, not hidden')
+  assert.ok(!html.includes('the tone classifies the row'), 'and so is the sentence')
+  // Everything else is kept EXACTLY as authored: the rows still read visually
+  // and the states are still legible by shape.
+  assert.match(html, /demo-row/)
+  assert.match(html, /ds-button/)
+})
+
+run('a caller that wants the bundle’s markup untouched can still have it', () => {
+  const html = composePreviewSrcDoc({
+    tokensCss: '',
+    componentCss: '',
+    inlineStyles: [],
+    bodyHtml: '<p class="demo-label">As authored.</p><div class="demo-row">x</div>',
+    mode: 'light',
+    captions: 'as-authored',
+  })
+  assert.match(html, /demo-label/)
+  assert.match(html, /As authored\./)
+})
+
+run('only the caption goes: class lists, attributes and neighbours survive', () => {
+  // The bundle format is regular — `demo-label` only ever appears on a `<p>`,
+  // one class among others, never nested — which is what makes one expression
+  // enough. Each case below is a spelling that appears in a real bundle.
+  assert.equal(
+    stripDemoCaptions('<p class="demo-label">a</p><p class="demo-note">b</p>'),
+    '<p class="demo-note">b</p>',
+    'a paragraph that is not a caption stays',
+  )
+  assert.equal(
+    stripDemoCaptions('<p id="x" class="lead demo-label small" data-k="v">a</p>b'),
+    'b',
+    'extra classes and attributes do not save it',
+  )
+  assert.equal(
+    stripDemoCaptions('<p class="demo-label">a<em>b</em>c</p>keep'),
+    'keep',
+    'and neither does markup inside it',
+  )
+  assert.equal(
+    stripDemoCaptions('<p class="demo-labelled">a</p>'),
+    '<p class="demo-labelled">a</p>',
+    'a class that merely starts the same is not the caption',
+  )
+  assert.equal(
+    stripDemoCaptions('<p class="demo-label">one</p>mid<p class="demo-label">two</p>end'),
+    'midend',
+    'every caption in the stage, not just the first',
+  )
 })
 
 run('@import is stripped rather than left to fail silently', () => {

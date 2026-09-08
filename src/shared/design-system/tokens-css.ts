@@ -81,6 +81,39 @@ export function resolveTokenValue(
   path: string,
   mode: DesignSystemTokenMode,
 ): string | null {
+  const raw = resolveTokenRaw(document, path, mode)
+  return typeof raw === 'string' ? raw : null
+}
+
+/**
+ * Resolve one token to a printable SCALAR — the same chain, with numbers.
+ *
+ * DTCG types a `fontWeight` and a `lineHeight` as NUMBERS (`600`, `1.5`), not
+ * as strings, so `resolveTokenValue` — which is about CSS value TEXT, and must
+ * never hand a caller something it would then have to guess the type of —
+ * refuses them. The Design door draws those families as specimens and needs the
+ * value; this is the one extra step, and it is the same alias walk rather than a
+ * second one somewhere else.
+ *
+ * Arrays (a `fontFamily`'s list) are still null: joining one is a decision with
+ * its own quoting rule, and `resolveFontFamilies` owns it.
+ */
+export function resolveTokenScalar(
+  document: unknown,
+  path: string,
+  mode: DesignSystemTokenMode,
+): string | null {
+  const raw = resolveTokenRaw(document, path, mode)
+  if (typeof raw === 'string') return raw
+  return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : null
+}
+
+/** The value an alias chain terminates in, whatever type that turns out to be. */
+function resolveTokenRaw(
+  document: unknown,
+  path: string,
+  mode: DesignSystemTokenMode,
+): unknown {
   if (!isRecord(document)) return null
   const seen = new Set<string>()
   let current = path
@@ -91,7 +124,8 @@ export function resolveTokenValue(
     const leaf = leafAt(document, current)
     if (!leaf) return null
     const raw = rawValueForMode(leaf, mode)
-    if (typeof raw !== 'string') return null
+    // Only a string can BE an alias, so anything else terminates the chain.
+    if (typeof raw !== 'string') return raw
     const alias = ALIAS_PATTERN.exec(raw.trim())
     if (!alias) return raw
     current = alias[1].trim()
