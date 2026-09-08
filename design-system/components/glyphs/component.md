@@ -342,7 +342,7 @@ Cite these rather than matching the code you happen to be nearest.
    renderer is `IconButton` / `CloseIconButton` at `--sem-size-control-xs`
    (backlog `icon-buttons-off-the-control-ramp`); the conformance guard's
    `focus-ring-missing` rule keeps a bare button from returning.
-2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Sprints, Roadmap, and
+2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Sprints and
    Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions
    with bare 13 px `icon-xs` glyphs and no fixed-width wrapper (39 px), the
    Design door with a 12 px chip (38 px) — so sibling doors' titles start at
