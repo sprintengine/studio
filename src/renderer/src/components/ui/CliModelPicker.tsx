@@ -1,6 +1,7 @@
 import React from 'react'
 
 import CliIcon from '../CliIcon'
+import { NewChip } from './NewChip'
 import { Popover } from './Popover'
 import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
@@ -1049,12 +1050,10 @@ function ModelRowView({
           ) : null}
           {/* "New": the hosted feed released this model in the last 30 days —
               the same rule the website uses. A chip, not a hoist: the row stays
-              where the catalog put it so a muscle-memory pick still lands. */}
-          {row.isNew ? (
-            <span className="shrink-0 whitespace-nowrap rounded-full bg-[color:var(--accent-primary-soft)] px-1.5 text-micro font-medium leading-[1.5] text-[color:var(--accent-primary)]">
-              New
-            </span>
-          ) : null}
+              where the catalog put it so a muscle-memory pick still lands. The
+              drawing is the kit's, shared with the Design door's "arrived since
+              you last looked" marker, so one word cannot have two looks. */}
+          {row.isNew ? <NewChip /> : null}
         </span>
         {/* The second line qualifies the name; it never restates it. The
             provider appears only while the list spans more than one — under a

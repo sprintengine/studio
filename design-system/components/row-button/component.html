@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Row button</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-panel {
+    width: 260px;
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-panel">
+    <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
+    <button type="button" class="ds-row-button">studio · main</button>
+    <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
+    <button type="button" class="ds-row-button ds-row-button--nav">Sprints</button>
+    <button type="button" class="ds-row-button" disabled>Archived worktree</button>
+  </div>
+  <div class="demo-panel" style="padding: 0">
+    <button type="button" class="ds-row-button ds-row-button--bleed">Full-bleed option</button>
+    <button type="button" class="ds-row-button ds-row-button--bleed" aria-current="true">Full-bleed, chosen</button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-panel">
+    <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
+    <button type="button" class="ds-row-button">studio · main</button>
+    <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
+    <button type="button" class="ds-row-button ds-row-button--nav">Sprints</button>
+    <button type="button" class="ds-row-button" disabled>Archived worktree</button>
+  </div>
+  <div class="demo-panel" style="padding: 0">
+    <button type="button" class="ds-row-button ds-row-button--bleed">Full-bleed option</button>
+    <button type="button" class="ds-row-button ds-row-button--bleed" aria-current="true">Full-bleed, chosen</button>
+  </div>
+</div>
+</body>
+</html>

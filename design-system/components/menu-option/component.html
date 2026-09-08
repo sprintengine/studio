@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Menu option</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-panel {
+    width: 260px;
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-panel" style="padding: var(--sem-space-2xs) 0">
+    <button type="button" class="ds-menu-option" role="option" aria-selected="false">Local machine</button>
+    <button type="button" class="ds-menu-option" role="option" aria-selected="true">studio-mini<span class="ds-menu-option-mark">✓</span></button>
+    <button type="button" class="ds-menu-option ds-menu-option--stacked" role="radio" aria-checked="false" tabindex="-1">
+      <span class="ds-menu-option-text"><span class="ds-menu-option-name">Opus 5</span><span class="ds-menu-option-supporting">Deep reasoning, slower turns</span></span>
+      <span class="ds-menu-option-mark" data-hidden="true">✓</span>
+    </button>
+    <button type="button" class="ds-menu-option ds-menu-option--stacked" role="radio" aria-checked="true" tabindex="0">
+      <span class="ds-menu-option-text"><span class="ds-menu-option-name">Sonnet 4.5</span><span class="ds-menu-option-supporting">The default for everyday work</span></span>
+      <span class="ds-menu-option-mark">✓</span>
+    </button>
+    <button type="button" class="ds-menu-option" role="option" aria-selected="false" disabled>Unreachable host</button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-panel" style="padding: var(--sem-space-2xs) 0">
+    <button type="button" class="ds-menu-option" role="option" aria-selected="false">Local machine</button>
+    <button type="button" class="ds-menu-option" role="option" aria-selected="true">studio-mini<span class="ds-menu-option-mark">✓</span></button>
+    <button type="button" class="ds-menu-option ds-menu-option--stacked" role="radio" aria-checked="false" tabindex="-1">
+      <span class="ds-menu-option-text"><span class="ds-menu-option-name">Opus 5</span><span class="ds-menu-option-supporting">Deep reasoning, slower turns</span></span>
+      <span class="ds-menu-option-mark" data-hidden="true">✓</span>
+    </button>
+    <button type="button" class="ds-menu-option ds-menu-option--stacked" role="radio" aria-checked="true" tabindex="0">
+      <span class="ds-menu-option-text"><span class="ds-menu-option-name">Sonnet 4.5</span><span class="ds-menu-option-supporting">The default for everyday work</span></span>
+      <span class="ds-menu-option-mark">✓</span>
+    </button>
+    <button type="button" class="ds-menu-option" role="option" aria-selected="false" disabled>Unreachable host</button>
+  </div>
+</div>
+</body>
+</html>

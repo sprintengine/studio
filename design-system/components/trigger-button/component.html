@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trigger button</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-panel {
+    width: 260px;
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row" style="width: 260px">
+    <button type="button" class="ds-trigger" aria-haspopup="listbox" aria-expanded="false"><span class="ds-trigger-value">Reviewer</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger" data-open="true" aria-haspopup="listbox" aria-expanded="true"><span class="ds-trigger-value">Reviewer</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger ds-trigger--dashed"><span class="ds-trigger-value">Add a role</span><span class="ds-trigger-chevron" aria-hidden="true">+</span></button>
+    <button type="button" class="ds-trigger ds-trigger--content"><span class="ds-trigger-value">Sonnet 4.5<br /><span style="font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle)">The default for everyday work</span></span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger" disabled><span class="ds-trigger-value">No machines paired</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row" style="width: 260px">
+    <button type="button" class="ds-trigger" aria-haspopup="listbox" aria-expanded="false"><span class="ds-trigger-value">Reviewer</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger" data-open="true" aria-haspopup="listbox" aria-expanded="true"><span class="ds-trigger-value">Reviewer</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger ds-trigger--dashed"><span class="ds-trigger-value">Add a role</span><span class="ds-trigger-chevron" aria-hidden="true">+</span></button>
+    <button type="button" class="ds-trigger ds-trigger--content"><span class="ds-trigger-value">Sonnet 4.5<br /><span style="font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle)">The default for everyday work</span></span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+    <button type="button" class="ds-trigger" disabled><span class="ds-trigger-value">No machines paired</span><span class="ds-trigger-chevron" aria-hidden="true">▾</span></button>
+  </div>
+</div>
+</body>
+</html>

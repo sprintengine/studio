@@ -23,7 +23,7 @@ import { FOCUS_RING_CLASS } from './tokens'
  * inline row actions, and 26px cannot hold a text cursor plus its inset without
  * the ink touching the border.
  */
-type InputSize = 'sm' | 'md'
+export type InputSize = 'none' | 'xs' | 'sm' | 'content' | 'md'
 
 /**
  * The two grounds a field is drawn on, and there is no third.
@@ -38,24 +38,76 @@ type InputSize = 'sm' | 'md'
  * away from. This is the recipe that used to live twice, under one name, in two
  * settings modules with two different grounds.
  */
-type InputVariant = 'default' | 'well'
+/**
+ * `quiet` — transparent ground, a `border.subtle` hairline, and NO hover lift.
+ * For a field that sits INSIDE an already-grounded floating surface: a filter
+ * box at the head of a popover, a search inside a menu. There the `bg.field`
+ * ground reads as a second panel nested in the first, which is the card-in-a-card
+ * the hairline principle rejects, and the hover border lift is a second edge
+ * moving inside a surface that already has one.
+ *
+ * `seamless` — no box AT ALL: no border, no ground, no radius, and no focus
+ * indicator of its own. The visible box is the WRAPPER, which draws the border
+ * and takes the ring through `FOCUS_RING_WITHIN_INPUT_CLASS` (or its textarea
+ * twin). The kit already shipped the wrapper half of this pattern — those two
+ * focus constants exist for nothing else — and had no field to put inside it, so
+ * every composed control (a glyph + field + menu row, a chat composer) wrote the
+ * four cancelling utilities by hand. Pair it with a wrapper that carries one of
+ * those constants; a `seamless` field alone has no focus indicator, which is a
+ * defect rather than a style.
+ *
+ * `composer` — `seamless` for the multiline case, plus `field-sizing-content`:
+ * the box grows with what is typed between the caller's `min-h-`/`max-h-`
+ * bounds. It is a variant of its own rather than a flag on `seamless` because a
+ * single-line field that content-sized would grow sideways, and the two must not
+ * be reachable by the same name. The chat composer is its one surface: the
+ * wrapping `COMPOSER_SURFACE_CLASS` draws the border, the ground and the
+ * elevation, and takes the ring through `FOCUS_RING_WITHIN_TEXTAREA_CLASS`,
+ * while `ref`, `rows`, `onPaste`, `onContextMenu` and `onKeyDown` pass straight
+ * through to the element.
+ *
+ * `inline` — the title edited IN PLACE: quiet at rest, revealing the field
+ * chrome on hover or focus, so the head of a page reads as a heading rather than
+ * as a form field wearing one. This is `INLINE_TITLE_EDIT_CLASS` promoted to a
+ * variant. The class string stays exported — several sites consume it on their
+ * own element for the reason documented on it — but a caller who only wants the
+ * chrome should take the variant, so the primitive is what draws it.
+ */
+export type InputVariant = 'default' | 'well' | 'quiet' | 'seamless' | 'composer' | 'inline'
 
+/**
+ * `xs` (26px) exists now, and the comment this replaces said it could not: "26px
+ * cannot hold a text cursor plus its inset". That was true of a field with the
+ * `sm` step's 8px inset and 13px body type. It is the wrong reading for the case
+ * that actually asked — a dense numeric or mono box in a toolbar of 26px icon
+ * buttons (a viewport width, a browser address bar), where the type is
+ * `font.size.meta` and a 30px field is the tallest thing in the row. The step is
+ * on the ramp (`size.control.xs`), so this is a ramp step being used, not a
+ * height being invented; what it is NOT is a licence to shrink a labelled form
+ * field, which stays at `sm`.
+ *
+ * `content` gives the height back to the caller's inset — for the quiet field
+ * inside a popover, whose surface has already set the rhythm. `none` spends
+ * nothing at all: the `seamless` and `inline` variants take it, because their
+ * host owns the box.
+ */
 const SIZE: Record<InputSize, string> = {
-  sm: 'h-control-sm px-2',
-  md: 'h-control-md px-3',
+  none: '',
+  xs: 'h-control-xs px-2 text-meta',
+  sm: 'h-control-sm px-2 text-body',
+  content: 'px-2 py-1 text-body',
+  md: 'h-control-md px-3 text-body',
 }
 
 // The multiline sibling has no ramp height — its height comes from `rows` and
 // its content — so a size step spends itself on the inset instead, at the same
 // two values the single-line steps use horizontally.
 const TEXTAREA_SIZE: Record<InputSize, string> = {
-  sm: 'px-2 py-1.5',
-  md: 'px-3 py-2',
-}
-
-const GROUND: Record<InputVariant, string> = {
-  default: 'bg-[color:var(--bg-field)]',
-  well: 'bg-[color:var(--bg-app)]',
+  none: '',
+  xs: 'px-2 py-1 text-meta',
+  sm: 'px-2 py-1.5 text-body',
+  content: 'px-2 py-1 text-body',
+  md: 'px-3 py-2 text-body',
 }
 
 // Everything both members share: the shape, the edge, the ink, the placeholder
@@ -63,17 +115,31 @@ const GROUND: Record<InputVariant, string> = {
 // Focus is the ring and only the ring — a focus-scoped border recolour is the
 // second idiom `scripts/lint-design-system-conformance.mjs` rejects outright.
 const CHROME = [
-  'rounded-sm border border-[color:var(--border-default)]',
-  'text-body text-[color:var(--text-default)] transition-colors',
+  'transition-colors',
   'placeholder:text-[color:var(--text-disabled)]',
-  'hover:border-[color:var(--border-strong)]',
+  'disabled:cursor-not-allowed disabled:opacity-45',
+].join(' ')
+
+// The BOXED chrome: the shape, the edge, the ink, the hover lift, the validity
+// edge and the one focus indicator. Three of the five variants take it; the two
+// that do not are the ones whose box belongs to something else.
+//
+// Focus is the ring and only the ring — a focus-scoped border recolour is the
+// second idiom `scripts/lint-design-system-conformance.mjs` rejects outright.
+//
+// Each property is declared exactly ONCE per variant below rather than as a
+// shared default plus a per-variant repaint: a shared `border-…` followed by
+// `quiet`'s `border-subtle` would be two utilities of equal specificity, and
+// which of them painted would be stylesheet order.
+const BOXED = [
+  'rounded-sm border',
+  'text-[color:var(--text-default)]',
   // The validity edge rides `aria-invalid`, not a caller className: an
   // attribute variant out-specifies both the resting border and the hover
   // lift, so an invalid field's red edge is deterministic instead of a
   // stylesheet-order coin flip — and the state is announced, not just drawn.
   'aria-invalid:border-[color:var(--tone-error)] aria-invalid:hover:border-[color:var(--tone-error)]',
   FOCUS_RING_CLASS,
-  'disabled:cursor-not-allowed disabled:opacity-45',
 ].join(' ')
 
 /**
@@ -97,6 +163,40 @@ const CHROME = [
 export const INLINE_TITLE_EDIT_CLASS =
   '-mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 py-0.5 transition-colors ' +
   'hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-field)] focus-visible:focus-ring'
+
+/** The five grounds-and-edges, one entry per variant. See `InputVariant`. */
+const VARIANT: Record<InputVariant, string> = {
+  default: `${BOXED} border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] bg-[color:var(--bg-field)]`,
+  well: `${BOXED} border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] bg-[color:var(--bg-app)]`,
+  // No hover lift: a second edge moving inside an already-bordered surface reads
+  // as the surface itself changing.
+  quiet: `${BOXED} border-[color:var(--border-subtle)] hover:border-[color:var(--border-subtle)] bg-transparent`,
+  // No border, no radius, no ring, and `outline-none` UNPREFIXED — the UA
+  // outline is replaced by the wrapper's, in every focus state rather than only
+  // in the keyboard one, because the wrapper is the box a person sees.
+  seamless: 'bg-transparent text-[color:var(--text-strong)] outline-none',
+  composer: 'bg-transparent text-[color:var(--text-strong)] outline-none field-sizing-content',
+  inline: INLINE_TITLE_EDIT_CLASS,
+}
+
+/**
+ * The variants whose HOST owns the box, so the size ramp has nothing to spend.
+ * Naming them here rather than defaulting `size` per variant keeps one rule:
+ * a `seamless` field never carries a height, whatever a caller passes.
+ */
+const HOSTED = new Set<InputVariant>(['seamless', 'composer', 'inline'])
+
+/**
+ * `inline` already carries `w-full` inside `INLINE_TITLE_EDIT_CLASS` — a title
+ * edited in place always fills its heading — so the width prop must not add a
+ * second one. Two `w-*` utilities on one element are resolved by stylesheet
+ * order like any other pair, and here they happen to agree, which is exactly the
+ * kind of duplicate that survives until the day one of them changes.
+ */
+function widthClass(variant: InputVariant, fullWidth: boolean): string {
+  if (variant === 'inline') return ''
+  return fullWidth ? 'w-full' : ''
+}
 
 type SharedProps = {
   size?: InputSize
@@ -125,9 +225,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         type={type ?? 'text'}
         {...rest}
         className={[
-          fullWidth ? 'w-full' : '',
-          SIZE[size],
-          GROUND[variant],
+          widthClass(variant, fullWidth),
+          SIZE[HOSTED.has(variant) ? 'none' : size],
+          VARIANT[variant],
           CHROME,
           className ?? '',
         ]
@@ -169,11 +269,11 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         ref={ref}
         {...rest}
         className={[
-          fullWidth ? 'w-full' : '',
+          widthClass(variant, fullWidth),
           resize === 'y' ? 'resize-y' : 'resize-none',
           'leading-5',
-          TEXTAREA_SIZE[size],
-          GROUND[variant],
+          TEXTAREA_SIZE[HOSTED.has(variant) ? 'none' : size],
+          VARIANT[variant],
           CHROME,
           className ?? '',
         ]

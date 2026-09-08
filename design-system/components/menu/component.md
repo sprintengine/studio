@@ -152,6 +152,42 @@ and no host may reach for `start` alignment itself — an alignment written besi
 the item's own is resolved by stylesheet order rather than by the order the
 class names appear, so the two shapes have to be two named things.
 
+### The value row
+
+A menu row that shows the **value in force** rather than an action is a species
+of its own, and it has its own entry:
+[menu-option](../menu-option/component.md). It shares everything here — inset,
+gap, alignment rule, highlight, disabled step, inset focus ring, both shapes —
+and differs on three things a class cannot carry: the role comes from the caller
+(`option` inside a listbox, `radio` inside a radiogroup), selection is a rendered
+state with its own fill, and the tab stop is the group's to place.
+
+The mechanical consequence for this spec is one split. The row geometry no
+longer bundles the highlight: `MENU_ROW_HOVER_CLASS` is separate, so a selected
+row simply **does not receive it**. Writing a second highlight beside the first
+to cancel it would be two declarations of one property at equal specificity, and
+the shipped code had four hosts that had tried exactly that.
+
+### What a row must pass through
+
+An item that swallows its caller's attributes is not usable outside the menu that
+shipped it, and the 2026-09-08 sweep found nine rows that had stayed raw
+`<button>` elements for that reason alone — the class reproduced every pixel, and
+the component could not take the attribute.
+
+So the item forwards, unchanged:
+
+- **`tabIndex`.** Roving focus is the menu's, so a row is not a tab stop by
+  default; a group whose *current value* must be the stop states its own.
+- **`data-*`.** A host drives roving focus by querying for its own hook, and its
+  tests select on the same one.
+- **The click event.** The handler receives it: the Windows/Linux application
+  menu positions its native popup from the clicked row's rect, and a handler that
+  could not see the event had no way to ask.
+- **`aria-expanded`,** for a row that opens a sub-surface rather than committing
+  an action. Without it a drill-in row announces as a choice that never takes
+  effect.
+
 ## Divider
 
 `border.subtle`, 1px, with `space.2xs` (4px) of air above and below. A group

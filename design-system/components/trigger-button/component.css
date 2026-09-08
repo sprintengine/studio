@@ -1,0 +1,93 @@
+/* Trigger button — the bordered control that shows a value and opens a surface
+ * to change it. Extracted from the shipped `TriggerButton` primitive
+ * (src/renderer/src/components/ui/TriggerButton.tsx).
+ *
+ * The chrome is the select trigger's, deliberately: same height, radius, border,
+ * ground, hover lift and ring, so a picker whose face is richer than a string
+ * still reads as the same control family. What it does NOT take is the button's
+ * `shadow.control-edge` — a trigger is a field, and a field does not stand off
+ * the page. */
+
+.ds-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Flat, so it presses by scale like every other flat control. */
+.ds-trigger:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-trigger:hover:not(:disabled):not([data-open='true']) {
+  border-color: var(--sem-color-border-strong);
+  color: var(--sem-color-text-primary);
+}
+
+/* While the surface it opens is showing. The neutral selection fill and the
+ * strong edge, held under the pointer: a trigger that dimmed while its own
+ * popover was open would read as having closed it. Never the accent — an open
+ * popover is a state, not the view's primary action. */
+.ds-trigger[data-open='true'] {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-trigger:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* content — the height comes from the children. For the two-line trigger whose
+ * face is a glyph, a name and a supporting line; a ramp step cannot serve it,
+ * because the second line is what sets the box. */
+.ds-trigger--content {
+  height: auto;
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+}
+
+/* dashed — the EMPTY state of the same trigger: nothing has been picked yet.
+ * Same dashed-edge idiom the row button's create affordance uses, and the same
+ * condition: the control is a place for a thing that does not exist, and a solid
+ * edge would claim it already does. */
+.ds-trigger--dashed {
+  border-style: dashed;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-trigger-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-trigger-chevron {
+  flex: none;
+  color: var(--sem-color-text-muted);
+}

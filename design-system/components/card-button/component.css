@@ -1,0 +1,78 @@
+/* Card button — the tile. Extracted from the shipped `CardButton` primitive
+ * (src/renderer/src/components/ui/CardButton.tsx).
+ *
+ * The rule this component exists to hold: hover changes the GROUND and nothing
+ * else. No border appearing, no shadow, no scale. A tile lives in a grid, and a
+ * grid that reflows under the pointer is the defect. */
+
+.ds-card-button {
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: var(--sem-radius-overlay);
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  cursor: pointer;
+  /* No padding: a tile's inset is a composition decision — a preview frame
+   * wants 4px, a summary tile wants 12px over 10px — so it is the caller's. */
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* No `transform` press either. The press scale on a grid tile moves its
+ * neighbours' apparent alignment, and the ground already reads as the press. */
+
+.ds-card-button:hover:not(:disabled):not([aria-pressed='true']) {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-card-button:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-card-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* bordered — for a tile whose content does not draw its own box. The hairline is
+ * present AT REST, so it appears at no point and moves nothing. */
+.ds-card-button--bordered {
+  border: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+}
+
+.ds-card-button--bordered:hover:not(:disabled):not([aria-pressed='true']) {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-hover);
+}
+
+/* The chosen tile — the same neutral canon a row takes, because a chosen tile
+ * and a chosen row are one fact in two layouts. Hover is excluded above rather
+ * than repainted here. */
+.ds-card-button[aria-pressed='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
+}
+
+.ds-card-button--bordered[aria-pressed='true'] {
+  border-color: var(--sem-color-border-strong);
+}
+
+/* Caption lines, for the tiles that have them. Display-only. */
+.ds-card-button-title {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-card-button-supporting {
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+  line-height: var(--sem-font-line-default);
+}

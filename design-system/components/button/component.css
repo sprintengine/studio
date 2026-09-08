@@ -137,3 +137,203 @@
     transform: none;
   }
 }
+
+/* ── The inline size (2026-09-08) ────────────────────────────────────────
+ * The one step that spends no height. It is not an unstyled escape hatch:
+ * it carries the ink, the hover, the press and the ring exactly as the ramp
+ * steps do, and gives up only the control height, because it sits INSIDE a
+ * line of running text or a 16-20px metadata line where a 26px box would set
+ * that line's height instead of riding it.
+ *
+ * radius.chip rather than radius.control: at a line box's height the 7px
+ * control radius eats the corners of a two-word label.
+ *
+ * The hit-target floor is deliberately not padded out. A control set in
+ * running text is a link — its target is the text — and growing its box to
+ * size.hit-target-min would push the lines around it apart. The floor governs
+ * a standalone glyph, which has no line to belong to. */
+.ds-button--inline {
+  height: auto;
+  padding: 0 var(--sem-space-2xs);
+  border-radius: var(--sem-radius-chip);
+  font-size: var(--sem-font-size-meta);
+}
+
+/* ── Alignment ───────────────────────────────────────────────────────────
+ * A prop on the shipped primitive rather than a class a caller adds: a
+ * centred label written into the base and a caller's right-aligned one are
+ * two declarations of one property at equal specificity, so a shortcut
+ * recorder whose chord had to sit under a settings column got whichever the
+ * build happened to emit last. */
+.ds-button--start {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.ds-button--end {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+/* ── Armed ───────────────────────────────────────────────────────────────
+ * Not merely thrown but LISTENING: the shortcut recorder while it captures a
+ * chord. The one borderless state that takes the accent, and it takes it as
+ * accent.primary-soft — a tint, not the solid fill the view's primary action
+ * owns — because "recording right now" is the live-process case the accent
+ * budget reserves ink and hairlines for. It is a moment, not a standing
+ * choice; a control that stayed armed would be spending the accent on a
+ * selection. */
+.ds-button--armed,
+.ds-button--armed:hover:not(:disabled) {
+  background: var(--sem-color-accent-soft);
+  color: var(--sem-color-accent-primary);
+}
+
+/* ── Media ───────────────────────────────────────────────────────────────
+ * The one button whose SURFACE is content: a pasted screenshot's thumbnail, a
+ * frame that opens the thing it shows. It paints no ink and no ground — the
+ * image fills it — so every tone would be a colour on a picture and every size
+ * step a height the aspect frame has already decided. `display: block`, because
+ * its child is one element that fills it and an inline-flex box leaves a
+ * baseline gap under the image. The caller owns the frame. */
+.ds-button--media {
+  display: block;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--sem-color-border-subtle);
+  background: transparent;
+}
+
+.ds-button--media:hover:not(:disabled) {
+  border-color: var(--sem-color-border-strong);
+}
+
+/* ── Busy ────────────────────────────────────────────────────────────────
+ * Disabled because the control is WORKING, not because it is unavailable.
+ * `wait` says wait where `not-allowed` says no. */
+.ds-button[aria-busy='true'],
+.ds-button[aria-busy='true']:disabled {
+  cursor: wait;
+}
+
+/* ── Unavailable, and still focusable ────────────────────────────────────
+ * `disabled` takes the control out of the tab order, so the tooltip that
+ * explains why it is off is reachable with a pointer only. `aria-disabled`
+ * announces the same fact and keeps the stop; the look is identical. */
+.ds-button[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ds-button[aria-disabled='true']:active {
+  transform: none;
+}
+
+/* ── Icon steps below the ramp (2026-09-08) ──────────────────────────────
+ * Not ramp steps, and not a licence to shrink a toolbar. Each is a glyph
+ * inside something whose height is already decided — a tab strip, a dense
+ * row, a heading, a chip — where a 26px square would set that container's
+ * height instead of riding it.
+ *
+ * Everything under size.hit-target-min pads out to it with a TRANSPARENT
+ * overlay rather than shrinking its target. Padding would grow the drawn box,
+ * and the drawn box is the thing these steps exist to keep small.
+ *
+ * They take radius.chip: 7px on a 16px square is most of the square. */
+.ds-button--icon-xs {
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-button--icon-2xs {
+  position: relative;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  padding: 0;
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-button--icon-3xs {
+  position: relative;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  padding: 0;
+  border-radius: var(--sem-radius-chip);
+}
+
+.ds-button--icon-2xs::before,
+.ds-button--icon-3xs::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  transform: translate(-50%, -50%);
+}
+
+/* ── The hairline badge ──────────────────────────────────────────────────
+ * A count or a "?" beside a heading. A radius.pill ring in border.default
+ * lifting to border.strong, with NO ground at any state: a badge that filled
+ * would read as a control the heading does not have. */
+.ds-button--circle {
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: transparent;
+}
+
+.ds-button--circle:hover:not(:disabled) {
+  border-color: var(--sem-color-border-strong);
+  background: transparent;
+}
+
+/* ── Window caption buttons ──────────────────────────────────────────────
+ * The window's own minimise / maximise / close, on the platforms where the
+ * frame is ours to draw. A species rather than a size, because every
+ * departure below is the operating system's rather than the system's, and
+ * each would be a defect anywhere else in the product: no height (it
+ * stretches to the title strip), no radius (it fills its corner square), the
+ * platform's 40px cluster width, an INSET ring (an outset one at the window
+ * corner is clipped), and a fill on plain :focus, because that is where the
+ * OS-standard keyboard highlight shows. The ring itself is still the
+ * product's one indicator and is still :focus-visible. */
+.ds-caption-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: var(--sem-size-control-lg);
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-caption-button:hover,
+.ds-caption-button:focus {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-caption-button:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* The platform's own close red. A brand colour of the operating system's in
+ * exactly the sense a vendor mark is: tokenising it would replace a colour
+ * every other window on the machine agrees on with one of ours. */
+.ds-caption-button--close:hover,
+.ds-caption-button--close:focus {
+  background: #c42b1c; /* ds-lint-allow: Windows 11 OS-native close-button hover red — an identity colour of the platform, not of this system */
+  color: #ffffff; /* ds-lint-allow: the white the platform pairs with its close red */
+}

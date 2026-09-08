@@ -19,7 +19,9 @@ import { FOCUS_RING_PEER_CLASS } from './tokens'
 
 export type CheckboxProps = {
   checked: boolean
-  onChange: (next: boolean) => void
+  /** Required unless `readOnly` — a checkbox nobody can change does not take a
+   *  handler, and one that can must have somewhere to send the change. */
+  onChange?: (next: boolean) => void
   /** Visible label beside the box. Omit only when `ariaLabel` names the control. */
   label?: React.ReactNode
   /** Accessible name when there is no visible `label`. */
@@ -35,6 +37,27 @@ export type CheckboxProps = {
   /** Type step for the label. `meta` (12px) by default; `body` for form rows
    *  that sit among other 13px controls. */
   size?: 'meta' | 'body'
+  /**
+   * MARKER MODE — the box is a rendered FACT, not a control: a GFM task-list
+   * marker inside rendered markdown, where the checked state comes from the
+   * document and toggling it here would change nothing.
+   *
+   * Three things follow, and each is why this could not be `disabled`:
+   *
+   * - **No `<label>` wrapper.** The marker sits inside an `<li>` whose text is
+   *   already the item; wrapping that text in a label would make the whole
+   *   paragraph a click target for a control that does not accept clicks, and
+   *   would nest a label inside prose the markdown renderer owns.
+   * - **No `onChange`.** React needs `readOnly` on a controlled input with no
+   *   handler; without it every rendered task list logs a warning per box.
+   * - **Not `disabled`.** A disabled input is skipped by some assistive tech
+   *   and reads as "unavailable"; this box is neither. `aria-readonly` says the
+   *   true thing: the state is real, and it is not yours to change here.
+   *
+   * The drawn box is the kit's, unchanged — a task list that invented its own
+   * tick is how five surfaces came to draw five checkboxes.
+   */
+  readOnly?: boolean
   className?: string
 }
 
@@ -48,6 +71,7 @@ export function Checkbox({
   disabled = false,
   id,
   size = 'meta',
+  readOnly = false,
   className,
 }: CheckboxProps): JSX.Element {
   const generated = useId()
@@ -61,11 +85,17 @@ export function Checkbox({
 
   const marked = checked || indeterminate
 
+  // Marker mode drops the label wrapper — see `readOnly`. The box and the input
+  // inside it are identical either way; only the element around them changes, so
+  // there is one drawing rather than two.
+  const Wrapper = readOnly ? 'span' : 'label'
+
   return (
-    <label
-      htmlFor={inputId}
+    <Wrapper
+      htmlFor={readOnly ? undefined : inputId}
       className={[
-        'flex select-none items-center gap-2',
+        readOnly ? 'inline-flex align-middle' : 'flex',
+        'select-none items-center gap-2',
         size === 'body' ? 'text-body' : 'text-meta',
         disabled
           ? 'cursor-not-allowed text-[color:var(--text-disabled)]'
@@ -80,9 +110,11 @@ export function Checkbox({
           type="checkbox"
           checked={checked}
           disabled={disabled}
+          readOnly={readOnly}
+          aria-readonly={readOnly || undefined}
           aria-label={ariaLabel}
           aria-describedby={ariaDescribedBy}
-          onChange={(event) => onChange(event.target.checked)}
+          onChange={readOnly ? undefined : (event) => onChange?.(event.target.checked)}
           // Transparent, but present and full-size: it is the tab stop, the hit
           // target and the semantics. Hiding it with `display:none` would take
           // the keyboard with it.
@@ -114,6 +146,6 @@ export function Checkbox({
         </span>
       </span>
       {label}
-    </label>
+    </Wrapper>
   )
 }

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Card button</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-panel {
+    width: 260px;
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Sprints</span>
+      <span class="ds-card-button-supporting">Two runs in flight</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--bordered" aria-pressed="true" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Skills</span>
+      <span class="ds-card-button-supporting">Nine installed</span>
+    </button>
+    <button type="button" class="ds-card-button" style="width: 200px; padding: var(--sem-space-2xs); gap: var(--sem-space-2xs)">
+      <span style="display: block; height: 96px; border-radius: var(--sem-radius-chip); background: var(--sem-color-bg-surface-raised)"></span>
+      <span class="ds-card-button-supporting">Toast · notification card</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--bordered" disabled style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Plugins</span>
+      <span class="ds-card-button-supporting">Module turned off</span>
+    </button>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Sprints</span>
+      <span class="ds-card-button-supporting">Two runs in flight</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--bordered" aria-pressed="true" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Skills</span>
+      <span class="ds-card-button-supporting">Nine installed</span>
+    </button>
+    <button type="button" class="ds-card-button" style="width: 200px; padding: var(--sem-space-2xs); gap: var(--sem-space-2xs)">
+      <span style="display: block; height: 96px; border-radius: var(--sem-radius-chip); background: var(--sem-color-bg-surface-raised)"></span>
+      <span class="ds-card-button-supporting">Toast · notification card</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--bordered" disabled style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
+      <span class="ds-card-button-title">Plugins</span>
+      <span class="ds-card-button-supporting">Module turned off</span>
+    </button>
+  </div>
+</div>
+</body>
+</html>

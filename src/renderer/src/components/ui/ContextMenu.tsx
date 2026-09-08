@@ -212,9 +212,18 @@ export function ContextMenu({ x, y, ariaLabel, onClose, children, surfaceClassNa
   )
 }
 
-type MenuItemProps = {
+type MenuItemProps = Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onClick' | 'role' | 'aria-checked' | 'type' | 'children'
+> & {
   children: React.ReactNode
-  onClick: () => void
+  /**
+   * Receives the event. Widened from `() => void` (MC-2118 sweep, 2026-09-08):
+   * the Windows/Linux app menu positions the native popup from the clicked
+   * row's rect, and a handler that could not see the event had to stay a raw
+   * `<button>` wearing `MENU_ITEM_CLASS` for that one reason.
+   */
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   /** E.g. open a secondary picker at the pointer; the menu stays open. */
   onContextMenu?: (event: React.MouseEvent) => void
   /** Leading glyph; size and color stay with the caller's node. */
@@ -242,6 +251,9 @@ type MenuItemProps = {
    *  and keeps its own surface-level handling — same contract as
    *  MenuSwatchRow's `onItemKeyDown`. */
   onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+  /** The row opens a sub-surface and states so. A drill-in row shows the value
+   *  in force beside the chevron; put both in `trailing`. */
+  expanded?: boolean
 }
 
 export function MenuItem({
@@ -256,6 +268,9 @@ export function MenuItem({
   selection = 'single',
   trailing,
   onKeyDown,
+  expanded,
+  className,
+  ...rest
 }: MenuItemProps) {
   const checkableRole = selection === 'one-of' ? 'menuitemradio' : 'menuitemcheckbox'
   return (
@@ -263,9 +278,16 @@ export function MenuItem({
       type="button"
       role={checked !== undefined ? checkableRole : 'menuitem'}
       aria-checked={checked}
+      aria-expanded={expanded}
       data-menu-item="true"
+      // Roving focus is the menu's, so the ROW is not a tab stop by default —
+      // but a group whose current value must be the stop (a radiogroup inside a
+      // popover) states its own, and `{...rest}` below is what lets it. Same for
+      // the `data-*` hooks a host's own focus query and its panel tests select
+      // on: a row that swallowed them is why nine of these stayed raw elements.
       tabIndex={-1}
       disabled={disabled}
+      {...rest}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
@@ -279,7 +301,7 @@ export function MenuItem({
         variant === 'danger'
           ? 'text-[color:var(--tone-error)]'
           : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]'
-      }`}
+      } ${className ?? ''}`}
     >
       {icon ?? null}
       <span className="min-w-0 flex-1 truncate">{children}</span>

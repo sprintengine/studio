@@ -44,6 +44,25 @@
     <label class="ds-field-label" for="ws-locked-light">Locked field</label>
     <input class="ds-input" id="ws-locked-light" type="text" value="read-only value" disabled />
   </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-quiet-light">Quiet, inside a popover</label>
+    <input class="ds-input ds-input--quiet" id="ws-quiet-light" type="text" placeholder="Filter machines…" />
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-seam-light">Seamless, in a wrapper that owns the box</label>
+    <span class="ds-field-box">
+      <span aria-hidden="true" style="color: var(--sem-color-text-muted)">⌕</span>
+      <input class="ds-input ds-input--seamless" id="ws-seam-light" type="text" placeholder="Search skills…" style="flex: 1" />
+    </span>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-xs-light">Dense numeric, on the xs step</label>
+    <input class="ds-input ds-input--xs" id="ws-xs-light" type="text" value="1280" style="width: 60px; font-family: var(--sem-font-family-mono); text-align: center" />
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-note-light">A note composer</label>
+    <textarea class="ds-input ds-textarea" id="ws-note-light" rows="3" placeholder="What changed?"></textarea>
+  </div>
 </div>
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark</p>
@@ -60,6 +79,25 @@
   <div class="ds-field">
     <label class="ds-field-label" for="ws-locked-dark">Locked field</label>
     <input class="ds-input" id="ws-locked-dark" type="text" value="read-only value" disabled />
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-quiet-dark">Quiet, inside a popover</label>
+    <input class="ds-input ds-input--quiet" id="ws-quiet-dark" type="text" placeholder="Filter machines…" />
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-seam-dark">Seamless, in a wrapper that owns the box</label>
+    <span class="ds-field-box">
+      <span aria-hidden="true" style="color: var(--sem-color-text-muted)">⌕</span>
+      <input class="ds-input ds-input--seamless" id="ws-seam-dark" type="text" placeholder="Search skills…" style="flex: 1" />
+    </span>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-xs-dark">Dense numeric, on the xs step</label>
+    <input class="ds-input ds-input--xs" id="ws-xs-dark" type="text" value="1280" style="width: 60px; font-family: var(--sem-font-family-mono); text-align: center" />
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="ws-note-dark">A note composer</label>
+    <textarea class="ds-input ds-textarea" id="ws-note-dark" rows="3" placeholder="What changed?"></textarea>
   </div>
 </div>
 </body>

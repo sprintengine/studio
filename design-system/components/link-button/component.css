@@ -1,0 +1,66 @@
+/* Link button — an action set inside a sentence. Extracted from the shipped
+ * `LinkButton` primitive (src/renderer/src/components/ui/LinkButton.tsx).
+ *
+ * It is the smallest member of the button family and the only one with no box at
+ * all: no height, no inset, no ground, no press scale. Everything a button
+ * normally decides belongs to the line of text it is set in. */
+
+.ds-link-button {
+  display: inline;
+  padding: 0;
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-accent-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* The radius exists only so the focus ring has corners to draw round; nothing is
+ * painted inside it. And no `transform` press: a control that shrank
+ * mid-sentence would move the words after it. */
+
+.ds-link-button:hover:not(:disabled) {
+  color: var(--sem-color-accent-hover);
+  text-decoration: underline;
+}
+
+.ds-link-button:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* Disabled keeps the ink and drops the underline. A sentence whose one action
+ * has gone text.disabled reads as broken copy rather than as an unavailable
+ * action, and the disabled step is certified for non-text contrast only. */
+.ds-link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  text-decoration: none;
+}
+
+/* quiet — the disclosure ink. With no colour and no box, it needs a standing
+ * rule to be findable at all, so the underline is permanent here rather than a
+ * hover reveal. */
+.ds-link-button--quiet {
+  color: var(--sem-color-text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--sem-color-border-strong);
+  text-underline-offset: 2px;
+}
+
+.ds-link-button--quiet:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
+/* inherit — the link set inside prose the caller has already sized: a repo path
+ * in rendered markdown, a name inside a heading. A size of our own there would
+ * make one word of a sentence a different size from the rest of it. */
+.ds-link-button--inherit {
+  font: inherit;
+  line-height: inherit;
+}

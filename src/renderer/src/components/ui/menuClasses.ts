@@ -56,8 +56,24 @@ export const MENU_SURFACE_CLASS = `${OVERLAY_SURFACE_CLASS} ${MENU_LIST_CLASS}`
  * would be a coin flip that reads as working. Stating the alignment once, per
  * shape, is what makes the second shape possible at all.
  */
-const MENU_ROW_GEOMETRY =
-  'flex w-full gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
+const MENU_ROW_SHAPE = 'flex w-full gap-2 px-2.5 py-1.5 text-left transition-colors'
+
+/**
+ * The one highlight state, split out from the shape above.
+ *
+ * It is separate because a row that carries the VALUE IN FORCE must not also
+ * take it: `--bg-hover` sits below `--bg-selected` on the surface ramp, so a
+ * selected row that hovered would dim under the pointer, which reads as the row
+ * letting go of the choice. Suppressing it by adding a second `hover:bg-…` next
+ * to this one would be two utilities of equal specificity resolved by stylesheet
+ * ORDER — the coin flip this module's header rules out — so the fix is that a
+ * selected row never receives this string at all. `MENU_OPTION_CLASS` below is
+ * the shape without it, and `ui/MenuOption` adds it on the resting branch only.
+ */
+export const MENU_ROW_HOVER_CLASS =
+  'hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
+
+const MENU_ROW_GEOMETRY = `${MENU_ROW_SHAPE} ${MENU_ROW_HOVER_CLASS}`
 
 /**
  * Row geometry and the one highlight state, without the type size or the
@@ -123,6 +139,19 @@ export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta ${MENU_ITEM_KEYBOARD
  * font-size utility on the ancestor for Tailwind to resolve by stylesheet order.
  */
 export const MENU_ITEM_STACKED_CLASS = `items-start ${MENU_ROW_GEOMETRY} ${MENU_ITEM_KEYBOARD_CLASS}`
+
+/**
+ * The two shapes again, WITHOUT the hover step — for the value row
+ * (`ui/MenuOption`), which owns when the highlight applies because it also owns
+ * the selection fill that must outrank it. See `MENU_ROW_HOVER_CLASS`.
+ *
+ * These are not a third and fourth shape: same inset, same gap, same alignment
+ * rule, same keyboard affordances. A menu that mixed an action row and a value
+ * row would be unable to tell which was which by looking, which is the point.
+ */
+export const MENU_OPTION_CLASS = `items-center ${MENU_ROW_SHAPE} text-meta ${MENU_ITEM_KEYBOARD_CLASS}`
+
+export const MENU_OPTION_STACKED_CLASS = `items-start ${MENU_ROW_SHAPE} ${MENU_ITEM_KEYBOARD_CLASS}`
 
 /**
  * The separator. `border-subtle`: inside an already-bordered surface a divider

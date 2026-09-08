@@ -72,3 +72,30 @@ sites: marking those chips `decorative` would have silenced them, and
 button. Used as one it hides a fact nothing else states, which the same audit
 found at three settings rows whose chip was the only thing saying a module was
 unavailable or that a row was a skill rather than a server.
+
+## The New mark (2026-09-08)
+
+A third, narrower drawing under the same name: a pill saying a thing **arrived
+recently**. `accent.primary` ink on `accent.primary-soft`, `font.size.micro` at
+medium weight, `radius.pill`, and — the part that separates it from the label
+species — **no hairline**. A border would make it read as a state chip, and this
+is not a state: it is the system pointing at something, which is the one job
+`accent.primary` has. It is the entire accent spend on the row that carries it.
+
+Two surfaces wear it and they must not diverge, which is why it is one shipped
+component (`src/renderer/src/components/ui/NewChip.tsx`) rather than a span in
+each: the CLI model picker marks a model the hosted feed released inside its
+thirty-day window, and the Design door marks a component, pattern, glyph or
+foundations file that arrived in a bundle since the person last opened it. The
+window is literally the same constant.
+
+- **Never a hoist and never a sort key.** The row stays exactly where its list
+  put it; the chip is the only difference, so a muscle-memory pick still lands.
+- **It expires.** Both consumers stop drawing it on their own — the feed window
+  passes, or the visit is stamped and the next open is clean. A mark that never
+  clears is decoration.
+- **It is plain text in reading order**, immediately after the name it
+  qualifies, so a screen reader hears "command-palette, New". Where the row's
+  own accessible name is written by hand (a tile whose `aria-label` composes
+  name and counts), the word is composed into that name too rather than left
+  for a nested span to supply.

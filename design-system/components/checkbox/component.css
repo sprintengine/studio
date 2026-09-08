@@ -124,3 +124,22 @@
     transition: none;
   }
 }
+
+/* ── Marker mode (2026-09-08) ────────────────────────────────────────────
+ * The box as a rendered FACT rather than a control: a task-list marker in
+ * prose the renderer owns. The wrapper is a span, not a label — a label here
+ * would make a whole paragraph a click target for something that accepts no
+ * clicks — and the box itself is unchanged, because a task list that invented
+ * its own tick is how five surfaces came to draw five checkboxes. */
+.ds-checkbox--marker {
+  display: inline-flex;
+  vertical-align: middle;
+  cursor: default;
+}
+
+/* aria-readonly, never :disabled: a disabled input is skipped by some
+ * assistive technology and announces as "unavailable", which this is not. The
+ * state is real; it is simply not yours to change here. */
+.ds-checkbox-input[aria-readonly='true'] {
+  cursor: default;
+}

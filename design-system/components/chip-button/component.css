@@ -1,0 +1,112 @@
+/* Chip button — a content-height pill that toggles, filters or names one thing.
+ * Extracted from the shipped `ChipButton` primitive
+ * (src/renderer/src/components/ui/ChipButton.tsx).
+ *
+ * The height is the LINE BOX. That is the whole reason the entry exists: a chip
+ * sits inside a row that has already decided how tall it is, and every button
+ * size step pins a size.control.* height, which sets the row instead of riding
+ * it. */
+
+.ds-chip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  min-width: 0;
+  padding: var(--sem-space-3xs) var(--sem-space-xs);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-subtle);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* No elevation at any state: a chip is a mark ON a surface, not a control
+ * standing off one. It is flat, so it presses by scale. */
+.ds-chip-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-chip-button:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-default);
+}
+
+.ds-chip-button:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-chip-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Thrown. Neutral, because selection is neutral. */
+.ds-chip-button[aria-pressed='true'],
+.ds-chip-button[aria-current='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+/* outline — for a chip that has to be findable on a busy surface. The edge is
+ * present at rest and held through every state; a border that appeared when the
+ * chip was thrown would resize the row it sits in. */
+.ds-chip-button--outline {
+  border: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+.ds-chip-button--outline:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-hover);
+}
+
+/* overlay — the form a chip takes when it FLOATS over content rather than
+ * sitting in the flow: canvas HUD chrome. The overlay radius and an edge on
+ * bg.surface, so it reads as a small floating surface. Still no shadow — the
+ * elevation ramp is for surfaces a person opened, not for chrome that was always
+ * there. */
+.ds-chip-button--overlay {
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface);
+}
+
+.ds-chip-button--overlay:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  border-color: var(--sem-color-border-strong);
+  background: var(--sem-color-bg-hover);
+}
+
+/* The two tone tints. A STANDING warning the chip itself carries — scripts are
+ * running in this preview, permissions are bypassed on this preset — never a
+ * second way of saying what a status dot already says.
+ *
+ * The ink stays the tone's own on the soft fill, which is the call badge and
+ * banner already make in this bundle. The shipped primitive darkens it one step
+ * on the fill; that step has no token here yet, and it is recorded under Known
+ * drift rather than invented locally. */
+.ds-chip-button--warn {
+  color: var(--sem-color-status-warn);
+}
+
+.ds-chip-button--warn[aria-pressed='true'] {
+  background: var(--sem-color-status-warn-soft);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-chip-button--error {
+  color: var(--sem-color-status-danger);
+}
+
+.ds-chip-button--error[aria-pressed='true'] {
+  background: var(--sem-color-status-danger-soft);
+  color: var(--sem-color-status-danger);
+}

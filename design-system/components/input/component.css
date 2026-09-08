@@ -82,3 +82,137 @@
     transition: none;
   }
 }
+
+/* ── Grounds and hosts (2026-09-08) ──────────────────────────────────────
+ * The field's box is not always the field's to draw. Three variants below
+ * quiet it or hand it away, and each answers a case where the default box was
+ * the wrong object rather than the wrong colour. */
+
+/* well — the recessed step for a control inside a settings row, where the body
+ * is already bg.surface and a raised field would have nothing to lift away
+ * from. */
+.ds-input--well {
+  background: var(--sem-color-bg-app);
+}
+
+/* quiet — transparent ground, a border.subtle hairline, and NO hover lift. For
+ * a field inside an already-grounded floating surface: a filter box at the head
+ * of a popover, a search inside a menu. There the field ground reads as a
+ * second panel nested in the first — a card inside a card — and a border that
+ * moves on hover inside a surface that already has one reads as the surface
+ * itself changing. */
+.ds-input--quiet {
+  border-color: var(--sem-color-border-subtle);
+  background: transparent;
+}
+
+.ds-input--quiet:hover:not(:disabled) {
+  border-color: var(--sem-color-border-subtle);
+}
+
+/* seamless — no box at all: no border, no ground, no radius, and no focus
+ * indicator of its own. The visible box is the WRAPPER, which draws the border
+ * and takes the ring keyed to this field's own focus. The system already
+ * shipped the wrapper half of the pattern and had no field to put inside it,
+ * so every composed control (a glyph + field + menu row, a chat composer) wrote
+ * the four cancelling declarations by hand.
+ *
+ * `outline: none` is unprefixed on purpose: the UA outline is replaced by the
+ * wrapper's in EVERY focus state, not only the keyboard one, because the
+ * wrapper is the box a person sees. Never ship one of these without a wrapper
+ * that lights up — a seamless field alone has no focus indicator, which is a
+ * defect rather than a style. */
+.ds-input--seamless {
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-primary);
+  outline: none;
+}
+
+.ds-input--seamless:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+/* The wrapper that owns the box for a seamless field. It lights up on the
+ * FIELD's focus, never on :focus-within: a clear button or a send button in the
+ * same box is a descendant, and a focus-within outline stays painted while that
+ * button draws its own, putting two indicators on one stop. */
+.ds-field-box {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+.ds-field-box:hover {
+  border-color: var(--sem-color-border-strong);
+}
+
+.ds-field-box:has(.ds-input--seamless:focus) {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* inline — the title edited IN PLACE. Quiet at rest — no box at all — and the
+ * field chrome appears on hover or focus, so the head of a page reads as a
+ * heading rather than as a form field wearing one, and the name is still one
+ * click away. It states no font size: the type step is the surface's own
+ * decision, and one here would be a second font-size for the cascade to
+ * resolve. */
+.ds-input--inline {
+  height: auto;
+  padding: var(--sem-space-3xs) var(--sem-space-xs);
+  border-color: transparent;
+  background: transparent;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.ds-input--inline:hover:not(:disabled) {
+  border-color: var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+/* ── The xs step (2026-09-08) ────────────────────────────────────────────
+ * A dense numeric or mono box in a toolbar of 26px icon buttons — a viewport
+ * width, a browser address bar — where a 30px field is the tallest thing in the
+ * row. It is a ramp step being used (size.control.xs), not a height being
+ * invented, and it is not a licence to shrink a labelled form field, which
+ * stays at sm. The type drops with it: font.size.meta, which is what makes the
+ * cursor and its inset fit. */
+.ds-input--xs {
+  height: var(--sem-size-control-xs);
+  font-size: var(--sem-font-size-meta);
+}
+
+/* ── Textarea ────────────────────────────────────────────────────────────
+ * The multiline member of the same vocabulary. Its height comes from `rows` and
+ * its content, so the size step spends itself on the block inset instead. */
+.ds-textarea {
+  height: auto;
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  line-height: var(--sem-font-line-default);
+  resize: vertical;
+}
+
+/* composer — seamless for the multiline case, plus content sizing: the box
+ * grows with what is typed, between the caller's bounds. A variant of its own
+ * rather than a flag on seamless, because a single-line field that content-sized
+ * would grow sideways and the two must not be reachable by one name. */
+.ds-textarea--composer {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-primary);
+  outline: none;
+  resize: none;
+  field-sizing: content;
+}
