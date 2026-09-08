@@ -53,10 +53,24 @@ names something.
   assets with hex of their own, exempted by file from the token guard.
 - **A file-type glyph may wear its language's hue** — the `color.mark.*`
   tokens (blue for TypeScript, yellow for JavaScript, orange for HTML …), so a tree of forty files scans by colour before it is read. This
-  is opt-in per surface (`FileTypeGlyph tone="kind"`) and the condition is
-  load-bearing: **only where nothing else in the row is coloured.** The File
-  Explorer qualifies. The Git changes list does not — there the filename's
-  status tint is the row's one colour, and the glyph stays in ink.
+  is opt-in per surface (`FileTypeGlyph tone="kind"`).
+
+  **Amended 2026-09-09 (owner's ruling, the Commit-window epic).** The
+  condition used to be **"only where nothing else in the row is coloured"**,
+  and it named the Git changes list as the surface that did not qualify. It
+  qualifies now. A file row may carry **both** the kind hue on its glyph and a
+  status tint on its name, because the two answer different questions in
+  different channels: **the hue identifies and the tint grades.** A `.ts`
+  glyph is the same blue on the modified row, the added row and the deleted
+  row — it never moves with state, so it cannot be read as a grade — and the
+  name's tint is the only thing in the row that does move. Those two channels
+  remain distinct; the old condition made readers give one of them up.
+
+  What the amendment does **not** license: a second *grading* hue in one row
+  (two channels, never three), a kind hue on any glyph that names no language
+  (`config`, `text`, `generic` stay in the row's ink), or a row wash stacked
+  under the two — the file-tree clause below still caps the washes at two, and
+  interaction state still outranks every one of them.
 
 What does not change: the hue identifies, it never grades. `color.mark.*` is
 not a status ramp and not an accent. A gear or a plain document — glyphs that

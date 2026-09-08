@@ -203,12 +203,12 @@ is private to the component, applied through its `tone` prop.
 | `generic` | Plain document — anything unrecognised |
 
 Colour is the `tone` axis, and the surface picks it (ruled 2026-09-06,
-principles.md → "Identity colour"). `tone="ink"`, the default, is the
-monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is
-the rule wherever the filename already carries a status tint — the Git changes
-list — so that tint stays the row's one colour. `tone="kind"` inks the glyph
-in its language's identity hue from the `--sem-color-mark-*` ramp, the
-pairings people know from their editors:
+amended 2026-09-09, principles.md → "Identity colour"). `tone="ink"`, the
+default, is the monochrome glyph the 2026-09-02 ruling left: it takes the
+row's ink, and it is what a row uses when its glyph names no language or when
+the surface wants no identity channel at all. `tone="kind"` inks the glyph in
+its language's identity hue from the `--sem-color-mark-*` ramp, the pairings
+people know from their editors:
 
 | Hue | Kinds |
 |---|---|
@@ -224,9 +224,18 @@ pairings people know from their editors:
 A `*-test` kind takes its base language's hue: the notch says "test", the hue
 still says which language.
 
-The File Explorer is the surface that qualifies: nothing else in its rows is
-coloured. The hue identifies and never grades — it is not a status ramp, and a
-`.ts` row is not "more" than a `.md` row for being bluer. `glyphs/file-
+**Both file surfaces wear `tone="kind"` (amended 2026-09-09).** The
+2026-09-06 ruling let the hue on only where nothing else in the row was
+coloured, which admitted the File Explorer and excluded the Git changes list.
+The owner reversed the exclusion for the Commit window: a Git row carries the
+kind hue on its glyph **and** the status tint on its name, because the hue
+identifies and the tint grades. The glyph is the same blue on a modified,
+added and deleted `.ts` row — it never moves with state — so the only thing
+grading in the row is still the name.
+
+The hue identifies and never grades: it is not a status ramp, and a `.ts` row
+is not "more" than a `.md` row for being bluer. A row still spends at most two
+colour channels, and the second one is the name's. `glyphs/file-
 typescript.svg` and `glyphs/file-generic.svg` are the framework-neutral samples
 of the tile and document idioms, in `currentColor`.
 

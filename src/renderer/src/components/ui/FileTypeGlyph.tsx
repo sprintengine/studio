@@ -10,14 +10,22 @@
 // tick, the way IDEs badge a test source.
 //
 // Colour is an axis, `tone`, and the caller picks it (owner, 2026-09-06,
-// principles.md → "Identity colour"). `ink`, the default, is the glyph the
-// 2026-09-02 ruling left: it inherits the row's ink, so in a list where the
-// filename already carries a status tint (the Git changes list) that tint stays
-// the one colour in the row. `kind` inks the glyph in its kind's identity hue —
+// amended 2026-09-09, principles.md → "Identity colour"). `ink`, the default,
+// inherits the row's ink. `kind` inks the glyph in its kind's identity hue —
 // the `--sem-color-mark-*` tokens, blue for TypeScript, yellow for JavaScript
 // — the way IDEs colour their project views, so a
 // tree of forty files can be scanned by colour before it is read. The hue
 // identifies; it never grades. The drawing is the same in both tones.
+//
+// The 2026-09-06 ruling admitted `kind` "only where nothing else in the row is
+// coloured", which excluded the Git changes list. The owner reversed that on
+// 2026-09-09 for the Commit window: a file row may wear the kind hue on its
+// glyph AND a status tint on its name, because the two are different channels
+// — the hue identifies, the tint grades. This glyph is the same blue on a
+// modified, added and deleted `.ts` row, so it cannot be read as a grade, and
+// the name stays the only thing in the row that moves with state. Nothing in
+// the drawing or in KIND_INK changed; only where the caller is allowed to ask
+// for `kind`.
 //
 // 16-grid stroke discipline (glyphs/component.md): frame 1.2, line work 1.3–1.4,
 // the letterforms a step heavier at 1.45 so they hold at 16px.
