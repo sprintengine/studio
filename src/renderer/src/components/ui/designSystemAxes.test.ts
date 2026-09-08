@@ -236,7 +236,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // with their feature; banked here rather than left as headroom.
     // ui 16 → 14, 2026-09-08: the dead `ActionFeedback` and `__preview__`
     // primitives went with the knip sweep; banked, not left as headroom.
-    'components/workspace': 21,
+    // workspace 21 → 20, 2026-09-08: the title-bar Attention Queue was retired
+    // (the sidebar rows and the Home glyph already carry "who is waiting"), and
+    // `AttentionQueuePopover`'s hand-spelled tray glyph went with it. Banked
+    // here rather than left as headroom for the next off-ramp.
+    'components/workspace': 20,
     'components/panels': 12,
     'components/ui': 14,
     'components/backlog': 3,

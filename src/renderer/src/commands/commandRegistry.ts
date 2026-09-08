@@ -239,16 +239,6 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'memoryGraphEnabled'],
     handlerPath: { kind: 'app-menu', command: 'panel.knowledge-graph.toggle' },
   }),
-  // The Attention Queue is core shell chrome (cross-workspace "agents awaiting
-  // you"), so it is global-scope and ungated — no active workspace and no module
-  // required. Ships unbound; users can bind it in Shortcuts settings.
-  command({
-    id: 'panel.attention-queue.toggle',
-    title: 'Toggle Attention Queue',
-    category: 'panel',
-    scopes: ['global'],
-    handlerPath: { kind: 'workspace-manager', handler: 'setAttentionQueueOpen(!attentionQueueOpen)' },
-  }),
   command({
     id: 'git.worktrees.open',
     title: 'Git: Manage Worktrees',

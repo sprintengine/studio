@@ -117,6 +117,10 @@ export const RETIRED_COMMAND_IDS: readonly string[] = [
   // The Sprint Engines panel became the Sprints door surface (item 1767); the
   // toggle command that opened the panel went with it.
   'panel.sprint-engines.toggle',
+  // The title-bar Attention Queue was removed: the sidebar rows and the Home
+  // glyph's notifications already carry "which agents are waiting on you", so
+  // the popover and its toggle command went with it.
+  'panel.attention-queue.toggle',
 ]
 
 /** Retired ids that still carry a persisted override or disable flag. */

@@ -8,8 +8,8 @@ import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 //
 //   count  a numeric counter: circular at one digit, pill beyond it, tabular
 //          figures so 1 → 2 does not jog the layout. Optionally pinned to the
-//          corner of a trigger, which is what the notification bell, the
-//          attention queue and the git change count each rebuilt.
+//          corner of a trigger, which is what the notification bell and the
+//          git change count each rebuilt.
 //   label  a short word about the row it sits on ("Blocked", "Waiting") in a
 //          soft tone fill with a hairline.
 //
@@ -58,8 +58,8 @@ export function Badge({
   className,
 }: BadgeProps): JSX.Element {
   // Two species, two contracts. A COUNTER is the one badge that changes in place
-  // while the person is looking elsewhere — the bell, the attention queue — so
-  // it keeps `role="status"` and its polite announcement. A LABEL is row
+  // while the person is looking elsewhere — the bell — so it keeps
+  // `role="status"` and its polite announcement. A LABEL is row
   // content: it is read where it sits. Giving a hundred of them a live region
   // (`role="status"` implies `aria-live="polite"`) turns a list that narrows as
   // you type into a hundred polite announcements, which is what the audit's

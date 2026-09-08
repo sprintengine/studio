@@ -54,6 +54,13 @@ of the first release that ships it, then delete the line.
   module that sets the field — the property no longer exists, so the compile
   fails rather than the value being ignored. Delete the assignment; there is no
   replacement, and reviewer-versus-fixer intent belongs in the prompt.
+- Attention Queue shortcut: the cross-workspace Attention Queue popover in the
+  window's top-right corner was removed - the sidebar rows and the Home glyph's
+  notifications already say which agents are waiting on you - and the
+  `panel.attention-queue.toggle` command went with it. The command shipped
+  unbound, so only a user who bound it by hand is affected: that shortcut stopped
+  firing when the popover was removed, and opening Settings -> Shortcuts now
+  drops the saved binding. There is no replacement shortcut.
 - Sprint Engines panel shortcut (item 1813): the Sprint Engines panel became the
   Sprints door, and the `panel.sprint-engines.toggle` command went with it. A
   custom shortcut saved for that command stopped firing when the panel was

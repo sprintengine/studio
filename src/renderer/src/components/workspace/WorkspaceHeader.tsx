@@ -3,7 +3,7 @@
 // identity + controls read as belonging to the workspace rather than floating in
 // one full-width bar. Left→right:
 //
-//   Backlog switch │ WorkspaceIdentity ····· WorkspaceActions · diagnostics · attention · Skills
+//   Backlog switch │ WorkspaceIdentity ····· WorkspaceActions · diagnostics · Skills
 //
 // The strip is an `app-drag` region; interactive controls opt out. Non-mac window
 // controls are NOT here — they pin to the window's absolute top-right corner
@@ -11,7 +11,6 @@
 
 import React from 'react'
 import { IconButton, Tooltip } from '../ui'
-import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { AppMenuButton } from './SidebarChrome'
 import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
@@ -54,7 +53,6 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // Destination for the active door surface's lifted bar (title · status · context
   // · actions). Filled only while `globalSurfaceActive`.
   surfaceBarSlotRef: React.Ref<HTMLDivElement>
-  attentionQueue: AttentionQueueSurface
   // Null outside dev/diagnostics builds.
   onOpenDiagnostics: (() => void) | null
 }
@@ -133,7 +131,6 @@ export function WorkspaceHeader<MenuItem extends string>({
   actionsSlot,
   globalSurfaceActive,
   surfaceBarSlotRef,
-  attentionQueue,
   onOpenDiagnostics,
 }: WorkspaceHeaderProps<MenuItem>) {
   // With the sidebar hidden, the app-menu (win-linux) and the open-sidebar /
@@ -185,28 +182,33 @@ export function WorkspaceHeader<MenuItem extends string>({
       </div>
 
       {/* Right: workspace controls, then the cross-workspace surfaces. Skills
-          renders outermost, past diagnostics and the attention cue — the mirror
+          renders outermost, past diagnostics — the mirror
           of the collapse control's outermost position on the left edge. The pane
           it opens does not slide in: animating a docked pane's width reflows the
           whole workspace card, terminals included, every frame (the call
           workspaceAsideColumn.tsx already made for this same column). */}
       <div className="flex shrink-0 items-center">
         {actionsSlot}
-        <div
-          role="toolbar"
-          aria-label="Workspace surfaces"
-          className="flex items-center gap-0.5 px-1.5"
-        >
-          {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
-          <AttentionQueuePopover {...attentionQueue} />
-          {/* Workspace-scoped, so it goes with the left cluster while a door
-              paints over the card: diagnostics and the attention cue stay useful
-              on a door, but toggling a pane in a layout nobody can see would be
-              a control that visibly does nothing. */}
-          {globalSurfaceActive ? null : (
-            <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
-          )}
-        </div>
+        {/* The toolbar's two remaining members are both conditional now that the
+            attention cue is gone, so the host renders nothing rather than an
+            empty labelled toolbar carrying only its own padding: on a release
+            build (no diagnostics) with a door open, both are absent. */}
+        {onOpenDiagnostics || !globalSurfaceActive ? (
+          <div
+            role="toolbar"
+            aria-label="Workspace surfaces"
+            className="flex items-center gap-0.5 px-1.5"
+          >
+            {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
+            {/* Workspace-scoped, so it goes with the left cluster while a door
+                paints over the card: diagnostics stays useful on a door, but
+                toggling a pane in a layout nobody can see would be a control that
+                visibly does nothing. */}
+            {globalSurfaceActive ? null : (
+              <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
+            )}
+          </div>
+        ) : null}
         {/* Win/linux: the caption buttons float over this corner, so the
             toolbar stops short of them rather than sitting under Close. */}
         <WindowCaptionReserve width={captionReserve} />

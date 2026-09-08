@@ -211,7 +211,7 @@ function terminalSessionLabel(terminalId: string): string {
 // whose caller offered no better name.
 const DETACHED_SESSION_LABEL = 'Other sessions'
 
-export type SessionItemOptions = {
+type SessionItemOptions = {
   // Names the bucket a workspace-less session is listed under — the Reviews
   // integration recognises review ids and answers "Reviews". Returning null (or
   // omitting the hook) falls back to DETACHED_SESSION_LABEL; it never drops the

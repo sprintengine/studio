@@ -174,10 +174,9 @@ export function NotificationsPopover({
   return (
     <div className="w-[480px] overflow-hidden">
       {/* The panel identity row (2112). It was an `h-10` band with its own type
-          step, sitting beside AttentionQueuePopover — the popover directly next
-          to it in the same control group — which already named itself through
-          the primitive. Every control here is secondary to the name, so the
-          whole cluster rides `overflow`; `primaryAction` is one action. */}
+          step, where the popovers beside it already named themselves through the
+          primitive. Every control here is secondary to the name, so the whole
+          cluster rides `overflow`; `primaryAction` is one action. */}
       <PanelHeader
         title="Notifications"
         count={visibleNotifications.length > 0 ? visibleNotifications.length : undefined}
