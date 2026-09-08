@@ -37,11 +37,9 @@ reviewer which one to walk rather than picking for them.
    every changed file, its per-file hunks with real line numbers, the base and
    head refs, and the change source. This is the ground truth you walk through,
    and the line numbers you anchor to come from here.
-2. **Read the surrounding code.** The change set shows the diff; the checkout
-   under `projectRoot` shows what the diff lands in. Open the files a step
-   touches, their callers, their tests, and the workspace knowledge graph under
-   `knowledge/`. A walkthrough written from the diff alone explains what moved;
-   one written with the surrounding code explains what it means.
+2. **Read the surrounding code.** The diff shows what moved; the checkout under
+   `projectRoot` shows what it means. Open the files a step touches, their
+   callers, their tests, and the workspace's own knowledge notes if it has any.
 3. **`review_get_brief`** — the walkthrough that already exists for this review,
    or `null`. When it returns a brief and your prompt names affected step ids,
    you are doing a refresh (see "Refreshing an existing walkthrough"); otherwise
@@ -56,9 +54,8 @@ for understanding, a one-line *why* per file, line-anchored annotations, an
 optional change map, and honest coverage accounting. Its full shape and every
 validation rule are in "The brief schema" at the end of this document.
 
-The rules below are the craft. They describe a normal-sized review; where they
-give a range or a judgement call, "Getting the details right" immediately after
-says how to apply it to the change set actually in front of you.
+The rules below are the craft for a normal-sized review; "Getting the details
+right", immediately after, says how to apply each range or judgement call.
 
 <!-- shared:brief-craft -->
 Copy these fields verbatim from the changeset so the brief binds to it:
