@@ -16,6 +16,11 @@ import type {
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from '../main/providers/mock-conversation-provider'
+import type { ConversationIpcHandlers } from '../main/ipc/conversation-ipc'
+
+// The input each stubbed IPC handler is handed, read off the real handler
+// surface so a stub cannot drift from the channel it stands in for.
+type HandlerInput<K extends keyof ConversationIpcHandlers> = Parameters<ConversationIpcHandlers[K]>[0]
 
 // ── Seam: the conversation composer and its runtime (T4 → T5, items 1798/1809/1810)
 //
@@ -157,14 +162,14 @@ async function testContinuationTurnIsBusyOnBothSidesOfTheBoundary(): Promise<voi
 
     registerConversationIpc(ipcMain, {
       ...refusingHandlerStubs(),
-      startSession: (input) => runtime.startSession(input),
-      sendTurn: (input) => runtime.sendTurn(input),
-      interrupt: (input) => runtime.interrupt(input),
-      respondToRequest: (input) => runtime.respondToRequest(input),
-      setPermission: (input) => runtime.setPermission(input),
-      stopSession: (input) => runtime.stopSession(input),
-      listSessions: (input) => runtime.listSessions(input),
-      onEvent: (listener) => runtime.onEvent(listener),
+      startSession: (input: HandlerInput<'startSession'>) => runtime.startSession(input),
+      sendTurn: (input: HandlerInput<'sendTurn'>) => runtime.sendTurn(input),
+      interrupt: (input: HandlerInput<'interrupt'>) => runtime.interrupt(input),
+      respondToRequest: (input: HandlerInput<'respondToRequest'>) => runtime.respondToRequest(input),
+      setPermission: (input: HandlerInput<'setPermission'>) => runtime.setPermission(input),
+      stopSession: (input: HandlerInput<'stopSession'>) => runtime.stopSession(input),
+      listSessions: (input: HandlerInput<'listSessions'>) => runtime.listSessions(input),
+      onEvent: (listener: HandlerInput<'onEvent'>) => runtime.onEvent(listener),
     } as unknown as Parameters<typeof registerConversationIpc>[1])
 
     const started = await conversationApi.conversationSessionStart({

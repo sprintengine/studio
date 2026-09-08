@@ -13,7 +13,14 @@
  * Runner: esbuild bundle -> node, `node:assert/strict`.
  */
 import assert from 'node:assert/strict'
-import type { AgentCli, CliRuntimeSettings, McpSettings, TerminalSessionSnapshot } from '../electron-api'
+import type {
+  AgentCli,
+  CliRuntimeSettings,
+  DiagnosticLogInput,
+  McpSettings,
+  TerminalSessionSnapshot,
+} from '../electron-api'
+import type { TerminalSpawnArgs } from './auto-run-executor'
 import type { AgentState } from './agent-state'
 import type { SprintEngineState, SprintEngineWorkspaceView } from './run-types'
 import type { SprintEngineAutoState } from './automation-types'
@@ -81,7 +88,7 @@ function makePorts(
     },
     terminalKill: async () => {},
     terminalStatus: async () => ({ processAlive: false }),
-    terminalSpawn: async (args) => {
+    terminalSpawn: async (args: TerminalSpawnArgs) => {
       captured.spawns.push({
         sessionId: args.sessionId,
         agentId: (args.metadata as { agentId?: string })?.agentId,
@@ -98,7 +105,7 @@ function makePorts(
       captured.taskWorktreeRequests?.push(input.taskId)
       return options.taskWorktreeResult ?? { ok: true, isolated: false, worktreePath: null }
     },
-    publishDiagnostic: async (input) => { captured.diagnostics.push({ title: input.title, details: input.details }) },
+    publishDiagnostic: async (input: DiagnosticLogInput) => { captured.diagnostics.push({ title: input.title, details: input.details }) },
     applyTerminalRevealPolicy: () => {},
     isAgentTabVisible: () => false,
     getPluginCatalogEntries: () => [],

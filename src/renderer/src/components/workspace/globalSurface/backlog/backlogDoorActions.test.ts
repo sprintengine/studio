@@ -43,7 +43,7 @@ function harness(options: { itemsByRootKey?: Record<string, BacklogItem[]>; conf
     calls.push({ method, input })
     return { ok: true as const }
   }
-  const api = {
+  const api: BacklogDoorMutationApi = {
     updateBacklogStatus: (i) => ok('updateBacklogStatus', i),
     updateBacklogTriage: (i) => ok('updateBacklogTriage', i),
     updateBacklogEpic: (i) => ok('updateBacklogEpic', i),
@@ -83,7 +83,7 @@ function harness(options: { itemsByRootKey?: Record<string, BacklogItem[]>; conf
     showItemInFolder: async (path: string) => {
       calls.push({ method: 'showItemInFolder', input: { path } })
     },
-  } as unknown as BacklogDoorMutationApi
+  }
 
   const actions = createBacklogDoorActions({
     api,
@@ -230,7 +230,7 @@ test('an unresolvable project is a no-op, never a write against a guessed root',
   const calls: Call[] = []
   const actions = createBacklogDoorActions({
     api: {
-      updateBacklogStatus: async (i) => {
+      updateBacklogStatus: async (i: Parameters<BacklogDoorMutationApi['updateBacklogStatus']>[0]) => {
         calls.push({ method: 'updateBacklogStatus', input: i })
         return { ok: true }
       },

@@ -46,7 +46,7 @@ const roster: SprintEngineAgentRosterItem[] = [
   { id: 'tester', label: 'Tester 1', role: 'tester' },
 ]
 
-const agents = {
+const agents: Record<string, AgentState> = {
   // Live architect whose session launched on Fable but whose reconciled
   // runtime is now Opus (post role edit): idle -> divergence label + Restart.
   architect: {

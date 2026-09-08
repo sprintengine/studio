@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
 import type { SprintEngineLaunchSettingsWriteResult } from '../main/sprintengine-launch-settings-mirror'
+import type { SprintEngineRosterEnableInput } from '../shared/electron-api'
 import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 // ── Seam: the Sprints door's run configuration (T1 → T2 → T3, items 1799/1800) ─
@@ -187,7 +188,7 @@ async function run(projectRoot: string): Promise<void> {
         ],
       },
     } as never),
-    enableRole: async (payload) => {
+    enableRole: async (payload: SprintEngineRosterEnableInput) => {
       enableRoleCalls.push(payload as unknown as Record<string, unknown>)
       if (!configuredRoles.includes(payload.role)) configuredRoles = [...configuredRoles, payload.role]
       return { ok: true } as never

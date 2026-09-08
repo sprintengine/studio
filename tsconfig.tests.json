@@ -4,6 +4,10 @@
   "compilerOptions": {
     "baseUrl": ".",
     "composite": true,
+    // @electron-toolkit/tsconfig turns noImplicitAny OFF after setting strict, so
+    // every un-annotated parameter was silently `any` until this line. Kept here
+    // rather than in the vendored base, which npm rewrites.
+    "noImplicitAny": true,
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {

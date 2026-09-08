@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import type { PathLike } from 'node:fs'
 
 import { ProviderSecretStore } from './secret-store'
 import type { ProviderSecretStoreOptions } from './secret-store'
@@ -174,22 +175,22 @@ function createMemoryFiles(): MemoryFiles {
   const files = new Map<string, Buffer>()
   return {
     files,
-	    adapter: {
-	      mkdir: async () => undefined,
-	      readFile: async (path) => {
-	        const value = files.get(String(path))
-	        if (!value) throw new Error('missing')
-	        return value
+    adapter: {
+      mkdir: async () => undefined,
+      readFile: async (path: PathLike) => {
+        const value = files.get(String(path))
+        if (!value) throw new Error('missing')
+        return value
       },
-      unlink: async (path) => {
+      unlink: async (path: PathLike) => {
         files.delete(String(path))
       },
-	      writeFile: async (path, data) => {
-	        files.set(String(path), Buffer.isBuffer(data) ? data : Buffer.from(String(data)))
-	      },
-	    } as unknown as ProviderSecretStoreOptions['files'],
-	  }
-	}
+      writeFile: async (path: PathLike, data: string | Buffer) => {
+        files.set(String(path), Buffer.isBuffer(data) ? data : Buffer.from(String(data)))
+      },
+    } as unknown as ProviderSecretStoreOptions['files'],
+  }
+}
 
 main().catch((err) => {
   console.error(err)
