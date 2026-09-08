@@ -5,6 +5,7 @@ import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils
 import { focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
 import { openFileSurface } from '../../utils/openFileSurface'
+import { openGitDiff } from '../../utils/openGitDiff'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import {
   fileExplorerSelectionFromVerticalRange,
@@ -1575,16 +1576,21 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }
 
-  // Activating a changed row opens the diff viewer in the workspace pane's Diff
-  // tab (browser-pane epic): old content left, new content right, arrow-key
-  // hunk navigation that flows across files. The scope picks which diff to show
-  // first — a staged row shows HEAD↔index, an unstaged row index↔worktree. The
-  // separate window (the IDE idiom) stays one click away from the tab's band;
-  // tab-opening stays available via the row's "Open file in editor" entry.
-  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
+  // Activating a changed row shows that file's diff: old content left, new
+  // content right, arrow-key hunk navigation that flows across files. WHERE it
+  // shows is `openGitDiff`'s to decide — the standalone window by default, the
+  // pane's Diff tab once the person has flipped the preference (T3). The scope
+  // picks which diff to show first: a staged row shows HEAD↔index, an unstaged
+  // row index↔worktree. Tab-opening stays available via the row's "Open file in
+  // editor" entry.
+  //
+  // `repoRoot` is THIS panel's repository — the active scope's, resolved by the
+  // panel's own status hook — and it travels with the request. The pane used to
+  // re-derive one from the workspace, which is a different repository whenever
+  // the panel is showing a worktree scope.
   const handleOpenFile = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
     if (!repoRoot) return
-    openPaneTab(workspaceId, { kind: 'diff', diff: { focusPath: entry.path, focusKind: scope } })
+    openGitDiff({ workspaceId, repoRoot, focusPath: entry.path, scope })
   }
 
   const handleOpenFileInEditor = async (entry: GitStatusEntry) => {

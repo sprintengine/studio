@@ -564,6 +564,7 @@
     "src/renderer/src/utils/bundledSpecialistPackMigration.test.ts": "esm-bundled",
     "src/renderer/src/utils/feedNotifications.test.ts": "cjs-bundled",
     "src/renderer/src/utils/modelRegistry.test.ts": "cjs-bundled",
+    "src/renderer/src/utils/openGitDiff.test.ts": "cjs-bundled",
     "src/renderer/src/utils/seededEpicPipeline.integration.test.ts": "esm-bundled",
     "src/renderer/src/utils/sprintengine.test.ts": "cjs-bundled",
     "src/renderer/src/utils/sprintengineAutoRun.test.ts": "cjs-bundled-5",

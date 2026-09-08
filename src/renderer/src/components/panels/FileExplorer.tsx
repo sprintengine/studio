@@ -18,7 +18,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { isPathOrChild } from '../../utils/paths'
-import { openDiffWindow } from '../auxWindows/openDiffWindow'
+import { openGitDiff } from '../../utils/openGitDiff'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -1668,7 +1668,10 @@ function ExplorerTree({
       if (repoRoot) {
         const gitEntry = getGitEntry(latestGitStatusRef.current, entry.path)
         const scope = gitEntry?.staged && !gitEntry.unstaged ? 'staged' : 'unstaged'
-        await openDiffWindow({ repoRoot, focusPath: entry.path, scope })
+        // The same routing the Git panel's rows take: the window by
+        // default, the pane's Diff tab once the person has flipped it. The
+        // repository is the one this tree's status was read against.
+        openGitDiff({ workspaceId, repoRoot, focusPath: entry.path, scope })
       }
       return
     }

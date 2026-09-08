@@ -743,8 +743,12 @@ export type WorkspacePaneTab = {
   faviconUrl?: string
   // Terminal only: the pty id the tab owns; closing the tab kills it.
   terminalId?: string
-  // Diff only: the file the viewer opened on, and which side.
-  diff?: { focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
+  // Diff only: the repository the viewer reads, the file it opened on, and
+  // which side. `repoRoot` is the opener's repository — the Git panel's active
+  // scope, which is not always the workspace's own worktree — and the pane
+  // honours it rather than re-deriving one; absent, the workspace's worktree
+  // is the repository (a Diff tab opened from the pane's own + menu).
+  diff?: { repoRoot?: string; focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
 }
