@@ -370,7 +370,7 @@ function envDefaultsFollowTheSourceAndFilledInValuesStay(): void {
   })
 
   assert.deepEqual(result.changed, ['context7'])
-  assert.deepEqual(result.updated[0].env, {
+  assert.deepEqual({ ...result.updated[0].env }, {
     // The source corrected its own default, so the correction lands. Merging
     // the stored map over the fresh one made every default un-updatable.
     API_BASE: 'https://new.example.com',

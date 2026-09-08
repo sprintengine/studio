@@ -487,7 +487,14 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
   const all = await tool(tools, 'terminal.list').handler({})
   assert.equal(all.isError, undefined, JSON.stringify(all.structuredContent))
   const listed = (all.structuredContent as {
-    terminals: Array<{ sessionId: string; processAlive: boolean; suspended: boolean; agentState: unknown; workspaceName: string | null }>
+    terminals: Array<{
+      sessionId: string
+      processAlive: boolean
+      suspended: boolean
+      agentState: unknown
+      workspaceName: string | null
+      git: unknown
+    }>
   }).terminals
   assert.deepEqual(listed.map((entry) => entry.sessionId), ['session-live', 'session-paused', 'session-shell'])
   assert.equal(snapshotReads, 1, 'one snapshot read serves every row of a terminal.list')
@@ -496,7 +503,7 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
   // Git facts are read for RUNNING sessions only: a paused or exited chat gets
   // null rather than the checkout's present numbers (the sidebar's own rule),
   // and a network read never fans git out to every checkout ever held.
-  assert.equal((listed[1] as { git: unknown }).git, null, 'a paused session carries no git line')
+  assert.equal(listed[1].git, null, 'a paused session carries no git line')
   assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
   // Paused is its own answer: not running, not gone.
   assert.equal(listed[1].processAlive, false)

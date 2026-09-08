@@ -182,6 +182,7 @@ function presence(overrides: Partial<TailnetPresence> = {}): TailnetPresence {
     fleetLiveSessions: fleetLiveSessionsOf(fleetAttachments),
     fleetRequests: [],
     fleetReachability: new Map(),
+    fleetRemoteChanges: new Map(),
     ...overrides,
   }
 }

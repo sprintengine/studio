@@ -47,6 +47,9 @@ function plugin(over: Partial<ScannedPlugin> = {}): ScannedPlugin {
     author: 'Anthropic',
     homepage: '',
     origin: { kind: 'in-tree', path: 'plugins/security-guidance' },
+    strict: true,
+    tags: [],
+    keywords: [],
     componentsKnown: true,
     components: {
       ...emptyPluginComponents(),

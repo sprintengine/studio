@@ -761,7 +761,11 @@ async function main(): Promise<void> {
     })
     await settle()
     assert.equal(syncCalls.length, 1, 'the workspace config was synced once')
-    const synced = syncCalls[0] as { workspaceRoot: string; settings: { servers: Record<string, { clients: string[]; enabled: boolean }> } }
+    const synced = syncCalls[0] as {
+      workspaceRoot: string
+      settings: { servers: Record<string, { clients: string[]; enabled: boolean }> }
+      clients?: string[]
+    }
     assert.equal(synced.workspaceRoot, '/proj')
     assert.ok(synced.settings.servers.linear?.enabled, 'with the server enabled')
     assert.ok(synced.settings.servers.linear?.clients.includes('claude-code'), 'reaching the launch CLI')
@@ -835,7 +839,15 @@ async function main(): Promise<void> {
       clients: ['claude-code'],
       scope: 'workspace' as const,
       source: 'source' as const,
-      sourceRef: { sourceId: 'sprintengine-studio', pluginId: 'snyk' },
+      sourceRef: {
+        sourceId: 'sprintengine-studio',
+        itemId: 'io-snyk-mcp',
+        commitSha: '4f2a91c0000',
+        // Where the declaring plugin's own files landed — what makes this a
+        // server that arrived by installing a plugin.
+        pluginRoot: '/proj/.claude/plugins/snyk',
+      },
+      riskLevel: 'local-command' as const,
     }
     const rows = buildMcpRows([], { 'io-snyk-mcp': fromPlugin })
     const row = rows.find((entry) => entry.id === 'io-snyk-mcp')

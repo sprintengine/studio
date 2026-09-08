@@ -2,13 +2,17 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import type {
-  ScanResult,
   ScannedSkill,
   SkillDiscoveryCondition,
   SkillDiscoveryResult,
   SkillRepoHit,
   SkillSearchHit,
   SkillSource,
+} from '../../../../../../../shared/skills'
+import {
+  STUDIO_SKILL_SOURCE_ID,
+  STUDIO_SKILL_SOURCE_NAME,
+  STUDIO_SKILL_SOURCE_REPO,
 } from '../../../../../../../shared/skills'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
@@ -54,17 +58,6 @@ function skill(id: string, over: Partial<ScannedSkill> = {}): ScannedSkill {
     files: [{ path: 'SKILL.md', size: 900, blobSha: '', isEntry: true }],
     allowedTools: [],
     hasExecutables: false,
-    ...over,
-  }
-}
-
-function scanOf(skills: ScannedSkill[], over: Partial<ScanResult> = {}): ScanResult {
-  return {
-    skills,
-    groups: [],
-    groupingSignal: 'none',
-    fileCount: skills.length,
-    commitSha: '7a30f5200000',
     ...over,
   }
 }
@@ -336,9 +329,22 @@ run('a source the check has seen move on says so on the control that fixes it', 
   )
 })
 
-run('a bundled source has nothing to re-read and nothing to remove', () => {
-  const markup = actions({ id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '' })
-  assert.equal(markup, '', 'so it renders no actions at all rather than dead ones')
+run('an always-present source re-reads like the repository it now is', () => {
+  // `builtin` sources are gone: our own marketplace is a repository we publish
+  // (studio-marketplace ruling, 2026-09-06), so it syncs like any other. What
+  // it does not get is Remove — the store refuses to drop an always-present
+  // source, and offering it would be an action that can only report a failure.
+  const markup = actions({
+    id: STUDIO_SKILL_SOURCE_ID,
+    kind: 'github',
+    name: STUDIO_SKILL_SOURCE_NAME,
+    repo: STUDIO_SKILL_SOURCE_REPO,
+  })
+  assert.ok(markup.includes('>Sync<'), 'it re-reads like any other repository')
+  assert.ok(
+    markup.includes(`aria-label="More actions for ${STUDIO_SKILL_SOURCE_REPO}"`),
+    'and keeps the overflow that holds Open on GitHub',
+  )
 })
 
 // ── Discover ─────────────────────────────────────────────────────────────────

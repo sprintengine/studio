@@ -275,7 +275,8 @@ async function main(): Promise<void> {
     // This is the join: a floor that was raised in one place and not the other
     // would leave every assertion above passing about a plate that no longer
     // exists.
-    await draw(<CardSplash shape="hero" />)
+    // Nothing on the plate: this check reads the frame's own classes.
+    await draw(<CardSplash shape="hero">{null}</CardSplash>)
     const hero = container.firstElementChild?.className ?? ''
     assert.ok(hero.includes(`min-h-[${HERO_PLATE_MIN_HEIGHT_PX}px]`), `the hero frame carries its floor (saw: ${hero})`)
     assert.ok(hero.includes(`max-h-[${HERO_PLATE_MAX_HEIGHT_PX}px]`), 'and the mockup’s cap')
@@ -285,7 +286,7 @@ async function main(): Promise<void> {
     // omission: it carries a title and nothing else on its plate, its stack is
     // therefore a fraction of the hero's, and a floor there would break the
     // 16:9 ratio in a narrow column for a stack that was never at risk.
-    await draw(<CardSplash />)
+    await draw(<CardSplash>{null}</CardSplash>)
     const card = container.firstElementChild?.className ?? ''
     assert.ok(card.includes('aspect-[16/9]'), 'the ordinary card is the 16:9 crop')
     assert.ok(!card.includes('min-h-'), 'and it has no floor, because it never needed one')

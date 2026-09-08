@@ -9,18 +9,6 @@ import {
   fleetTerminalTitle,
 } from './fleetModel'
 
-const connection: FleetConnection = {
-  id: 'tnc_1',
-  machineName: 'mini',
-  endpoint: '100.64.0.5:8787',
-  deviceId: 'tnd_1',
-  deviceName: 'laptop',
-  scopes: ['workspace:read', 'terminal:control'],
-  pairedAt: '2026-08-07T09:00:00.000Z',
-  lastConnectedAt: null,
-  pairedVia: 'link',
-}
-
 const terminal: FleetTerminal = {
   workspaceName: 'atlas',
   git: null,
@@ -35,19 +23,6 @@ const terminal: FleetTerminal = {
   phase: null,
   phaseSince: null,
 }
-
-const browse = (over: Partial<FleetBrowse> = {}): FleetBrowse => ({
-  connectionId: 'tnc_1',
-  reachable: true,
-  unreachableReason: null,
-  unauthorized: false,
-  scopes: ['workspace:read', 'terminal:control'],
-  terminalAccess: 'control',
-  workspaces: [],
-  terminals: [],
-  gaps: [],
-  ...over,
-})
 
 // A watch-only pairing must LOOK watch-only before anything is typed. The
 // listener drops an observe-scoped input frame anyway, so a pane that let a

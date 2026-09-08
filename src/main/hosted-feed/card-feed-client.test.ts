@@ -292,9 +292,11 @@ async function main(): Promise<void> {
   await withDir(async (dir) => {
     const seedPath = join(dir, 'seed.json')
     await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
-    let release: (() => void) | null = null
+    // A holder, not a bare `let`: the resolver is captured from inside the
+    // executor, and flow analysis would keep reading a `let` as its initializer.
+    const gate: { release: (() => void) | null } = { release: null }
     const hang = new Promise<void>((resolve) => {
-      release = resolve
+      gate.release = resolve
     })
     const { fetcher, calls } = fetcherFor(async () => {
       await hang
@@ -306,7 +308,7 @@ async function main(): Promise<void> {
     assert.ok(local.ok)
     assert.equal(local.source, 'seed', 'the local read answered while the fetch was still open')
     assert.equal(calls.length, 1, 'and it started no request of its own')
-    release?.()
+    gate.release?.()
     const live = await inFlight
     assert.ok(live.ok)
     assert.equal(live.source, 'network')

@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     })
     poller.start()
     await clock.advance(POLLER_FIRST_TICK_MS - 1)
-    assert.deepEqual(calls, [], 'nothing before the first tick')
+    assert.deepEqual(calls.slice(), [], 'nothing before the first tick')
     await clock.advance(1)
     assert.deepEqual(calls.sort(), [`feed@${POLLER_FIRST_TICK_MS}`, `versions@${POLLER_FIRST_TICK_MS}`])
     await clock.advance(POLLER_UPDATE_INTERVAL_MS - POLLER_FIRST_TICK_MS)

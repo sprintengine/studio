@@ -98,7 +98,7 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
       return { ok: true }
     },
     hover: async () => ({ ok: true }),
-    type: async (_tabId, target, text, options) => {
+    type: async (_tabId, target, text, options = {}) => {
       calls.push(`type:${target?.ref ?? '-'}:${text}:${options.clear ? 'clear' : ''}${options.submit ? 'submit' : ''}`)
       return { ok: true }
     },

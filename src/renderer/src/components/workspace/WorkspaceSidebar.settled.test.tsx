@@ -87,7 +87,17 @@ async function main(): Promise<void> {
   // tie window, so recency and not stored order decides the shelf's order.
   const workspaces = [
     workspace('w1', 'Alpha', {
-      agents: { 'agent-1': { id: 'agent-1', name: 'Clod', cliSessionId: 'alpha-pty' } },
+      agents: {
+        'agent-1': {
+          id: 'agent-1',
+          name: 'Clod',
+          cliSessionId: 'alpha-pty',
+          status: 'idle',
+          execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+          messages: [],
+          streamBuffer: '',
+        },
+      },
     }),
     workspace('w2', 'Bravo', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
     workspace('w3', 'Charlie', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 4 * DAY }),

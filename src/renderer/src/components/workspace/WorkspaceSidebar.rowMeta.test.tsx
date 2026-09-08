@@ -5,12 +5,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   AttentionPulse,
-  deriveUnseenCompletions,
-  doneRowClass,
   fleetMachineNamesOf,
   fleetPanesOf,
   groupKeyOf,
-  isHookSettledSession,
   provenanceMachinesOf,
   TerminalLineView,
   WorkingElapsed,

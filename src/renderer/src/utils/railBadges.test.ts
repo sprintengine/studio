@@ -31,7 +31,7 @@ assert.deepEqual(
   { count: 4, tone: 'warn', label: '4 chats want you' },
   'a prompt waiting outranks a crash and a finish, as the row’s gold does',
 )
-assert.equal(homeRailBadge({ needsInput: 0, failed: 1, finished: 3 }).tone, 'error', 'a crash outranks a finish')
+assert.equal(homeRailBadge({ needsInput: 0, failed: 1, finished: 3 })?.tone, 'error', 'a crash outranks a finish')
 
 // ── Sources → squares ─────────────────────────────────────────────────────────
 const list = [
@@ -49,8 +49,8 @@ assert.ok(!EXTENSIONS_NOTIFICATION_SOURCES.has('git') && !AUTOMATIONS_NOTIFICATI
 // ── Automations ───────────────────────────────────────────────────────────────
 assert.equal(automationsRailBadge([]), null)
 assert.deepEqual(automationsRailBadge([note({ id: 'x' })]), { count: 1, tone: 'accent', label: '1 automation run to look at' })
-assert.equal(automationsRailBadge([note({ id: 'x' }), note({ id: 'y', level: 'warning' })]).tone, 'warn')
-assert.equal(automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })]).tone, 'error', 'the loudest level wins')
+assert.equal(automationsRailBadge([note({ id: 'x' }), note({ id: 'y', level: 'warning' })])?.tone, 'warn')
+assert.equal(automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })])?.tone, 'error', 'the loudest level wins')
 
 // ── Cards since last seen ─────────────────────────────────────────────────────
 const card = (slug: string, publishedAt: string): HostedCard => ({ slug, publishedAt } as unknown as HostedCard)
@@ -65,9 +65,9 @@ assert.deepEqual(
   extensionsRailBadge({ unread: [note({ id: 'c', source: 'marketplace' })], unseenCards: 2, sprintsWaiting: 0 }),
   { count: 3, tone: 'accent', label: '3 new in Extensions' },
 )
-assert.equal(extensionsRailBadge({ unread: [], unseenCards: 0, sprintsWaiting: 1 }).tone, 'warn', 'a sprint waiting on you is gold')
+assert.equal(extensionsRailBadge({ unread: [], unseenCards: 0, sprintsWaiting: 1 })?.tone, 'warn', 'a sprint waiting on you is gold')
 assert.equal(
-  extensionsRailBadge({ unread: [note({ id: 'e', level: 'error', source: 'cli' })], unseenCards: 0, sprintsWaiting: 1 }).tone,
+  extensionsRailBadge({ unread: [note({ id: 'e', level: 'error', source: 'cli' })], unseenCards: 0, sprintsWaiting: 1 })?.tone,
   'error',
   'a failure still outranks a wait',
 )

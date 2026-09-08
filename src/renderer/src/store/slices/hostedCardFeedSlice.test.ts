@@ -115,20 +115,23 @@ async function main(): Promise<void> {
   assert.equal(empty.cardFeedStatus, 'ready')
 
   // The push subscription applies whatever main sends, and detaches.
-  let pushed: ((result: HostedCardFeedReadResult) => void) | null = null
+  // A holder, not a bare `let`: the subscription hands the callback back from
+  // inside another callback, and flow analysis would keep reading a `let` as
+  // its initializer.
+  const push: { fn: ((result: HostedCardFeedReadResult) => void) | null } = { fn: null }
   const unsubscribe = subscribeHostedCardFeedChanges(slice.applyHostedCardFeedResult, {
     onHostedCardFeedChanged: (cb) => {
-      pushed = cb
+      push.fn = cb
       return () => {
-        pushed = null
+        push.fn = null
       }
     },
   })
-  assert.ok(pushed)
-  pushed!(okResult(['only-this'], 'network', true))
+  assert.ok(push.fn)
+  push.fn(okResult(['only-this'], 'network', true))
   assert.deepEqual(slugsOf(carrier), ['only-this'])
   unsubscribe()
-  assert.equal(pushed, null)
+  assert.equal(push.fn, null)
 
   // No api (a test renderer, a detached tool window) is a quiet no-op.
   const bare = createHostedCardFeedSlice((mutator) => mutator(carrier), { getApi: () => null })

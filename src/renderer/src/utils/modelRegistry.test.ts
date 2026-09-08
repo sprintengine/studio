@@ -9,14 +9,12 @@ import {
   removeNewAgentTab,
   NEW_AGENT_TAB_COMPONENT,
   captureRailWidthFraction,
-  captureRailWidthFractions,
   consumePendingAgentFlash,
   flashAgentTab,
   focusedAgentTabInLayout,
   focusOrAddFileTab,
   registerModel,
   restoreRailWidthFraction,
-  restoreRailWidthFractions,
   revealAgentTab,
   unregisterModel,
   togglePanelRailComponent,
@@ -493,8 +491,10 @@ function tabsetWeight(model: Model, component: string): number {
   seedNavRailRects(model)
   const fraction = captureRailWidthFraction(model, 'left')
   assert.ok(fraction != null && Math.abs(fraction - 0.18) < 0.001, `expected 0.18, got ${fraction}`)
-  // Nothing is docked on the right in this layout.
-  assert.equal(captureRailWidthFraction(model, 'right'), null)
+  // A layout with no rail docked has no fraction to report. (The right rail —
+  // the Skills aside — was retired with the workspace pane, so 'left' is the
+  // only side there is.)
+  assert.equal(captureRailWidthFraction(freshModel(), 'left'), null)
 }
 
 // Regression: closing the agent WITHOUT re-pinning lets flexlayout spread the

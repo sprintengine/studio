@@ -65,10 +65,11 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import ExtensionsHomeSurface from './ExtensionsHomeSurface'
 import { EXTENSIONS_HOME_TILE_SUMMARIES } from './extensionsHomeTiles'
 import { ExtensionsRail } from '../workspace/ExtensionsRail'
-import { getRendererHost } from '../../modules'
-import type { RegisteredSidebarNavEntry } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { consumePendingExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import {
+  consumePendingExtensionsSurfaceTarget,
+  type ExtensionsSurfaceTarget,
+} from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import {
   cardRunsAModel,
@@ -223,7 +224,7 @@ assert.equal(
 )
 
 /** What clicking left behind: the routed surface, and the view it was latched to. */
-function landing(click: () => void): { surface: string | null; view: string | null } {
+function landing(click: () => void): { surface: string | null; view: ExtensionsSurfaceTarget | null } {
   act(() => {
     useWorkspaceStore.getState().closeGlobalSurface()
   })
@@ -589,7 +590,9 @@ async function main(): Promise<void> {
   closePicker()
 
   {
-    let settle: (() => void) | null = null
+    // TypeScript cannot see the assignment made inside the promise executor, so
+    // the resolver is parked in a list rather than in a narrowed `let`.
+    const settlers: Array<() => void> = []
     const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
     setExtensionsSurfaceHost({
       onLaunchConnector: () => {},
@@ -598,7 +601,7 @@ async function main(): Promise<void> {
       onRunCard: (card, launch) => {
         ran.push({ slug: card.slug, launch })
         return new Promise<void>((resolve) => {
-          settle = resolve
+          settlers.push(resolve)
         })
       },
     })
@@ -675,7 +678,7 @@ async function main(): Promise<void> {
     // leave every Go on the page disabled for good, and the page would look
     // exactly like one still working. The flush is the shape the repo already
     // uses for this (`WorkspaceSidebar.liveRows.test.tsx`).
-    settle?.()
+    settlers.pop()?.()
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
@@ -701,7 +704,7 @@ async function main(): Promise<void> {
       { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
       'a row nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
     )
-    settle?.()
+    settlers.pop()?.()
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })

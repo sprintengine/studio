@@ -179,7 +179,11 @@ async function main(): Promise<void> {
     const mounted = mount(DS)
     act(() => hook!.openNow())
     assert.equal(hook!.loading, true, 'the very first frame already says it is reading')
-    assert.equal(hook!.peek, null, 'with nothing to show yet')
+    // Read through a snapshot: `assert.equal` narrows what it is handed, and
+    // narrowing `hook!.peek` to null here would make the post-settle read below
+    // impossible to type.
+    const inFlight = hook!
+    assert.equal(inFlight.peek, null, 'with nothing to show yet')
     await settle()
     assert.equal(hook!.loading, false, 'and it settles')
     assert.equal(hook!.peek?.sessionId, DS)

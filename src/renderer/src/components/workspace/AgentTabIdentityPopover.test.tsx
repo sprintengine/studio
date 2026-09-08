@@ -72,7 +72,6 @@ const PEEK: ConversationPeek = {
       truncatedChars: 0,
     },
   ],
-  totalMessages: 2,
 }
 
 function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {

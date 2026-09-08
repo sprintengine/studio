@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { emptyPluginComponents, type ScanResult, type ScannedPlugin, type SkillSource } from '../../../../../../../shared/skills'
+import { emptyPluginComponents, type ScannedPlugin, type SkillSource } from '../../../../../../../shared/skills'
 import { PluginDetailPane, type PluginDetailPaneProps } from './PluginDetailPane'
 
 // What the plugin DETAIL PANE owes: every hook command verbatim, Install
@@ -44,23 +44,12 @@ function plugin(id: string, over: Partial<ScannedPlugin> = {}): ScannedPlugin {
     author: 'Anthropic',
     homepage: '',
     origin: { kind: 'in-tree', path: `plugins/${id}` },
+    strict: true,
+    tags: [],
+    keywords: [],
     componentsKnown: true,
     components: emptyPluginComponents(),
     ...over,
-  }
-}
-
-function scanOf(plugins: ScannedPlugin[]): ScanResult {
-  return {
-    skills: [{ id: 'plugins/a/skills/x', name: 'x', description: '', group: '', files: [], allowedTools: [], hasExecutables: false }],
-    groups: [],
-    groupingSignal: 'none',
-    fileCount: 1,
-    commitSha: SOURCE.commitSha,
-    shape: 'claude-marketplace',
-    marketplaceName: 'claude-plugins-official',
-    plugins,
-    mcpServers: [],
   }
 }
 

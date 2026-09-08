@@ -13,7 +13,6 @@ import {
   registryEntriesForKinds,
   searchConnectors,
   sectionConnectors,
-  type SourceLoad,
 } from './connectorsFacets'
 
 // The Connectors surface must merge two real sources into one faceted grid, mark
@@ -51,8 +50,6 @@ function plugin(overrides: Partial<MarketplacePluginEntry> = {}): MarketplacePlu
     ...overrides,
   }
 }
-
-const ready = <T,>(data: T): SourceLoad<T> => ({ status: 'ready', data })
 
 // --- category → facet bucketing -------------------------------------------
 

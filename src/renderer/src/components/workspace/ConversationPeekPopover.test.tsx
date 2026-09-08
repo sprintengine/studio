@@ -90,11 +90,13 @@ async function main(): Promise<void> {
         React.createElement(
           'div',
           { 'data-row-key': 'ws-1' },
-          React.createElement(
-            ConversationPeekPopover,
-            { identity, now: Date.now() },
-            React.createElement('span', null, identity.name),
-          ),
+          // `children` rides the props object: the popover declares it as a
+          // required prop, and createElement's rest children do not satisfy one.
+          React.createElement(ConversationPeekPopover, {
+            identity,
+            now: Date.now(),
+            children: React.createElement('span', null, identity.name),
+          }),
         ),
       )
     })

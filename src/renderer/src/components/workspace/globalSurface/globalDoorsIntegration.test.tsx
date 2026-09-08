@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
+// Type-only: erased at runtime, so it cannot load a renderer module before the
+// DOM below exists.
+import type { ExtensionsSurfaceTarget } from './extensions/extensionsSurfaceTarget'
+
 // Epic 1760's integration review (item T10): the pieces T1–T9 built, exercised
 // TOGETHER rather than one surface at a time. The per-item suites each prove
 // their own contract; this one covers the seams between them, which is where an
@@ -1031,7 +1035,7 @@ async function main(): Promise<void> {
 
     // — The absent door —
     useWorkspaceStore.setState({ activeGlobalSurface: 'atlas' } as never)
-    const extensionsOpens: string[] = []
+    const extensionsOpens: ExtensionsSurfaceTarget[] = []
     const absent = resolveActiveDoorSurface(
       useWorkspaceStore.getState().activeGlobalSurface as string,
       getSurface,
@@ -1101,7 +1105,7 @@ async function main(): Promise<void> {
 
     // — Disabled, not uninstalled — the copy stays honest and the CTA lands
     // on Installed, where the module's toggle lives.
-    const disabledOpens: string[] = []
+    const disabledOpens: ExtensionsSurfaceTarget[] = []
     const disabled = resolveActiveDoorSurface('tide-tables', getSurface, () => false, (view) =>
       disabledOpens.push(view),
     )

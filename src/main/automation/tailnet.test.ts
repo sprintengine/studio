@@ -1200,6 +1200,13 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   }
   const errorCode = (result: McpToolResult): string =>
     (result.structuredContent as { error?: { code?: string } } | undefined)?.error?.code ?? ''
+  // Tool content is a union of text and image parts (the browser tools return
+  // snapshots); every tailnet tool answers in text, so narrow before reading it.
+  const firstText = (result: McpToolResult): string => {
+    const part = result.content[0]
+    assert.ok(part && part.type === 'text', 'the tool answered with a text part')
+    return part.text
+  }
 
   // Nothing listening: a code is a URL pointing at a listener, so minting one
   // here would hand back a credential that cannot be redeemed anywhere. Same
@@ -1214,7 +1221,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   const enabled = await run('tailnet.set_enabled', { enabled: true })
   assert.equal(enabled.isError, true)
   assert.equal(errorCode(enabled), 'tailnet_listener_not_running')
-  assert.match(enabled.content[0].text, /Tailscale is not running/)
+  assert.match(firstText(enabled), /Tailscale is not running/)
   assert.equal(status.enabled, true, 'the setting still persisted, and the message says so')
 
   assert.equal(errorCode(await run('tailnet.set_enabled', { enabled: 'yes' })), 'invalid_enabled')
@@ -1225,8 +1232,8 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   // falling back to the default grant, which is what normalization would do.
   const badScopes = await run('tailnet.offer_pairing', { scopes: ['sprint:read', 'terminal:full'] })
   assert.equal(errorCode(badScopes), 'invalid_scopes')
-  assert.match(badScopes.content[0].text, /terminal:full/)
-  assert.match(badScopes.content[0].text, /terminal:control/)
+  assert.match(firstText(badScopes), /terminal:full/)
+  assert.match(firstText(badScopes), /terminal:control/)
   assert.deepEqual(minted, [])
 
   const ok = await run('tailnet.offer_pairing', { scopes: ['sprint:read'] })
@@ -1245,7 +1252,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   status = { ...status, pairing: { scopes: ['sprint:read'], expiresAt: '2026-09-09T00:00:00.000Z' } }
   const read = await run('tailnet.status')
   assert.notEqual(read.isError, true)
-  assert.ok(!read.content[0].text.includes('mcpair_'), 'no pairing code is re-readable from status')
+  assert.ok(!firstText(read).includes('mcpair_'), 'no pairing code is re-readable from status')
 
   // Before the service exists the family answers rather than throwing.
   const early = createTailnetTools({ resolveTailnet: () => null })

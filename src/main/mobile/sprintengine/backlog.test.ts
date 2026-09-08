@@ -229,7 +229,8 @@ run('items nested in epic folders reach the phone', async () => {
       '---\ntype: spike\nstatus: idea\nid: 3\n---\n\n# Loose thought\n',
   })
   try {
-    const snapshot = await readMobileBacklogWorkspaceSnapshot(root, { generatedAt })
+    const snapshot = await readMobileBacklogWorkspaceSnapshot(root, generatedAt)
+    assert.ok(snapshot)
     const paths = snapshot.items.map((item) => item.relativePath).sort()
     assert.ok(
       paths.includes('backlog/auth-revamp/2026-09-01-token-rotation.md'),

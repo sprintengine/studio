@@ -67,6 +67,7 @@ useWorkspaceStore.setState({
 const runs: SprintRunSummary[] = [
   {
     statePath: '/work/multicode/.multi-code/sprintengine/plan-it/run.yaml',
+    teamSlug: 'plan-it',
     teamName: 'plan-it',
     projectRoot: '/work/multicode',
     projectName: 'multicode',

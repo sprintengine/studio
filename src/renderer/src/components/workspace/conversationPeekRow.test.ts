@@ -83,7 +83,7 @@ run('a row with no terminals has nothing to peek at', () => {
 
 run('a row of plain shells has no conversation', () => {
   assert.deepEqual(
-    rowConversationPeekRoster({ workspace: {}, sessions: [session({ sessionId: 'sh1', kind: 'shell' })] }),
+    rowConversationPeekRoster({ workspace: {}, sessions: [session({ sessionId: 'sh1', kind: 'terminal' })] }),
     [],
     'a terminal is not a chat',
   )
@@ -95,7 +95,7 @@ run('the roster opens on the most recently active terminal', () => {
     sessions: [
       session({ sessionId: 'old', lastOutputAt: NOW - 600_000 }),
       session({ sessionId: 'new', lastOutputAt: NOW - 1_000 }),
-      session({ sessionId: 'shell', kind: 'shell', lastOutputAt: NOW }),
+      session({ sessionId: 'shell', kind: 'terminal', lastOutputAt: NOW }),
     ],
   })
   assert.deepEqual(
@@ -218,8 +218,8 @@ run('the status cluster is terse, because a row is read in a list of forty', () 
   assert.deepEqual(peekStatusOf('working', ''), { tone: 'good', pulse: true, label: 'Working' })
   assert.deepEqual(peekStatusOf('needs-input', ''), { tone: 'warn', pulse: false, label: 'Waiting' })
   assert.deepEqual(peekStatusOf('failed', ''), { tone: 'error', pulse: false, label: 'Failed' })
-  assert.equal(peekStatusOf('idle', '32m').label, 'Idle · 32m', 'idle says how long when the row knows')
-  assert.equal(peekStatusOf('idle', '').label, 'Idle', 'and just "Idle" when it does not')
+  assert.equal(peekStatusOf('idle', '32m')?.label, 'Idle · 32m', 'idle says how long when the row knows')
+  assert.equal(peekStatusOf('idle', '')?.label, 'Idle', 'and just "Idle" when it does not')
 })
 
 run('the identity names the ROW; everything per-terminal lives on the roster', () => {
@@ -256,7 +256,7 @@ run('a chat with several agents lists them all, ordered, shells excluded', () =>
     sessions: [
       session({ sessionId: 's1', agentId: 'a1', lastOutputAt: NOW - 1_000 }),
       session({ sessionId: 's2', agentId: 'a2', lastOutputAt: NOW - 900_000 }),
-      session({ sessionId: 'sh', kind: 'shell' }),
+      session({ sessionId: 'sh', kind: 'terminal' }),
     ],
     status: peekStatusOf('working', ''),
   })

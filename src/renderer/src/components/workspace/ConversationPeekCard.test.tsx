@@ -86,11 +86,10 @@ const message = (over: Partial<ConversationPeekMessage> = {}): ConversationPeekM
 })
 
 const peek = (over: Partial<ConversationPeek> = {}): ConversationPeek => ({
-  sessionId: IDENTITY.sessionId ?? 's',
+  sessionId: SOLO.sessionId,
   source: 'transcript',
   first: message(),
   since: [],
-  totalMessages: 1,
   ...over,
 })
 
@@ -152,7 +151,6 @@ run('a transcript peek shows the first message and the thread', () => {
   const markup = card({
     peek: peek({
       since: [message({ id: 'm2', text: 'Check whether the prompt is persisted', at: NOW - 2 * HOUR })],
-      totalMessages: 2,
     }),
   })
   assert.match(markup, />First message</, 'labels the quoted message')
@@ -171,13 +169,13 @@ run('a live peek says its messages are the ones seen since launch', () => {
 })
 
 run('a live peek with nothing yet says what it cannot see, rather than looking empty', () => {
-  const markup = card({ peek: peek({ source: 'live', first: null, totalMessages: 0 }) })
+  const markup = card({ peek: peek({ source: 'live', first: null }) })
   assert.match(markup, /Nothing sent since this app launched/, 'says what it is missing')
   assert.match(markup, /no transcript/, 'and why')
 })
 
 run('an identity-only peek says the runtime reports nothing, and still earns its place', () => {
-  const markup = card({ peek: peek({ source: 'none', first: null, totalMessages: 0 }) })
+  const markup = card({ peek: peek({ source: 'none', first: null }) })
   assert.match(markup, /doesn’t report its messages/, 'says which shape it is in')
   assert.match(markup, /claude-opus-5/, 'the model still stands')
   assert.match(markup, /e4b3d55c…4687/, 'and the session id')
@@ -197,7 +195,7 @@ run('a chat we hold no record of blames our records, not the runtime', () => {
 })
 
 run('a chat nobody has spoken in says so plainly', () => {
-  const markup = card({ peek: peek({ first: null, totalMessages: 0 }) })
+  const markup = card({ peek: peek({ first: null }) })
   assert.match(markup, /No messages yet/, 'the never-prompted state')
   assert.match(markup, /becomes its title/, 'and what will happen when you do')
 })
@@ -214,14 +212,13 @@ run('a long thread is masked at its top edge so it is obvious there is more abov
     since: Array.from({ length: 9 }, (_, index) =>
       message({ id: `m${index}`, text: `message ${index}`, at: NOW - (9 - index) * MINUTE }),
     ),
-    totalMessages: 10,
   })
   const markup = card({ peek: long })
   assert.match(markup, /conversation-peek-thread--faded/, 'the fade is on')
   assert.match(markup, /max-h-\[108px\]/, 'and the list scrolls rather than growing the card')
 
   const short = card({
-    peek: peek({ since: [message({ id: 'm2', text: 'one more' })], totalMessages: 2 }),
+    peek: peek({ since: [message({ id: 'm2', text: 'one more' })] }),
   })
   assert.equal(short.includes('--faded'), false, 'a thread that fits is not faded')
 })
@@ -291,7 +288,6 @@ run('a later message carries a count on its row, never a strip of thumbnails', (
           attachments: [{ kind: 'image', id: 'a2', label: 'card.png' }],
         }),
       ],
-      totalMessages: 2,
     }),
   })
   assert.match(markup, /aria-label="1 attachment"/, 'the row counts what it carries')
@@ -324,7 +320,6 @@ run('the thread row still renders its trigger, and the row is not itself a contr
   const markup = card({
     peek: peek({
       since: [message({ id: 'm2', text: 'Drop the role row from the tab card' })],
-      totalMessages: 2,
     }),
   })
   assert.match(markup, /Drop the role row from the tab card/, 'the one line the row shows')
@@ -340,7 +335,7 @@ run('the thread row still renders its trigger, and the row is not itself a contr
 // brand-new chat that its runtime was broken.
 run('an empty chat on a capable runtime is never told its runtime is broken', () => {
   for (const source of ['transcript', 'live'] as const) {
-    const markup = card({ peek: peek({ source, first: null, since: [], totalMessages: 0 }) })
+    const markup = card({ peek: peek({ source, first: null, since: [] }) })
     assert.equal(
       markup.includes('doesn’t report its messages'),
       false,
@@ -355,7 +350,6 @@ run('a message main could not date shows no age at all', () => {
     peek: peek({
       first: message({ at: 0 }),
       since: [message({ id: 'm2', text: 'undated', at: 0 })],
-      totalMessages: 2,
     }),
   })
   assert.equal(/56y|55y|ago/.test(markup), false, 'epoch zero is a missing value, not 1970')
@@ -510,7 +504,7 @@ run('past six terminals the rest are counted, never wrapped onto a second line',
 // --- The thread tooltip only fires on a row that is actually cut -----------
 run('a row that fits gets no tooltip trigger and no tab stop', () => {
   const markup = card({
-    peek: peek({ since: [message({ id: 'm2', text: 'short' })], totalMessages: 2 }),
+    peek: peek({ since: [message({ id: 'm2', text: 'short' })] }),
   })
   assert.equal(/tabindex="0"[^>]*>\s*<span[^>]*>3h/.test(markup), false, 'no tab stop on a row with nothing more to say')
 })
@@ -519,7 +513,6 @@ run('a row the wire cut is a tab stop, so the rest is reachable without a pointe
   const markup = card({
     peek: peek({
       since: [message({ id: 'm2', text: 'a very long thing', truncatedChars: 900 })],
-      totalMessages: 2,
     }),
   })
   assert.match(markup, /tabindex="0"/, 'both paths: hover and focus')
@@ -530,7 +523,6 @@ run('no footer, no keyboard hint, no message count', () => {
   const markup = card({
     peek: peek({
       since: [message({ id: 'm2' }), message({ id: 'm3' })],
-      totalMessages: 40,
     }),
   })
   assert.equal(/Esc/.test(markup), false, 'no "Esc dismisses" hint')

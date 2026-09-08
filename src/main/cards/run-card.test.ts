@@ -130,6 +130,8 @@ function recorder(overrides: Partial<CardRunDeps> = {}): Recorder {
         harnesses: [],
         mcpServers: [],
         claudePluginKey: '',
+        pluginRoot: '',
+        pluginFileCount: 0,
         warnings: [],
       }
     },

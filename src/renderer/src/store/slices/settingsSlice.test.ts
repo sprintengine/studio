@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../workspaceStore'
-import type { SettingsOverlayState } from './settingsSlice'
+import type { ChatListView, SettingsOverlayState, SidebarSection } from './settingsSlice'
 import {
   createSettingsSlice,
   defaultAppearanceSettings,
@@ -432,11 +432,14 @@ const carrier = {
   runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null as string | null,
   activeModalSurface: null as string | null,
+  sidebarSection: 'home' as SidebarSection,
+  chatListView: 'projects' as ChatListView,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   workspacePaneWidth: 420,
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
+  checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
 }
@@ -628,11 +631,14 @@ const permissionCarrier = {
   runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null,
   activeModalSurface: null,
+  sidebarSection: 'home' as SidebarSection,
+  chatListView: 'projects' as ChatListView,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   workspacePaneWidth: 420,
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
+  checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
 }

@@ -147,7 +147,7 @@ run('a repository source is named by its repository, not its last path segment',
     [
       source({ id: 'github:mattpocock/skills', name: 'skills', repo: 'mattpocock/skills' }),
       source({ id: 'github:browser-act/skills', name: 'skills', repo: 'browser-act/skills' }),
-      source({ id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '', monogram: 'MC' }),
+      source({ id: 'local:/skills', kind: 'local', name: 'Multicode', repo: '', path: '/skills', monogram: 'MC' }),
     ],
     {
       'github:mattpocock/skills': { status: 'ready', scan: grouped(41, ['engineering', 'productivity']) },
@@ -180,7 +180,7 @@ run('one skill is a skill page, not a list of one', () => {
 run('a dozen ungrouped skills are one list', () => {
   const skills = Array.from({ length: 12 }, (_, index) => skill(`skills/skill-${index}`))
   const view = deriveSourceView({
-    source: source({ id: 'builtin', kind: 'builtin', repo: '' }),
+    source: source({ id: 'local:/skills', kind: 'local', repo: '', path: '/skills' }),
     scan: scanOf(skills),
     installedDirNames: new Set(['skill-3']),
     activeGroup: null,
@@ -380,7 +380,7 @@ run('the source links out to the history that says what changed', () => {
     'https://github.com/owner/repo/commits/b81f77abcdef0123',
   )
   // Nothing to link to for a source that is not a repository.
-  assert.equal(skillSourceCommitsUrl(source({ id: 'builtin', kind: 'builtin', repo: '' })), null)
+  assert.equal(skillSourceCommitsUrl(source({ id: 'local:/skills', kind: 'local', repo: '', path: '/skills' })), null)
 })
 
 // ── Header facts ─────────────────────────────────────────────────────────────

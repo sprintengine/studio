@@ -314,8 +314,11 @@ async function main(): Promise<void> {
   const cachedA = service.getSnapshot()
   const cachedB = service.getSnapshot()
   assert.equal(cachedA, cachedB, 'an unchanged registry serves the same snapshot object')
-  const renamed = service.updateWorkspaceFields('ws-two', { name: 'Renamed' }, 'automation')
-  assert.equal(renamed.ok, true, 'the field update is accepted')
+  const renamed = service.dispatch({
+    sourceWindowId: 'primary',
+    command: { type: 'workspace.rename', payload: { workspaceId: 'ws-two', name: 'Renamed', editedAt: 1234 } },
+  })
+  assert.equal(renamed.ok, true, 'the rename is accepted')
   const cachedC = service.getSnapshot()
   assert.notEqual(cachedC, cachedA, 'a mutation invalidates the cached snapshot')
   assert.equal(cachedC.state.workspaces.find((entry) => entry.id === 'ws-two')?.name, 'Renamed')

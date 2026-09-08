@@ -12,7 +12,7 @@ const baseItem: BacklogItem = {
   relativePath: 'backlog/item.md',
   title: 'Item',
   kind: 'unknown',
-  status: 'captured',
+  status: 'idea',
   isEpic: false,
   metadata: {},
   links: [],
