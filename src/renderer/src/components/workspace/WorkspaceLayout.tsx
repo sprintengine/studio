@@ -1226,7 +1226,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
             ? { tone: 'good', pulse: true, label: 'Working' }
             : null)
         : agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
-      const specialist = (agent?.kind === 'specialist' || agent?.kind === 'watchtower') && agent.specialistId
+      const specialist = agent?.kind === 'specialist' && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
       const sprintEngineRole = agent?.kind === 'sprintengine'

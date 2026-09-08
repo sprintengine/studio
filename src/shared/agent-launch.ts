@@ -38,7 +38,7 @@ export type AgentLaunchRequest = {
   specialistId?: string
   /** Git worktree to run in, instead of the workspace checkout. */
   worktreePath?: string
-  /** Catalog connector id (e.g. 'railway'); resolves to an isolated single-server MCP. */
+  /** Connector id from the installed connectors; resolves to an isolated single-server MCP. */
   connectorId?: string
   /** Built-in skill installed into the working directory before the CLI starts. */
   spawnSkillId?: string
@@ -68,7 +68,6 @@ export type AgentLaunchRecord = {
   kind: 'general' | 'specialist'
   specialistId?: string
   connectorMcpSettings?: McpSettings
-  connectorSkillId?: string
   spawnSkillId?: string
   /**
    * The worktree the agent runs in, when the launch created or was handed one.

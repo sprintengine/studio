@@ -267,22 +267,6 @@ export function normalizeVoiceDictationSettings(settings: unknown): VoiceDictati
   }
 }
 
-export function normalizeSearchExcludes(patterns: unknown): string[] {
-  if (!Array.isArray(patterns)) return []
-  const seen = new Set<string>()
-  const normalized: string[] = []
-
-  patterns.forEach((pattern) => {
-    if (typeof pattern !== 'string') return
-    const value = pattern.trim().replace(/\\/g, '/').replace(/^!+/u, '')
-    if (!value || seen.has(value)) return
-    seen.add(value)
-    normalized.push(value)
-  })
-
-  return normalized.slice(0, 100)
-}
-
 export function defaultKeybindingSettings(): KeybindingSettings {
   return { overrides: {}, disabled: {} }
 }
@@ -1002,7 +986,6 @@ export const defaultAppSettings = (): AppSettings => ({
   specialistPacks: { disabled: [], migratedBundledPack: true },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineRunSettings: {},
-  searchExcludes: [],
   projectKnowledgeRoots: {},
   recentWorkspaceFolders: [],
   // Null follows the active workspace, which is what the Design door did before
@@ -1069,7 +1052,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // spread, so an upgraded profile's persisted array drops on every hydration
     // — the same merge-not-only-migrate enforcement as the opt-in reset below.
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
-    searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
       settings?.recentWorkspaceFolders,
@@ -1345,7 +1327,6 @@ export interface SettingsSliceActions {
   /** Set (or clear with `null`) the live outcome of the first-run adoption,
    *  read out as one line in Settings → Agents. */
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
-  setSearchExcludes: (patterns: string[]) => void
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
@@ -2012,11 +1993,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setAgentConfigAdoptionResult: (result) =>
       set((state) => {
         state.agentConfigAdoptionResult = result
-      }),
-
-    setSearchExcludes: (patterns) =>
-      set((state) => {
-        state.appSettings.searchExcludes = normalizeSearchExcludes(patterns)
       }),
 
     setTerminalIdleSuspendMinutes: (minutes) =>

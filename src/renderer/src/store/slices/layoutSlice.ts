@@ -135,7 +135,6 @@ export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
 const RETIRED_MODULE_TAB_COMPONENTS = [
   'switchboard-workspace',
   'switchboard-board',
-  'watchtower-panel',
   // The Design Wizard (`design-wizard` module) was deleted 2026-09-08. Its
   // workspace layout was a single sticky 'guided-brief' tab, so the row itself
   // is dropped by dropRetiredModeWorkspaces; this covers a profile where the

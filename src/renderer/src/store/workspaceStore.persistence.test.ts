@@ -618,7 +618,6 @@ const legacyBackupAppSettings = {
   lastSelectedSpecialist: 'architect',
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
-  searchExcludes: [],
   projectKnowledgeRoots: {
     '/Users/dev/workspace/multicode': 'knowledge',
     '/Users/dev/workspace/multicode-mobile': '../multicode/knowledge',

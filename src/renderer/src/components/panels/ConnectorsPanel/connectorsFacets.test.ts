@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 
-import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { McpServerConfig } from '../../../../../shared/electron-api'
 import {
@@ -8,33 +7,37 @@ import {
   connectorCanLaunch,
   connectorEntryAsComposerConnector,
   connectorFacet,
-  installedServerAsCatalogEntry,
+  installedServerAsListing,
   launchableConnectors,
   registryEntriesForKinds,
   searchConnectors,
   sectionConnectors,
 } from './connectorsFacets'
 
-// The Connectors surface must merge two real sources into one faceted grid, mark
-// catalog entries launchable when they carry a driving skill OR are installed in
-// MCP settings, and never collapse a failed source into a silent empty grid: a
-// single-source failure degrades to a notice, a total failure is an explicit
-// error, and "empty" means both sources truly list nothing (distinct from a
-// search that matched nothing).
+// The Connectors surface must turn the registry's mcp/skills plugins into one
+// faceted grid, list exactly the installed+enabled MCP servers as launchable,
+// and never collapse a failed read into a silent empty grid: a failure is an
+// explicit error, and "empty" means the registry truly lists nothing (distinct
+// from a search that matched nothing).
+//
+// It merged a second source until the third-party retirement (MC-2519,
+// 2026-09-08) — the bundled MCP catalogue, whose rows browsed here and could
+// launch before install when they carried a driving skill. Both are gone.
 
-function server(overrides: Partial<McpCatalogServer> = {}): McpCatalogServer {
+function config(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
   return {
-    id: 'railway',
-    name: 'Railway',
+    id: 'my-custom',
+    name: 'My custom MCP',
+    description: 'A hand-added server',
     category: 'Deployments',
-    description: 'Deploys, services, logs',
     transport: 'http',
+    enabled: true,
     clients: [],
-    required: false,
-    riskLevel: 'low',
-    skill: 'use-railway',
+    scope: 'workspace',
+    source: 'custom',
+    riskLevel: 'network',
     ...overrides,
-  } as McpCatalogServer
+  } as McpServerConfig
 }
 
 function plugin(overrides: Partial<MarketplacePluginEntry> = {}): MarketplacePluginEntry {
@@ -53,8 +56,8 @@ function plugin(overrides: Partial<MarketplacePluginEntry> = {}): MarketplacePlu
 
 // --- category → facet bucketing -------------------------------------------
 
-// Every real catalog category buckets into one of the four named facets (no
-// catalog entry falls through to Other).
+// Every category word the surface meets buckets into one of the four named
+// facets rather than falling through to Other.
 assert.equal(connectorFacet('Deployments'), 'Infrastructure')
 assert.equal(connectorFacet('Code Hosting'), 'Infrastructure')
 assert.equal(connectorFacet('Testing'), 'Infrastructure')
@@ -70,146 +73,74 @@ assert.equal(connectorFacet('Design'), 'Productivity')
 assert.equal(connectorFacet('Weather'), 'Other')
 assert.equal(connectorFacet(''), 'Other')
 
-// --- source merge ----------------------------------------------------------
+// --- the grid's population ------------------------------------------------
 
 {
-  const entries = buildConnectorEntries(
-    [server(), server({ id: 'github', name: 'GitHub', category: 'Code Hosting', skill: undefined })],
-    [plugin()],
-    new Set(['github']),
-  )
-  assert.equal(entries.length, 3)
-  const railway = entries.find((e) => e.id === 'railway')!
-  // Skill-linked catalog entries are launchable even when not installed.
-  assert.equal(railway.canLaunch, true)
-  assert.deepEqual(railway.componentLabels, ['MCP server', 'Skill pack'])
-  assert.equal(railway.key, 'catalog:railway')
-  const github = entries.find((e) => e.id === 'github')!
-  // An installed skill-less entry is launchable too (plain connector chat).
-  assert.equal(github.canLaunch, true)
-  assert.deepEqual(github.componentLabels, ['MCP server'])
-  // Installed reflects the active workspace's MCP settings for catalog entries.
-  assert.equal(github.installed, true)
-  assert.equal(railway.installed, false)
-  const stripe = entries.find((e) => e.source === 'registry')!
-  assert.equal(stripe.canLaunch, false)
+  const entries = buildConnectorEntries([plugin()])
+  assert.equal(entries.length, 1)
+  const stripe = entries[0]
+  assert.equal(stripe.source, 'registry')
+  assert.equal(stripe.key, 'registry:stripe-mcp')
+  assert.deepEqual(stripe.componentLabels, ['MCP server', 'Skill pack'])
   assert.equal(stripe.facet, 'Payments')
-}
-
-// Neither skill-linked nor installed → not launchable.
-{
-  const entries = buildConnectorEntries(
-    [server({ id: 'vercel', name: 'Vercel', skill: undefined })],
-    [],
-    new Set(),
-  )
-  assert.equal(entries[0].canLaunch, false)
+  // Browsing a registry row never makes it installed, and never launchable:
+  // install is the only route to a launch.
+  assert.equal(stripe.installed, false)
+  assert.equal(stripe.canLaunch, false)
 }
 
 // Registry plugins that provide neither mcp nor skills are not connectors and are
 // dropped from the surface.
 {
-  const entries = buildConnectorEntries(
-    [],
-    [plugin({ id: 'theme-pack', provides: ['module'] }), plugin({ id: 'cli-only', provides: ['cli'] })],
-    new Set(),
-  )
+  const entries = buildConnectorEntries([
+    plugin({ id: 'theme-pack', provides: ['module'] }),
+    plugin({ id: 'cli-only', provides: ['cli'] }),
+  ])
   assert.equal(entries.length, 0)
 }
 
-// --- with nothing installed, the skill link is the only launch route --------
+// --- installed settings servers present as listings for the launch rail -----
 
 {
-  const railwaySkilled = server({ skill: 'use-railway' })
-  const others = [
-    server({ id: 'vercel', name: 'Vercel', category: 'Deployments', skill: undefined }),
-    server({ id: 'stripe', name: 'Stripe', category: 'Payments', skill: undefined }),
-  ]
-  const entries = buildConnectorEntries([railwaySkilled, ...others], [], new Set())
-  const launchable = entries.filter((e) => e.canLaunch)
-  assert.deepEqual(launchable.map((e) => e.id), ['railway'])
-  // Installing one of the skill-less entries promotes it.
-  const withInstall = buildConnectorEntries([railwaySkilled, ...others], [], new Set(['vercel']))
-  assert.deepEqual(
-    withInstall.filter((e) => e.canLaunch).map((e) => e.id),
-    ['railway', 'vercel'],
-  )
-}
-
-// --- installed settings servers present catalog-shaped for the launch rail --
-
-{
-  const installed: McpServerConfig = {
-    id: 'my-custom',
-    name: 'My custom MCP',
-    description: 'A hand-added server',
-    transport: 'stdio',
-    command: 'custom-mcp',
-    enabled: true,
-    clients: [],
-    scope: 'workspace',
-    source: 'custom',
-    riskLevel: 'network',
-  } as McpServerConfig
-  const entry = installedServerAsCatalogEntry(installed)
+  const entry = installedServerAsListing(config({ transport: 'stdio', command: 'custom-mcp' }))
   assert.equal(entry.id, 'my-custom')
   assert.equal(entry.name, 'My custom MCP')
   assert.equal(entry.transport, 'stdio')
-  // Settings-owned fields are dropped from the catalog shape.
+  // Settings-owned fields are dropped from the listing shape.
   assert.ok(!('enabled' in entry))
   assert.ok(!('scope' in entry))
   assert.ok(!('source' in entry))
 }
 
-// --- the one launchable rule + the merged launch population -----------------
+// --- the one launchable rule + the launch population ------------------------
 
-assert.equal(connectorCanLaunch('use-railway', false), true)
-assert.equal(connectorCanLaunch(undefined, true), true)
-assert.equal(connectorCanLaunch(undefined, false), false)
+assert.equal(connectorCanLaunch(true), true)
+assert.equal(connectorCanLaunch(false), false)
 
 {
-  const config = (overrides: Partial<McpServerConfig>): McpServerConfig =>
-    ({
-      id: 'x',
-      name: 'X',
-      transport: 'http',
-      enabled: true,
-      clients: [],
-      scope: 'workspace',
-      source: 'custom',
-      riskLevel: 'network',
-      ...overrides,
-    }) as McpServerConfig
-  const catalog = [
-    server({ skill: 'use-railway' }),
-    server({ id: 'github', name: 'GitHub', category: 'Code Hosting', skill: undefined }),
-  ]
   const installed: Record<string, McpServerConfig> = {
-    github: config({ id: 'github', name: 'GitHub' }),
+    github: config({ id: 'github', name: 'GitHub', category: 'Code Hosting' }),
     linear: config({ id: 'linear', name: 'Linear', enabled: false }),
-    'my-custom': config({ id: 'my-custom', name: 'My custom MCP' }),
+    'my-custom': config(),
   }
-  const ready = launchableConnectors(catalog, installed)
-  // Skill-paired catalog entries lead; installed entries follow deduped by id;
-  // a disabled installed server never surfaces.
-  assert.deepEqual(ready.map((entry) => entry.id), ['railway', 'github', 'my-custom'])
-  // The catalog row (icon/summary/category) is preferred for installed ids the
-  // catalog knows; custom servers are presented catalog-shaped.
+  const ready = launchableConnectors(installed)
+  // Every installed, enabled server — and a disabled one never surfaces.
+  assert.deepEqual(ready.map((entry) => entry.id), ['github', 'my-custom'])
   assert.equal(ready.find((entry) => entry.id === 'github')!.category, 'Code Hosting')
   assert.equal(ready.find((entry) => entry.id === 'my-custom')!.name, 'My custom MCP')
-  // A failed catalog load (empty catalog) still surfaces the installed servers.
-  assert.deepEqual(launchableConnectors([], installed).map((entry) => entry.id), ['github', 'my-custom'])
-  // No installed servers → just the skill-paired catalog entries.
-  assert.deepEqual(launchableConnectors(catalog, undefined).map((entry) => entry.id), ['railway'])
+  // Nothing installed → nothing to launch. There is no catalogue template left
+  // to launch a server the person never installed.
+  assert.deepEqual(launchableConnectors(undefined), [])
+  assert.deepEqual(launchableConnectors({}), [])
 }
 
-// --- search across both sources -------------------------------------------
+// --- search ----------------------------------------------------------------
 
 {
-  const entries = buildConnectorEntries([server()], [plugin()], new Set())
+  const entries = buildConnectorEntries([plugin(), plugin({ id: 'railway-mcp', name: 'Railway', category: 'Deployments', summary: 'Deploys, services, logs' })])
   // Name match.
-  assert.deepEqual(searchConnectors(entries, 'railway').map((e) => e.id), ['railway'])
-  // Summary match on the registry source.
+  assert.deepEqual(searchConnectors(entries, 'railway').map((e) => e.id), ['railway-mcp'])
+  // Summary match.
   assert.deepEqual(searchConnectors(entries, 'billing').map((e) => e.id), ['stripe-mcp'])
   // Category match.
   assert.deepEqual(searchConnectors(entries, 'payments').map((e) => e.id), ['stripe-mcp'])
@@ -221,7 +152,7 @@ assert.equal(connectorCanLaunch(undefined, false), false)
 
 // Registry tag/categories facets are searchable too.
 {
-  const entries = buildConnectorEntries([], [plugin({ tags: ['webhooks'], categories: ['Finance'] })], new Set())
+  const entries = buildConnectorEntries([plugin({ tags: ['webhooks'], categories: ['Finance'] })])
   assert.equal(searchConnectors(entries, 'webhooks').length, 1)
   assert.equal(searchConnectors(entries, 'finance').length, 1)
 }
@@ -231,19 +162,16 @@ assert.equal(connectorCanLaunch(undefined, false), false)
 // (source-tabs ruling, 2026-09-05): a category is a group inside a source's own
 // tab now, so what an entry carries is the bucket, not a filter.
 {
-  const entries = buildConnectorEntries(
-    [
-      server({ skill: 'use-railway' }),
-      server({ id: 'supabase', name: 'Supabase', category: 'Database', skill: undefined }),
-    ],
-    [plugin()],
-    new Set(),
-  )
+  const entries = buildConnectorEntries([
+    plugin({ id: 'railway-mcp', name: 'Railway', category: 'Deployments' }),
+    plugin({ id: 'supabase-mcp', name: 'Supabase', category: 'Database' }),
+    plugin(),
+  ])
   assert.deepEqual(
     entries.map((entry) => [entry.id, entry.facet]),
     [
-      ['railway', 'Infrastructure'],
-      ['supabase', 'Data'],
+      ['railway-mcp', 'Infrastructure'],
+      ['supabase-mcp', 'Data'],
       ['stripe-mcp', 'Payments'],
     ],
   )
@@ -257,32 +185,29 @@ assert.equal(connectorCanLaunch(undefined, false), false)
 // section hides half of itself: the pager walks the whole tab (source-tabs
 // ruling, 2026-09-05), which a section with its own cutoff could not be part of.
 {
-  const entries = buildConnectorEntries(
-    [server(), server({ id: 'weather', name: 'Weather', category: 'Weather' })],
-    [plugin()],
-    new Set(),
-  )
+  const entries = buildConnectorEntries([
+    plugin({ id: 'railway-mcp', name: 'Railway', category: 'Deployments' }),
+    plugin({ id: 'weather-mcp', name: 'Weather', category: 'Weather' }),
+    plugin(),
+  ])
   const sections = sectionConnectors(entries)
   assert.deepEqual(
     sections.map((section) => section.title),
     ['Infrastructure', 'Payments', 'More'],
   )
-  assert.deepEqual(sections[0].entries.map((entry) => entry.id), ['railway'])
-  assert.deepEqual(sections[2].entries.map((entry) => entry.id), ['weather'])
+  assert.deepEqual(sections[0].entries.map((entry) => entry.id), ['railway-mcp'])
+  assert.deepEqual(sections[2].entries.map((entry) => entry.id), ['weather-mcp'])
 }
 
 // No entries → no sections (the tab's empty/no-match sentence owns that copy).
 assert.deepEqual(sectionConnectors([]), [])
 
 // "New chat" hands the host the connector itself, not a bare id: the composer's
-// attachment chip needs the display name at open, with no second catalog read.
+// attachment chip needs the display name at open, with no second read. It
+// carries no icon — the chip falls back to the brand mark keyed off the id.
 {
-  const [entry] = buildConnectorEntries([server({ icon: 'railway.svg' })], [], new Set())
-  assert.deepEqual(connectorEntryAsComposerConnector(entry), {
-    id: 'railway',
-    name: 'Railway',
-    icon: 'railway.svg',
-  })
+  const [entry] = buildConnectorEntries([plugin({ id: 'railway-mcp', name: 'Railway' })])
+  assert.deepEqual(connectorEntryAsComposerConnector(entry), { id: 'railway-mcp', name: 'Railway' })
 }
 
 
@@ -306,7 +231,7 @@ assert.deepEqual(sectionConnectors([]), [])
   // The connector grid path is the same builder with mcp/skills — module- and
   // cli-only plugins stay out of it.
   assert.deepEqual(
-    buildConnectorEntries([], all, new Set()).map((entry) => entry.id),
+    buildConnectorEntries(all).map((entry) => entry.id),
     ['stripe-mcp', 'full-stack'],
   )
   // Kind entries are never launchable and keep the registry install route.
@@ -336,11 +261,11 @@ assert.deepEqual(sectionConnectors([]), [])
   assert.deepEqual(entry.componentLabels, ['Module'])
   assert.equal(entry.canLaunch, false)
   assert.equal(entry.canLaunch, false, 'a module-only plugin is never launchable')
-  assert.deepEqual(buildConnectorEntries([], [calendar], new Set()), [])
+  assert.deepEqual(buildConnectorEntries([calendar]), [])
   // A mixed bundle (mcp + module) is a connector too, but its connector row
   // never launches from the registry side — install still gates launch.
   const mixed = plugin({ id: 'suite', name: 'Suite', provides: ['mcp', 'module'] })
-  const gridRows = buildConnectorEntries([], [mixed], new Set())
+  const gridRows = buildConnectorEntries([mixed])
   assert.deepEqual(gridRows.map((row) => row.id), ['suite'])
   assert.equal(gridRows[0].canLaunch, false)
 }

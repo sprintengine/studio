@@ -44,7 +44,7 @@ assert.equal(
 
 assert.equal(
   resolveAgentCliPermissionPreset(
-    workspace(baseAgent('reviewer', { kind: 'watchtower', cliPermissionPreset: 'bypass' })),
+    workspace(baseAgent('reviewer', { kind: 'specialist', cliPermissionPreset: 'bypass' })),
     'reviewer'
   ),
   'bypass',

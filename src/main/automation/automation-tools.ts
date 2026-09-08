@@ -861,8 +861,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         connectorId: {
           type: 'string',
           description:
-            'Catalog connector id (e.g. "railway"). Attaches the connector\'s single-server MCP and driving skill and '
-            + 'forces worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
+            "Connector id from the installed connectors. Attaches the connector's single-server MCP and forces "
+            + 'worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
         },
         worktree: {
           type: 'object',

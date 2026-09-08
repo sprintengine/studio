@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
     await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
-    await assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(runtimeModule)
+    await assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
@@ -937,7 +937,6 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
       lastAgentSpawnPermissionPreset: 'auto',
       mcp: { syncEnabled: true, servers: {} },
     }),
-    listConnectorCatalog: () => ({ ok: true, servers: [] }),
     terminal: {
       list: () => runtime.ipcHandlers.listTerminals(),
       spawn: (payload) => runtime.ipcHandlers.spawnTerminal(runtimeModule.resolveSpawnEventSink(), payload),
@@ -4058,12 +4057,11 @@ async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeMod
   )
 }
 
-// A connector spawn carries two orthogonal signals: connectorSkillId gates the
-// skill install (a skill-less connector chat sets none), and connectorLaunch
-// gates MCP isolation — the worktree MCP-config git-exclude here (and the
-// unlisted-server prune). A skill-only spawn must NOT exclude, and an ordinary
-// spawn does neither.
-async function assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(
+// spawnSkillId gates the skill install and connectorLaunch gates MCP isolation
+// — the worktree MCP-config git-exclude here (and the unlisted-server prune) —
+// and the two are orthogonal. A skill-only spawn must NOT exclude, a connector
+// launch excludes with or without a skill, and an ordinary spawn does neither.
+async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
   runtimeModule: RuntimeModule
 ): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-connector-'))
@@ -4086,7 +4084,7 @@ async function assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(
 
   const spawnConnector = async (
     sessionId: string,
-    options: { connectorSkillId?: string; connectorLaunch?: boolean } = {},
+    options: { spawnSkillId?: string; connectorLaunch?: boolean } = {},
   ): Promise<void> => {
     const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
       sessionId,
@@ -4108,29 +4106,30 @@ async function assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(
   // Ordinary spawn: neither the connector install nor the MCP-config exclude
   // runs.
   await spawnConnector('session-connector-off')
-  assert.deepEqual(ensureCalls, [], 'ordinary spawn must not install a connector skill')
+  assert.deepEqual(ensureCalls, [], 'ordinary spawn must not install a skill')
   assert.deepEqual(excludeCalls, [], 'ordinary spawn must not exclude worktree MCP config')
 
-  // A skill install without connectorLaunch (skill-at-spawn shapes) must not
-  // trigger MCP isolation — connectorSkillId never implies pruning/excluding.
-  await spawnConnector('session-connector-skill-only', { connectorSkillId: 'use-railway' })
+  // A skill install without connectorLaunch (the composer's "+ Skill"
+  // attachment) must not trigger MCP isolation — spawnSkillId never implies
+  // pruning/excluding.
+  await spawnConnector('session-connector-skill-only', { spawnSkillId: 'debug-helper' })
   assert.deepEqual(
     ensureCalls,
-    [{ workspaceRoot, skillId: 'use-railway' }],
+    [{ workspaceRoot, skillId: 'debug-helper' }],
     'skill-only spawn installs the named skill'
   )
   assert.deepEqual(excludeCalls, [], 'skill-only spawn must not exclude worktree MCP config')
 
-  // A full connector launch (connectorLaunch + driving skill): install the
-  // skill AND exclude the generated MCP config from the worktree git.
-  await spawnConnector('session-connector-on', { connectorSkillId: 'use-railway', connectorLaunch: true })
+  // A connector launch carrying a skill-at-spawn: install the skill AND exclude
+  // the generated MCP config from the worktree git.
+  await spawnConnector('session-connector-on', { spawnSkillId: 'debug-helper', connectorLaunch: true })
   assert.deepEqual(
     ensureCalls,
     [
-      { workspaceRoot, skillId: 'use-railway' },
-      { workspaceRoot, skillId: 'use-railway' },
+      { workspaceRoot, skillId: 'debug-helper' },
+      { workspaceRoot, skillId: 'debug-helper' },
     ],
-    'connector spawn installs the connector skill into the worktree before launch'
+    'connector spawn installs the named skill into the worktree before launch'
   )
   assert.deepEqual(
     excludeCalls,

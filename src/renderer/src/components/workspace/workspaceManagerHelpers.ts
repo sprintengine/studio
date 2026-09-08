@@ -330,7 +330,7 @@ export function getSessionItems(
           : undefined
         const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
         const specialistId =
-          agent?.kind === 'specialist' || agent?.kind === 'watchtower'
+          agent?.kind === 'specialist'
             ? agent.specialistId ?? null
             : null
 

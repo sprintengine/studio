@@ -20,7 +20,6 @@ import {
   moduleSettingsNamespace,
   normalizeRecentWorkspaceFolders,
   normalizeNewChatAgentChoice,
-  normalizeSearchExcludes,
   normalizeSpecialistOrder,
   normalizeSpecialistPacks,
   normalizeTextGenerationSettings,
@@ -94,7 +93,6 @@ const normalized = normalizeAppSettings(
       architect: 'codex',
       tester: 'invalid',
     } as never,
-    searchExcludes: [' node_modules ', '!dist', 'src\\generated', 'node_modules', ''],
     projectKnowledgeRoots: {
       '/Users/example/project/': ' docs/knowledge ',
       '/Users/example/bad': '/absolute',
@@ -120,7 +118,6 @@ assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
 assert.equal(normalized.lastAgentSpawnPermissionPreset, 'manual')
 assert.deepEqual(normalized.specialistCliDefaults, { architect: 'codex', tester: 'invalid' })
-assert.deepEqual(normalized.searchExcludes, ['node_modules', 'dist', 'src/generated'])
 assert.deepEqual(normalized.projectKnowledgeRoots, {
   '/Users/example/project': 'docs/knowledge',
 })
@@ -398,7 +395,6 @@ assert.deepEqual(
   'the discovered catalog never leaks into the user list for the same CLI',
 )
 
-assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
 assert.deepEqual(
   normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
   ['/A', '/B', '/C'],
@@ -650,8 +646,6 @@ assert.equal(
 )
 
 const store = useWorkspaceStore.getState()
-store.setSearchExcludes([' dist ', '!coverage', 'dist'])
-assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist', 'coverage'])
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
 

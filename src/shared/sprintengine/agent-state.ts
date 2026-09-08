@@ -20,7 +20,7 @@ type AgentMessage = {
 
 type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 
-export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine'
+export type AgentKind = 'general' | 'specialist' | 'sprintengine'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 
 // A specialist id is a registry role id. Specialists ship as an installable
@@ -191,18 +191,15 @@ export type AgentState = {
   // whose store lags the newest edit can never clobber it when it
   // re-registers its run.
   configEditedAt?: number
-  // Connector chat (Railway, etc.): a worktree-isolated solo chat scoped to one
-  // MCP connector plus its driving skill. `connectorMcpSettings` is the
-  // connector-only MCP config the spawn forwards *instead of* the global
-  // appSettings.mcp, so the connector server is written into this worktree's
-  // .mcp.json and nowhere else; `connectorSkillId` is the builtin skill the spawn
-  // installs into the worktree so the seeded invocation resolves. Both are seeded
-  // at creation by launchConnectorChat and read by the TerminalView launch path.
+  // Connector chat: a worktree-isolated solo chat scoped to one MCP connector.
+  // `connectorMcpSettings` is the connector-only MCP config the spawn forwards
+  // *instead of* the global appSettings.mcp, so the connector server is written
+  // into this worktree's .mcp.json and nowhere else. Read by the TerminalView
+  // launch path.
   connectorMcpSettings?: McpSettings
-  connectorSkillId?: string
   // Skill-at-spawn (the composer's "+ Skill" attachment): ensure-installed at
-  // the launch boundary like connectorSkillId, but with none of the connector
-  // MCP coupling. Works for any agent spawn, not just connectors.
+  // the launch boundary, with none of the connector MCP coupling. Works for any
+  // agent spawn, not just connectors.
   spawnSkillId?: string
   // One-shot input pasted (bracketed, unsubmitted) into the PTY right after a
   // successful launch — the skill invocation sits at the prompt with the caret

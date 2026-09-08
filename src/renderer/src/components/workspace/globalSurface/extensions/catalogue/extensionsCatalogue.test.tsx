@@ -304,32 +304,6 @@ const HUB_SCAN: ScanResult = {
 
 const api: Record<string, unknown> = {
   platform: 'darwin',
-  mcpListCatalog: async () => ({
-    ok: true,
-    servers: [
-      {
-        id: 'railway',
-        name: 'Railway',
-        category: 'Deployments',
-        description: 'Deploys, services, logs',
-        transport: 'http',
-        clients: [],
-        required: false,
-        riskLevel: 'low',
-        skill: 'use-railway',
-      },
-      {
-        id: 'stripe',
-        name: 'Stripe MCP',
-        category: 'Payments',
-        description: 'Payments and billing',
-        transport: 'http',
-        clients: [],
-        required: false,
-        riskLevel: 'low',
-      },
-    ],
-  }),
   readMarketplaceRegistry: async () => ({
     ok: true,
     registryUrl: null,
@@ -514,10 +488,13 @@ async function main(): Promise<void> {
     )
   })
 
+  // The bundled MCP catalogue was a second population in this tab until the
+  // third-party retirement (MC-2519, 2026-09-08). Its rows are gone; what is
+  // left is the registry's plugins, still grouped by the registry's own
+  // categories and still walked by one pager.
   await run('the app’s tab keeps the registry’s categories as its groups, walked by one pager', () => {
     assert.ok(text().includes('Stripe'), 'a registry plugin is a row')
-    assert.ok(text().includes('Railway'), 'and so is an MCP catalogue server')
-    assert.ok(text().includes('Payments'), 'MCP servers keep the catalogue’s own categories as headings')
+    assert.ok(text().includes('Payments'), 'and plugins keep the registry’s own categories as headings')
     assert.ok(/Showing 1–\d+ of \d+/.test(text()), 'one pager states where you are in the whole tab')
     assert.equal(text().includes('Featured'), false, 'the Featured facet is gone')
     assert.equal(/Show \d+ more/.test(text()), false, 'and so is "Show N more"')

@@ -49,16 +49,13 @@ export type TerminalSpawnPayload = {
   mcpSettings?: McpSettings
   // True when `mcpSettings` is a connector launch's isolated single-server
   // config — the spawn prunes unlisted MCP servers from the worktree config and
-  // git-excludes it, with or without a driving skill. Unset for ordinary spawns.
+  // git-excludes it. Unset for ordinary spawns.
   connectorLaunch?: boolean
-  // Connector launches with a driving skill (e.g. Railway) install this builtin
-  // skill into the worktree at spawn so the seeded skill invocation resolves to
-  // a present skill. Generalizes the debug-skill install (which hardcodes
-  // 'debug'); best-effort, non-blocking. Unset for skill-less connector
-  // launches and ordinary spawns.
-  connectorSkillId?: string
-  // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
-  // same ensure-install, none of the connector MCP coupling.
+  // Skill-at-spawn (the composer's "+ Skill" attachment): the builtin skill to
+  // install into the working directory at spawn so the prefilled invocation
+  // resolves to a present skill. Generalizes the debug-skill install (which
+  // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
+  // connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
   // Set only by the main-process AgentLaunchService (MC-2159): the launch
   // decisions it made, retained on the session and surfaced on its snapshot so

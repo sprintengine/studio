@@ -94,7 +94,6 @@ run('the connector environment survives the projection', () => {
   const agent = agentStateFromLaunchRecord(
     record({
       connectorMcpSettings: { syncEnabled: true, servers: {} },
-      connectorSkillId: 'use-railway',
       spawnSkillId: 'backlog',
       specialistId: 'security',
       kind: 'specialist',
@@ -102,7 +101,6 @@ run('the connector environment survives the projection', () => {
     session(),
   )
   assert.deepEqual(agent.connectorMcpSettings, { syncEnabled: true, servers: {} })
-  assert.equal(agent.connectorSkillId, 'use-railway')
   assert.equal(agent.spawnSkillId, 'backlog')
   assert.equal(agent.kind, 'specialist')
   assert.equal(agent.specialistId, 'security')

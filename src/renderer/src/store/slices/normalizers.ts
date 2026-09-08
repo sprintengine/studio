@@ -272,10 +272,8 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
       Object.entries(launchSafeWorkspace.agents).map(([id, a]) => {
         const shouldKeepStartupPrompt =
           !a.cliOnboardingPromptSent
-          && (
-            (a.kind === 'specialist' && Boolean(a.specialistId))
-            || (a.kind === 'watchtower' && Boolean(a.specialistId))
-          )
+          && a.kind === 'specialist'
+          && Boolean(a.specialistId)
         const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined
 
         // Keep durable resume identity in the registry. These fields are not

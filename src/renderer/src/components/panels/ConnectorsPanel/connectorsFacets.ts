@@ -1,20 +1,19 @@
 // connectorsFacets — pure, DOM-free derivation for the Connectors surface. The
-// React panel (`ConnectorsPanel.tsx`) owns the two catalog IPC reads and the
-// rendering; the source-merge, facet bucketing, search, and state machine live
-// here so every state (loading / partial-source-failure / error / empty /
-// no-match / ready) gets node-level coverage, mirroring `storefrontView.ts`.
+// React panel owns the registry IPC read and the rendering; the facet
+// bucketing, search, and state machine live here so every state (loading /
+// error / empty / no-match / ready) gets node-level coverage, mirroring
+// `storefrontView.ts`.
 //
-// Two real sources feed one grid:
-//   1. MCP catalog (`window.api.mcpListCatalog`) — the launchable connectors. A
-//      catalog entry is launchable when it carries a `skill` link (Railway's
-//      driving-skill model) OR is installed in the workspace's MCP settings —
-//      an installed server launches as a plain connector chat (isolated MCP,
-//      no seeded skill), matching launchConnectorChat.
-//   2. Marketplace registry (`window.api.readMarketplaceRegistry`) — installable
-//      plugins that `provides` mcp/skills. Browsable/installable here; launching
-//      still requires a catalog or installed-settings entry.
+// One source feeds the grid: the marketplace registry
+// (`window.api.readMarketplaceRegistry`) — installable plugins that `provides`
+// mcp/skills. A second source fed it until the third-party retirement
+// (MC-2519, 2026-09-08): the bundled MCP catalogue, sixteen servers nobody here
+// wrote, whose rows browsed beside the plugins and could launch before install
+// when the row paired a driving skill. It is gone, and with it the whole
+// `'catalog'` entry source; launching now requires a server the person
+// installed, which is what `launchableConnectors` below lists.
 
-import type { McpCatalogServer, McpServerConfig } from '../../../../../shared/electron-api'
+import type { McpServerConfig, McpServerListing } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type {
   MarketplaceComponentKind,
@@ -23,7 +22,7 @@ import type {
 import { componentKindLabels } from '../../settings/storefrontView'
 import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
-type ConnectorSource = 'catalog' | 'registry'
+type ConnectorSource = 'registry'
 
 // The category an entry lands in, which is the heading it renders under.
 //
@@ -39,8 +38,8 @@ export type NamedFacet = 'Infrastructure' | 'Payments' | 'Productivity' | 'Data'
 // One row/tile in the surface, normalized across both sources so the grid,
 // search, and facet logic never branch on source.
 export type ConnectorEntry = {
-  // `${source}:${id}` — a catalog and a registry entry can share an id, so the
-  // source-qualified key is what keeps React keys and selection unambiguous.
+  // `${source}:${id}` — source-qualified since the grid had two populations,
+  // and kept so a key never collides if it has two again.
   key: string
   id: string
   source: ConnectorSource
@@ -52,28 +51,23 @@ export type ConnectorEntry = {
   // via storefrontView's shared COMPONENT_KIND_LABEL map.
   componentLabels: string[]
   facet: NamedFacet
-  // A launchable connector: a catalog entry with a driving skill, or one the
-  // user has installed (enabled in MCP settings). Only these get New chat and
-  // only these populate the Featured rail.
+  // A launchable connector: one the user has installed (enabled in MCP
+  // settings). Registry rows are not installed by browsing them, so they report
+  // `false` here and route through the storefront install flow instead.
   canLaunch: boolean
-  // Catalog entry present in the active workspace's MCP settings. Registry
-  // install-state detection is out of this task's scope, so registry entries
-  // report `false` and route through the storefront install flow instead.
   installed: boolean
-  // Raw source refs so the panel can hand the existing tiles/detail their native
-  // shapes without re-deriving them.
-  catalogServer?: McpCatalogServer
+  // The raw plugin so the panel can hand the existing tiles/detail their native
+  // shape without re-deriving it.
   plugin?: MarketplacePluginEntry
 }
 
-// Ordered category → facet rules; first match wins. Keyed to the real
-// `resources/mcps/catalog.json` categories (Deployments, Code Hosting, Testing,
-// Observability, Database, Search, Documentation, Knowledge, Planning, Design,
-// Payments), the HotStack controlled vocabulary the generated catalogue
-// carries (code, communication, data, design, development, productivity,
-// sales-marketing), plus common marketplace category words so registry plugins
-// bucket sensibly too. Payments is tested first so a "payments data" style
-// label reads as Payments rather than Data.
+// Ordered category → facet rules; first match wins. Keyed to the category words
+// a marketplace plugin actually carries, plus the vocabulary the retired
+// connector catalogue used (Deployments, Code Hosting, Testing, Observability,
+// Database, Search, Documentation, Knowledge, Planning, Design, Payments), kept
+// because those words are common to any plugin directory rather than special to
+// that file. Payments is tested first so a "payments data" style label reads as
+// Payments rather than Data.
 const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
   { facet: 'Payments', test: /pay|billing|invoic|commerce|checkout|stripe/i },
   {
@@ -88,9 +82,7 @@ const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
 ]
 
 // THE launchable-connector rule, in one place: a connector launches when the
-// catalog pairs a driving skill with it (Railway's model — launchable even
-// before install, the launch synthesizes its config from the catalog), or when
-// the user has it installed and enabled in MCP settings (plain connector chat:
+// user has it installed and enabled in MCP settings (a plain connector chat:
 // isolated MCP, no seeded skill). Every surface that offers or performs a
 // launch — canLaunch below, the Ready-to-launch rail, the automation connector
 // picker, and resolveConnectorLaunch — expresses it through this predicate so
@@ -98,43 +90,34 @@ const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
 // because main resolves connectors for headless launches through the same rule.
 export { connectorCanLaunch }
 
-// Present an installed (settings) MCP server as a catalog-shaped entry so the
-// Ready-to-launch rail renders one shape for both populations — catalog entries
-// and installed custom servers that have no catalog row at all. The settings
-// config is a superset of the catalog shape; only its settings-owned fields
-// (enabled/scope/source) are dropped.
-export function installedServerAsCatalogEntry(server: McpServerConfig): McpCatalogServer {
-  const { enabled: _enabled, scope: _scope, source: _source, ...catalogShaped } = server
-  return catalogShaped
+// Present an installed (settings) MCP server as a display listing, so a surface
+// draws one shape whether the row came from settings or from anywhere else. The
+// settings config is a superset of the listing shape; only its settings-owned
+// fields (enabled/scope/source) are dropped.
+export function installedServerAsListing(server: McpServerConfig): McpServerListing {
+  const { enabled: _enabled, scope: _scope, source: _source, ...listing } = server
+  return listing
 }
 
-// The merged launchable population behind the Ready-to-launch rail and the
-// automation connector picker: skill-paired catalog entries first, then every
-// installed+enabled server — the matching catalog entry when one exists
-// (icon/summary), else the installed config presented catalog-shaped. Takes the
-// catalog as a plain array so a failed catalog load (pass []) still surfaces
-// the installed servers, which launch without the catalog.
+// The launchable population behind the Ready-to-launch rail and the automation
+// connector picker: every installed, enabled MCP server, presented as a
+// listing. Until the third-party retirement (MC-2519, 2026-09-08) the bundled
+// catalogue's skill-paired rows came first and could launch before install;
+// there is no such row any more, so this is exactly what the person installed.
 export function launchableConnectors(
-  catalog: McpCatalogServer[],
   installedServers: Record<string, McpServerConfig> | undefined,
-): McpCatalogServer[] {
-  const result = catalog.filter((server) => connectorCanLaunch(server.skill, false))
-  const seen = new Set(result.map((server) => server.id))
-  const catalogById = new Map(catalog.map((server) => [server.id, server]))
-  for (const config of Object.values(installedServers ?? {})) {
-    if (!config.enabled || seen.has(config.id)) continue
-    seen.add(config.id)
-    result.push(catalogById.get(config.id) ?? installedServerAsCatalogEntry(config))
-  }
-  return result
+): McpServerListing[] {
+  return Object.values(installedServers ?? {})
+    .filter((config) => config.enabled)
+    .map(installedServerAsListing)
 }
 
 // The connector "New chat" payload. Identity plus the display bits the
 // composer's attachment chip shows — the spawn still resolves the server itself
-// from the id. `icon` is optional: the chip falls back to the brand icon keyed
-// off the id, so an entry without a catalog record still renders.
+// from the id. No `icon`: the chip falls back to the brand icon keyed off the
+// id, so an entry with no artwork of its own still renders.
 export function connectorEntryAsComposerConnector(entry: ConnectorEntry): AgentComposerConnector {
-  return { id: entry.id, name: entry.name, icon: entry.catalogServer?.icon }
+  return { id: entry.id, name: entry.name }
 }
 
 export function connectorFacet(category: string): NamedFacet {
@@ -144,43 +127,19 @@ export function connectorFacet(category: string): NamedFacet {
   return 'Other'
 }
 
-// Catalog entries always carry an MCP server; a skill link adds a skills
-// component. This mirrors the registry `provides` vocabulary so both sources feed
-// the same COMPONENT_KIND_LABEL map.
-function catalogProvides(server: McpCatalogServer): MarketplaceComponentKind[] {
-  return server.skill ? ['mcp', 'skills'] : ['mcp']
-}
-
-export function buildConnectorEntries(
-  catalog: McpCatalogServer[],
-  plugins: MarketplacePluginEntry[],
-  installedServerIds: ReadonlySet<string>,
-): ConnectorEntry[] {
-  const catalogEntries: ConnectorEntry[] = catalog.map((server) => {
-    const category = server.category?.trim() || 'Other'
-    const installed = installedServerIds.has(server.id)
-    return {
-      key: `catalog:${server.id}`,
-      id: server.id,
-      source: 'catalog',
-      name: server.name,
-      category,
-      summary: server.description,
-      tags: server.capabilities ?? [],
-      componentLabels: componentKindLabels(catalogProvides(server)),
-      facet: connectorFacet(category),
-      canLaunch: connectorCanLaunch(server.skill, installed),
-      installed,
-      catalogServer: server,
-    }
-  })
-
+/**
+ * The connector grid's entries: the registry's mcp/skills plugins.
+ *
+ * This took a second `catalog` population until the third-party retirement
+ * (MC-2519, 2026-09-08) and is kept as its own function rather than collapsed
+ * into `registryEntriesForKinds`, because it names the grid's rule — connectors
+ * are the mcp/skills kinds — where the door's other canvases name theirs.
+ */
+export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
   // Only mcp/skills plugins are connectors; module- and cli-only plugins are
   // different extension kinds — they browse on the door's own kind canvases
   // (MC-1847 C2, registryEntriesForKinds) rather than in the connector grid.
-  const registryEntries: ConnectorEntry[] = registryEntriesForKinds(plugins, ['mcp', 'skills'])
-
-  return [...catalogEntries, ...registryEntries]
+  return registryEntriesForKinds(plugins, ['mcp', 'skills'])
 }
 
 // Registry plugins presented as normalized entries for a set of component

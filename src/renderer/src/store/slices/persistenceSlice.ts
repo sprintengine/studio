@@ -33,7 +33,6 @@ import {
   normalizeAppSettings,
   normalizeAgentSpawnPermissionPreset,
   normalizeRecentWorkspaceFolders,
-  normalizeSearchExcludes,
   normalizeSprintEngineRunSettings,
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
@@ -576,7 +575,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
     }
   }
   if (version < 27) {
@@ -590,7 +588,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),
@@ -608,7 +605,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),
@@ -654,7 +650,6 @@ export function migratePersistedWorkspaceState(
       lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(
         current.appSettings?.lastAgentSpawnPermissionPreset,
       ),
-      searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),

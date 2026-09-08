@@ -177,10 +177,8 @@ export function emptyWorkspaceRegistryFile(now = 0): WorkspaceRegistryFile {
 function normalizeWorkspaceRegistryAgent(agent: AgentState): AgentState {
   const keepStartupPrompt =
     !agent.cliOnboardingPromptSent
-    && (
-      (agent.kind === 'specialist' && Boolean(agent.specialistId))
-      || (agent.kind === 'watchtower' && Boolean(agent.specialistId))
-    )
+    && agent.kind === 'specialist'
+    && Boolean(agent.specialistId)
   return {
     ...agent,
     status: 'idle',

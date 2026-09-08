@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { EmptyState, InboxRow, InlineNotice, Input, PanelHeader, Skeleton } from '../ui'
@@ -45,7 +44,6 @@ function highlightLine(lineText: string, matchText: string) {
 
 export default function ContentSearchPanel({ workspaceId }: Props) {
   const { folderReadyPath, folderMissing, checkingFolder } = useWorkspaceFolderStatus(workspaceId)
-  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? [])
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ContentSearchEntry[]>([])
   const [diagnostics, setDiagnostics] = useState<ContentSearchDiagnostics | null>(null)
@@ -88,10 +86,7 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
 
     const timeout = window.setTimeout(() => {
       searchStarted = true
-      window.api.searchContent(folderReadyPath, trimmedQuery, {
-        limit: CONTENT_SEARCH_LIMIT,
-        excludes: searchExcludes,
-      })
+      window.api.searchContent(folderReadyPath, trimmedQuery, { limit: CONTENT_SEARCH_LIMIT })
         .then((result) => {
           if (requestSeq !== requestSeqRef.current) return
           if (!result.ok) {
@@ -133,7 +128,7 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
       window.clearTimeout(timeout)
       if (searchStarted) void window.api.cancelContentSearch().catch(() => {})
     }
-  }, [folderReadyPath, searchExcludes, trimmedQuery])
+  }, [folderReadyPath, trimmedQuery])
 
   const openResult = async (entry: ContentSearchEntry) => {
     try {

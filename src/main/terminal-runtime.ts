@@ -3291,7 +3291,6 @@ async function spawnTerminalFromIpc(
     visible = true,
     mcpSettings,
     connectorLaunch,
-    connectorSkillId,
     spawnSkillId,
     agentRecord,
   }: TerminalSpawnPayload
@@ -3499,8 +3498,8 @@ async function spawnTerminalFromIpc(
           // single-server connectorMcpSettings) writes an isolated worktree
           // config that must contain only the connector — prune any MCP server
           // the base repo committed into the worktree, never merge it in.
-          // connectorLaunch is the ONLY isolation signal: connectorSkillId is
-          // the orthogonal skill-install concern and must never imply pruning
+          // connectorLaunch is the ONLY isolation signal: spawnSkillId is the
+          // orthogonal skill-install concern and must never imply pruning
           // (a skill-only spawn would otherwise wipe the workspace's MCP
           // config).
           pruneUnlistedServers: connectorLaunch === true,
@@ -3565,29 +3564,22 @@ async function spawnTerminalFromIpc(
         }
       }
 
-      // Skill-at-spawn: install each attached builtin skill into the working
-      // directory so the seeded/prefilled invocation resolves to a present skill.
-      // connectorSkillId (connector chats) and spawnSkillId (the composer's
-      // "+ Skill" attachment, or a scheduled automation's skill) are set
-      // independently, so install every distinct id rather than letting one
-      // shadow the other; only connector launches also get the MCP-config
-      // exclusion below. Best-effort like the debug install — a failure is logged
-      // and never blocks the spawn.
-      const skillIdsToInstall = [...new Set(
-        [connectorSkillId, spawnSkillId].filter((id): id is string => Boolean(id)),
-      )]
-      if (skillIdsToInstall.length > 0 && !shellOnly && ensureBuiltinSkillInstalled) {
-        for (const skillId of skillIdsToInstall) {
-          try {
-            await ensureBuiltinSkillInstalled(workingDirectory, skillId)
-          } catch (error) {
-            logMainPerfEvent('TerminalRuntime', 'connector-skill-install-failed', {
-              sessionId,
-              cli,
-              connectorSkillId: skillId,
-              message: getErrorMessage(error),
-            })
-          }
+      // Skill-at-spawn: install the attached builtin skill (the composer's
+      // "+ Skill" attachment, or a scheduled automation's skill) into the
+      // working directory so the prefilled invocation resolves to a present
+      // skill. Independent of connector isolation — only connector launches get
+      // the MCP-config exclusion below. Best-effort like the debug install — a
+      // failure is logged and never blocks the spawn.
+      if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
+        try {
+          await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId)
+        } catch (error) {
+          logMainPerfEvent('TerminalRuntime', 'spawn-skill-install-failed', {
+            sessionId,
+            cli,
+            spawnSkillId,
+            message: getErrorMessage(error),
+          })
         }
       }
       if (connectorLaunch && !shellOnly) {

@@ -47,7 +47,6 @@ import { randomUUID } from 'crypto'
 
 import type {
   AgentCli,
-  McpCatalogResult,
   MemoryRootStatus,
   McpSettings,
   SprintEngineCliPermissionPreset,
@@ -113,8 +112,6 @@ export type AgentLaunchServiceDeps = {
    * without a restart.
    */
   getLaunchSettings: () => SprintEngineLaunchSettings
-  /** Main's own connector catalog (`mcpConfigService.listCatalog`). */
-  listConnectorCatalog: () => McpCatalogResult
   /**
    * Whether this CLI may launch as an agent: true exactly when its plugin
    * manifest declares an `agentStateSpec` (hooks are the only supported status
@@ -199,15 +196,13 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     }
 
     // A connector-backed launch resolves the same way a connector chat does
-    // (catalog or installed settings → single-server MCP, plus the driving skill
-    // when the catalog pairs one); the resolved settings ride the spawn so the
-    // connector's .mcp.json lands in the run worktree and nowhere else. An
-    // unavailable id is an explicit failure — never launch a plain agent that
-    // silently drops the connector environment.
+    // (the installed, enabled server → a single-server MCP config); the resolved
+    // settings ride the spawn so the connector's .mcp.json lands in the run
+    // worktree and nowhere else. An unavailable id is an explicit failure —
+    // never launch a plain agent that silently drops the connector environment.
     const connector = request.connectorId
       ? resolveConnectorLaunchFrom({
           connectorId: request.connectorId,
-          catalog: deps.listConnectorCatalog(),
           installedServers: settings.mcp?.servers,
         })
       : null
@@ -269,12 +264,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         ?? DEFAULT_PERMISSION_PRESET,
       kind: specialistId ? 'specialist' : 'general',
       ...(specialistId ? { specialistId } : {}),
-      ...(connector?.ok
-        ? {
-            connectorMcpSettings: connector.resolved.mcpSettings,
-            ...(connector.resolved.skillId ? { connectorSkillId: connector.resolved.skillId } : {}),
-          }
-        : {}),
+      ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
     }
@@ -310,7 +300,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       // workspace's, and marks itself so the spawn prunes anything else out of
       // the worktree config. Ordinary agents fall through to the user's MCP.
       ...(connectorLaunchMcp(record, settings.mcp)),
-      ...(record.connectorSkillId ? { connectorSkillId: record.connectorSkillId } : {}),
       ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
       // Nothing is bound to this session yet. A window open right now projects
       // and reveals it within a session-snapshot tick; a window opened later
@@ -428,7 +417,7 @@ function takenAgentNames(
  * The MCP half of the spawn payload. A connector launch forwards ONLY its own
  * server and sets `connectorLaunch`, which is what tells the spawn to prune
  * every other server out of the worktree config and git-exclude it. That flag is
- * driven by the connector settings alone: `connectorSkillId` is the orthogonal
+ * driven by the connector settings alone: `spawnSkillId` is the orthogonal
  * skill-install concern, and letting it imply pruning would wipe the MCP config
  * of a skill-only spawn.
  */

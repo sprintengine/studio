@@ -28,8 +28,6 @@ import type {
 import type {
   AgentConversationRuntime,
   AgentState,
-  McpClientTarget,
-  McpScope,
   McpServerConfig,
   McpSettings,
   SpecialistActionId,
@@ -198,11 +196,7 @@ type CliAvailability = {
 
 export type AgentCliAvailabilityMap = Record<AgentCli, CliAvailability>
 
-export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
-  defaultClients?: McpClientTarget[]
-  recommendedScope?: McpScope
-  setupNotes?: string
-  skill?: string
+export type McpServerListing = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
   icon?: string
 }
 
@@ -463,7 +457,6 @@ export type AppSettings = {
    * machine/user trust decision.
    */
   sprintEngineRunSettings: Record<string, SprintEngineRunSettings>
-  searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
   /**

@@ -130,7 +130,7 @@ const legacyRaw = JSON.stringify({
   state: {
     workspaces: [{ id: 'legacy-1', name: 'Old', agents: {} }],
     activeWorkspaceId: 'legacy-1',
-    appSettings: { searchExcludes: [], cliRuntimes: {} },
+    appSettings: { cliRuntimes: {} },
     sidebarCollapsed: true,
   },
   version: 44,

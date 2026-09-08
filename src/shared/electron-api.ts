@@ -15,6 +15,8 @@ import type { AgentLaunchRecord } from './agent-launch'
 import type { HostedModelFeed } from './hosted-model-feed'
 export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
 import type { CardAction, CardActionVerb, CardSurfaceView, HostedCardFeed } from './hosted-card-feed'
+import type { HostedSourcesFeed } from './hosted-sources-feed'
+export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type { CardAction, CardActionVerb, CardSurfaceView, HostedCard, HostedCardFeed, HostedCardKind } from './hosted-card-feed'
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
@@ -699,6 +701,40 @@ export type HostedModelFeedReadResult =
       message: string
     }
 
+// The hosted sources feed (src/shared/hosted-sources-feed.ts) as the
+// main-process client serves it. Deliberately the model feed's shape and
+// deliberately not the model feed's type, for the reason the card feed's own
+// comment gives below: the three schemas ship on their own clocks and a shared
+// alias would make one feed's change the others' problem. A failure carries no
+// list, and the surface then shows no recommendations — which is exactly what
+// it showed before this feed existed, so there is nothing to apologise for.
+export type HostedSourcesFeedReadInput = {
+  forceRefresh?: boolean
+  // Serve whatever is on disk (cache, else seed) without touching the network.
+  cachedOnly?: boolean
+}
+
+export type HostedSourcesFeedReadResult =
+  | {
+      ok: true
+      state: 'ok' | 'degraded'
+      feedUrl: string
+      source: 'network' | 'cache' | 'seed'
+      fetchedAt: string
+      etag?: string
+      notModified?: boolean
+      changed: boolean
+      feed: HostedSourcesFeed
+      message?: string
+    }
+  | {
+      ok: false
+      state: 'offline' | 'fetch-error' | 'invalid-schema'
+      feedUrl: string
+      statusCode?: number
+      message: string
+    }
+
 // The hosted card feed (src/shared/hosted-card-feed.ts) as the main-process
 // client serves it. Deliberately the model feed's shape and deliberately not
 // the model feed's type: the two schemas ship on their own clocks and a shared
@@ -1111,20 +1147,21 @@ export type McpSettings = {
   servers: Record<string, McpServerConfig>
 }
 
-export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
-  defaultClients?: McpClientTarget[]
-  recommendedScope?: McpScope
-  setupNotes?: string
-  skill?: string
+/**
+ * An MCP server presented for display, without the fields that only a server
+ * the person has actually installed can have (`enabled`, `scope`, `source`).
+ *
+ * Until the third-party retirement (MC-2519, 2026-09-08) this was
+ * `McpCatalogServer`, the row shape of a bundled MCP catalogue file
+ * — a list of 16 servers nobody here wrote. That catalogue is gone and no
+ * bundled list replaced it: an MCP server now arrives inside a plugin the
+ * person installed from a source. What survives is the presentation shape,
+ * because a surface still has to draw an installed server without pretending it
+ * knows the settings-owned fields.
+ */
+export type McpServerListing = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
   icon?: string
-  // Membership of the Ticket trackers surface, declared in the catalogue so
-  // adding a fifth tracker is a data edit rather than a renderer change.
-  ticketTracker?: boolean
 }
-
-export type McpCatalogResult =
-  | { ok: true; servers: McpCatalogServer[] }
-  | { ok: false; message: string }
 
 export type McpValidationIssue = {
   level: 'error' | 'warning'
@@ -1568,12 +1605,23 @@ export type SkillSourceUpdateEntry = {
   headSha: string
   /** The head differs from the commit the source was scanned at. */
   changed: boolean
+  /**
+   * False when this check did not ask GitHub, because the source was checked
+   * inside its cadence window (MC-2519). `headSha` and `changed` then repeat
+   * what the last real check recorded, so the rails keep their mark.
+   */
+  checked: boolean
 }
 
 /**
  * What an update check found. `newlyChanged` is the drift THIS check
  * discovered (worth a toast); `changed` is every source currently behind its
  * head (what the rails mark). Broadcast on `skills:sources-updated`.
+ *
+ * `skipped` names the sources this check left alone because their cadence
+ * window had not elapsed, each with the sentence to show a person who pressed
+ * Check now — a manual check counts against the same window as the scheduled
+ * one, and has to say so rather than look like it did nothing.
  */
 export type SkillSourceUpdateCheck = {
   checkedAt: string
@@ -1581,6 +1629,7 @@ export type SkillSourceUpdateCheck = {
   changed: string[]
   newlyChanged: string[]
   failures: { sourceId: string; message: string }[]
+  skipped: { sourceId: string; message: string }[]
 }
 
 export type TerminalKind = 'agent' | 'terminal'
@@ -1637,19 +1686,15 @@ export type TerminalSpawnMetadata = {
   mcpSettings?: McpSettings
   // True when `mcpSettings` is a connector launch's isolated single-server
   // config: the spawn prunes any other MCP server from the worktree config and
-  // git-excludes it, whether or not the connector carries a driving skill.
+  // git-excludes it.
   // Undefined/false for ordinary spawns (workspace MCP merges as usual).
   connectorLaunch?: boolean
-  // Connector launches with a driving skill (e.g. Railway) name the builtin
-  // skill to install into the worktree at spawn, so the seeded skill invocation
-  // resolves to a present skill. Generalizes the debug-skill install;
-  // best-effort at the launch boundary. Undefined for skill-less connector
-  // launches and ordinary spawns. See TerminalSpawnPayload.
-  connectorSkillId?: string
-  // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
-  // ensure-installs the named builtin like connectorSkillId, but WITHOUT the
-  // connector coupling (no MCP prune, no worktree .mcp.json exclude). The
-  // invocation itself is prefilled renderer-side, never auto-sent.
+  // Skill-at-spawn (the composer's "+ Skill" attachment, or a scheduled
+  // automation's skill): the builtin skill to ensure-install into the working
+  // directory at spawn so the prefilled invocation resolves to a present skill.
+  // Generalizes the debug-skill install; best-effort at the launch boundary and
+  // carries none of the connector MCP coupling (no prune, no worktree .mcp.json
+  // exclude). The invocation itself is prefilled renderer-side, never auto-sent.
   spawnSkillId?: string
 }
 
@@ -3657,8 +3702,8 @@ export type ElectronApi = {
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<FileSearchResult>
-  searchContent: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<ContentSearchResult>
+  searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
+  searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
@@ -3709,6 +3754,8 @@ export type ElectronApi = {
   // The hosted model feed (src/shared/hosted-model-feed.ts). `get` is the disk
   // copy with no network; `refresh` may fetch (the client's TTL decides unless
   // forced); `changed` fires after any read that replaced the feed.
+  /** The recommended-sources feed, from disk (cache, else seed); never fetches. */
+  hostedSourcesFeedGet: () => Promise<HostedSourcesFeedReadResult>
   hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
   hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
   onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
@@ -3892,7 +3939,6 @@ export type ElectronApi = {
   cloneGitHubRepo: (input: GitHubCloneInput) => Promise<GitHubCloneResult>
   detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
-  mcpListCatalog: () => Promise<McpCatalogResult>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   // Everything the agent in one CLI can reach in one workspace, in one call:
@@ -3918,6 +3964,13 @@ export type ElectronApi = {
   skillsUninstallPlugin: (input: SkillPluginUninstallInput) => Promise<SkillPluginUninstallOutcome>
   skillsListInstalledPlugins: (input: SkillInstalledPluginsInput) => Promise<SkillInstalledPluginsOutcome>
   /** Every check's result, pushed from main — the poller's hourly leg or a manual check. */
+  /**
+   * Ask for an update check now. Same check the hourly poller leg runs, under
+   * the same per-source cadence window (MC-2519): a source inside its window is
+   * reported in `skipped` with the sentence saying when it was last checked and
+   * why it is waiting, rather than being asked again.
+   */
+  skillsCheckSourceUpdates: () => Promise<SkillSourceUpdateCheck>
   onSkillSourcesUpdated: (cb: (check: SkillSourceUpdateCheck) => void) => () => void
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>

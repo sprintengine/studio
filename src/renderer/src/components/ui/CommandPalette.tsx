@@ -64,7 +64,6 @@ const PALETTE_CONTENT_SEARCH_LIMIT = 100
 // Stable empty fallbacks so store selectors returning a default don't churn refs.
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
-const EMPTY_SEARCH_EXCLUDES: string[] = []
 
 // Results are labelled by their path inside the workspace: an absolute path
 // repeats the workspace root on every row and pushes the part that identifies
@@ -107,7 +106,6 @@ function dispatchPanelCommand(id: string) {
 interface Props {
   onClose: () => void
   onNewChat: () => void
-  onConnectRailway: () => void
   onSpawnSpecialist: (specialistId: SpecialistActionId) => void
   workspaceWindowId: WorkspaceWindowId
   workspaces: Workspace[]
@@ -128,7 +126,6 @@ interface Props {
 export default function CommandPalette({
   onClose,
   onNewChat,
-  onConnectRailway,
   onSpawnSpecialist,
   workspaceWindowId,
   workspaces,
@@ -168,7 +165,6 @@ export default function CommandPalette({
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
   const openFiles = activeWorkspace?.editorState?.openFiles ?? []
   const activeFolderPath = activeWorkspace?.folderPath ?? null
-  const searchExcludes = useWorkspaceStore((state) => state.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
 
   // Disk-backed results. The palette's Files group used to list only the editors
   // already open, so the launcher could not find a file the user had never
@@ -209,17 +205,11 @@ export default function CommandPalette({
       const wantsContent = trimmedQuery.length >= CONTENT_SEARCH_MIN_QUERY
       void Promise.all([
         window.api
-          .searchFiles(activeFolderPath, trimmedQuery, {
-            limit: PALETTE_FILE_SEARCH_LIMIT,
-            excludes: searchExcludes,
-          })
+          .searchFiles(activeFolderPath, trimmedQuery, { limit: PALETTE_FILE_SEARCH_LIMIT })
           .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null })),
         wantsContent
           ? window.api
-              .searchContent(activeFolderPath, trimmedQuery, {
-                limit: PALETTE_CONTENT_SEARCH_LIMIT,
-                excludes: searchExcludes,
-              })
+              .searchContent(activeFolderPath, trimmedQuery, { limit: PALETTE_CONTENT_SEARCH_LIMIT })
               .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null }))
           : Promise.resolve(null),
       ]).then(([fileResult, contentResult]) => {
@@ -240,7 +230,7 @@ export default function CommandPalette({
       // the whole tree for a query nobody is waiting on.
       if (searchStarted) void window.api.cancelContentSearch().catch(() => {})
     }
-  }, [activeFolderPath, searchExcludes, trimmedQuery])
+  }, [activeFolderPath, trimmedQuery])
 
   // Skills source (T6). Built-in skills are global and always listed; installed
   // skill packs are workspace-scoped, so they load only when a workspace is
@@ -534,16 +524,6 @@ export default function CommandPalette({
                 onClose()
               },
             },
-            {
-              id: 'connector.railway.connect',
-              label: 'Connect: Railway',
-              description: 'Start a new chat with the Railway connector attached',
-              group: 'actions' as const,
-              run: () => {
-                onConnectRailway()
-                onClose()
-              },
-            },
           ]
         : []),
       // Files — the active workspace's open editors.
@@ -561,7 +541,7 @@ export default function CommandPalette({
           }))
         : []),
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
 
   // Disk results are already matched — ripgrep did the matching in the main
   // process — so they are assembled apart from `commands` and never run back

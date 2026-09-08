@@ -285,7 +285,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
   resetCommandKeybindings: (commandId: CommandId) => void
   resetAllKeybindings: () => void
-  setSearchExcludes: (patterns: string[]) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void

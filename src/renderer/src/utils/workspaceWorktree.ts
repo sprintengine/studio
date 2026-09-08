@@ -321,10 +321,9 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
 
 // ── Connector chats ──────────────────────────────────────────────────────────
 // A "connector chat" is a worktree-isolated solo chat scoped to exactly one MCP
-// connector (e.g. Railway) plus its driving skill, so the connector server never
-// leaks into the user's other chats. These pure helpers build the deterministic
-// pieces of that spawn; the async worktree/catalog IO around them lives in
-// WorkspaceManager.launchConnectorChat.
+// connector, so the connector server never leaks into the user's other chats.
+// These pure helpers build the deterministic pieces of that spawn; the async
+// worktree IO around them lives in the launch path.
 
 /** Registry id for a worktree, derived from its absolute path. */
 export function worktreeIdFromPath(pathValue: string): string {

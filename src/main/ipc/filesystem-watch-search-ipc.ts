@@ -6,7 +6,6 @@ type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
-  excludes?: string[]
 }
 
 type ContentSearchRequest = FileSearchRequest

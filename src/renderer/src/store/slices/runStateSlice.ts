@@ -221,7 +221,7 @@ export function reconcileSprintEngineAgents(
 
   const specialistAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
-      (agent.kind === 'specialist' || agent.kind === 'watchtower') && !rosterAgents[id]
+      agent.kind === 'specialist' && !rosterAgents[id]
     ).map(([id, agent]) => [id, reuseAgentIfUnchanged(agent, normalizeAgentState(agent))])
   )
   const transientSprintEngineAgents = Object.fromEntries(

@@ -8,7 +8,6 @@ export type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
-  excludes?: string[]
 }
 
 export type ContentSearchRequest = FileSearchRequest
@@ -71,47 +70,12 @@ function normalizeContentSearchLimit(limit: unknown): number {
   return Math.min(Math.max(Math.floor(limit), 1), CONTENT_SEARCH_MAX_LIMIT)
 }
 
-function normalizeSearchExcludePatterns(excludes: unknown): string[] {
-  if (!Array.isArray(excludes)) return []
-  const seen = new Set<string>()
-  const patterns: string[] = []
-
-  excludes.forEach((exclude) => {
-    if (typeof exclude !== 'string') return
-    const pattern = exclude.trim().replace(/\\/g, '/').replace(/^!+/u, '')
-    if (!pattern || pattern.length > 200 || seen.has(pattern)) return
-    seen.add(pattern)
-    patterns.push(pattern)
-  })
-
-  return patterns.slice(0, 100)
-}
-
 function normalizeSearchPath(value: string): string {
   return value.replace(/\\/g, '/').toLowerCase()
 }
 
-function hasGlobSyntax(pattern: string): boolean {
-  return /[*?[\]{}]/u.test(pattern)
-}
-
-function searchExcludeToRipgrepGlobs(pattern: string): string[] {
-  if (!hasGlobSyntax(pattern) && !pattern.includes('/')) {
-    return [`!**/${pattern}`, `!**/${pattern}/**`]
-  }
-
-  return pattern.startsWith('**/')
-    ? [`!${pattern}`]
-    : [`!${pattern}`, `!**/${pattern}`]
-}
-
-function searchExcludeArgs(userExcludes: string[]): string[] {
-  const defaultExcludeArgs = FILE_SEARCH_DEFAULT_EXCLUDES.flatMap((pattern) => ['-g', `!**/${pattern}/**`])
-  const userExcludeArgs = userExcludes.flatMap((pattern) =>
-    searchExcludeToRipgrepGlobs(pattern).flatMap((glob) => ['-g', glob])
-  )
-
-  return [...defaultExcludeArgs, ...userExcludeArgs]
+function builtinExcludeArgs(): string[] {
+  return FILE_SEARCH_DEFAULT_EXCLUDES.flatMap((pattern) => ['-g', `!**/${pattern}/**`])
 }
 
 function toFileSearchEntry(rootPath: string, relativePath: string): FileSearchEntry {
@@ -169,15 +133,14 @@ async function searchFilesWithRipgrep(
   senderId: number,
   rootPath: string,
   query: string,
-  limit: number,
-  userExcludes: string[]
+  limit: number
 ): Promise<FileSearchEngineResult> {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
   let stdoutBuffer = ''
   let stderrBuffer = ''
   let truncated = false
-  const excludeArgs = searchExcludeArgs(userExcludes)
+  const excludeArgs = builtinExcludeArgs()
 
   return new Promise<FileSearchEngineResult>((resolve) => {
     let settled = false
@@ -327,7 +290,6 @@ async function searchContentWithRipgrep(
   rootPath: string,
   query: string,
   limit: number,
-  userExcludes: string[]
 ): Promise<ContentSearchEngineResult> {
   const results: ContentSearchEntry[] = []
   let stdoutBuffer = ''
@@ -344,7 +306,7 @@ async function searchContentWithRipgrep(
       '--line-number',
       '--column',
       '--fixed-strings',
-      ...searchExcludeArgs(userExcludes),
+      ...builtinExcludeArgs(),
       '--',
       query,
       '.',
@@ -454,7 +416,6 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
-  const userExcludes = normalizeSearchExcludePatterns(input.excludes)
   if (!rootPath || !query) {
     return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
   }
@@ -473,7 +434,7 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   }
 
   cancelActiveFileSearch(senderId)
-  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit, userExcludes)
+  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
   if (ripgrepResult.ok) return withFileSearchDiagnostics(ripgrepResult, startedAt)
   return ripgrepResult
 }
@@ -483,7 +444,6 @@ export async function searchContent(senderId: number, input: ContentSearchReques
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeContentSearchLimit(input.limit)
-  const userExcludes = normalizeSearchExcludePatterns(input.excludes)
   if (!rootPath || !query) {
     return withContentSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
   }
@@ -503,7 +463,7 @@ export async function searchContent(senderId: number, input: ContentSearchReques
 
   cancelActiveContentSearch(senderId)
   return withContentSearchDiagnostics(
-    await searchContentWithRipgrep(senderId, rootPath, query, limit, userExcludes),
+    await searchContentWithRipgrep(senderId, rootPath, query, limit),
     startedAt
   )
 }

@@ -172,7 +172,6 @@ export function agentStateFromLaunchRecord(
     kind: record.kind,
     ...(record.specialistId ? { specialistId: record.specialistId } : {}),
     ...(record.connectorMcpSettings ? { connectorMcpSettings: record.connectorMcpSettings } : {}),
-    ...(record.connectorSkillId ? { connectorSkillId: record.connectorSkillId } : {}),
     ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
   }
 }

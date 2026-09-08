@@ -195,7 +195,6 @@ function findTab(model: IJsonModel, component: string): Record<string, unknown> 
 }
 const strippedRetired = stripRetiredModuleTabsFromLayout(retiredModuleLayout) as IJsonModel
 assert.equal(modelContainsComponent(strippedRetired, 'switchboard-workspace'), false)
-assert.equal(modelContainsComponent(strippedRetired, 'watchtower-panel'), false)
 // The Design Wizard was deleted 2026-09-08; a profile that dragged its tab into
 // another workspace's layout would otherwise render an unresolvable surface.
 assert.equal(modelContainsComponent(strippedRetired, 'guided-brief'), false)

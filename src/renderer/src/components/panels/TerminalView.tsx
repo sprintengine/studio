@@ -813,10 +813,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const latestContext = currentContext()
       if (startupPromptRef.current || promptAlreadySentForActiveSession) return
       if (!latestContext.agent) return
-      if (
-        (latestContext.agent.kind !== 'specialist' && latestContext.agent.kind !== 'watchtower')
-        || !latestContext.agent.specialistId
-      ) return
+      if (latestContext.agent.kind !== 'specialist' || !latestContext.agent.specialistId) return
 
       const specialist = getSpecialistAction(latestContext.agent.specialistId)
       const prompt = buildSpecialistSoulStartupPrompt(specialist)
@@ -1086,13 +1083,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliReasoning: finalAgent.cliReasoning,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          // A connector chat (Railway, etc.) forwards its own Railway-only MCP
-          // settings and skill id so the spawn syncs that server into the
-          // worktree .mcp.json and installs the skill — never the global
-          // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
+          // A connector chat forwards its own connector-only MCP settings so the
+          // spawn syncs that server into the worktree .mcp.json — never the
+          // global appSettings.mcp. Ordinary agents fall through to the
+          // workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
-          connectorSkillId: finalAgent.connectorSkillId,
           spawnSkillId: finalAgent.spawnSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),
@@ -1156,13 +1152,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliReasoning: finalAgent.cliReasoning,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
-          // A connector chat (Railway, etc.) forwards its own Railway-only MCP
-          // settings and skill id so the spawn syncs that server into the
-          // worktree .mcp.json and installs the skill — never the global
-          // appSettings.mcp. Ordinary agents fall through to the workspace's MCP.
+          // A connector chat forwards its own connector-only MCP settings so the
+          // spawn syncs that server into the worktree .mcp.json — never the
+          // global appSettings.mcp. Ordinary agents fall through to the
+          // workspace's MCP.
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
-          connectorSkillId: finalAgent.connectorSkillId,
           spawnSkillId: finalAgent.spawnSkillId,
           visible: true,
           ...(agentSession ? { agentSession } : {}),

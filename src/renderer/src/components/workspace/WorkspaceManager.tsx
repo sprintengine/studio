@@ -4857,7 +4857,6 @@ export default function WorkspaceManager() {
           <CommandPalette
             onClose={() => setShowPalette(false)}
             onNewChat={() => createNewChatWorkspace()}
-            onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
             onSpawnSpecialist={handleSelectSpecialist}
             workspaceWindowId={workspaceWindowId}
             workspaces={visibleWorkspaces}

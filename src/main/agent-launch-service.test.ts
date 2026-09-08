@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type {
-  McpCatalogResult,
+  McpServerConfig,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -55,7 +55,6 @@ function liveSession(overrides: Partial<TerminalSessionSnapshot> = {}): Terminal
 function harness(options: {
   workspaces?: AgentLaunchWorkspace[]
   settings?: SprintEngineLaunchSettings
-  catalog?: McpCatalogResult
   sessions?: TerminalSessionSnapshot[]
   spawnResult?: TerminalSpawnResult
   resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
@@ -67,7 +66,6 @@ function harness(options: {
   const service = createAgentLaunchService({
     listWorkspaces: () => options.workspaces ?? [workspace()],
     getLaunchSettings: () => options.settings ?? settings(),
-    listConnectorCatalog: () => options.catalog ?? { ok: true, servers: [] },
     ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
     ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
     terminal: {
@@ -218,23 +216,30 @@ run('a specialist launch wraps the directive in the soul-fetch preamble', async 
   assert.equal(app.spawns[0]!.agentRecord?.specialistId, 'security')
 })
 
+// The connector is resolved from the installed MCP settings alone since the
+// bundled catalogue was retired (MC-2519, 2026-09-08): there is no template
+// left to launch a server the person never installed, so "installed and
+// enabled" is the whole rule.
+const railway = {
+  id: 'railway',
+  name: 'Railway',
+  category: 'infrastructure',
+  description: 'Railway',
+  transport: 'stdio',
+  command: 'railway-mcp',
+  enabled: true,
+  clients: [],
+  scope: 'workspace',
+  source: 'custom',
+  riskLevel: 'network',
+} as unknown as McpServerConfig
+
 run('a connector launch carries an isolated single-server MCP and prunes', async () => {
   const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code', mcp: { syncEnabled: true, servers: {} } }),
-    catalog: {
-      ok: true,
-      servers: [
-        {
-          id: 'railway',
-          name: 'Railway',
-          category: 'infrastructure',
-          description: 'Railway',
-          transport: 'stdio',
-          command: 'railway-mcp',
-          skill: 'use-railway',
-        } as McpCatalogResult extends { ok: true; servers: Array<infer T> } ? T : never,
-      ],
-    },
+    settings: settings({
+      lastSelectedCli: 'claude-code',
+      mcp: { syncEnabled: true, servers: { railway } },
+    }),
   })
 
   const launched = await app.service.launch({ workspaceId: 'ws-1', connectorId: 'railway' })
@@ -242,14 +247,22 @@ run('a connector launch carries an isolated single-server MCP and prunes', async
   const spawn = app.spawns[0]!
   assert.deepEqual(Object.keys(spawn.mcpSettings?.servers ?? {}), ['railway'], 'only the connector travels')
   assert.equal(spawn.connectorLaunch, true, 'so the worktree config is pruned to it')
-  assert.equal(spawn.connectorSkillId, 'use-railway')
+})
+
+run('a disabled connector fails loudly instead of launching a plain agent', async () => {
+  const app = harness({
+    settings: settings({
+      lastSelectedCli: 'claude-code',
+      mcp: { syncEnabled: true, servers: { railway: { ...railway, enabled: false } } },
+    }),
+  })
+  const launched = await app.service.launch({ workspaceId: 'ws-1', connectorId: 'railway' })
+  assert.equal(!launched.ok && launched.code, 'connector_unavailable')
+  assert.equal(app.spawns.length, 0, 'the connector environment is never silently dropped')
 })
 
 run('an unavailable connector fails loudly instead of launching a plain agent', async () => {
-  const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code' }),
-    catalog: { ok: true, servers: [] },
-  })
+  const app = harness({ settings: settings({ lastSelectedCli: 'claude-code' }) })
   const launched = await app.service.launch({ workspaceId: 'ws-1', connectorId: 'railway' })
   assert.equal(!launched.ok && launched.code, 'connector_unavailable')
   assert.equal(app.spawns.length, 0, 'the connector environment is never silently dropped')

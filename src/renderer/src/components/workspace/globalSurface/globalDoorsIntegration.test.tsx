@@ -709,22 +709,6 @@ async function main(): Promise<void> {
     )
     assert.equal(consumePendingExtensionsSurfaceTarget(), null, 'the latch drains once')
 
-    api.mcpListCatalog = async () => ({
-      ok: true,
-      servers: [
-        {
-          id: 'railway',
-          name: 'Railway',
-          category: 'Deployments',
-          description: 'Deploys, services, logs',
-          transport: 'http',
-          clients: [],
-          required: false,
-          riskLevel: 'low',
-          skill: 'use-railway',
-        },
-      ],
-    })
     api.readMarketplaceRegistry = async () => ({
       ok: true,
       registryUrl: null,
@@ -854,9 +838,11 @@ async function main(): Promise<void> {
     // ── Inside the app’s tab: the registry’s categories as the groups ────────
     const bodyText = () => container.textContent ?? ''
     assert.ok(bodyText().includes('Plugins'), 'the registry’s plugin list is a group of its own')
+    // The registry is the tab's only population since the third-party
+    // retirement (MC-2519): the bundled MCP catalogue's rows browsed here too
+    // until it was deleted.
     assert.ok(bodyText().includes('Stripe'), 'a registry plugin renders as a row')
-    assert.ok(bodyText().includes('Railway'), 'and so does an MCP catalogue server')
-    assert.ok(bodyText().includes('Infrastructure'), 'MCP servers keep the registry’s categories as headings')
+    assert.ok(bodyText().includes('Payments'), 'and plugins keep the registry’s categories as headings')
     assert.ok(bodyText().includes('Showing 1'), 'one pager walks the whole tab')
     assert.ok(!bodyText().includes('Featured'), 'the Featured facet is gone')
     assert.ok(!bodyText().includes('more'), 'and so is "Show N more"')
@@ -909,9 +895,12 @@ async function main(): Promise<void> {
       extRoot.unmount()
     })
 
-    // One source down: the marketplace registry fails, the catalog stays up.
-    // The app's tab discloses the failure rather than reading as an empty
-    // catalogue, and the healthy source still lists.
+    // The registry down: the app's tab discloses the failure rather than
+    // reading as an empty catalogue, and the repository sources — which are
+    // read by a different path — still list. Until the third-party retirement
+    // (MC-2519) the bundled MCP catalogue was the second population that stayed
+    // up here; the registry is the only one now, so what this proves is that a
+    // failed read is stated rather than drawn as a zero.
     api.readMarketplaceRegistry = async () => ({ ok: false, message: 'registry down.' })
     const degradedRoot = createRoot(container)
     await act(async () => {
@@ -919,7 +908,10 @@ async function main(): Promise<void> {
     })
     await settle()
     const degradedText = container.textContent ?? ''
-    assert.ok(degradedText.includes('Railway'), 'the healthy catalog still renders its connectors')
+    assert.ok(
+      degradedText.includes('The marketplace is unavailable.'),
+      'the failure is stated where the rows would be',
+    )
     assert.ok(
       !/SprintEngine Studio\s*0/.test(degradedText),
       'a half-down catalogue never renders as a zero count',
