@@ -2211,7 +2211,7 @@ function SuggestionCard({
     >
       <div className="text-body font-medium text-[color:var(--text-strong)]">{entry.title}</div>
       <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{entry.description}</p>
-      <span className="mt-1.5 inline-block rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
+      <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
         {entry.outcome}
       </span>
     </CardButton>
