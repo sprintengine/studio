@@ -15,7 +15,7 @@ import {
   type DiffFileItem,
 } from './diffFileList'
 import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
-import { EmptyState, IconButton, InlineNotice, Tooltip } from '../ui'
+import { EmptyState, IconButton, InlineNotice, NextDifferenceGlyph, PreviousDifferenceGlyph, Tooltip } from '../ui'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { openDiffWindow } from './openDiffWindow'
@@ -164,15 +164,10 @@ function ChevronButton({
       aria-label={direction === 'down' ? 'Next change' : 'Previous change'}
       className="app-no-drag"
     >
-      <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-        <path
-          d={direction === 'down' ? 'M4 6l4 4 4-4' : 'M4 10l4-4 4 4'}
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      {/* The kit's hunk-stepping mark, not a bare chevron: a chevron says
+          disclosure, and stepping to the next difference is travel, so the
+          arrow lands on the rule it stops at (ui/GitActionGlyphs). */}
+      {direction === 'down' ? <NextDifferenceGlyph /> : <PreviousDifferenceGlyph />}
     </IconButton>
   )
 }

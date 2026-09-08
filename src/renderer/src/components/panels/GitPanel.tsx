@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
+import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -174,25 +174,10 @@ function LogViewGlyph({ className }: { className?: string }) {
   )
 }
 
-function StashesViewGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <path
-        d="M1.9 5.6h12.2v6.4a1.1 1.1 0 0 1-1.1 1.1H3a1.1 1.1 0 0 1-1.1-1.1z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M2.6 2.9h10.8a.7.7 0 0 1 .7.7v2H1.9v-2a.7.7 0 0 1 .7-.7z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path d="M6.5 8.75h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
+// Stashes is the one view mark that is also an ACTION — the Commit toolbar's
+// "Stash changes…" is the same concept — so the drawer moved to the kit as
+// `StashGlyph` (design-system/glyphs/stash.svg) and both hosts import it.
+// It was drawn inline here with no asset behind it.
 
 function TerminalViewGlyph({ className }: { className?: string }) {
   return (
@@ -1670,7 +1655,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     {
       id: 'stashes',
       label: 'Stashes',
-      icon: StashesViewGlyph,
+      icon: StashGlyph,
       tooltip: stashes.length === 1 ? 'Stashes \u00b7 1' : `Stashes \u00b7 ${stashes.length}`,
     },
     { id: 'terminal', label: 'Terminal', icon: TerminalViewGlyph },
