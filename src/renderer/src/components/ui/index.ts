@@ -123,6 +123,11 @@ export type { InputSize, InputVariant } from './Input'
 export { Select } from './Select'
 export type { SelectItem } from './Select'
 export { Checkbox } from './Checkbox'
+// The Commit-window kit (2026-09-09): the rows, band and variants the Git
+// panel and the diff window compose from, so T4/T5 build from the system
+// rather than hand-rolling at 24px.
+export { CheckRow } from './CheckRow'
+export type { CheckRowCheckedState, CheckRowProps } from './CheckRow'
 export { Badge } from './Badge'
 export { NewChip } from './NewChip'
 export { Table } from './Table'

@@ -571,6 +571,8 @@ code {
 #ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
 #ds-view-component-card-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-card-button:checked ~ .ds-catalog #component-card-button { display: block; }
+#ds-view-component-check-row:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-check-row:checked ~ .ds-catalog #component-check-row { display: block; }
 #ds-view-component-checkbox:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-checkbox:checked ~ .ds-catalog #component-checkbox { display: block; }
 #ds-view-component-chip-button:checked ~ .ds-catalog #components { display: block; }
@@ -669,6 +671,8 @@ code {
 #ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-card-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-card-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-card-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-card-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-check-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-check-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-check-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-check-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-checkbox:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-checkbox"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-checkbox:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-checkbox"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-chip-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-chip-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -1510,6 +1514,295 @@ code {
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   line-height: var(--sem-font-line-default);
+}
+
+/* components/check-row/component.css */
+/* Check row — the pick-AND-mark row, at the 24px hit-target floor.
+ *
+ * The row a person both chooses and ticks: a Git changes list where the tick
+ * is the index, a file tree where it is a selection set. Two questions on one
+ * 24px line, and the whole component is about keeping them apart — the tick is
+ * a value the row carries, the fill and the edge are where the person is.
+ *
+ * Why it is not one of the two rows the system already has. `list-row` caps at
+ * four visual elements at rest and this row spends five before it has said
+ * anything (box, glyph, name, directory, trailing), and its row IS the
+ * `<button>`, which a checkbox may not sit inside. `row-button` owns no height
+ * at all, and the floor is the point here: a list of four hundred files steps
+ * at one pitch or it reads as noise.
+ *
+ * States are `list-row`'s, verbatim and deliberately: hover is a background,
+ * selection is a neutral fill plus a 2px inset accent edge, the resting tier
+ * drops the edge, the keyboard cursor is a gutter mark that composes over both
+ * fills. A second selection idiom on the row beside the rail would be a second
+ * answer to "where am I". */
+
+.ds-check-row {
+  /* Positioned for the cursor mark, which hangs in the leading gutter. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  /* The floor, not a height: a row whose name wraps to two lines is a row that
+     grew, not a row that broke. Nothing here sets a fixed height. */
+  min-height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border: 0;
+  /* Full-bleed in a list that reaches its container's edges, so no radius —
+     an inset rounded fill inside a padded surface reads as a card in a card
+     (row-button's `--bleed` makes the same call for the same reason). */
+  border-radius: 0;
+  background: transparent;
+  /* A name longer than the row is clipped here rather than pushing the
+     directory out of the row: the name is `flex: none` on purpose (below). */
+  overflow: hidden;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  text-align: left;
+  /* The row is a listbox option or a tree item, not a link: the pointer says
+     "pick", and picking is what a click does. */
+  cursor: default;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* The ring turns INWARD. The row is full-bleed against its list's edges, so an
+ * outset ring at the shared offset is clipped by them — the carve-out
+ * principles.md already names for a control that touches what clips it. */
+.ds-check-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* Disabled is `aria-disabled`, never the attribute: the row is a composite
+ * item, it stays in the walk, and a person must be able to reach it and be
+ * told why it cannot be ticked. */
+.ds-check-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * list-row's two tiers, unchanged. `--selected` is the pane being driven:
+ * neutral fill plus a 2px inset accent EDGE. `--resting` is every other pane's
+ * remembered choice: the quieter fill and no edge, so exactly one edge is on
+ * screen. Never an accent fill, never a left bar — the leading gutter belongs
+ * to the cursor. */
+.ds-check-row--selected {
+  background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-check-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-check-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* The directory lifts one step on a selected row and no further. The mockup
+ * lifted it to `text.primary` alongside the name; at that point the row's two
+ * halves weigh the same and the filename stops being the thing you find. */
+.ds-check-row--selected .ds-check-row-dir,
+.ds-check-row--resting .ds-check-row-dir {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A gutter mark rather than a fill, because it has to
+ * stay visible on a row that is already selected and distinct from one merely
+ * hovered — which neither fill can manage over the other. `text.primary`, not
+ * the accent: `border.focus` and `accent.primary` are one value in all but one
+ * theme, so an accent bar here reads as a focus ring that slipped. */
+.ds-check-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  width: var(--sem-space-3xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
+}
+
+/* ── The box ─────────────────────────────────────────────────────────────
+ * The kit checkbox, as a SIBLING of everything else in the row and never a
+ * descendant of a control: a `<label>` cannot sit inside a `<button>`, which
+ * is the constraint that shaped `list-row`'s `-host` wrapper. Here the row
+ * itself is a `<div>` carrying an ARIA role, so the sibling arrangement is the
+ * row's own children — no wrapper needed, and the box is still never nested in
+ * a control.
+ *
+ * Two spellings, and the surface picks by what owns the state:
+ *
+ *   composite (default) — the row is a `treeitem`/`option` inside a widget
+ *   that is ONE tab stop, so the box must not be a 401st. It is drawn with the
+ *   checkbox component's own box and marks, `aria-hidden`, and the row's
+ *   `aria-checked` is the announced state.
+ *
+ *   standalone — the row is not inside a composite widget; the kit checkbox
+ *   goes in whole, input and all, and the row carries no `aria-checked`.
+ *
+ * The drawing is the checkbox's in both. What is restated below is only the
+ * two declarations that reveal the marked state, because CSS cannot say
+ * "that rule, under a different condition" — the box, its size, its radius,
+ * its border and its ink all still come from `components/checkbox`. */
+.ds-check-row-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-box,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-mark--check,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--dash {
+  display: block;
+}
+
+/* Mixed outranks checked, exactly as the checkbox's own `:indeterminate` rule
+ * does: a row standing for a partly-staged file is showing a mixed set, and
+ * the dash is what says so. */
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--check {
+  display: none;
+}
+
+/* ── Glyph ───────────────────────────────────────────────────────────────
+ * A reserved 16px slot, present whether or not it is filled. Unreserved is
+ * how sibling rows' names come to start at three different x-offsets. */
+.ds-check-row-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row-glyph svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* ── Name and directory ──────────────────────────────────────────────────
+ * The name does NOT flex. It is the answer the person is scanning for, so it
+ * is never the part that gets cut; the directory takes what is left and
+ * truncates first, from the end, which is where a path is least informative. */
+.ds-check-row-name {
+  flex: none;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.ds-check-row-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display only — a status letter, a size, a count. Never interactive: a row
+ * this dense has no room to reveal an action, and the list's own toolbar or
+ * the row's context menu is where those live. */
+.ds-check-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────
+ * For the one surface whose row body must itself be a control — a row outside
+ * a composite widget, where the click target is the row and not the list. The
+ * box stays its SIBLING; that is the whole reason this part exists rather than
+ * the row becoming a `<button>`. */
+.ds-check-row-body {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-check-row-body:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* ── Tree ────────────────────────────────────────────────────────────────
+ * The File Explorer's shape: a disclosure chevron in a reserved slot ahead of
+ * the box, and a depth indent.
+ *
+ * The indent is a UNITLESS depth, not a pixel value: `--ds-check-row-depth: 2`
+ * multiplies one `space.lg` step, so the tree cannot drift off the scale one
+ * level at a time, and a surface that wants a tighter tree changes one step
+ * rather than every row.
+ *
+ * The chevron is decoration. Expansion is `aria-expanded` on the row itself,
+ * which is what a `treeitem` announces; a second control inside the row would
+ * be a second tab stop per level. */
+.ds-check-row--tree {
+  padding-left: calc(var(--sem-space-sm) + var(--sem-space-lg) * var(--ds-check-row-depth, 0));
+}
+
+.ds-check-row-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-text-subtle);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-check-row[aria-expanded='true'] .ds-check-row-twisty {
+  transform: rotate(90deg);
+}
+
+/* A leaf keeps the slot and drops the mark: without the reservation every leaf
+ * row's glyph sits one chevron to the left of its parent's. */
+.ds-check-row-twisty--leaf {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-check-row,
+  .ds-check-row-twisty {
+    transition: none;
+  }
 }
 
 /* components/checkbox/component.css */
@@ -6938,6 +7231,41 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     border-radius: var(--sem-radius-shell);
     background: var(--sem-color-bg-surface);
   }
+.ds-embed-component-check-row {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-check-row .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-check-row .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-check-row .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-check-row .demo-list {
+    max-width: 520px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+.ds-embed-component-check-row .demo-list:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+.ds-embed-component-check-row .demo-ts { color: var(--sem-color-mark-blue); }
+.ds-embed-component-check-row .demo-css { color: var(--sem-color-mark-violet); }
+.ds-embed-component-check-row .demo-image { color: var(--sem-color-mark-violet); }
+.ds-embed-component-check-row .demo-modified { color: var(--sem-color-status-warn); }
+.ds-embed-component-check-row .demo-added { color: var(--sem-color-status-good); }
+.ds-embed-component-check-row .demo-deleted { color: var(--sem-color-status-danger); text-decoration: line-through; }
 .ds-embed-component-checkbox {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -9397,6 +9725,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-board-lane" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-card-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-check-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-checkbox" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-chip-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-command-palette" />
@@ -9466,6 +9795,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-board-lane">Board lane</label>
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-card-button">Card button</label>
+<label class="catalog-nav-item" for="ds-view-component-check-row">Check row</label>
 <label class="catalog-nav-item" for="ds-view-component-checkbox">Checkbox</label>
 <label class="catalog-nav-item" for="ds-view-component-chip-button">Chip button</label>
 <label class="catalog-nav-item" for="ds-view-component-command-palette">Command palette</label>
@@ -12044,6 +12374,1239 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;span class=&quot;ds-card-button-title&quot;&gt;Plugins&lt;/span&gt;
       &lt;span class=&quot;ds-card-button-supporting&quot;&gt;Module turned off&lt;/span&gt;
     &lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-check-row" class="catalog-view catalog-component">
+<h3>Check row</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-check-row">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — checked, unchecked, mixed, selected with the keyboard cursor, resting, disabled.</p>
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+      <div class="ds-check-row" role="option" aria-checked="true" id="l-1" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-modified">app-services.ts</span>
+              <span class="ds-check-row-dir">src/main</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="false" id="l-2" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-css" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-modified">component.css</span>
+              <span class="ds-check-row-dir">design-system/components/modal</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="mixed" id="l-3" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-added">repo-reader.ts</span>
+              <span class="ds-check-row-dir">src/main/skills</span>
+              <span class="ds-check-row-trailing">A</span>
+            </div>
+      <div class="ds-check-row ds-check-row--selected" role="option" aria-checked="true" id="l-4" aria-selected="true">
+              <span class="ds-check-row-cursor" aria-hidden="true"></span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-image" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" stroke-width="1.2" />
+            <path d="m2.4 11.4 3.1-3.2 2.3 2.2 2.3-2.6 3.4 3.6" stroke-width="1.3" stroke-linejoin="round" />
+            <circle cx="5.6" cy="6.1" r="1" stroke-width="1.2" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-added">swap2-top.png</span>
+              <span class="ds-check-row-dir"></span>
+              <span class="ds-check-row-trailing">A</span>
+            </div>
+      <div class="ds-check-row ds-check-row--resting" role="option" aria-checked="false" id="l-5" aria-selected="true">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-deleted">checkpoint-store.ts</span>
+              <span class="ds-check-row-dir">src/main</span>
+              <span class="ds-check-row-trailing">D</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="false" id="l-6" aria-selected="false" aria-disabled="true">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">package-lock.json</span>
+              <span class="ds-check-row-dir">(not yours to stage)</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+  </div>
+  <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
+  <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="lt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+              <span class="ds-check-row-twisty" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M1.7 4.2a1 1 0 0 1 1-1h3l1.4 1.6h6.2a1 1 0 0 1 1 1v6.1a1 1 0 0 1-1 1H2.7a1 1 0 0 1-1-1z" stroke-width="1.2" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">design-system</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="lt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+              <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-css" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">component.css</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="lt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+              <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">tokens.ts</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same rows from the same tokens.</p>
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+      <div class="ds-check-row" role="option" aria-checked="true" id="d-1" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-modified">app-services.ts</span>
+              <span class="ds-check-row-dir">src/main</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="false" id="d-2" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-css" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-modified">component.css</span>
+              <span class="ds-check-row-dir">design-system/components/modal</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="mixed" id="d-3" aria-selected="false">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-added">repo-reader.ts</span>
+              <span class="ds-check-row-dir">src/main/skills</span>
+              <span class="ds-check-row-trailing">A</span>
+            </div>
+      <div class="ds-check-row ds-check-row--selected" role="option" aria-checked="true" id="d-4" aria-selected="true">
+              <span class="ds-check-row-cursor" aria-hidden="true"></span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-image" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" stroke-width="1.2" />
+            <path d="m2.4 11.4 3.1-3.2 2.3 2.2 2.3-2.6 3.4 3.6" stroke-width="1.3" stroke-linejoin="round" />
+            <circle cx="5.6" cy="6.1" r="1" stroke-width="1.2" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-added">swap2-top.png</span>
+              <span class="ds-check-row-dir"></span>
+              <span class="ds-check-row-trailing">A</span>
+            </div>
+      <div class="ds-check-row ds-check-row--resting" role="option" aria-checked="false" id="d-5" aria-selected="true">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name demo-deleted">checkpoint-store.ts</span>
+              <span class="ds-check-row-dir">src/main</span>
+              <span class="ds-check-row-trailing">D</span>
+            </div>
+      <div class="ds-check-row" role="option" aria-checked="false" id="d-6" aria-selected="false" aria-disabled="true">
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">package-lock.json</span>
+              <span class="ds-check-row-dir">(not yours to stage)</span>
+              <span class="ds-check-row-trailing">M</span>
+            </div>
+  </div>
+  <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
+  <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="dt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+              <span class="ds-check-row-twisty" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M1.7 4.2a1 1 0 0 1 1-1h3l1.4 1.6h6.2a1 1 0 0 1 1 1v6.1a1 1 0 0 1-1 1H2.7a1 1 0 0 1-1-1z" stroke-width="1.2" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">design-system</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="dt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+              <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-css" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">component.css</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="dt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+              <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-check" aria-hidden="true">
+          <span class="ds-checkbox-box">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+              <span class="ds-check-row-glyph demo-ts" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+            <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+            <path d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5" stroke-width="1.45" stroke-linecap="round" />
+          </svg>
+        </span>
+              <span class="ds-check-row-name">tokens.ts</span>
+              <span class="ds-check-row-dir"></span>
+            </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The pick-<strong>and</strong>-mark row, at the 24px hit-target floor: a file the person both chooses and ticks. The Git changes list is the surface it was drawn for — the tick *is* the index, checked means staged, mixed means partly staged — and the File Explorer's tree is the same row with a chevron and an indent.</p>
+<p>Two questions live on one 24px line, and the whole component is about keeping them apart: <strong>the tick is a value the row carries; the fill and the edge are where the person is.</strong> A row can be checked and unselected, selected and unchecked, or both at once, and none of those four states may be mistaken for another.</p>
+<p><strong>Why neither existing row could be it.</strong> [list-row](../list-row/component.md) caps at four visual elements at rest, and this row spends five before it has said anything — box, glyph, name, directory, trailing — and its row *is* the <code>&lt;button&gt;</code>, which a checkbox may not sit inside. [row-button](../row-button/component.md) owns no height at all, and the floor is the point here: four hundred files step at one pitch or the list reads as noise.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-check-row</code> | yes — a <code>&lt;div&gt;</code> with <code>role=&quot;option&quot;</code> or <code>role=&quot;treeitem&quot;</code>, never a <code>&lt;button&gt;</code> | | Cursor | <code>.ds-check-row-cursor</code> | no — the keyboard cursor mark, <code>aria-hidden</code> | | Twisty | <code>.ds-check-row-twisty</code> | <code>--tree</code> only — the disclosure chevron, <code>aria-hidden</code> | | Twisty (leaf) | <code>.ds-check-row-twisty--leaf</code> | <code>--tree</code> only — the slot kept, the mark dropped | | Check | <code>.ds-check-row-check</code> | yes — the 16px box slot, holding <code>components/checkbox</code>'s box | | Glyph | <code>.ds-check-row-glyph</code> | yes — a reserved 16px slot, present whether or not it is filled | | Name | <code>.ds-check-row-name</code> | yes — <code>flex: none</code>; never the part that truncates | | Directory | <code>.ds-check-row-dir</code> | no — <code>text.muted</code>, takes the remaining width, truncates first | | Trailing | <code>.ds-check-row-trailing</code> | no — display only: a status letter, a size, a count | | Body | <code>.ds-check-row-body</code> | no — a <code>&lt;button&gt;</code> wrapping glyph/name/directory, for a row outside a composite widget | | Depth | <code>--ds-check-row-depth</code> | <code>--tree</code> only — a unitless level, multiplying one <code>space.lg</code> step |</p>
+<p><strong>Five elements at rest, and that is the ceiling this row is allowed.</strong> The four-element ceiling in <code>principles.md</code> is a rule about a row a person *reads*; this row is one they *operate*, and the box is the operation. Nothing else goes in: no second glyph, no chip, no revealed action. A row this dense has no room to reveal anything — the list's toolbar and the row's context menu are where actions live.</p>
+<h4>The box is a sibling, never a descendant</h4>
+<p>A <code>&lt;label&gt;</code> cannot sit inside a <code>&lt;button&gt;</code>; that constraint is what shaped <code>list-row</code>'s <code>-host</code> wrapper, where the actions are the row's sibling because the row is the control. This row solves it upstream instead: <strong>the row is a <code>&lt;div&gt;</code> carrying an ARIA role</strong>, so the box is simply one of its children, beside the name rather than inside a control.</p>
+<p>Two spellings, and what owns the state picks between them:</p>
+<ul><li><strong>Composite (the default).</strong> The row is an <code>option</code> or a <code>treeitem</code> inside a widget that is <strong>one tab stop</strong> and walks with <code>aria-activedescendant</code>. The box must not be the 401st tab stop, so it is drawn with the checkbox component's own box and marks, marked <code>aria-hidden</code>, and the row's <code>aria-checked</code> (<code>true</code> / <code>false</code> / <code>mixed</code>) is the announced state. Space toggles it; the list owns that key.</li><li><strong>Standalone.</strong> The row is not inside a composite widget — a handful of rows in a dialog, each independently reachable. The kit checkbox goes in whole, input and all, and the row carries no <code>aria-checked</code>: the input is the state.</li></ul>
+<p>The <strong>drawing is the checkbox's in both cases</strong>. What <code>component.css</code> restates is only the two declarations that reveal the marked state, because CSS cannot say &quot;that rule, under a different condition&quot; — the box's size, radius, border, fill and ink all still come from [checkbox](../checkbox/component.md). A row that drew its own tick is exactly how five surfaces came to draw five checkboxes.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — the flat list row: box, glyph, name, directory, trailing.</li><li><strong><code>--tree</code></strong> — adds the chevron slot ahead of the box and a depth indent. The indent is a <strong>unitless depth</strong> (<code>--ds-check-row-depth: 2</code>) multiplying one <code>space.lg</code> step, not a pixel value, so a tree cannot drift off the scale one level at a time and a surface that wants a tighter tree changes one step rather than every row. Expansion is <code>aria-expanded</code> <strong>on the row</strong>, which is what a <code>treeitem</code> announces; the chevron is decoration, because a control inside the row would be a second tab stop per level.</li></ul>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | Transparent ground, <code>text.default</code> name, <code>text.muted</code> directory | | Hover | <code>bg.hover</code>. Background only — no shadow, scale, or border that shifts the row | | Focus-visible | <code>focus.ring</code>, drawn <strong>inward</strong>: the row is full-bleed against its list's edges, which clip an outset ring | | Selected (focused pane) | <code>bg.selected</code> + a 2px inset <code>accent.primary</code> edge + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code>, <strong>no edge</strong>, <code>text.default</code> | | Cursored | <code>.ds-check-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter | | Checked | <code>aria-checked=&quot;true&quot;</code> — the box takes the accent fill and the tick | | Mixed | <code>aria-checked=&quot;mixed&quot;</code> — the accent fill and the dash. Mixed outranks checked | | Disabled | <code>aria-disabled=&quot;true&quot;</code>, <code>opacity: 0.5</code>, <code>not-allowed</code>. Stays in the walk |</p>
+<p>Every one of these is [list-row](../list-row/component.md)'s, verbatim and deliberately. A second selection idiom on the row beside the rail would be a second answer to &quot;where am I&quot;, and the two channels this row already carries (state and choice) is the most one 24px line can hold.</p>
+<p><strong>Disabled is <code>aria-disabled</code>, never the attribute.</strong> The row is an item in a composite widget: it stays in the walk, and a person must be able to reach it and be told why it cannot be ticked.</p>
+<p><strong>The directory lifts one step on a selected row, and no further.</strong> The mockup lifted it to <code>text.primary</code> alongside the name; at that point the row's two halves weigh the same and the filename stops being the thing you find.</p>
+<h4>Usage</h4>
+<p><strong>The name does not flex.</strong> It is what the person is scanning for, so it is never the part that gets cut. The directory takes what is left and truncates from the end, where a path is least informative. A name wider than the whole row is clipped by the row rather than pushing the directory out of it.</p>
+<p><strong>One row, one pitch.</strong> <code>min-height</code> is the 24px hit-target floor, not a fixed height: a row whose content grows is a row that grew, not a row that broke. Two file lists at two pitches in one product is the defect this floor exists to prevent.</p>
+<p><strong>Two colour channels, never three</strong> (<code>principles.md</code> → &quot;Identity colour&quot;, amended 2026-09-09). The glyph may wear its language's kind hue and the name may wear a status tint, because the hue identifies and the tint grades — the glyph is the same blue on a modified, added and deleted <code>.ts</code> row. Nothing else in the row takes a colour, and interaction state paints over both.</p>
+<p><strong>Do not put anything interactive in the trailing slot</strong>, and do not add a hover-revealed action. At this density the reveal would be the fifth and sixth elements, and the row would move under the pointer.</p>
+<h4>Accessibility</h4>
+<ul><li>The row is a <code>&lt;div role=&quot;option&quot;&gt;</code> (a flat list) or <code>&lt;div role=&quot;treeitem&quot;&gt;</code> (a tree), never a <code>&lt;button&gt;</code> — so the box may sit inside it, and so the list can be one tab stop.</li><li><strong>The list is one tab stop.</strong> It carries <code>tabindex=&quot;0&quot;</code>, drives the row with <code>aria-activedescendant</code>, and each row carries a stable <code>id</code>. Arrow keys move the cursor, Space toggles the cursored row's <code>aria-checked</code>, and Enter opens.</li><li><code>aria-checked</code> is <code>true</code> / <code>false</code> / <code>&quot;mixed&quot;</code> and is the *only* announced form of the tick in composite mode; the drawn box is <code>aria-hidden</code>, so it is never met twice.</li><li>Selection is <code>aria-selected</code>, which is a different question from <code>aria-checked</code> and must not be conflated: a person can stage a file they are not looking at, and look at a file they have not staged.</li><li>A <code>treeitem</code> carries <code>aria-level</code>, and <code>aria-expanded</code> when it has children. A leaf declares neither <code>aria-expanded</code> nor a chevron mark, but keeps the chevron's slot.</li><li>The glyph is <code>aria-hidden</code>; the name carries the meaning. Where the glyph's kind is information a person needs, it goes in the row's accessible name or a tooltip, not in the hue alone.</li><li>The status tint on a name is never the only carrier of the status: the trailing slot's letter, or a visually-hidden clause, says &quot;modified&quot; in text.</li><li>Reduced motion removes the ground transition and the chevron's rotation; it never removes the state change.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/CheckRow.tsx</code>, exporting <code>CheckRow</code>.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/check-row/component.css</summary><pre><code>/* Check row — the pick-AND-mark row, at the 24px hit-target floor.
+ *
+ * The row a person both chooses and ticks: a Git changes list where the tick
+ * is the index, a file tree where it is a selection set. Two questions on one
+ * 24px line, and the whole component is about keeping them apart — the tick is
+ * a value the row carries, the fill and the edge are where the person is.
+ *
+ * Why it is not one of the two rows the system already has. `list-row` caps at
+ * four visual elements at rest and this row spends five before it has said
+ * anything (box, glyph, name, directory, trailing), and its row IS the
+ * `&lt;button&gt;`, which a checkbox may not sit inside. `row-button` owns no height
+ * at all, and the floor is the point here: a list of four hundred files steps
+ * at one pitch or it reads as noise.
+ *
+ * States are `list-row`'s, verbatim and deliberately: hover is a background,
+ * selection is a neutral fill plus a 2px inset accent edge, the resting tier
+ * drops the edge, the keyboard cursor is a gutter mark that composes over both
+ * fills. A second selection idiom on the row beside the rail would be a second
+ * answer to &quot;where am I&quot;. */
+
+.ds-check-row {
+  /* Positioned for the cursor mark, which hangs in the leading gutter. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  /* The floor, not a height: a row whose name wraps to two lines is a row that
+     grew, not a row that broke. Nothing here sets a fixed height. */
+  min-height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border: 0;
+  /* Full-bleed in a list that reaches its container's edges, so no radius —
+     an inset rounded fill inside a padded surface reads as a card in a card
+     (row-button's `--bleed` makes the same call for the same reason). */
+  border-radius: 0;
+  background: transparent;
+  /* A name longer than the row is clipped here rather than pushing the
+     directory out of the row: the name is `flex: none` on purpose (below). */
+  overflow: hidden;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  text-align: left;
+  /* The row is a listbox option or a tree item, not a link: the pointer says
+     &quot;pick&quot;, and picking is what a click does. */
+  cursor: default;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* The ring turns INWARD. The row is full-bleed against its list's edges, so an
+ * outset ring at the shared offset is clipped by them — the carve-out
+ * principles.md already names for a control that touches what clips it. */
+.ds-check-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* Disabled is `aria-disabled`, never the attribute: the row is a composite
+ * item, it stays in the walk, and a person must be able to reach it and be
+ * told why it cannot be ticked. */
+.ds-check-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * list-row's two tiers, unchanged. `--selected` is the pane being driven:
+ * neutral fill plus a 2px inset accent EDGE. `--resting` is every other pane's
+ * remembered choice: the quieter fill and no edge, so exactly one edge is on
+ * screen. Never an accent fill, never a left bar — the leading gutter belongs
+ * to the cursor. */
+.ds-check-row--selected {
+  background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-check-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-check-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* The directory lifts one step on a selected row and no further. The mockup
+ * lifted it to `text.primary` alongside the name; at that point the row's two
+ * halves weigh the same and the filename stops being the thing you find. */
+.ds-check-row--selected .ds-check-row-dir,
+.ds-check-row--resting .ds-check-row-dir {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A gutter mark rather than a fill, because it has to
+ * stay visible on a row that is already selected and distinct from one merely
+ * hovered — which neither fill can manage over the other. `text.primary`, not
+ * the accent: `border.focus` and `accent.primary` are one value in all but one
+ * theme, so an accent bar here reads as a focus ring that slipped. */
+.ds-check-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  width: var(--sem-space-3xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
+}
+
+/* ── The box ─────────────────────────────────────────────────────────────
+ * The kit checkbox, as a SIBLING of everything else in the row and never a
+ * descendant of a control: a `&lt;label&gt;` cannot sit inside a `&lt;button&gt;`, which
+ * is the constraint that shaped `list-row`'s `-host` wrapper. Here the row
+ * itself is a `&lt;div&gt;` carrying an ARIA role, so the sibling arrangement is the
+ * row's own children — no wrapper needed, and the box is still never nested in
+ * a control.
+ *
+ * Two spellings, and the surface picks by what owns the state:
+ *
+ *   composite (default) — the row is a `treeitem`/`option` inside a widget
+ *   that is ONE tab stop, so the box must not be a 401st. It is drawn with the
+ *   checkbox component's own box and marks, `aria-hidden`, and the row's
+ *   `aria-checked` is the announced state.
+ *
+ *   standalone — the row is not inside a composite widget; the kit checkbox
+ *   goes in whole, input and all, and the row carries no `aria-checked`.
+ *
+ * The drawing is the checkbox's in both. What is restated below is only the
+ * two declarations that reveal the marked state, because CSS cannot say
+ * &quot;that rule, under a different condition&quot; — the box, its size, its radius,
+ * its border and its ink all still come from `components/checkbox`. */
+.ds-check-row-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-box,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-mark--check,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--dash {
+  display: block;
+}
+
+/* Mixed outranks checked, exactly as the checkbox's own `:indeterminate` rule
+ * does: a row standing for a partly-staged file is showing a mixed set, and
+ * the dash is what says so. */
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--check {
+  display: none;
+}
+
+/* ── Glyph ───────────────────────────────────────────────────────────────
+ * A reserved 16px slot, present whether or not it is filled. Unreserved is
+ * how sibling rows' names come to start at three different x-offsets. */
+.ds-check-row-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row-glyph svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* ── Name and directory ──────────────────────────────────────────────────
+ * The name does NOT flex. It is the answer the person is scanning for, so it
+ * is never the part that gets cut; the directory takes what is left and
+ * truncates first, from the end, which is where a path is least informative. */
+.ds-check-row-name {
+  flex: none;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.ds-check-row-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display only — a status letter, a size, a count. Never interactive: a row
+ * this dense has no room to reveal an action, and the list's own toolbar or
+ * the row's context menu is where those live. */
+.ds-check-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────
+ * For the one surface whose row body must itself be a control — a row outside
+ * a composite widget, where the click target is the row and not the list. The
+ * box stays its SIBLING; that is the whole reason this part exists rather than
+ * the row becoming a `&lt;button&gt;`. */
+.ds-check-row-body {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-check-row-body:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* ── Tree ────────────────────────────────────────────────────────────────
+ * The File Explorer's shape: a disclosure chevron in a reserved slot ahead of
+ * the box, and a depth indent.
+ *
+ * The indent is a UNITLESS depth, not a pixel value: `--ds-check-row-depth: 2`
+ * multiplies one `space.lg` step, so the tree cannot drift off the scale one
+ * level at a time, and a surface that wants a tighter tree changes one step
+ * rather than every row.
+ *
+ * The chevron is decoration. Expansion is `aria-expanded` on the row itself,
+ * which is what a `treeitem` announces; a second control inside the row would
+ * be a second tab stop per level. */
+.ds-check-row--tree {
+  padding-left: calc(var(--sem-space-sm) + var(--sem-space-lg) * var(--ds-check-row-depth, 0));
+}
+
+.ds-check-row-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-text-subtle);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-check-row[aria-expanded='true'] .ds-check-row-twisty {
+  transform: rotate(90deg);
+}
+
+/* A leaf keeps the slot and drops the mark: without the reservation every leaf
+ * row's glyph sits one chevron to the left of its parent's. */
+.ds-check-row-twisty--leaf {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-check-row,
+  .ds-check-row-twisty {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/check-row/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Check row&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../checkbox/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  /* The list the rows live in: full-bleed, so the rows reach its edges. */
+  .demo-list {
+    max-width: 520px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  .demo-list:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  /* The two colour channels the 2026-09-09 identity-colour amendment allows on
+     one file row: the glyph's kind hue identifies, the name's status tint
+     grades. The glyph is the same blue on all three .ts rows. */
+  .demo-ts { color: var(--sem-color-mark-blue); }
+  .demo-css { color: var(--sem-color-mark-violet); }
+  .demo-image { color: var(--sem-color-mark-violet); }
+  .demo-modified { color: var(--sem-color-status-warn); }
+  .demo-added { color: var(--sem-color-status-good); }
+  .demo-deleted { color: var(--sem-color-status-danger); text-decoration: line-through; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — checked, unchecked, mixed, selected with the keyboard cursor, resting, disabled.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;l-1&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-modified&quot;&gt;app-services.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;l-2&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-css&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-modified&quot;&gt;component.css&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;design-system/components/modal&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;mixed&quot; id=&quot;l-3&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-added&quot;&gt;repo-reader.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main/skills&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;A&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--selected&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;l-4&quot; aria-selected=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-cursor&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-image&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;2.6&quot; width=&quot;12.8&quot; height=&quot;10.8&quot; rx=&quot;1.6&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;m2.4 11.4 3.1-3.2 2.3 2.2 2.3-2.6 3.4 3.6&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;circle cx=&quot;5.6&quot; cy=&quot;6.1&quot; r=&quot;1&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-added&quot;&gt;swap2-top.png&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;A&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--resting&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;l-5&quot; aria-selected=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-deleted&quot;&gt;checkpoint-store.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;D&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;l-6&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;package-lock.json&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;(not yours to stage)&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The same row as a tree: a chevron slot, a unitless depth indent.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;tree&quot; aria-label=&quot;Project files&quot; tabindex=&quot;0&quot;&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;lt-1&quot; aria-expanded=&quot;true&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M1.7 4.2a1 1 0 0 1 1-1h3l1.4 1.6h6.2a1 1 0 0 1 1 1v6.1a1 1 0 0 1-1 1H2.7a1 1 0 0 1-1-1z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;design-system&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;true&quot; id=&quot;lt-2&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-css&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;component.css&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;false&quot; id=&quot;lt-3&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;tokens.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same rows from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;d-1&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-modified&quot;&gt;app-services.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;d-2&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-css&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-modified&quot;&gt;component.css&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;design-system/components/modal&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;mixed&quot; id=&quot;d-3&quot; aria-selected=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-added&quot;&gt;repo-reader.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main/skills&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;A&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--selected&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;d-4&quot; aria-selected=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-cursor&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-image&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;2.6&quot; width=&quot;12.8&quot; height=&quot;10.8&quot; rx=&quot;1.6&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;m2.4 11.4 3.1-3.2 2.3 2.2 2.3-2.6 3.4 3.6&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;circle cx=&quot;5.6&quot; cy=&quot;6.1&quot; r=&quot;1&quot; stroke-width=&quot;1.2&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-added&quot;&gt;swap2-top.png&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;A&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--resting&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;d-5&quot; aria-selected=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name demo-deleted&quot;&gt;checkpoint-store.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;src/main&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;D&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;false&quot; id=&quot;d-6&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;package-lock.json&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;(not yours to stage)&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-trailing&quot;&gt;M&lt;/span&gt;
+            &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The same row as a tree: a chevron slot, a unitless depth indent.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;tree&quot; aria-label=&quot;Project files&quot; tabindex=&quot;0&quot;&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;dt-1&quot; aria-expanded=&quot;true&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M1.7 4.2a1 1 0 0 1 1-1h3l1.4 1.6h6.2a1 1 0 0 1 1 1v6.1a1 1 0 0 1-1 1H2.7a1 1 0 0 1-1-1z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;design-system&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;true&quot; id=&quot;dt-2&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-css&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.3 2.9 4.9 13.1M11.1 2.9 9.7 13.1M2.9 6.2h10.2M2.4 9.8h10.2&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;component.css&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
+      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;false&quot; id=&quot;dt-3&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+              &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-glyph demo-ts&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+            &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+            &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;path d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-name&quot;&gt;tokens.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
+            &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;
