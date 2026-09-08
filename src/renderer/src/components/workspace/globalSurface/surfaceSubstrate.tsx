@@ -176,6 +176,15 @@ export interface SurfaceRailRow {
   /** Right-click anywhere on the row. The same menu the `actions` trigger opens,
    *  so the affordance is discoverable both ways. */
   onContextMenu?: (position: { x: number; y: number }) => void
+  /** A small standing mark beside the title — the Design door's "3 new" chip.
+   *  Unlike `actions` it is always visible: `actions` is a control that appears
+   *  on hover, this is a FACT about the row, and a fact that only shows while
+   *  the pointer is over it is a fact nobody reads. It shares the title's line
+   *  and never grows it: the title truncates first (`shrink-0` on the mark), so
+   *  a long name cannot push the mark out of the row. Plain rows only — the rich
+   *  row already has a line of marks under its title, which is where a door
+   *  wearing that shape puts one. */
+  mark?: React.ReactNode
 
   // ── The rich row ────────────────────────────────────────────────────────
   // A row in the app sidebar's own shape (door-rails-premium): a line above the
@@ -625,13 +634,28 @@ export function SurfaceRail({
           {/* The selected row's ink lift is the second channel of the
               selection, so an unselected title has to sit a step below it —
               and in a resting rail the lift drops back out with the fill. */}
-          <TruncatedText
-            as="span"
-            text={row.title}
-            className={`text-body font-medium ${
-              selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
-            }`}
-          />
+          {/* The mark shares the title's line, and only a row that HAS one pays
+              for the extra box — every other door's row markup is untouched. */}
+          {row.mark ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <TruncatedText
+                as="span"
+                text={row.title}
+                className={`min-w-0 flex-1 text-body font-medium ${
+                  selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+                }`}
+              />
+              {row.mark}
+            </span>
+          ) : (
+            <TruncatedText
+              as="span"
+              text={row.title}
+              className={`text-body font-medium ${
+                selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}
+            />
+          )}
           <TruncatedText as="span" text={row.stateLine} className="text-meta text-[color:var(--text-subtle)]" />
         </span>
         {/* Reserve the trailing gutter so revealing the overflow never reflows

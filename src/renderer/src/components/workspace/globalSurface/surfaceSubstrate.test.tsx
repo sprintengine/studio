@@ -197,6 +197,62 @@ async function main(): Promise<void> {
     mixed.unmount()
   }
 
+  // ── 4b. a row's standing mark is a FACT, not a hover control ──────────────
+  // `actions` fades in under the pointer because it is a control you reach for.
+  // `mark` is the Design door's "3 new" roll-up: something true about the row,
+  // and a fact that only appears on hover is a fact nobody reads.
+
+  {
+    const rows: SurfaceRailRow[] = [
+      {
+        id: 'marked',
+        title: 'A system with a very long name that has to give way first',
+        stateLine: '2.4.0',
+        mark: <span data-standing-mark="true">3 new</span>,
+        actions: <button type="button">…</button>,
+      },
+      { id: 'plain', title: 'Plain', stateLine: 'no mark' },
+    ]
+    const rail = mount(
+      <SurfaceRail
+        label="Door"
+        rows={rows}
+        selectedId={null}
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New thing', onActivate: () => undefined }}
+      />,
+    )
+    const mark = rail.container.querySelector('[data-standing-mark="true"]')
+    assert.ok(mark, 'the mark renders')
+    // Nothing between the mark and the row button hides it until hover — the
+    // opacity-0 wrapper belongs to `actions` and must not have swallowed this.
+    for (let node = mark!.parentElement; node && node.tagName !== 'BUTTON'; node = node.parentElement) {
+      assert.ok(
+        !/opacity-0/.test(node.getAttribute('class') ?? ''),
+        'a standing mark is never gated on hover the way an action is',
+      )
+    }
+    // It shares the title's line, and the title is what gives way.
+    const line = mark!.parentElement
+    const title = line?.querySelector('span:first-child')
+    assert.match(title?.getAttribute('class') ?? '', /\bflex-1\b/, 'the title takes the slack')
+    assert.match(title?.getAttribute('class') ?? '', /\btruncate\b/, 'and truncates rather than pushing the mark out')
+    // A row that passes none renders the title exactly as it always did — no
+    // wrapper, so every other door's rail markup is untouched.
+    const plainRow = rail.container.querySelectorAll('li')[1]
+    const plainTitle = [...plainRow!.querySelectorAll('span')].find(
+      (node) => node.textContent === 'Plain',
+    )
+    assert.ok(plainTitle, 'the unmarked row renders its title')
+    assert.equal(
+      plainTitle!.parentElement?.querySelectorAll('span').length,
+      2,
+      'title and state line only: an unmarked row grew no extra box',
+    )
+    console.log('ok - a standing mark shows without hover, and only the marked row pays for it')
+    rail.unmount()
+  }
+
   // ── 5. the ruled alignment grid (MC-2101) ─────────────────────────────────
   // patterns/context-rail.html, "The alignment grid": a row title sits 36px from
   // the column edge, as 4 (scrollport) + 8 (row padding) + 16 (icon slot) + 8

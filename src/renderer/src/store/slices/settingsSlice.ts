@@ -343,6 +343,43 @@ export function normalizeFolderPathSetting(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+/**
+ * How many design systems' visit stamps are worth keeping.
+ *
+ * The map grows by one per bundle ever opened and shrinks never — forgetting a
+ * library registration does not, and should not, reach into this. A person who
+ * has opened forty systems has forty stamps, which is nothing; a profile that
+ * somehow accumulates thousands is carrying dead weight in every settings write.
+ * Trimmed to the most recently visited, because the oldest stamp is the one
+ * whose bundle is least likely to be opened again — and losing it costs only a
+ * thirty-day window of markers on a system nobody has looked at in years.
+ */
+const DESIGN_SYSTEM_SEEN_LIMIT = 200
+
+/**
+ * The Design door's per-bundle visit stamps: bundle id → ISO timestamp.
+ *
+ * Both halves are validated. A key that is not a non-empty string, and a value
+ * that is not a parseable date, are dropped rather than carried: an unparseable
+ * stamp reads as "never seen", which would quietly re-announce a system's whole
+ * contents, and that is the failure mode worth spending a normalizer on.
+ */
+export function normalizeDesignSystemSeen(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const pairs: Array<[string, string, number]> = []
+  for (const [key, stamp] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof key !== 'string' || key.trim() === '') continue
+    if (typeof stamp !== 'string') continue
+    const at = Date.parse(stamp)
+    if (Number.isNaN(at)) continue
+    pairs.push([key, stamp, at])
+  }
+  const kept = pairs.sort((left, right) => right[2] - left[2]).slice(0, DESIGN_SYSTEM_SEEN_LIMIT)
+  const out: Record<string, string> = {}
+  for (const [key, stamp] of kept) out[key] = stamp
+  return out
+}
+
 // Relocated to shared with MC-2160 (main normalizes the preset when it composes
 // a sprint run); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/sprintengine/automation-lifecycle'
@@ -991,6 +1028,9 @@ export const defaultAppSettings = (): AppSettings => ({
   // Null follows the active workspace, which is what the Design door did before
   // it had a chip at all.
   designProjectScopePath: null,
+  // Nothing opened yet. A bundle absent from the map has never been seen, which
+  // the marker rule treats as "already seen, except the last thirty days".
+  designSystemSeen: {},
   learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
   voiceDictation: defaultVoiceDictationSettings(),
@@ -1058,6 +1098,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       workspaces.map((ws) => ws.folderPath)
     ),
     designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
+    designSystemSeen: normalizeDesignSystemSeen(settings?.designSystemSeen),
     learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
@@ -1246,6 +1287,15 @@ export interface SettingsSliceActions {
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
   setDesignProjectScopePath: (path: string | null) => void
+  /**
+   * Stamp a design system as seen, now.
+   *
+   * Called by the Design door AFTER it has computed the markers for the render
+   * that is showing the bundle, so the visit that reveals them is the visit that
+   * clears them: the person sees what is new while they are looking, and the
+   * next open is quiet.
+   */
+  markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   /**
@@ -1637,6 +1687,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setDesignProjectScopePath: (path) =>
       set((state) => {
         state.appSettings.designProjectScopePath = normalizeFolderPathSetting(path)
+      }),
+
+    markDesignSystemSeen: (bundleId, at) =>
+      set((state) => {
+        const id = typeof bundleId === 'string' ? bundleId.trim() : ''
+        if (!id) return
+        const stamp = typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : new Date().toISOString()
+        // Through the normalizer rather than a bare assignment, so the trim to
+        // the most recent stamps happens on the write that grows the map rather
+        // than only on the next hydration.
+        state.appSettings.designSystemSeen = normalizeDesignSystemSeen({
+          ...state.appSettings.designSystemSeen,
+          [id]: stamp,
+        })
       }),
 
     setLastAgentSpawnPermissionPreset: (preset) =>

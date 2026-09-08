@@ -58,12 +58,17 @@ function markup(node: Parameters<typeof renderToStaticMarkup>[0]): string {
   return renderToStaticMarkup(node)
 }
 
-function railMarkup(entries: DesignRailEntry[], selectedId: string | null = null): string {
+function railMarkup(
+  entries: DesignRailEntry[],
+  selectedId: string | null = null,
+  newCounts?: Record<string, number>,
+): string {
   return markup(
     <DesignRail
       entries={entries}
       selectedId={selectedId}
       accentMode="dark"
+      newCounts={newCounts}
       search=""
       onSearch={() => {}}
       status="all"
@@ -304,5 +309,80 @@ run('while New holds the selection, no row is current', () => {
   const rowRegion = newHolds.slice(newHolds.indexOf('New design system'))
   assert.ok(!/aria-current="true"/.test(rowRegion), 'the row released the selection')
 })
+
+// ── "New since you last looked" ──────────────────────────────────────────────
+//
+// The rail's rows are SYSTEMS, so the per-entry markers live on the canvas and
+// the row carries the roll-up. Each case below is a way the roll-up lies: a
+// count nobody can read out, a chip on a system with nothing new in it, or a
+// mark that eats the name it is qualifying.
+
+run('a system with arrivals wears the roll-up, and it reads as a sentence', () => {
+  const brand = entry()
+  const html = railMarkup([brand], null, { [brand.id]: 3 })
+  // The word is in the markup, not implied by a bare number: "3" beside a
+  // system name means nothing to anyone reading the row out.
+  assert.match(html, /3 new/)
+  assert.ok(!/>3</.test(html), 'never a naked count')
+  // And the name is still there — the mark joins the title, it does not replace it.
+  assert.match(html, /multicode/)
+})
+
+run('the roll-up is the kit’s New mark, the same one the model picker wears', () => {
+  const brand = entry()
+  const html = railMarkup([brand], null, { [brand.id]: 1 })
+  // Accent ink on the soft accent fill, pill, no hairline. A second drawing of
+  // "New" one door away from the first is the thing this is preventing.
+  assert.match(html, /bg-\[color:var\(--accent-primary-soft\)\]/)
+  assert.match(html, /text-\[color:var\(--accent-primary\)\]/)
+  assert.match(html, /rounded-full/)
+  // design-tokens-allow: asserting the ABSENCE of a hairline on the mark.
+  const mark = html.slice(html.indexOf('accent-primary-soft'))
+  assert.ok(!/border-\[color:var\(--border/.test(mark.slice(0, 200)), 'no border: this is not a state chip')
+})
+
+run('a system with nothing new wears nothing at all', () => {
+  const brand = entry()
+  // A "0 new" chip is a chip that says nothing, and the absence is the answer.
+  assert.ok(!/new/i.test(rowRegion(railMarkup([brand], null, { [brand.id]: 0 }))), 'zero is silent')
+  assert.ok(!/new/i.test(rowRegion(railMarkup([brand], null, {}))), 'absent is silent')
+  assert.ok(!/new/i.test(rowRegion(railMarkup([brand]))), 'no map at all is silent')
+})
+
+run('the roll-up lands on the row it belongs to, and only that row', () => {
+  const brand = entry()
+  const other = entry({ path: '/work/other/design-system', identity: identity({ path: '/work/other/design-system', name: 'harbor' }) })
+  const html = railMarkup([brand, other], null, { [other.id]: 2 })
+  const brandRow = html.slice(html.indexOf('multicode'), html.indexOf('harbor'))
+  assert.ok(!/new/i.test(brandRow), 'the untouched system stays quiet')
+  assert.match(html.slice(html.indexOf('harbor')), /2 new/)
+})
+
+run('the name truncates before the mark does, and the state line is untouched', () => {
+  const brand = entry()
+  const html = railMarkup([brand], null, { [brand.id]: 4 })
+  const title = html.slice(html.indexOf('multicode') - 200, html.indexOf('multicode'))
+  assert.match(title, /min-w-0 flex-1/, 'the name is what gives way')
+  const mark = html.slice(html.indexOf('accent-primary-soft') - 120, html.indexOf('accent-primary-soft'))
+  assert.match(mark, /shrink-0/, 'a long name can never push the mark out of the row')
+  // The version still rides its own line: the mark joined the title, it did not
+  // take the row over.
+  assert.match(html, /2\.4\.0/)
+})
+
+run('a row with no mark keeps the markup every other door’s rail already had', () => {
+  // The shared row grew an optional slot. A door that never passes one must
+  // render byte-identically to what it rendered before the slot existed.
+  const brand = entry()
+  const withoutMark = railMarkup([brand])
+  assert.ok(!/flex min-w-0 items-center gap-1\.5"><span class="truncate min-w-0 flex-1 text-body/.test(withoutMark))
+  assert.match(withoutMark, /<span class="truncate text-body font-medium/, 'the plain title, unwrapped')
+})
+
+/** The rows, without the head — "New design system" contains the word too. */
+function rowRegion(html: string): string {
+  const index = html.indexOf('New design system')
+  return index === -1 ? html : html.slice(index + 'New design system'.length)
+}
 
 console.log('designRail.test.tsx: ok')

@@ -1,6 +1,6 @@
 import type React from 'react'
 
-import type { FilterMenuGroup } from '../../../ui'
+import { NewChip, type FilterMenuGroup } from '../../../ui'
 import { SurfaceRail, type SurfaceRailGroup, type SurfaceRailRow } from '../surfaceSubstrate'
 import {
   buildDesignRailGroups,
@@ -48,6 +48,7 @@ export function DesignRail({
   entries,
   selectedId,
   accentMode,
+  newCounts,
   projectScope,
   search,
   onSearch,
@@ -62,6 +63,15 @@ export function DesignRail({
   selectedId: string | null
   /** Which of the bundle's two declared modes its accent is read for. */
   accentMode: 'light' | 'dark'
+  /**
+   * Row id → how many entries in that bundle arrived since it was last opened.
+   *
+   * The rail's rows are SYSTEMS, not the things inside them, so the per-entry
+   * markers live on the canvas and the row carries the roll-up. A row missing
+   * from this map, or sitting at zero, wears nothing: a "0 new" chip is a chip
+   * that says nothing, and the absence is the answer.
+   */
+  newCounts?: Readonly<Record<string, number>>
   /**
    * The project chip: which project's `design-system/` the door is showing.
    *
@@ -87,14 +97,22 @@ export function DesignRail({
   const toRow = (entry: DesignRailEntry): SurfaceRailRow => {
     const title = designRowTitle(entry)
     const stateLine = designRowStateLine(entry)
+    const newCount = newCounts?.[entry.id] ?? 0
     return {
       id: entry.id,
       title,
       stateLine,
       // A truncated row is still readable on hover, and a broken row's tooltip
-      // carries the full path the state line had to shorten.
-      tooltip: `${title} — ${stateLine}`,
+      // carries the full path the state line had to shorten. The count joins it
+      // rather than replacing anything: the chip is small and the tooltip is
+      // where the row says its whole self.
+      tooltip: newCount > 0 ? `${title} — ${stateLine} · ${newCount} new` : `${title} — ${stateLine}`,
       icon: <DesignSystemChip accent={entry.identity?.accent[accentMode] ?? null} />,
+      // The roll-up, in the kit's own New mark — the same drawing the model
+      // picker wears, so one word has one look across the app. Reading it out
+      // as "3 new" rather than a bare "3" is the whole accessible name: a
+      // number beside a system name means nothing on its own.
+      mark: newCount > 0 ? <NewChip>{`${newCount} new`}</NewChip> : undefined,
     }
   }
   const groups: SurfaceRailGroup[] = modelGroups.map((group) => ({

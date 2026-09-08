@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
   cpSync,
@@ -362,6 +363,46 @@ run('opening a system spawns no process and writes nothing', async () => {
     const imported = fsImport[1].split(',').map((name) => name.trim()).filter(Boolean)
     assert.deepEqual(imported.sort(), ['readFile', 'readdir', 'stat'], 'read-only fs surface')
 
+    // The one module the read path reaches that DOES run a process is
+    // `entry-added-at`, and it is held to the other half of the same contract:
+    // it may query git, and it may not write. A `git add`, a `git checkout`, or
+    // any fs writer appearing there would be this module reaching into the
+    // user's own repo on a path that opens every time the door does.
+    const addedAtSource = readFileSync(
+      join(process.cwd(), 'src/main/design-system/entry-added-at.ts'),
+      'utf8',
+    )
+    const addedAtCode = addedAtSource
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    for (const forbidden of [
+      'writeFile',
+      'mkdir',
+      'rmdir',
+      'unlink',
+      'appendFile',
+      'utilityProcess',
+      'fork(',
+      // (`rename` is not in this list: `--no-renames` is a git LOG flag. The
+      // fs surface below pins the writers out completely anyway.)
+      // git subcommands that would change the user's repo rather than ask it.
+      "'add'",
+      "'commit'",
+      "'checkout'",
+      "'clean'",
+      "'reset'",
+    ]) {
+      assert.ok(!addedAtCode.includes(forbidden), `entry-added-at must not reference ${forbidden}`)
+    }
+    // And it reads exactly one thing from the filesystem.
+    const addedAtFsImport = /import \{([^}]*)\} from 'fs\/promises'/.exec(addedAtCode)
+    assert.ok(addedAtFsImport, 'entry-added-at imports from fs/promises')
+    assert.deepEqual(
+      addedAtFsImport[1].split(',').map((name) => name.trim()).filter(Boolean).sort(),
+      ['stat'],
+      'entry-added-at only stats',
+    )
+
     // Second: nothing on disk changed across a read.
     const before = snapshot(dir)
     await readDesignSystemBundle(dir)
@@ -412,6 +453,163 @@ run('a 100-component bundle reads in one call, and the payload stays linear', as
     assert.equal(occurrences, 1, 'the emitted token block appears exactly once in the payload')
     // And the payload is linear in real authored content, not quadratic.
     assert.ok(perComponent < 40_000, `${perComponent.toFixed(0)}B per component is out of budget`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ── When each entry arrived (the Design door's "New" marker) ────────────────
+//
+// The date is DERIVED, from the two places it already exists on disk. Nothing is
+// added to `design-system.json`: a bundle a user authored last year must light
+// its markers without being edited, which a new manifest field could never do.
+
+/** A temp git repo with the example bundle inside it, committed in stages. */
+function gitRepoWithBundle(): { repo: string; bundleDir: string } {
+  const repo = mkdtempSync(join(tmpdir(), 'ds-added-git-'))
+  const bundleDir = join(repo, 'design-system')
+  cpSync(exampleRoot, bundleDir, { recursive: true })
+  git(repo, 'init', '-b', 'main')
+  return { repo, bundleDir }
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.invalid',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@example.invalid',
+    },
+  })
+}
+
+function commitAt(repo: string, when: string, message: string): void {
+  git(repo, 'add', '-A')
+  execFileSync('git', ['-C', repo, 'commit', '-m', message], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.invalid',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@example.invalid',
+      GIT_AUTHOR_DATE: when,
+      GIT_COMMITTER_DATE: when,
+    },
+  })
+}
+
+function declareComponent(bundleDir: string, name: string): void {
+  const manifestPath = join(bundleDir, 'design-system.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, any>
+  cpSync(join(bundleDir, 'components', 'button'), join(bundleDir, 'components', name), {
+    recursive: true,
+  })
+  manifest.contents.components = [...manifest.contents.components, name]
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+run('inside a git repo, each entry is dated by the commit that ADDED it', async () => {
+  const { repo, bundleDir } = gitRepoWithBundle()
+  try {
+    commitAt(repo, '2026-01-05T10:00:00+00:00', 'the system arrives')
+    declareComponent(bundleDir, 'late-arrival')
+    commitAt(repo, '2026-06-02T09:30:00+00:00', 'one more component')
+
+    const result = await readDesignSystemBundle(bundleDir)
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    const addedAt = result.view.addedAt ?? {}
+
+    // Every declared entry got a date from history, keyed by group + the
+    // manifest's own string.
+    assert.equal(addedAt['components:button'], '2026-01-05T10:00:00.000Z')
+    assert.equal(addedAt['components:late-arrival'], '2026-06-02T09:30:00.000Z')
+    assert.equal(addedAt['foundations:foundations/tokens.tokens.json'], '2026-01-05T10:00:00.000Z')
+    // A component is a DIRECTORY: its date is the earliest add among its files,
+    // not whichever file git happened to name first.
+    for (const declared of result.view.manifest.contents.components) {
+      assert.ok(addedAt[`components:${declared}`], `${declared} has no date`)
+    }
+
+    // And the manifest itself is untouched — the schema gains nothing.
+    assert.ok(!('addedAt' in result.view.manifest), 'the manifest schema is not extended')
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('a component deleted and restored keeps its ORIGINAL arrival', async () => {
+  // Otherwise a refactor that moved a component out and back announces it as
+  // new to everyone who has been watching it for a year.
+  const { repo, bundleDir } = gitRepoWithBundle()
+  try {
+    commitAt(repo, '2026-01-05T10:00:00+00:00', 'the system arrives')
+    const componentDir = join(bundleDir, 'components', 'button')
+    const kept = snapshot(componentDir)
+    rmSync(componentDir, { recursive: true, force: true })
+    commitAt(repo, '2026-03-01T10:00:00+00:00', 'drop it')
+    mkdirSync(componentDir, { recursive: true })
+    for (const [relative, base64] of Object.entries(kept)) {
+      writeFileSync(join(componentDir, relative.replace(/^[\\/]/, '')), Buffer.from(base64, 'base64'))
+    }
+    commitAt(repo, '2026-07-01T10:00:00+00:00', 'bring it back')
+
+    const result = await readDesignSystemBundle(bundleDir)
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.view.addedAt?.['components:button'], '2026-01-05T10:00:00.000Z')
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('an uncommitted component in a tracked bundle falls back on its own', async () => {
+  // A bundle can be in a repo and still hold something never committed. The
+  // fallback is per ENTRY, not per bundle, so the new one is not simply dateless.
+  const { repo, bundleDir } = gitRepoWithBundle()
+  try {
+    commitAt(repo, '2026-01-05T10:00:00+00:00', 'the system arrives')
+    declareComponent(bundleDir, 'never-committed')
+
+    const result = await readDesignSystemBundle(bundleDir)
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    const addedAt = result.view.addedAt ?? {}
+    assert.equal(addedAt['components:button'], '2026-01-05T10:00:00.000Z')
+    const uncommitted = addedAt['components:never-committed']
+    // Birthtime, where the filesystem carries one: recent, and never the git date.
+    if (uncommitted !== undefined) {
+      assert.notEqual(uncommitted, '2026-01-05T10:00:00.000Z')
+      assert.ok(Date.now() - Date.parse(uncommitted) < 60 * 60 * 1000, uncommitted)
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('a bundle outside git is dated by birthtime, and never fails the read', async () => {
+  const dir = exampleCopy()
+  try {
+    const result = await readDesignSystemBundle(dir)
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    const addedAt = result.view.addedAt ?? {}
+    // A folder with no repo behind it still reads; it just has no history to
+    // ask. Where the filesystem reports a creation time, every declared entry
+    // that is actually on disk carries one — and it is the copy's own age.
+    for (const [key, iso] of Object.entries(addedAt)) {
+      assert.ok(!Number.isNaN(Date.parse(iso)), `${key} is not a date: ${iso}`)
+      assert.ok(Date.now() - Date.parse(iso) < 60 * 60 * 1000, `${key} is not recent: ${iso}`)
+    }
+    // Filesystems that carry no birthtime report nothing rather than the epoch:
+    // an unknown date must never render as an ancient one.
+    if (Object.keys(addedAt).length > 0) {
+      assert.ok(addedAt['components:button'], 'a component on disk is dated')
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

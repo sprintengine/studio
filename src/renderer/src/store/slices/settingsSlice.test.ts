@@ -14,6 +14,7 @@ import {
   normalizeSelectedCli,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
+  normalizeDesignSystemSeen,
   normalizeKeybindingSettings,
   normalizeModuleSettings,
   normalizeSprintEngineRunSettings,
@@ -1787,6 +1788,72 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
   useWorkspaceStore.getState().setTextGenerationEngine(null)
   assert.deepEqual(textGeneration(), { enabled: false, engine: null }, 'clearing the engine leaves enabled alone')
   useWorkspaceStore.getState().setTextGenerationEnabled(true)
+}
+
+// ── The Design door's per-bundle visit stamps ───────────────────────────────
+//
+// `designSystemSeen` is what the door's "New" marker is measured against, so
+// every way this map can go wrong deletes or fabricates a marker the person
+// cannot check against anything.
+{
+  // Absent, and every non-map shape, reads as "nothing opened yet" rather than
+  // throwing or carrying a shape the door would index into.
+  assert.deepEqual(defaultAppSettings().designSystemSeen, {})
+  assert.deepEqual(normalizeAppSettings(undefined, []).designSystemSeen, {})
+  assert.deepEqual(normalizeAppSettings({}, []).designSystemSeen, {})
+  assert.deepEqual(normalizeDesignSystemSeen(undefined), {})
+  assert.deepEqual(normalizeDesignSystemSeen(null), {})
+  assert.deepEqual(normalizeDesignSystemSeen('2026-09-08T00:00:00.000Z'), {})
+  assert.deepEqual(normalizeDesignSystemSeen([['lib:/a', '2026-09-08T00:00:00.000Z']]), {})
+
+  // A stamp that is not a parseable date is DROPPED, not carried. Carrying it
+  // would read as "seen at an unknown time", and the rule's fallback for an
+  // unreadable stamp is "never seen" — which re-announces a whole system.
+  assert.deepEqual(
+    normalizeDesignSystemSeen({
+      'lib:/work/brand': '2026-09-08T10:00:00.000Z',
+      'lib:/work/broken': 'last Tuesday',
+      'lib:/work/wrong-type': 1757000000000,
+      '': '2026-09-08T10:00:00.000Z',
+      '   ': '2026-09-08T10:00:00.000Z',
+    }),
+    { 'lib:/work/brand': '2026-09-08T10:00:00.000Z' },
+  )
+
+  // The map is bounded, and it is the OLDEST visits that go: the bundle nobody
+  // has opened in years is the one whose stamp costs least to lose.
+  const many: Record<string, string> = {}
+  for (let index = 0; index < 260; index += 1) {
+    many[`lib:/work/system-${index}`] = new Date(Date.UTC(2020, 0, 1) + index * 86_400_000).toISOString()
+  }
+  const trimmed = normalizeDesignSystemSeen(many)
+  assert.equal(Object.keys(trimmed).length, 200, 'trimmed to the cap')
+  assert.ok(trimmed['lib:/work/system-259'], 'the most recent visit survives')
+  assert.equal(trimmed['lib:/work/system-0'], undefined, 'the oldest went first')
+  assert.equal(Object.keys(normalizeAppSettings({ designSystemSeen: many }, []).designSystemSeen).length, 200)
+
+  // --- the writer ----------------------------------------------------------
+
+  const seen = (): Record<string, string> => useWorkspaceStore.getState().appSettings.designSystemSeen
+
+  useWorkspaceStore.getState().markDesignSystemSeen('lib:/work/brand', '2026-09-08T10:00:00.000Z')
+  assert.equal(seen()['lib:/work/brand'], '2026-09-08T10:00:00.000Z')
+
+  // Re-visiting moves the stamp forward; it never accumulates a second key.
+  useWorkspaceStore.getState().markDesignSystemSeen('lib:/work/brand', '2026-09-09T10:00:00.000Z')
+  assert.deepEqual(seen(), { 'lib:/work/brand': '2026-09-09T10:00:00.000Z' })
+
+  // No stamp given means now, and a bad one is treated the same rather than
+  // being written through as an unreadable value.
+  useWorkspaceStore.getState().markDesignSystemSeen('lib:/work/other')
+  assert.ok(Date.now() - Date.parse(seen()['lib:/work/other']) < 60_000)
+  useWorkspaceStore.getState().markDesignSystemSeen('lib:/work/other', 'whenever')
+  assert.ok(Date.now() - Date.parse(seen()['lib:/work/other']) < 60_000)
+
+  // An empty id is not a bundle, so it writes nothing at all.
+  const before = seen()
+  useWorkspaceStore.getState().markDesignSystemSeen('   ')
+  assert.deepEqual(seen(), before)
 }
 
 console.log('settingsSlice.test.ts: ok')

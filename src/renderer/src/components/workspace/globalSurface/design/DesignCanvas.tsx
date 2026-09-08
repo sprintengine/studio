@@ -10,7 +10,8 @@ import type {
   DesignSystemComponentView,
   DesignSystemGroupView,
 } from '../../../../../../shared/design-system/bundle-view'
-import { GhostButton, TruncatedText } from '../../../ui'
+import { designSystemEntryKey } from '../../../../../../shared/design-system/new-entries'
+import { GhostButton, NewChip, TruncatedText } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import { PreviewFrame } from './PreviewFrame'
 
@@ -47,12 +48,22 @@ const DETAIL_STAGE_HEIGHT = 260
 export function DesignCanvas({
   view,
   mode,
+  newEntries,
   openComponent,
   onOpenComponent,
   onCloseComponent,
 }: {
   view: DesignSystemBundleView
   mode: PreviewMode
+  /**
+   * The entry keys that arrived since this person last opened this bundle —
+   * `designSystemEntryKey(groupKey, manifestEntry)`, computed by the door.
+   *
+   * Handed down rather than computed here: the answer depends on a persisted
+   * per-machine visit stamp that the canvas has no business reading, and the
+   * rail needs the same set to count it.
+   */
+  newEntries?: ReadonlySet<string>
   /** The component whose variants are open, or null for the overview. */
   openComponent: string | null
   onOpenComponent: (name: string) => void
@@ -78,7 +89,12 @@ export function DesignCanvas({
           onBack={onCloseComponent}
         />
       ) : (
-        <BundleOverview view={view} mode={mode} onOpenComponent={onOpenComponent} />
+        <BundleOverview
+          view={view}
+          mode={mode}
+          newEntries={newEntries}
+          onOpenComponent={onOpenComponent}
+        />
       )}
     </div>
   )
@@ -87,10 +103,12 @@ export function DesignCanvas({
 function BundleOverview({
   view,
   mode,
+  newEntries,
   onOpenComponent,
 }: {
   view: DesignSystemBundleView
   mode: PreviewMode
+  newEntries?: ReadonlySet<string>
   onOpenComponent: (name: string) => void
 }): JSX.Element {
   return (
@@ -113,7 +131,14 @@ function BundleOverview({
         <QuietNote>Some assets were too large to preview</QuietNote>
       ) : null}
       {view.groups.map((group) => (
-        <Section key={group.key} group={group} view={view} mode={mode} onOpenComponent={onOpenComponent} />
+        <Section
+          key={group.key}
+          group={group}
+          view={view}
+          mode={mode}
+          newEntries={newEntries}
+          onOpenComponent={onOpenComponent}
+        />
       ))}
     </div>
   )
@@ -161,18 +186,60 @@ function Specimen({ view, mode }: { view: DesignSystemBundleView; mode: PreviewM
   )
 }
 
+/**
+ * Which manifest string a rendered item was declared as.
+ *
+ * The view's names are stems the reader derived; the manifest may have declared
+ * a bare stem or a bundle-relative path, and the entry KEY is built from what the
+ * manifest actually said. Going back through the declaration rather than
+ * re-deriving a key from the stem is what keeps the door's markers addressed the
+ * same way the reader dated them.
+ */
+function declaredEntryFor(entries: readonly string[], name: string): string | null {
+  return entries.find((entry) => entry === name || stemOf(entry) === name) ?? null
+}
+
+function stemOf(entry: string): string {
+  return (entry.split('/').pop() ?? entry).replace(/\.[a-z]+$/i, '')
+}
+
+/** Is this rendered item one that arrived since the last visit? */
+function isNewEntry(
+  newEntries: ReadonlySet<string> | undefined,
+  groupKey: string,
+  entries: readonly string[],
+  name: string,
+): boolean {
+  if (!newEntries || newEntries.size === 0) return false
+  const declared = declaredEntryFor(entries, name)
+  return declared !== null && newEntries.has(designSystemEntryKey(groupKey, declared))
+}
+
+/** How many of a group's entries are new — the number its heading carries. */
+function countNewInGroup(
+  newEntries: ReadonlySet<string> | undefined,
+  group: DesignSystemGroupView,
+): number {
+  if (!newEntries || newEntries.size === 0) return 0
+  return group.entries.filter((entry) => newEntries.has(designSystemEntryKey(group.key, entry)))
+    .length
+}
+
 /** One manifest-declared group, with its count and the tiles it holds. */
 function Section({
   group,
   view,
   mode,
+  newEntries,
   onOpenComponent,
 }: {
   group: DesignSystemGroupView
   view: DesignSystemBundleView
   mode: PreviewMode
+  newEntries?: ReadonlySet<string>
   onOpenComponent: (name: string) => void
 }): JSX.Element {
+  const newCount = countNewInGroup(newEntries, group)
   return (
     <section aria-labelledby={`design-group-${group.key}`} className="mt-8">
       <div className="mb-3 flex items-baseline gap-2">
@@ -186,8 +253,18 @@ function Section({
         <span className="font-mono text-meta tabular-nums text-[color:var(--text-muted)]">
           {group.count}
         </span>
+        {/* The roll-up beside the total, never instead of it: "42" is how big
+            this system is and "3 new" is what changed, and a heading that showed
+            only the second would have lost the first. */}
+        {newCount > 0 ? <NewChip>{`${newCount} new`}</NewChip> : null}
       </div>
-      <GroupBody group={group} view={view} mode={mode} onOpenComponent={onOpenComponent} />
+      <GroupBody
+        group={group}
+        view={view}
+        mode={mode}
+        newEntries={newEntries}
+        onOpenComponent={onOpenComponent}
+      />
     </section>
   )
 }
@@ -196,11 +273,13 @@ function GroupBody({
   group,
   view,
   mode,
+  newEntries,
   onOpenComponent,
 }: {
   group: DesignSystemGroupView
   view: DesignSystemBundleView
   mode: PreviewMode
+  newEntries?: ReadonlySet<string>
   onOpenComponent: (name: string) => void
 }): JSX.Element {
   if (group.key === 'components') {
@@ -213,6 +292,7 @@ function GroupBody({
             component={component}
             tokensCss={view.specimen.tokensCss}
             mode={mode}
+            isNew={isNewEntry(newEntries, group.key, group.entries, component.name)}
             onOpen={() => onOpenComponent(component.name)}
           />
         ))}
@@ -240,8 +320,9 @@ function GroupBody({
                 layout: 'flow',
               })}
             />
-            <figcaption className="mt-2 truncate text-meta text-[color:var(--text-default)]">
-              {pattern.name}
+            <figcaption className="mt-2 flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-default)]">
+              <span className="truncate">{pattern.name}</span>
+              {isNewEntry(newEntries, group.key, group.entries, pattern.name) ? <NewChip /> : null}
             </figcaption>
           </figure>
         ))}
@@ -267,8 +348,9 @@ function GroupBody({
                 mode,
               })}
             />
-            <figcaption className="mt-1 truncate text-center text-meta text-[color:var(--text-muted)]">
-              {glyph.name}
+            <figcaption className="mt-1 flex min-w-0 items-center justify-center gap-1 text-center text-meta text-[color:var(--text-muted)]">
+              <span className="truncate">{glyph.name}</span>
+              {isNewEntry(newEntries, group.key, group.entries, glyph.name) ? <NewChip /> : null}
             </figcaption>
           </figure>
         ))}
@@ -281,8 +363,11 @@ function GroupBody({
   return (
     <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-5 gap-y-2">
       {group.entries.map((entry) => (
-        <li key={entry} className="truncate font-mono text-meta text-[color:var(--text-muted)]">
-          {entry}
+        <li key={entry} className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-mono text-meta text-[color:var(--text-muted)]">{entry}</span>
+          {/* Foundations are listed one entry per file, so the token source
+              gets its own marker rather than the whole group wearing one. */}
+          {newEntries?.has(designSystemEntryKey(group.key, entry)) ? <NewChip /> : null}
         </li>
       ))}
     </ul>
@@ -327,11 +412,14 @@ function ComponentTile({
   component,
   tokensCss,
   mode,
+  isNew,
   onOpen,
 }: {
   component: DesignSystemComponentView
   tokensCss: string
   mode: PreviewMode
+  /** Arrived since this person last opened this bundle. */
+  isNew?: boolean
   onOpen: () => void
 }): JSX.Element {
   const stage = representativeStage(component.stages, mode)
@@ -347,11 +435,14 @@ function ComponentTile({
     [tokensCss, component.css, component.inlineStyles, stage?.html, mode],
   )
   const count = countLabel(component)
+  // The tile writes its own accessible name, so the chip's word has to be
+  // composed into it: a nested span's text is not read when `aria-label` wins.
+  const label = [component.name, isNew ? 'new' : null, count].filter(Boolean).join(' — ')
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={count ? `${component.name} — ${count}` : component.name}
+      aria-label={label}
       // No border: whitespace does the grouping, and hover is a background
       // change only — no scale, no shadow, no border appearing and shifting the
       // grid. `rounded-md` is radius.control, one of this view's two radii.
@@ -374,8 +465,11 @@ function ComponentTile({
           No preview in this component
         </div>
       )}
-      <span className="mt-2 truncate text-body text-[color:var(--text-strong)]">
-        {component.name}
+      <span className="mt-2 flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-body text-[color:var(--text-strong)]">{component.name}</span>
+        {/* Hidden from assistive tech here ONLY because `aria-label` above
+            already carries the word — the row would otherwise say "new" twice. */}
+        {isNew ? <NewChip decorative /> : null}
       </span>
       {count ? <span className="truncate text-meta text-[color:var(--text-muted)]">{count}</span> : null}
       {component.unresolvedRefs.length > 0 ? (

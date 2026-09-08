@@ -268,6 +268,12 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
   setDesignProjectScopePath: (path: string | null) => void
+  /**
+   * Stamp a design system as seen, now — the Design door's "New" marker reads
+   * against it. Called AFTER the render that computed the markers, so the visit
+   * that reveals them is the visit that clears them.
+   */
+  markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void

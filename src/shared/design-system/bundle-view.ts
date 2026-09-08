@@ -146,6 +146,22 @@ export interface DesignSystemBundleView {
   patterns: DesignSystemPatternView[]
   glyphs: DesignSystemGlyphView[]
   /**
+   * When each declared entry ARRIVED in this bundle: entry key
+   * (`designSystemEntryKey(groupKey, manifestEntry)`) → ISO date. What the
+   * door's "New since you last looked" marker reads.
+   *
+   * DERIVED, never declared. `design-system.json` gains no field for it — the
+   * schema is a contract user-authored bundles already satisfy, and a marker
+   * that needed a new manifest key would only ever light up for bundles we
+   * generated. The reader resolves it from the bundle's git history, or from
+   * file birthtime outside a repo.
+   *
+   * Optional, and sparse: an entry with no resolvable date is simply absent, and
+   * a bundle with no dates at all carries an empty map. An unknown date is never
+   * rendered as new (`shared/design-system/new-entries.ts`).
+   */
+  addedAt?: Record<string, string>
+  /**
    * True when the data-URI inlining budget was exhausted, so some refs were
    * dropped for size rather than because they were missing. Said out loud —
    * a preview that silently lost its assets would look like a broken component.

@@ -21,7 +21,13 @@ export const HOSTED_MODEL_FEED_URL =
 
 // "New" is one rule everywhere: the picker chip and the website badge both
 // read `releasedAt` against this window. No per-machine state.
-const HOSTED_MODEL_NEW_FOR_DAYS = 30
+//
+// Exported because the Design door's "arrived since you last looked" marker is
+// the SAME window (`src/shared/design-system/new-entries.ts` re-exports it as
+// `DESIGN_SYSTEM_NEW_FOR_DAYS`). Two surfaces wearing one word must not be able
+// to disagree about how long that word lasts, and a second `30` typed out
+// somewhere else is exactly how they would.
+export const HOSTED_MODEL_NEW_FOR_DAYS = 30
 
 export type HostedModel = {
   // The exact string passed to the CLI's `--model` (or its equivalent).

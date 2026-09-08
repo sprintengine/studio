@@ -21,6 +21,7 @@ import {
   parseComponentDoc,
   sentenceCaseLabel,
 } from '../../shared/design-system/bundle-parse'
+import { resolveDesignSystemAddedAt } from './entry-added-at'
 import type {
   DesignSystemBundleReadFailure,
   DesignSystemBundleReadResult,
@@ -40,6 +41,12 @@ import type {
 // regenerates. That is what makes pointing the door at a folder someone else
 // authored safe. `bundle-read.test.ts` asserts the no-fork property by failing
 // if this module ever imports a process-spawning API.
+//
+// The one process the READ path runs is a single `git log` in `entry-added-at`,
+// asking the user's own repo when each entry arrived (the door's "New" marker).
+// It is a query: no bundle script is forked, nothing is written, and a bundle
+// outside git simply has no dates. The same test holds that module to the
+// write-side half of this contract.
 
 const TOKENS_SOURCE_RELATIVE_PATH = join('foundations', 'tokens.tokens.json')
 
@@ -288,6 +295,11 @@ export async function readDesignSystemBundle(
   const inliner = new AssetInliner(bundleDir)
 
   const groups = declaredGroups(manifest)
+  // When each declared entry arrived, from git or from birthtime. Derived, never
+  // declared: `design-system.json` gains no field for this, so a bundle a user
+  // authored years ago still lights its markers. Once per read, so Reload
+  // genuinely re-asks and there is no cache of its own to go stale.
+  const addedAt = await resolveDesignSystemAddedAt(bundleDir, manifest)
   const components = await readComponents(bundleDir, manifest, inliner)
   const patterns = await readPatterns(bundleDir, manifest, inliner)
   const glyphs = await readGlyphs(bundleDir, manifest)
@@ -308,6 +320,7 @@ export async function readDesignSystemBundle(
       manifest,
       specimen,
       groups,
+      addedAt,
       components,
       patterns,
       glyphs,

@@ -474,6 +474,25 @@ export type AppSettings = {
    * a stored folder that has since gone lands.
    */
   designProjectScopePath: string | null
+  /**
+   * When the Design door last SHOWED each design system: bundle id → ISO.
+   *
+   * The bundle id is `designSystemRegistrationId(path)` — the library's own
+   * stable key for a folder, so the attached in-project copy and the same folder
+   * registered in the library are one bundle here, which is what they are.
+   *
+   * It is what "New" is measured against: an entry that arrived after this
+   * stamp is marked, and opening the bundle re-stamps it so the next visit is
+   * clean. Per MACHINE, deliberately — this is a fact about what this person has
+   * looked at on this computer, not about the bundle, and it must never be
+   * written into a folder someone else authored.
+   *
+   * `{}` (the default) means nothing has been opened yet, and a bundle absent
+   * from the map has never been seen: everything in it is treated as already
+   * seen except what arrived inside the last thirty days, so a fresh profile
+   * pointed at a five-year-old repo surfaces this week rather than every week.
+   */
+  designSystemSeen: Record<string, string>
   learning: LearningSettings
   appearance: AppearanceSettings
   /** Voice dictation transcription server + model configuration. */

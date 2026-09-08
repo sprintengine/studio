@@ -13,6 +13,8 @@ import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import type { DesignSystemLibraryEntry } from '../../../../../../shared/design-system/library'
+import { designSystemRegistrationId } from '../../../../../../shared/design-system/library'
+import { newDesignSystemEntryKeys } from '../../../../../../shared/design-system/new-entries'
 import { DesignCanvas } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
@@ -66,6 +68,10 @@ export default function DesignGlobalSurface(): JSX.Element {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const storedScopePath = useWorkspaceStore((s) => s.appSettings.designProjectScopePath)
   const setDesignProjectScopePath = useWorkspaceStore((s) => s.setDesignProjectScopePath)
+  // When this person last looked at each system, per machine. What "New" is
+  // measured against; see `shared/design-system/new-entries.ts` for the rule.
+  const designSystemSeen = useWorkspaceStore((s) => s.appSettings.designSystemSeen)
+  const markDesignSystemSeen = useWorkspaceStore((s) => s.markDesignSystemSeen)
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -263,6 +269,87 @@ export default function DesignGlobalSurface(): JSX.Element {
     setSelectedId(entries[0]?.id ?? null)
   }, [entries, selectedId, newSelected])
 
+  // ── "New since you last looked" ─────────────────────────────────────────────
+  //
+  // The reader dates every declared entry (git, or birthtime); app settings hold
+  // when this machine last SHOWED each bundle; the rule between them is a pure
+  // function. Three things have to be true at once and each one is a bug people
+  // notice:
+  //
+  //   * the markers stay up for the whole visit that reveals them — so the stamp
+  //     is captured ONCE per bundle per door session and the write below cannot
+  //     erase what the person is currently looking at;
+  //   * the next open is quiet — so the write happens on the visit, not on some
+  //     later dismissal the person has to perform;
+  //   * a bundle the rail is merely listing is counted against its STORED stamp,
+  //     because nobody has visited it yet.
+
+  const selectedView = useMemo(
+    () => (selectedEntry ? (reads[selectedEntry.path]?.view ?? null) : null),
+    [selectedEntry, reads],
+  )
+
+  /** The bundle's stable id — the library's own key for a folder. */
+  const seenIdOf = useCallback((path: string) => designSystemRegistrationId(path), [])
+
+  // The stamp each bundle carried when this door session first showed it. Held
+  // in a ref rather than state because reading it must not itself re-render, and
+  // because it is deliberately NOT reactive: once captured, the store's later
+  // write through it changes nothing on screen.
+  const visitSeenAt = useRef<Map<string, string | null>>(new Map())
+  const seenAtForVisit = useCallback(
+    (bundleId: string, visiting: boolean): string | null => {
+      const cached = visitSeenAt.current.get(bundleId)
+      if (cached !== undefined) return cached
+      const stored = designSystemSeen[bundleId] ?? null
+      // Only a bundle actually on screen freezes its stamp. Freezing every
+      // listed bundle would pin the rail's counts to whenever the door happened
+      // to enumerate them.
+      if (visiting) visitSeenAt.current.set(bundleId, stored)
+      return stored
+    },
+    [designSystemSeen],
+  )
+
+  const selectedBundleId = selectedView && selectedEntry ? seenIdOf(selectedEntry.path) : null
+
+  /** The entries the canvas marks, for the system currently on screen. */
+  const newEntries = useMemo(() => {
+    if (!selectedBundleId || !selectedView) return undefined
+    return newDesignSystemEntryKeys({
+      addedAt: selectedView.addedAt,
+      seenAt: seenAtForVisit(selectedBundleId, true),
+      now: new Date(),
+    })
+  }, [selectedBundleId, selectedView, seenAtForVisit])
+
+  /** The roll-up each rail row wears: row id → how many entries are new. */
+  const newCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    const now = new Date()
+    for (const entry of entries) {
+      const view = reads[entry.path]?.view
+      if (!view?.addedAt) continue
+      const bundleId = seenIdOf(entry.path)
+      const marked = newDesignSystemEntryKeys({
+        addedAt: view.addedAt,
+        seenAt: seenAtForVisit(bundleId, false),
+        now,
+      })
+      if (marked.size > 0) counts[entry.id] = marked.size
+    }
+    return counts
+  }, [entries, reads, seenIdOf, seenAtForVisit])
+
+  // Stamp the visit. In an effect, so it lands AFTER the render that computed
+  // the markers above — the person sees what arrived, and the next open is
+  // clean. Runs on open and again on every switch, because the bundle id is the
+  // dependency.
+  useEffect(() => {
+    if (!selectedBundleId) return
+    markDesignSystemSeen(selectedBundleId)
+  }, [selectedBundleId, markDesignSystemSeen])
+
   /**
    * Re-read one bundle from disk.
    *
@@ -439,6 +526,7 @@ export default function DesignGlobalSurface(): JSX.Element {
       entries={entries}
       selectedId={selectedId}
       accentMode={scheme === 'light' ? 'light' : 'dark'}
+      newCounts={newCounts}
       projectScope={
         <ProjectScopePicker
           label={projectPath ? basenameOfPath(projectPath) : 'Choose a project'}
@@ -529,7 +617,8 @@ export default function DesignGlobalSurface(): JSX.Element {
         onRetry={() => void loadLibrary()}
         hasEntries={entries.length > 0}
         selectedEntry={selectedEntry}
-        selectedView={selectedEntry ? (reads[selectedEntry.path]?.view ?? null) : null}
+        selectedView={selectedView}
+        newEntries={newEntries}
         mode={scheme === 'light' ? 'light' : 'dark'}
         openComponent={openComponent}
         onOpenComponent={setOpenComponent}
@@ -555,6 +644,7 @@ function DesignSurfaceBody({
   hasEntries,
   selectedEntry,
   selectedView,
+  newEntries,
   mode,
   openComponent,
   onOpenComponent,
@@ -570,6 +660,8 @@ function DesignSurfaceBody({
   hasEntries: boolean
   selectedEntry: DesignRailEntry | null
   selectedView: DesignSystemBundleView | null
+  /** Entry keys that arrived since this bundle was last shown here. */
+  newEntries?: ReadonlySet<string>
   mode: 'light' | 'dark'
   openComponent: string | null
   onOpenComponent: (name: string) => void
@@ -655,6 +747,7 @@ function DesignSurfaceBody({
     <DesignCanvas
       view={selectedView}
       mode={mode}
+      newEntries={newEntries}
       openComponent={openComponent}
       onOpenComponent={onOpenComponent}
       onCloseComponent={onCloseComponent}
