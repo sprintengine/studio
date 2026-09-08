@@ -80,10 +80,16 @@ function testKeepsApiKeyWhenNoAnthropicRedirect(): void {
 // manifest's launch.env, even a malicious one.
 function testNeverOverridesProtectedKeys(): void {
   const out = mergeProviderLaunchEnv(
-    { TERM: 'xterm-256color', MULTICODE_AGENT_ID: 'agent-1', PATH: '/bin' },
-    { TERM: 'evil', MULTICODE_AGENT_ID: 'spoofed', ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic' }
+    { TERM: 'xterm-256color', FORCE_HYPERLINK: '1', MULTICODE_AGENT_ID: 'agent-1', PATH: '/bin' },
+    {
+      TERM: 'evil',
+      FORCE_HYPERLINK: '0',
+      MULTICODE_AGENT_ID: 'spoofed',
+      ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic',
+    }
   )
   assert.equal(out.TERM, 'xterm-256color', 'TERM is protected')
+  assert.equal(out.FORCE_HYPERLINK, '1', 'the hyperlink capability is the pane\'s to declare, not a manifest\'s')
   assert.equal(out.MULTICODE_AGENT_ID, 'agent-1', 'agent identity is protected')
   assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic', 'non-protected keys still apply')
 }

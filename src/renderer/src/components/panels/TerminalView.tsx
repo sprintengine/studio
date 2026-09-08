@@ -16,8 +16,9 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createStudioTerminal } from '../../utils/createStudioTerminal'
+import { createStudioTerminal, terminalSurfaceLinkRoots, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalOscLinkHandler } from '../../utils/terminalOscLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -439,12 +440,53 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       folderReadyPath,
       null
     )
+    const terminalSurface: TerminalSurface = {
+      kind: 'agent',
+      workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
+      executionRoot: linkExecutionRoot.cwd ?? null,
+    }
+    // Read here rather than off `studioTerminal` below because the OSC 8 handler
+    // is a CONSTRUCTION option — xterm's own OscLinkProvider reads
+    // `options.linkHandler` — so the surface's permission to resolve a local
+    // path has to be known before the terminal exists. Same function the factory
+    // calls, so the two can never disagree.
+    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
+    // statPath rejects for a path that is gone or unreadable; that routes to the
+    // error popover, so a dead link never opens a menu of actions that would all
+    // fail. Shared by the OSC 8 handler and the heuristic provider below.
+    const inspectPath = async (path: string): Promise<{ exists: boolean; isDirectory: boolean }> => {
+      try {
+        const stat = await window.api.statPath(path)
+        return { exists: true, isDirectory: stat.isDirectory }
+      } catch {
+        return { exists: false, isDirectory: false }
+      }
+    }
     const studioTerminal = createStudioTerminal({
-      surface: {
-        kind: 'agent',
-        workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
-        executionRoot: linkExecutionRoot.cwd ?? null,
-      },
+      surface: terminalSurface,
+      // OSC 8: a real hyperlink the CLI emitted, which carries its own absolute
+      // target and needs no guessing. It rides the same chooser as everything
+      // else — the click still asks rather than deciding (MC-1899).
+      linkHandler: createTerminalOscLinkHandler({
+        allowLocalPaths: surfaceLinkRoots !== null,
+        inspectPath,
+        onActivateFile: ({ resolvedPath, isDirectory }, anchor) => {
+          setLinkMenu({
+            target: {
+              kind: 'file',
+              resolvedPath,
+              isDirectory,
+              workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+            },
+            x: anchor.x,
+            y: anchor.y,
+          })
+        },
+        onActivateUrl: (url, anchor) => {
+          setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
+        },
+        onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
+      }),
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },
@@ -535,17 +577,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       terminal: term,
       workspaceRoot: linkRoots.workspaceRoot,
       executionRoot: linkRoots.executionRoot,
-      // statPath rejects for a path that is gone or unreadable; that routes to
-      // onOpenError below, so a dead link still shows the error popover rather
-      // than a menu of actions that would all fail.
-      inspectPath: async (path) => {
-        try {
-          const stat = await window.api.statPath(path)
-          return { exists: true, isDirectory: stat.isDirectory }
-        } catch {
-          return { exists: false, isDirectory: false }
-        }
-      },
+      inspectPath,
       // The click no longer decides anything — it opens the chooser (MC-1899).
       onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
         setLinkMenu({

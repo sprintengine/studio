@@ -43,6 +43,18 @@ export function getTerminalEnv(): Record<string, string> {
 
   delete env.ELECTRON_RUN_AS_NODE
   env.TERM = env.TERM || 'xterm-256color'
+  // Put us on the hyperlink allowlist. Claude Code (and every other CLI using
+  // `supports-hyperlinks`) only emits the OSC 8 escape when its probe passes,
+  // and that probe is a list of terminal identities — FORCE_HYPERLINK first,
+  // then TERM_PROGRAM against a fixed set of emulator names, then
+  // TERMINAL_EMULATOR, then WT_SESSION. TERM alone fails every branch, so a
+  // `[file] …` line arrived as inert text no matter what the renderer did.
+  // FORCE_HYPERLINK is the honest branch to take: we DO render them (see
+  // `terminalOscLinks.ts`), and claiming to be iTerm by setting TERM_PROGRAM
+  // would tell every other CLI a lie about a dozen unrelated capabilities.
+  // Left alone when the user already exported it, so `FORCE_HYPERLINK=0`
+  // remains a way to turn the escapes off.
+  env.FORCE_HYPERLINK = env.FORCE_HYPERLINK || '1'
 
   // Surface CLIs installed into the managed npm prefix (e.g. Codex) on PATH so
   // launched agent sessions can find them. The shims themselves stay out of the
@@ -129,6 +141,12 @@ const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
   ...AGENT_IDENTITY_ENV_KEYS,
   'TERM',
   'COLORTERM',
+  // Same reasoning as TERM: whether this terminal renders OSC 8 hyperlinks is a
+  // fact about the pane, which a CLI manifest is in no position to know. A
+  // manifest that set it to '0' would silently un-click every `[file] …` line;
+  // one that set it to '1' for a pane that could not render them would print
+  // raw escapes.
+  'FORCE_HYPERLINK',
 ])
 
 // True when the provider env redirects the Anthropic endpoint (a different
