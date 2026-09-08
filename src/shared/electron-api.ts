@@ -3857,6 +3857,13 @@ export type ElectronApi = {
    * from the OS already has a path and never comes through here.
    */
   saveDroppedImage: (input: { mediaType: string; dataBase64: string }) => Promise<string>
+  /**
+   * Open one conversation image attachment in the operating system's own image
+   * viewer. The attachment exists only as base64 in the renderer, so the bytes
+   * are written to the app's temp images folder first; `name` is a suggestion
+   * for what that file is called, never a path.
+   */
+  openImageAttachment: (input: { mediaType: string; dataBase64: string; name?: string }) => Promise<void>
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>
   ensureDir: (parentDir: string, name: string) => Promise<string>

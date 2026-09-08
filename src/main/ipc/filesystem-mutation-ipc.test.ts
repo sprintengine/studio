@@ -92,6 +92,14 @@ async function main(): Promise<void> {
       'an empty payload is refused rather than written as a zero-byte file',
     )
 
+    // The renderer holds a conversation attachment as base64 and no path, so
+    // "open this image" needs a channel of its own; what it writes is covered by
+    // attachment-image-file.test.ts, and what matters here is that it is wired.
+    assert.ok(
+      ipcMain.handlers.get('fs:open-image-attachment'),
+      'the open-in-the-OS-viewer handler should be registered',
+    )
+
     const sourceRoot = join(tempRoot, 'registry')
     const sourceRolesDir = join(sourceRoot, 'roles')
     const sourceSkillsDir = join(sourceRoot, 'skills')
