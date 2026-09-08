@@ -651,14 +651,19 @@ assert.throws(
 )
 // The Diff popout is gone (git-commit-window T3): a diff opens in its own OS
 // window or in the pane's Diff tab, so nothing core answers to `diff` any more
-// and the id is a module's to claim like any other.
-modalHost.hostFor('acme.compass').registerModalSurface({
-  id: 'diff', order: 3, label: 'Diff', Icon: modalIcon, Component: modalComponent,
-})
-assert.ok(
-  modalHost.getModalSurfaces().some((surface) => surface.id === 'diff'),
-  'the retired "diff" reservation no longer refuses a module that wants the id',
-)
+// and the id is a module's to claim like any other. Asserted on a host of its
+// own so the ordering assertions below still read the two surfaces above.
+{
+  const diffIdHost = createRendererHost()
+  diffIdHost.hostFor('acme.compass').registerModalSurface({
+    id: 'diff', order: 1, label: 'Diff', Icon: modalIcon, Component: modalComponent,
+  })
+  assert.equal(
+    diffIdHost.getModalSurface('diff')?.moduleId,
+    'acme.compass',
+    'the retired "diff" reservation no longer refuses a module that wants the id',
+  )
+}
 assert.deepEqual(
   modalHost.getModalSurfaces().map((surface) => surface.id),
   ['compass', 'design'],
