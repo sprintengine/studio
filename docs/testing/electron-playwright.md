@@ -86,19 +86,3 @@ node scripts/testing/electron-playwright-smoke.mjs
 ```
 
 The seam lives behind the main-process `fs:dialog:opendir` IPC handler, so validation still exercises preload and main-process IPC. It only activates when the app is not packaged and the env var names an existing directory. In packaged builds, setting `MULTICODE_TEST_OPEN_DIR` has no effect and the native dialog path remains active.
-
-## Sprint Engine Live Glyph Harness
-
-Use `scripts/testing/sprintengine-live-glyph-harness.mjs` to validate a real
-Sprint Engine workspace row against an on-disk scratch run store. The harness
-copies a schema-valid run shape into `/tmp`, opens it through the existing-team
-workspace flow, advances `projection.json` through `in_progress`,
-`needs_input`, and `done`, and writes screenshots plus a validation report under
-the active sprint validation directory.
-
-```bash
-npm run build
-tmp=/tmp/multicode-playwright
-npm --prefix "$tmp" install playwright --no-audit --no-fund
-NODE_PATH="$tmp/node_modules" node scripts/testing/sprintengine-live-glyph-harness.mjs
-```

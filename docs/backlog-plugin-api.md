@@ -36,10 +36,17 @@ which store it writes.
 Frontmatter writers (rewrite the item `.md`, never the cache):
 
 - `updateBacklogStatus(input)`
-- `updateBacklogType(input)`
 - `updateBacklogTriage(input)` — `difficulty`, `criticality`, and `risk`
 - `updateBacklogEpic(input)` — sets/clears the child's `epic:` slug
+- `updateBacklogEpicColor(input)` — the epic's identity colour
+- `updateBacklogDependencies(input)` — the `dependsOn` CSV
+- `updateBacklogMockups(input)` — the `mockups` CSV
 - `createBacklogEpic(input)` — writes `backlog/epics/<slug>.md` with `type: epic`
+- `ensureBacklogItemIds(input)` — stamps missing numeric ids
+
+There is no `updateBacklogType` on the bridge. Setting an item's `type` exists
+only in-process (`backlogService.updateBacklogType`, reachable from the MCP and
+mobile surfaces); the renderer has no channel for it.
 
 Cache writers (`.multi-code/backlog/cache/links.json`) — `updateBacklogHighlight`
 and `addOrUpdateBacklogLink` also write the durable half into the item's
@@ -50,6 +57,7 @@ frontmatter:
 - `updateBacklogHighlight(input)`
 - `addOrUpdateBacklogLink(input)`
 - `updateBacklogModuleMetadata(input)`
+- `removeBacklogLink(input)`
 - `moveBacklogObjectSource(input)`
 - `removeBacklogObjectRecord(input)`
 
@@ -88,7 +96,19 @@ actions by module enablement before rendering them. Action ids must be unique.
 - `updateStatus(status)`
 - `addLink(link)`
 - `updateModuleMetadata(moduleId, value)`
-- optional `startSourcePlan(source)`
+- `getLabel(context)` and `selection: { items, projectItems }` — the
+  multi-selection surface (MC-2060). An action offered on a multi-selection must
+  handle `selection` in both `isVisible` and `run`.
+- optional `startSourcePlan(source)` — renderer-internal only; it is **not** on
+  the `BacklogItemActionContext` published by `@multicode/module-sdk`, so a
+  third-party module cannot type-reference it.
+
+`category` is a closed union: `execute`, `analyze`, `transform`, `publish`,
+`review`, `organize`.
+
+`context.item` for an SDK module is `BacklogItemView`, which widens the enums to
+`string` and deliberately omits `risk`, `epic`, `dependsOn`, `highlight`,
+`mockups`, `numericId` and `displayId`.
 
 Use `updateModuleMetadata` for module-scoped data that belongs to the item but
 is not part of Backlog's core status/type/triage/link model.
@@ -119,7 +139,8 @@ host.registerBacklogLinkProvider({
 
 `resolveLinkStatus` returns a `BacklogResolvedLink`:
 
-- `status`: `active`, `completed`, `failed`, or `unknown`
+- `status`: `pending`, `active`, `completed`, `canceled`, `failed`, or
+  `unknown`
 - `canOpen`: `true` only when the provider can open the target now
 - `unavailableReason`: user-visible explanation when `status` is `unknown`
 
@@ -140,16 +161,24 @@ non-unknown link status through `addOrUpdateBacklogLink`.
 
 Only execution links can move item lifecycle:
 
-- Any active execution link moves a non-archived item to `in_progress`.
-- All execution links completed moves a non-archived item to `completed`.
+- Any active execution link moves a non-archived leaf item to `in_progress`.
+- All execution links completed moves a non-archived leaf item to `completed`.
 - Unknown, failed, and non-execution links leave item status unchanged.
+- An **epic** short-circuits all of that: when `epicChildStatuses` is present
+  `nextBacklogItemStatusFromLinks` reflects the children's highest-precedence
+  status, and the epic's own active run only contributes an `in_progress` vote
+  — it can never complete the epic.
 
 Unknown resolutions are rendered but never persisted, so a transient unreadable
 target does not overwrite a known stored status.
 
 ## Sprint Engine Run Links
 
-Sprint Engine owns the built-in `sprintengine.run` provider. It resolves status
+Sprint Engine ships two built-in providers: `sprintengine.run`, described
+below, and `sprintengine.pullRequest`, which opens externally rather than
+mounting a run store.
+
+`sprintengine.run` resolves status
 from `readSprintEngineProjection(statePath)` plus normalized Sprint Engine
 projection data. Backlog must not parse Sprint Engine task folders, artifact
 folders, locks, events, or other run-store internals.
@@ -165,12 +194,16 @@ non-run-store paths are unavailable before any projection read or workspace
 focus.
 
 A readable run with at least one task and every task `done` resolves to
-`completed`; readable nonterminal or empty runs resolve to `active`; missing,
-unreadable, unavailable, or malformed projections resolve to `unknown`.
+`completed`; a canceled run resolves to `canceled`, which outranks completeness;
+readable nonterminal or empty runs resolve to `active`; missing, unreadable,
+unavailable, or malformed projections resolve to `unknown`. An **epic-child**
+link resolves against its own `taskId` rather than the run as a whole.
 
-For already-linked items, the normal primary action is Open Sprint Engine, not
-Start Sprint Engine. Existing active or completed `sprintengine.run` links hide
-the Start Sprint Engine action to avoid duplicate run creation. Starting another
+For already-linked items, the normal primary action is **Open Sprint**
+(`sprint-engine.open-linked-run`), not **Run a Sprint**
+(`sprint-engine.start-from-backlog`). `hasSprintEngineRunLink` hides Run a Sprint
+for *any* `sprintengine.run` link at any status, and it is hidden again on
+`status === 'completed'` and on the presence of an agent link. Starting another
 run should be a separate explicit path, not the primary Backlog action.
 
 Sprint Engine projection refresh also reconciles completed linked runs through

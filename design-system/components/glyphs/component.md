@@ -71,16 +71,19 @@ the ramp and `currentColor`.
 
 | Export | Meaning |
 |---|---|
-| `PlusIcon` | Create. The system's single *add* mark — a second plus on the same surface reads as the same action |
-| `MinusIcon` | Remove / decrement |
-| `CloseIcon` | Dismiss (the 24-grid sibling of `glyphs/close.svg`) |
 | `CheckIcon` | Confirmed / applied |
 | `ChevronDownIcon` | Disclosure; rotate for other directions rather than adding siblings |
-| `ArrowRightIcon` | Forward navigation, go-to |
 | `CopyIcon` | Copy to clipboard |
-| `CommentIcon` | Comment thread (empty speech bubble) |
-| `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because the plus means create |
+| `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because compose is not create |
 | `WarningIcon` | Finding / warning triangle — a real glyph so it scales and inks like one, never the `▲` character |
+| `FolderPlusIcon` | Install from a folder on disk — a folder wearing the plus |
+| `ResetIcon` | Restore a default: the shortcut a person rebound, a setting they changed |
+| `ReleaseNotesIcon` | What changed in this version |
+
+There is no standalone `CloseIcon`. The dismiss mark lives inside
+`ui/CloseIconButton`, on its own 14-grid at stroke 1.4, because a close glyph
+is only ever a button — an unpadded one is below the hit-target floor.
+`glyphs/close.svg` is the framework-neutral sample of the same mark.
 
 ### Workspace-type identity (24-grid, registry-resolved)
 
@@ -90,23 +93,24 @@ the renderer host registry, gated on module enablement when
 disabled or unknown. Consumers go through it; the concrete marks exist for
 the registry to point at:
 
-| Export | Mark |
+| Mark | Drawing |
 |---|---|
-| `StandardWorkspaceTypeIcon` | Terminal-in-frame — the generic fallback |
+| the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher |
 | `SprintEngineWorkspaceTypeIcon` | Three-node crew triangle |
 | `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
+| `FolderTypeIcon` | The project folder, optionally wearing a workspace's own logo |
 
-### Status and priority (24-grid, parameterized, self-labelling)
+### Status (16-grid)
 
-| Export | Meaning |
-|---|---|
-| `PriorityIcon(priority)` | Backlog priority as signal bars: urgent (filled disc + `!`), high / medium / low (3-bar fill), none (three dashes). Carries `role="img"` + label itself |
-| `StatusIcon(status)` | The 11 task folder states of `FOLDER_STATUSES`: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while `_in_progress`), done disc-check, canceled slash ring |
+There is one status vocabulary, and it is `LifecycleGlyph` (below). The 24-grid
+`PriorityIcon` / `StatusIcon` pair that used to sit here is gone: it was a
+second answer to the same question, drawn on a different grid, and the folder
+status enum it keyed off is now `FolderStatus` in the shared layer with no
+glyph family of its own.
 
-These two are the 24-grid cousins of `LifecycleGlyph`. One status idiom per
-surface: a surface shows the 6 px `StatusDot` *or* a lifecycle/status glyph,
-never both.
+One status idiom per surface: a surface shows the 6 px `StatusDot` *or* a
+`LifecycleGlyph`, never both.
 
 ### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
 
@@ -130,10 +134,11 @@ waiting is calm, not a defect.
 ### Role (24-grid drawings, 16-grid wrappers)
 
 `SprintEngineRoleIcon(role, registry)` dispatches to module-private drawings
-(architect, product, developer, frontend, tester, security, performance,
-production-readiness, cross-platform) and falls back to a neutral disc for
-an absent or unrecognised role. `SpecialistActionIcon(icon)` keys the same
-drawings by specialist-action id (adding writing, spaghetti, nuclear, infra).
+(architect, product, developer, frontend and ui/ux reviewer, tester, security,
+performance, production-readiness, cross-platform) and falls back to a neutral
+disc for an absent or unrecognised role. `SpecialistActionIcon(icon)` keys the
+same drawings by specialist-action id (adding writing, spaghetti, nuclear,
+infra, shield and the two design ids).
 The drawings are private on purpose: going through the dispatcher is what
 makes unknown ids degrade instead of crash.
 
@@ -163,9 +168,9 @@ same everywhere; default themselves to `icon-xs` + `--text-muted`.
 
 `CliIcon(cli)` resolves an agent CLI to one of eight marks: `claude-code`
 (the brand starburst — the one glyph with its own fill), `codex` (the knot
-mark, `currentColor`), `opencode`, and four original rounded-square tile
-marks (`zai`, `grok`, `kimi`, `cursor` — placeholders until official brand
-SVGs are bundled; both Kimi runtimes share one mark so they read as one
+mark, `currentColor`), `opencode`, and five original rounded-square tile
+marks (`zai`, `grok`, `kimi`, `cursor`, `muse` — placeholders until official
+brand SVGs are bundled; both Kimi runtimes share one mark so they read as one
 provider), with `terminal` as the fallback. Tile marks keep the 24-grid
 discipline: 1.7 frame, 1.9 letterform.
 
@@ -175,14 +180,14 @@ discipline: 1.7 frame, 1.9 letterform.
 per kind in the 16 px leading slot every tree and list row reserves — the File
 Explorer and the Git changes list wear the same mark for the same file, so a
 `.ts` reads as a `.ts` on both (owner 2026-09-05, the IDE Project-view
-idiom). `fileTypeKind(name)` is the pure resolver; `FILE_TYPE_LABEL` names each
-kind for a tooltip or `aria-label`; `fileTypeKindInk(kind)` is the identity hue
-a kind wears when coloured.
+idiom). `fileTypeKind(name)` is the pure resolver and `FILE_TYPE_LABEL` names each
+kind for a tooltip or `aria-label`; the identity hue a kind wears when coloured
+is private to the component, applied through its `tone` prop.
 
 | Kind | Shape |
 |---|---|
 | `typescript` · `javascript` · `python` · `rust` · `go` | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the `CliIcon` placeholder tile |
-| `typescript-test` · `javascript-test` | The same tile with its bottom-right corner notched for a tick — `*.test.*` and `*.spec.*` |
+| `typescript-test` · `javascript-test` · `python-test` · `rust-test` · `go-test` · `react-test` | The same drawing with its bottom-right corner notched for a tick — `*.test.*` and `*.spec.*` |
 | `react` | The atom — `.tsx` / `.jsx` |
 | `json` | Braces `{ }` |
 | `markdown` | M with a down arrow |
@@ -207,14 +212,17 @@ pairings people know from their editors:
 
 | Hue | Kinds |
 |---|---|
-| `mark.blue` | `typescript` · `typescript-test` · `python` · `markdown` |
-| `mark.yellow` | `javascript` · `javascript-test` · `json` · `lock` |
+| `mark.blue` | `typescript` · `python` · `markdown` |
+| `mark.yellow` | `javascript` · `json` · `lock` |
 | `mark.cyan` | `react` · `go` |
 | `mark.orange` | `html` · `rust` |
 | `mark.red` | `yaml` · `java` |
 | `mark.teal` | `shell` |
 | `mark.violet` | `css` · `image` |
 | *(row ink)* | `config` · `text` · `generic` — they name no language |
+
+A `*-test` kind takes its base language's hue: the notch says "test", the hue
+still says which language.
 
 The File Explorer is the surface that qualifies: nothing else in its rows is
 coloured. The hue identifies and never grades — it is not a status ramp, and a

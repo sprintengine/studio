@@ -121,11 +121,11 @@ by the same conformance gates. What they do not get is a spec here, because
 there is nothing framework-neutral to specify.
 
 The general shapes underneath them **are** documented, and that is where a
-rebuild should start: [combobox](components/combobox/component.md) for the
-filter-and-pick pattern, [popover](components/popover/component.md) for the
+rebuild should start: [popover](components/popover/component.md) for the
 anchored surface, [menu](components/menu/component.md) for the action list,
-[provider-row](components/provider-row/component.md) for the connected-service
-row.
+[select](components/select/component.md) for one value out of a closed list,
+and [provider-row](components/provider-row/component.md) for the
+connected-service row.
 
 Every other export from the app's `ui/index.ts` resolves to an entry here — as
 a component, a pattern, a glyph, or a named part of one (`CloseIconButton` under

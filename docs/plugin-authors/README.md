@@ -1,8 +1,8 @@
 # Multicode Marketplace Plugin Author Guide
 
 Marketplace plugins are signed bundles over extension primitives Multicode
-already supports: MCP configs, skill packs, capability modules, and CLI
-plugins. A marketplace submission is accepted only when the registry entry,
+already supports. The five component kinds (`MARKETPLACE_COMPONENT_KINDS`) are
+`mcp`, `skills`, `module`, `cli` and `automation`. A marketplace submission is accepted only when the registry entry,
 `plugin.json`, declared component files, and ed25519 signature all validate
 through the same code paths the app uses.
 
@@ -97,7 +97,7 @@ Run the same plugin verification command CI uses:
 $MULTICODE_MODULE plugin verify plugins/acme-doc-search
 ```
 
-A valid plugin prints `plugin signature valid` and the signer fingerprint. If
+A valid plugin prints `<id>: plugin signature valid` and the signer fingerprint. If
 `plugin.json` changes after signing, verification fails with `INVALID
 signature`; if a component file changes after signing, verification fails with a
 component digest mismatch. Re-sign before submitting.
@@ -146,19 +146,26 @@ Example community entry:
 }
 ```
 
-Add the icon at `icons/acme-doc-search.svg`. Registry sources must use the
-canonical `https://github.com/sprintengine/studio-releases/tree/main/plugins/<id>`
-layout. Community submissions should use `publisher.verified: false`; Multicode
-will install them only after the user grants trust in the marketplace trust gate.
+Add the icon at `icons/acme-doc-search.svg`. A registry `source` must be an
+`https:` URL on an allowlisted host (`github.com`, `api.github.com`,
+`raw.githubusercontent.com`); the canonical
+`https://github.com/sprintengine/studio-releases/tree/main/plugins/<id>` layout
+is the convention, not a validated pin. Community submissions should use
+`publisher.verified: false`; Multicode will install them only after the user
+grants trust in the marketplace trust gate.
 
 Only first-party publishers with a fingerprint listed in
-`trusted-publishers.json` may set `publisher.verified: true`.
+`trusted-publishers.json` may set `publisher.verified: true`. The one exception
+is an inline-CLI entry (`entry.cli`, which points at a bundled
+`resources/plugins/<id>` and carries no signature): it may claim verified when
+its publisher name is listed as verified.
 
 ## 7. Run The Registry Validator
 
-The registry repo runs `.github/workflows/marketplace-registry.yml` on pull
-requests. That workflow checks out the Multicode app validation tooling and
-validates the registry checkout as the root:
+The registry repo carries `.github/workflows/marketplace-registry.yml`, run on
+`workflow_dispatch`. That workflow checks out the Multicode app validation
+tooling and runs the verifier. Locally you can point it at a registry checkout
+with `--root`:
 
 ```bash
 npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"
@@ -186,7 +193,11 @@ The validator checks:
   `plugins/<id>/`.
 - Registry entry id, name, version, provided components, and signature against
   the signed plugin manifest.
-- Registry entry source against the canonical `plugins/<id>` GitHub path.
+- Registry entry `source` against the HTTPS host allowlist.
+- Bundled skill payload digests, and the absence of orphan payload files.
+- An inline icon against the committed mark, byte for byte.
+- That a publisher claiming `verified: true` is proven by a signature (unless
+  the entry is an inline CLI).
 - Verified publisher fingerprints against `trusted-publishers.json`.
 - Icon paths, MCP component parseability, and absence of committed key material.
 
@@ -201,7 +212,6 @@ Open a pull request against the marketplace registry with:
 - no private keys
 
 The `.github/workflows/marketplace-registry.yml` job runs the same
-`npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"`
-command and the publish validation test. Schema-invalid submissions fail with
+`npm run verify:marketplace-registry` command and the publish validation test. Schema-invalid submissions fail with
 the exact shared-validator path, and tampered signatures fail through
 `multicode-module plugin verify` with an `INVALID signature` message.

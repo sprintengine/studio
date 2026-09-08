@@ -719,7 +719,7 @@
           "$extensions": {
             "com.multicode": {
               "role": "status",
-              "use": "list-row --finished: the row-wide wash under a good-edge ring. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable.",
+              "use": "list-row --finished: the row-wide wash a finished row wears. One step under good-soft, because a finished row asks for a look, not an answer, and sits beside rows that must stay readable.",
               "doNotUse": "Chips, banners, or anything smaller than a row \u2014 those take good-soft. Never as a hover or selection fill.",
               "components": [
                 "list-row"
@@ -727,25 +727,6 @@
               "modes": {
                 "light": "rgba(21, 127, 55, 0.10)",
                 "dark": "rgba(48, 208, 88, 0.10)"
-              }
-            }
-          }
-        },
-        "good-edge": {
-          "$type": "color",
-          "$value": "rgba(21, 127, 55, 0.55)",
-          "$description": "Success ring at edge strength: the good tone let down so a 1px ring reads as an edge, not a wire.",
-          "$extensions": {
-            "com.multicode": {
-              "role": "status",
-              "use": "list-row --finished: the inset ring around a finished row. Full-strength status.good is for marks and ink; on a hairline around a whole row it out-shouts the needs-input gold it is meant to sit under.",
-              "doNotUse": "Text, icons, dots, or a focus ring \u2014 ink stays full strength, and focus is border.focus.",
-              "components": [
-                "list-row"
-              ],
-              "modes": {
-                "light": "rgba(21, 127, 55, 0.55)",
-                "dark": "rgba(48, 208, 88, 0.55)"
               }
             }
           }
@@ -1383,12 +1364,11 @@
         "$extensions": {
           "com.multicode": {
             "role": "shape",
-            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, wizard-progress and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
+            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
             "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",
-              "wizard-progress",
               "switch",
               "status-dot"
             ]
@@ -1683,17 +1663,6 @@
       }
     },
     "focus": {
-      "ring-width": {
-        "$type": "dimension",
-        "$value": "2px",
-        "$description": "Thickness of the focus ring.",
-        "$extensions": {
-          "com.multicode": {
-            "role": "focus",
-            "use": "The one focus-ring thickness, everywhere."
-          }
-        }
-      },
       "ring-offset": {
         "$type": "dimension",
         "$value": "2px",
@@ -1775,18 +1744,6 @@
       }
     },
     "z": {
-      "base": {
-        "$type": "number",
-        "$value": 0,
-        "$description": "Default in-flow content.",
-        "$extensions": {
-          "com.multicode": {
-            "role": "layering",
-            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
-            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
-          }
-        }
-      },
       "sticky": {
         "$type": "number",
         "$value": 10,

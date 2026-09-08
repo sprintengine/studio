@@ -45,46 +45,44 @@ On Windows PowerShell:
 
 The CLI reads local registry files. It does not download remote prompts.
 Workspace-local role manifests under `.sprintengine/roles/`, plugin-scoped
-registry folders, user registry folders, and bundled
-`resources/sprintengine/roles/` entries can all contribute roles. Unknown roles
-fail clearly. They do not silently fall back to another Soul.
+registry folders, and user registry folders can all contribute roles — the
+user layer is where the app installs the specialist pack shipped in
+`resources/specialist-pack/`. There is no bundled `resources/sprintengine/roles/`
+directory. Unknown roles fail clearly. They do not silently fall back to
+another Soul.
 
-Role manifest `soul` entries are skill-only in the current schema:
-`{ "skill": "<id>" }`. Inline text entries such as `{ "text": "..." }` are
-not supported yet and fail validation as malformed Soul entries.
+The manifest key is `directives`, not `soul`. The v2 role manifest
+(`sprintengine_core/role_registry.py`) composes the startup brief from
+`directives.implement`, an ordered list of `{ "skill": "<id>" }` entries, with
+one optional key per post-implementation phase (`review` is the only shipped
+phase). A manifest still carrying `soul` or `capabilities` is rejected by name
+with a `v1_role_manifest` warning; `summary` is ignored in favour of
+`description`.
 
 ## Roles
 
-Bundled roles:
+The specialist pack in `resources/specialist-pack/roles/` ships:
 
 - `architect`
-- `coordinator`
-- `product`
+- `blog_writer`
+- `creative`
+- `cross_platform`
 - `developer`
 - `devops`
 - `frontend`
-- `blog_writer`
-- `tester`
-- `security`
-- `code_reviewer`
-- `spec_reviewer`
+- `nuclear_reviewer`
 - `performance`
-- `cross_platform`
 - `presentation`
+- `product`
+- `production_readiness_reviewer`
+- `security`
+- `spec_reviewer`
+- `tester`
+- `ui_ux_reviewer`
 
-Supported aliases:
-
-- `product-strategist` -> `product`
-- `devops-infra` -> `devops`
-- `frontend-design-review` -> `frontend`
-- `blog-writer`, `content-writer`, `blogger` -> `blog_writer`
-- `qa-test` -> `tester`
-- `security-review` -> `security`
-- `code-review`, `code-reviewer` -> `code_reviewer`
-- `spec-review`, `spec-reviewer` -> `spec_reviewer`
-- `performance-engineer` -> `performance`
-- `cross-platform`, `compatibility`, `platform-compatibility` -> `cross_platform`
-- `presenter`, `deck-writer`, `slide-author`, `slides` -> `presentation`
+Aliases are declared per manifest, in each role's own `aliases` array — there
+is no central alias table. `scripts/souls list` prints each role with its
+aliases.
 
 Some bundled Souls exist for non-Sprint specialist surfaces. Sprint Engine
 dispatchability is decided by the run roster, task roles, and quality gate

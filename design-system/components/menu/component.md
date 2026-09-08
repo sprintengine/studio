@@ -5,9 +5,9 @@ kebab, or open a narrowing glyph: whichever way it was asked for, what appears
 is this.
 
 Use a menu when the list is *actions*. Use [select](../select/component.md) when
-it is a value being chosen, [combobox](../combobox/component.md) when that value
-has to be filtered for, and the detail pane when the answer is something to read
-rather than something to do.
+it is a value being chosen — including when that value has to be filtered for —
+and the detail pane when the answer is something to read rather than something
+to do.
 
 ## Why this spec exists
 

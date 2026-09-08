@@ -24,7 +24,6 @@
       "board-lane",
       "button",
       "checkbox",
-      "combobox",
       "definition-list",
       "drawer",
       "empty-state",
@@ -57,8 +56,7 @@
       "task-card",
       "toast",
       "tooltip",
-      "truncated-text",
-      "wizard-progress"
+      "truncated-text"
     ],
     "patterns": [
       "patterns/context-rail.html",

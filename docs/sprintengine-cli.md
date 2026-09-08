@@ -53,19 +53,21 @@ python -m sprintengine_mcp --workspace .
 flags to bound which workspace roots may contain Sprint Engine state paths.
 Use repeated `--extra-dir <registry-root>` flags to add plugin registry roots
 containing `roles/` and `skills/`, and `--user-dir <path>` to override the user
-registry base directory. The server remains a local stdio MCP boundary.
+registry base directory. The server is a local stdio MCP boundary by default,
+or a local Streamable HTTP server under `mcp serve --http`.
 Studio-launched autonomous Sprint Engine agents use the managed
 `sprintengine-studio` MCP gateway (which proxies the module-owned Python hub) and runtime dispatch.
-Human and debug operators can run `sprintengine join --role <role> --id <agent-id>`
-for a one-shot read of what the run would hand that role; it never polls.
+Human and debug operators can run `sprintengine join --id <agent-id>`
+(with `--role` on a role-tagged run) for a one-shot read of what the run would
+hand that agent; it never polls.
 
 ## Single-Owner Task Lifecycle
 
 One agent owns a task from claim to `done`. It implements, publishes, then
 reviews its own diff in the same session; no other agent picks the task up. The
-board columns are `todo → ready → in_progress → review → done`, with
-`needs_input` as the blocked surface (`ready` is the materialized queue, not a
-semantic status).
+board columns are `todo → ready → in_progress → review → done`, plus
+`canceled`, with `needs_input` as the blocked surface (`ready` is the
+materialized queue, not a semantic status).
 
 Two commands drive the whole lifecycle after the claim:
 
@@ -81,7 +83,7 @@ run, read the plan returned by the directive, claim one ready task for their
 exact role, log evidence, then publish and walk the task's phases:
 
 ```bash
-sprintengine join --role developer --id developer-1 --watch
+sprintengine join --role developer --id developer-1
 sprintengine task next --role developer --id developer-1
 sprintengine task log --task-id T8 --id developer-1 --summary "Updated Sprint Engine docs" --file docs/sprintengine-cli.md --command "uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q" --result "Passed"
 sprintengine task publish --task-id T8 --id developer-1 --summary "Rewrote the CLI doc for the single-owner lifecycle." --path docs/sprintengine-cli.md
@@ -102,11 +104,13 @@ Sprint Engine roles are registry-backed. Active role validation resolves role
 ids and aliases through the Sprint Engine role registry at command time rather
 than through a hardcoded runtime enum. The registry search path supports
 workspace-local `.sprintengine/{roles,skills}/`, plugin-scoped Sprint Engine
-registry folders, user registry folders, and bundled
-`resources/sprintengine/{roles,skills}/`.
+registry folders, and user registry folders — where the app installs the
+specialist pack shipped in `resources/specialist-pack/{roles,skills}/`. The
+bundled layer under `resources/sprintengine/` carries skills only; there is no
+bundled `roles/` directory.
 
 A role manifest (`sprintengine_core/role_registry.py`) is `id`, `label`,
-`aliases`, optional `summary`/`icon`, and a required `directives` object:
+`aliases`, optional `description`/`icon`, and a required `directives` object:
 
 - `directives.implement` — the ordered `{ "skill": "<id>" }` entries composed
   into the role's startup brief. Required and non-empty.
@@ -117,6 +121,8 @@ A role manifest (`sprintengine_core/role_registry.py`) is `id`, `label`,
   (`REMOVED_MANIFEST_KEYS`): a manifest carrying either is skipped with a
   `v1_role_manifest` warning that names its `directives` replacement. There is
   no compatibility shim.
+- The renamed key `summary` is ignored with a `renamed_manifest_key` warning
+  naming `description` (`RENAMED_MANIFEST_KEYS`, MC-1831).
 
 Sprint Engine routing is driven by run state: the run's `configuredRoles` (the
 roles a task may be tagged with), the per-role `roleRuntimes` binding, and each
@@ -181,9 +187,11 @@ sprintengine roster runtime --role developer --cli claude-code --model claude-ha
   model); omitting `--model` pins the CLI's own default (no `--model` flag at
   launch).
 - Merges the one role into `roleRuntimes` in a locked transaction and appends a
-  `role_runtime_changed` event carrying the previous value. The merge replaces
-  the role's entry, so a `reasoning` level the command does not mention is
-  preserved rather than dropped (MC-1885) — this command is cli/model-scoped.
+  `role_runtime_changed` event carrying the previous value. `apply_role_runtimes`
+  rebuilds the entry and carries `reasoning` forward when the key is absent, so
+  a reasoning level the command does not mention is preserved rather than
+  dropped (MC-1885); an explicit `"reasoning": null` clears it. This command is
+  cli/model-scoped.
 - Deliberately **not** an MCP tool: a role's execution runtime is user config.
   The role must resolve in the registry and, on configured rosters, be in
   `configuredRoles` (`role_not_enabled_for_run`).
@@ -252,7 +260,7 @@ Cross-cutting quality (QA, security, performance, product, UX, production
 readiness) is planned by the architect as ordinary tasks in a reviewer role's
 lane, typically `dependsOn` the implementation they audit. Nothing in a manifest
 marks a role as a reviewer — the architect reads the role's natural-language
-`summary` and decides what to task it with.
+`description` and decides what to task it with.
 
 A reviewer has the same tool surface as any worker: it claims its task, patches
 what it finds, publishes, and — because it produced a diff — walks `review` on
@@ -305,25 +313,29 @@ sprintengine projection --help
 
 Current command groups:
 
-- `handover`: create a team bootstrap and handoff context. `--source-plan-kind` accepts `unknown`, `product_plan`, `architect_plan`, or `epic` (a backlog epic launched as a reference-based sprint). `--reference-sources` records the `--handover` markdown and every `--source kind:path` item as project-root-relative references to the canonical originals instead of copying them into the run store — the architect reads and updates those files in place. Inline (`--handover-text`) and stdin sources have no durable file and keep the copy behavior.
+- `handover`: create a team bootstrap and handoff context. `--source-plan-kind` accepts `unknown`, `product_plan`, `architect_plan`, `epic` (a backlog epic launched as a reference-based sprint), or `selection`. `--reference-sources` records the `--handover` markdown and every `--source kind:path` item as project-root-relative references to the canonical originals instead of copying them into the run store — the architect reads and updates those files in place. Inline (`--handover-text`) and stdin sources have no durable file and keep the copy behavior.
 - `init`: initialize a run.
 - `recover`: run an integrity recovery audit prompt.
 - `projection`: read the normalized run projection.
 - `runner`: read or update the durable runner policy.
-- `roster`: run-config operations only — `configure` (architect team composition) and `runtime` (operator per-role runtime edit). MC-1591 deleted the membership ops (`add`/`retire`/`replenish`/`list`); membership is `configuredRoles` and assignment is a task lease.
+- `roster`: run-config operations only — `runtime` (operator per-role runtime edit) and `enable` (add a role to the run's `configuredRoles`). MC-1591 deleted the membership ops (`add`/`retire`/`replenish`/`list`) and MC-1889 deleted `configure`; membership is `configuredRoles` and assignment is a task lease.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
-- `mcp`: run the local stdio MCP server.
+- `mcp`: `serve` the MCP boundary — local stdio by default, or a local Streamable HTTP server under `--http` with `--host`, `--port` and `--auth-token`.
 - `roles`: list configured registry roles.
 - `role`: inspect one configured registry role.
 - `soul`: render a role's startup brief from its `directives.implement` skills.
 - `skill`: list or inspect configured registry skills.
-- `task`: claim, publish, advance, update, release, log, comment, and refresh
-  tasks.
-- `plan`: architect-owned task graph operations.
+- `task`: `next`, `claim`, `status`, `resolve-input`, `release`,
+  `refresh-ready`, `log`, `publish`, `advance`, `note`, `comment` and `list`.
+  Editing a task's own fields is `plan update-task`, not a `task` action.
+- `plan`: architect-owned task graph operations — `add-task`, `update-task`,
+  `delete-task`, `add-dependency`, `remove-dependency`, `list`, `read`.
 - `artifact`: register and review artifacts.
+- `vcs`: the repo boundary — `status`, `task-worktree`, `commit`,
+  `request-repo`, `pr`, `pr-status`, `pr-merge`.
 - `summary`: print final run summary.
-- `merge`: print post-run merge instructions.
+- `cancel`: cancel the run.
 
 ## Folder Store And Projection
 
@@ -344,14 +356,18 @@ warnings, activity, feedback, ready counts, needs-input counts, run summary
 fields, runner policy, and per-task comment context (`latestComments`,
 `latestOpenFeedback`, `recordedArtifacts`).
 
-The run store carries a `schemaVersion` (currently `2`). A store written before
-MC-1542 is rejected, never migrated: `state_from_folder_store` and
-`build_projection` both call `assert_store_is_current`
-(`sprintengine_core/store.py`) and raise `RunStoreVersionError`. The projection
-re-emits `run.schemaVersion`, so the app rejects a stale `projection.json`
-without calling Python (`describeUnsupportedSprintEngineStore`,
-`src/main/sprintengine-artifacts.ts`). The remedy is to delete
-`.multi-code/sprintengine/<team>/` and re-run the sprint.
+The run store carries a `schemaVersion` (currently `5` —
+`RUN_SCHEMA_VERSION`, `sprintengine_core/store.py`). One step is migrated and
+the rest are rejected: `state_from_folder_store` and `build_projection` both
+call `migrate_run_store`, which upgrades a v4 store in place
+(`MIGRATABLE_RUN_SCHEMA_VERSION`), and then `assert_store_is_current`, which
+raises `RunStoreVersionError` for anything older. The projection re-emits
+`run.schemaVersion`, so the app rejects a stale `projection.json` without
+calling Python (`describeUnsupportedSprintEngineStore` and
+`SPRINT_ENGINE_RUN_SCHEMA_VERSION` in `src/shared/sprintengine/store-schema.ts`,
+re-exported by `src/main/sprintengine-artifacts.ts`). The remedy for a store
+below the migratable floor is to delete `.multi-code/sprintengine/<team>/` and
+re-run the sprint.
 
 Renderer and mobile code should consume projection data or `projection.json`;
 they should not parse task folders, artifact folders, locks, events, metrics, or
@@ -412,25 +428,33 @@ task in one step (`publish_task`, `sprintengine_core/tool/tasks.py`):
    tree is checked, scoped to the task's owned and declared paths. When the
    answer cannot be determined at all (no git repository), the answer is `True`
    — routing to review is the failure-safe direction.
-2. **Routing.** No diff → every phase is skipped and the task lands on `done`
-   (the analysis-only exit). A diff → the task advances to `phases[0]`, or to
-   `done` when the task has no phases.
+2. **Routing.** A diff → the task advances to `phases[0]`, or to `done` when
+   the task has no phases. No diff is **refused** since MC-1753 unless the
+   caller passes `--no-changes-ok` or the task was planned with an explicit
+   empty `phases` list — the analysis-only exit has to be declared, not
+   inferred. A no-diff publish is also refused while in-scope changes are
+   uncommitted.
 
-The owner **keeps** the task across that transition. When the task enters a
-phase, the composed phase directive is returned inline in the publish response
-as `nextDirective` — the owner is mid-tool-call, so there is nothing to paste
-and nothing to spawn.
+The owner **keeps** the task when it enters a phase, and the composed phase
+directive comes back inline in the publish response as `nextDirective` — the
+owner is mid-tool-call, so there is nothing to paste and nothing to spawn. On
+the `done` route the owner is cleared and the lease ended.
 
-In worktree mode publish also commits task-scoped changes under
-`runner/git.commit.lock`, and refuses to publish while a task-adjacent orphaned
-change (a changed path owned by no task) is uncommitted.
+In worktree mode publish also commits task-scoped changes under that repo's
+`runner/git.commit.<repoId>.lock` (one lock per declared repo since MC-1611).
+A task-adjacent orphaned change — a changed path owned by no task — is **not**
+a refusal: MC-2127 returns it as `uncommittedPaths` plus an
+`uncommittedPathsQuestion` and lets the publish stand.
 
 ```bash
 sprintengine task publish --task-id T3 --id developer-1 --summary "Added the phase-routing branch and its regression tests." --path sprintengine_core/tool/tasks.py
 ```
 
-Response fields: `nextStatus`, `previousStatus`, `producedChanges`, `phases`,
-`nextDirective` (only when the task entered a phase), `committed`, `commitSha`.
+Response fields: `ok`, `task`, `comment`, `event`, `nextStatus`,
+`previousStatus`, `producedChanges`, `phases`, `nextDirective` (only when the
+task entered a phase), `committed`, `commitSha`, and conditionally
+`completionKind`, `uncommittedPaths`, `uncommittedPathsQuestion`, `warnings`,
+`seamSignals`, `feedbackRecorded` and `feedbackMetricsPath`.
 
 ### `task advance`
 

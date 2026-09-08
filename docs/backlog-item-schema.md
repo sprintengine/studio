@@ -66,8 +66,12 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
 - **difficulty**: t-shirt effort estimate. Normally architect-owned.
 - **criticality**: product impact. Follows user/product intent.
 - **risk**: likelihood the change breaks something — a separate axis from
-  `difficulty`. Combined with `difficulty` it derives a row color at render time;
-  nothing is persisted, and a manual highlight color always wins.
+  `difficulty`. Combined with `difficulty` it derives a row color at render time
+  (`deriveRiskColor` / `resolveBacklogRowColor`); nothing is persisted.
+  Precedence is three deep: a hand-set `highlight` wins, then the epic's own
+  identity colour, then risk heat. The risk tier resolves with `litFill: false`,
+  and `backlogRowPaintClass` paints a background only for a lit fill, so the
+  derived risk colour currently tints no row.
 - **epic**: optional up-pointing slug naming the epic this item belongs to. The
   slug is the epic file's name stem (see below).
 - **dependsOn**: optional prerequisite list — a single **flat comma-separated
@@ -96,8 +100,9 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   scalar** of **project-relative, comma-free paths** (the CSV contract forbids an
   embedded comma), e.g.
   `mockups: backlog/mockups/2026-07-06-x.html, backlog/mockups/2026-07-06-y.html`.
-  The canonical home is `backlog/mockups/`; a legacy project-root `mockups/…`
-  path is also resolved. Each attachment shows in the item detail pane's
+  The canonical home is `backlog/mockups/`;
+  `backlogMockupResolutionCandidates` probes the ref as written first, then the
+  same ref under `backlog/`, so either root resolves. Each attachment shows in the item detail pane's
   **Mockups** section as a live scripts-off preview, openable rendered in the
   panel and removable there (UI-editable via `window.api.updateBacklogMockups`,
   which validates paths and preserves every other frontmatter key). Body-prose
@@ -114,6 +119,30 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   Legacy date-only values remain readable but the renderer falls back to the
   file mtime rather than pretending UTC midnight is exact.
 
+### App-written durable fields
+
+These four are frontmatter the app writes and reads back; agents should leave
+them to the app rather than hand-authoring them.
+
+- **starred** / **highlight** (`HIGHLIGHT_FIELDS`): the star and its colour, one
+  of the 7 highlight colours. Read by `backlogHighlightFromFrontmatter`, with
+  the object store as the un-migrated fallback.
+- **sprints**: the runs launched from this item, as `<slug>#<taskId>` entries.
+- **pr**: the pull requests opened for it, as `<repoId>=<url>` entries.
+
+Both link lists are declared in `durable-links.ts`; the resolved *status* of a
+link is volatile and is never written here.
+
+### Other read fields
+
+- **kind** (also accepted as `planKind` / `plan_kind` / `sourcePlanKind` /
+  `source_plan_kind`): `product_plan`, `architect_plan`, `html_mockup`, or
+  `unknown` — what kind of source document the item was minted from.
+- A `status: needs_structure` written by an older build is read as `idea`.
+- `type: roadmap` is tolerated and carried as `rawType`; the main listing tags
+  it `isRoadmap` and keeps it out of backlog lists. Any other unrecognised
+  `type` is likewise preserved on `rawType` rather than dropped.
+
 Set an axis only when the current context supports a grounded estimate; leave it
 unset rather than guessing. Omitting a field is a calm neutral state, not a
 defect — a rough capture can stay untyped and unestimated until an architect
@@ -127,8 +156,9 @@ sizes and prioritizes it.
   `type` are honored. New files should use the flat top-level keys above.
 - The reader tolerates not-yet-migrated files and sidecar records indefinitely
   (lazy migration): unknown keys are preserved on write, never dropped.
-- Star/highlight is owned exclusively by the object store and is never seeded
-  from frontmatter.
+- Star/highlight is a frontmatter fact first: `backlogHighlightFromFrontmatter`
+  reads `starred` / `highlight` (`HIGHLIGHT_FIELDS`) and the object store is
+  only the fallback for a file that has not been migrated.
 
 ## Display identifiers
 
@@ -162,7 +192,7 @@ An **epic** is itself a concept file at `backlog/epics/<slug>.md` with
 ---
 type: epic
 status: ready              # optional
-color: blue                # optional; one of the 7 highlight colors, for the group stripe
+color: blue                # optional; one of the 7 highlight colors — the epic's identity colour
 order: 1                   # optional; sort order among epic groups
 dependenciesPlanned: true  # optional; the ordering pass over the children is finished
 ---

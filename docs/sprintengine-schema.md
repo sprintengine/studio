@@ -15,6 +15,7 @@ Each team folder contains these store files and directories:
 ```text
 .multi-code/sprintengine/<team>/
   run.yaml
+  plan.md
   projection.json
   events.jsonl
   dispatch.jsonl
@@ -50,7 +51,7 @@ commands.
 
 `run.yaml` stores compact run metadata and graph mirrors:
 
-- `schemaVersion`: folder-store schema version, currently `3`
+- `schemaVersion`: folder-store schema version, currently `5`
   (`store.RUN_SCHEMA_VERSION`). See "Store Version Rejection" below.
 - `name`: team display name.
 - `goal`: run goal.
@@ -72,7 +73,8 @@ commands.
 - `artifacts`: compact artifact entries with `id`, `status`, `kind`, and
   `taskId`.
 - `runner`: durable runner policy (`cliWatchPolling: enabled | disabled`) plus
-  polling and completion settings. Legacy `mode: auto | off` is still read.
+  polling and completion settings. `normalize_runner_policy` reads
+  `cliWatchPolling` only; the legacy `mode: auto | off` key is ignored.
 - There is **no `agents` map** (v3, MC-1591). Membership is `configuredRoles` and
   assignment is a **lease on the task record**; `sync_run_yaml_from_state` strips
   any legacy `agents` key on write and `state_from_folder_store` reconstructs
@@ -111,21 +113,28 @@ ignores them.
 
 ### Store Version Rejection
 
-`RUN_SCHEMA_VERSION` is `4` (v2 = MC-1542 single-owner; v3 = MC-1591 leases
-replace the roster; v4 = MC-1611 a run declares a list of repos). Any store
-below the current version is **rejected, never migrated**: its status enum, its
-per-task quality requirements, and its role manifests are all incompatible — as
-are, pre-v3, its persistent `agents` map, and pre-v4, its single repo described
-by fields this build no longer writes.
+`RUN_SCHEMA_VERSION` is `5` (v2 = MC-1542 single-owner; v3 = MC-1591 leases
+replace the roster; v4 = MC-1611 a run declares a list of repos; v5 = MC-2057
+roleless runs, where a task's `role` became optional and the stand-in `general`
+role was deleted).
 
-`assert_store_is_current` (`sprintengine_core/store.py`) is the one function both
-`state_from_folder_store` and `build_projection` call; it raises
-`RunStoreVersionError` naming the team directory to delete. The projection also
-carries `run.schemaVersion`, so the app can reject a stale `projection.json`
-without invoking Python — `describeUnsupportedSprintEngineStore`
-(`src/main/sprintengine-artifacts.ts`, mirror constant
-`SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4`) guards every surface that reads one. The
-remedy is deleting `.multi-code/sprintengine/<team>/` and re-running the sprint.
+Exactly one step migrates. `migrate_run_store` (`sprintengine_core/store.py`)
+upgrades a v4 store in place on read — `MIGRATABLE_RUN_SCHEMA_VERSION` is `4` —
+and anything below that is **rejected, never migrated**: its status enum, its
+per-task quality requirements, and its role manifests are all incompatible, as
+are, pre-v3, its persistent `agents` map.
+
+`state_from_folder_store` and `build_projection` both call `migrate_run_store`
+and then `assert_store_is_current`, which raises `RunStoreVersionError` naming
+the team directory to delete. The projection also carries `run.schemaVersion`,
+so the app can reject a stale `projection.json` without invoking Python —
+`describeUnsupportedSprintEngineStore` in
+`src/shared/sprintengine/store-schema.ts` (re-exported by
+`src/main/sprintengine-artifacts.ts`), with the mirror constants
+`SPRINT_ENGINE_RUN_SCHEMA_VERSION = 5` and
+`SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION = 4`, guards every surface that
+reads one. The remedy for a store below the readable floor is deleting
+`.multi-code/sprintengine/<team>/` and re-running the sprint.
 
 ## Role Registry Boundary
 
@@ -279,7 +288,7 @@ Each line is a JSON object with:
   and must not double-assign work.
 - `timestamp`: UTC timestamp for the ledger entry.
 - `agentId`: target agent id.
-- `role`: canonical role requested by the target.
+- `role`: canonical role requested by the target. Omitted on a roleless run.
 - `target`: object with `kind` (`task`) and `taskId`.
 - `reason`: why the scheduler selected the target.
 - `state`: snapshot fields needed for idempotency, currently `taskStatus`.
@@ -287,8 +296,8 @@ Each line is a JSON object with:
   records may use values such as `acknowledged`, `canceled`, `released`, or
   `superseded`.
 - `source`: currently `core` for assignments produced by the shared
-  Sprint Engine core path. Future transports may identify `mcp`, `cli_compat`,
-  or `system`.
+  Sprint Engine core path. Future transports may identify `mcp` or
+  `cli_compat`.
 
 There is no MCP read contract for this ledger — the deleted `dispatch.next` /
 `dispatch.ack` / `subscribe` tools were its cursor surface. Headless watch is
@@ -347,7 +356,8 @@ Active operation names:
   `sprintengine.artifact.list`.
 - Plans: `sprintengine.plan.add_task`, `sprintengine.plan.update_task`,
   `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`,
-  `sprintengine.plan.remove_dependency`.
+  `sprintengine.plan.remove_dependency`, `sprintengine.plan.list`,
+  `sprintengine.plan.read`.
 - Run: `sprintengine.run.get`, `sprintengine.run.policy.get`,
   `sprintengine.run.subscribe`. The run projection is deliberately not an MCP
   tool: it exists for the UI, which reads `projection.json` from disk, and
@@ -358,8 +368,13 @@ Active operation names:
   `roster.configure` with the "Architect picks the team" formation it served — a
   call to any of them is an unknown tool for every role. The operator `roster
   runtime` and `roster enable` edits are CLI/IPC-only, never MCP tools.
+- VCS: `sprintengine.vcs.status`, `sprintengine.vcs.commit`,
+  `sprintengine.vcs.request_repo`, `sprintengine.vcs.pr`.
 - Support: `sprintengine.init`, `sprintengine.recover`, `sprintengine.summary`,
-  feedback tools, and `sprintengine.health`.
+  `sprintengine.help`, `sprintengine.handover`,
+  `sprintengine.triage.needs_input`, the feedback tools
+  (`sprintengine.feedback.summarize`, `sprintengine.feedback.recommend_actions`),
+  and `sprintengine.health`.
 
 The operator counterpart is CLI-only `sprintengine roster runtime --role --cli
 [--model] --actor ui` (MC-1516, the app-owned mid-run role runtime edit): it
@@ -425,8 +440,10 @@ notices comments posted mid-task. Read tools (`task.next`, `task.claim`,
 full `notes`, full `needsInput.resolution`,
 `evidence.commandsRan`/`results`, or `evidence.diffs`; default cards include
 only bounded newest notes and bounded needs-input prose. `task.get` accepts
-`include: ["activity", "comments", "evidence_log", "diffs", "notes",
-"needs_input"]` for deep reads.
+`include: ["activity", "comments", "evidence_log", "diffs"]` for deep reads —
+that enum is what the MCP wire schema accepts, so the `notes` and
+`needs_input` sections `TASK_GET_INCLUDE_SECTIONS` names internally are
+rejected at the boundary.
 Directives carry `{id, title, status, role}` stubs. Server-composed phase and
 rework prompts are built from full store state, and since item 1566 they
 reference — never re-list — content the same response already carries: the
@@ -451,11 +468,12 @@ plugin roles participate. There are four classifications:
   CLI, and stdio sessions. Full surface.
 - `architect` — the registry-normalized `architect` id: `AGENT_COMMON_TOOLS` plus
   the planning surface (`PLANNING_TOOLS`).
-- `general` — the manifest-less `general` identity, recognised by id: identical
-  to `architect` (`AGENT_COMMON_TOOLS` + `PLANNING_TOOLS`). MC-1591 deleted the
-  roster-growth tools (`ROSTER_GROWTH_TOOLS` is gone with the roster), and those
-  were the only difference, so the two classifications converge. A General still
-  cannot expand the team — no membership op exists for anyone.
+- `roleless` — an agent on a run that tags no roles (MC-2057, which deleted the
+  stand-in `general` role): identical to `architect` (`AGENT_COMMON_TOOLS` +
+  `PLANNING_TOOLS`). MC-1591 deleted the roster-growth tools
+  (`ROSTER_GROWTH_TOOLS` is gone with the roster), and those were the only
+  difference, so the two classifications converge. Nobody can expand the team —
+  no membership op exists for anyone.
 - `owner` — every other resolvable role, and the conservative fallback for a role
   the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
 
@@ -528,8 +546,10 @@ statuses (`VALID_TASK_STATUSES`, `sprintengine_core/tool/constants.py`) are
 
 Task records preserve the existing task card fields:
 
-- `id`, `title`, `description`, `role`
-- `status`, `stateStatus`, `ownerAgentId`
+- `id`, `title`, `description`, and `role` — optional since v5 (MC-2057) and
+  **omitted**, never `""` or null, on a roleless run
+- `repo` (defaults to `DEFAULT_TASK_REPO`, `"primary"`)
+- `status`, `stateStatus`, `ownerAgentId`, `lease`
 - `dependsOn`
 - `ownedPaths`
 - `acceptanceCriteria`
@@ -546,7 +566,9 @@ Task records preserve the existing task card fields:
   retained through handoff.
 - `lastImplementedByAgentId`, `lastPublishedAt`
 - `productFacing`, `producesImplementation` (optional booleans)
-- `kind` (optional; only value: `integration_review`): charter marker for the
+- `kind` (optional; `work`, `review`, or `integration_review` —
+  `VALID_TASK_KINDS`). `review` marks a planned review of other tasks' work.
+  `integration_review` is the charter marker for the
   terminal task that proves the run's pieces work together — build, run the
   app, exercise the seams between tasks. It is a marker, not machinery: the
   task claims, publishes, and completes like any other. Plan approval warns
@@ -592,7 +614,9 @@ including aliases and hyphen/underscore variants supported by the registry.
 Unknown roles are rejected at command boundaries once the registry can prove they
 are unknown.
 
-Task dispatch routes by exact canonical `task.role`. When the run records a
+Task dispatch routes by exact canonical `task.role` when a task carries one.
+On a roleless run (v5, MC-2057) tasks carry no role, dispatch omits the field,
+and any agent may claim any ready task. When the run records a
 `configuredRoles` set, `plan.add_task` requires the task's role to be in it. The
 core does not infer routing from role metadata at all: a manifest carries no
 capability or review flags, so the architect reads the role's natural-language
@@ -620,7 +644,6 @@ Known activity types include:
 - `feedback`
 - `needs_input`
 - `artifact`
-- `system`
 
 Projection consumers should use activity as the inspector timeline and display
 newest activity first.
@@ -890,8 +913,10 @@ The store uses lock files to serialize high-risk operations:
 - `runner/run.queue.lock`: run-level mutation lock for folder-store writes.
 - `runner/ready.queue.lock`: ready queue materialization lock.
 - `runner/claim.queue.lock`: narrow queue lock for task claim selection.
-- `runner/git.commit.lock`: serializes the shared run worktree's git index across
-  concurrent agents (worktree mode only).
+- `runner/git.commit.<repoId>.lock`: serializes a declared repo's git index
+  across concurrent agents (worktree mode only). One lock per repo since
+  MC-1611 — `git_commit_lock_file()` builds the name, and `_projection_locks`
+  discovers them by glob and projects each as `gitCommit:<repoId>`.
 - `runner/run.lock.json`: run-level status marker.
 - `runner/ready.lock.json`: ready runner status marker.
 
@@ -938,7 +963,7 @@ sprintengine task refresh-ready
 Standalone/headless CLI agents can start and continue with:
 
 ```bash
-sprintengine join --role <role> --id <agent-id> --watch
+sprintengine join --id <agent-id>      # --role too, on a role-tagged run
 ```
 
 Multicode-launched autonomous agents instead register with

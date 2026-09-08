@@ -31,6 +31,13 @@ Exports:
 - `src/shared/review/brief.ts` — `validateReviewBrief`, `checkBriefMatchesChangeSet`
 - `src/shared/review/comments.ts` — `validateReviewComment`, `validateReviewWorkspaceState`
 - `src/shared/review/anchors.ts` — `validateAnchor`, `isAnchorWithinExtent`, `shiftAnchor`
+- `src/shared/review/pr-url.ts` — `parsePullRequestUrl`, `ParsedPullRequest`
+- `src/shared/review/brief-run-events.ts` — `BRIEF_RUN_EVENT_TOPIC`
+
+Beside them, and part of the same contract without being barrelled:
+`guards.ts` (the shared validator primitives), `pathSafety.ts` (`homePathLeak`
+— a review artifact carrying an absolute home path is rejected), and
+`review-state.ts` (`ReviewProgressState`, `REVIEW_STATE_PRESENTATION`).
 
 ## ReviewChangeSet
 
@@ -94,7 +101,8 @@ interface ReviewBrief {
     intent: string                 // what the change is trying to do, plain language
     blastRadius: string            // what it touches / what could break
     readingGuide: string           // how the steps are ordered and why
-    complexity: 'low' | 'medium' | 'high'
+    complexity?: 'low' | 'medium' | 'high'   // optional: absent is legal, and a brief
+                                             // degraded from a change set alone states none
   }
   steps: ReviewStep[]              // every non-binary file in exactly one step (or coverage.unassignedPaths)
   changeMap?: ChangeMap            // optional entity map for the Overview
@@ -204,6 +212,9 @@ partial silent render.
 - `changeMap` (when present): node ids unique; every edge endpoint references an
   existing node; every node `stepId` references an existing step; label /
   sublabel / edge-label length caps; `<= 14` nodes, `<= 20` edges.
+- Step ids are unique within a brief.
+- A file marked `binary: true` carries no hunks.
+- No artifact may carry an absolute home path (`homePathLeak`).
 - Unknown extra keys are tolerated (forward compat).
 
 ### checkBriefMatchesChangeSet(brief, changeset)

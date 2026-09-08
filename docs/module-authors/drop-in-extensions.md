@@ -30,7 +30,7 @@ code.
 - Author against [`@multicode/module-sdk`](../../packages/module-sdk/README.md).
 - Validate, pack, and sign with the bundled `multicode-module` CLI.
 - Install by dropping the folder into `~/.multicode/modules/<id>/`, or from
-  **Settings → Modules → "Install from folder"**, then grant trust.
+  **Settings → Modules → "Install a module from a folder"**, then grant trust.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
 
 ### Creating a workspace from a module
@@ -52,7 +52,7 @@ workspace-sync bus, so a returned id is always a real workspace.
 ### Publishing a module to the marketplace
 
 Folder install (above) is the developer loop. To let other users discover and
-install your module from the **Plugins → Modules** shelf, publish it to
+install your module from the Extensions door's **Plugins** view, publish it to
 the marketplace registry as a signed plugin bundle:
 
 1. **Sign the module.** `multicode-module keygen` once, then
@@ -77,7 +77,8 @@ the marketplace registry as a signed plugin bundle:
    `icons/<plugin-id>.svg`, and a `marketplace.json` entry whose
    `name`/`latest`/`provides`/`signature` match your `plugin.json`
    byte-for-byte, with a `source` URL on an allowlisted HTTPS host
-   (`github.com` / `raw.githubusercontent.com`). Registry CI runs the same
+   (`github.com`, `api.github.com`, `raw.githubusercontent.com`, plus anything
+   `MULTICODE_MARKETPLACE_EXTRA_HOSTS` adds). Registry CI runs the same
    verifier the app build runs (`verify:marketplace-registry`). The full
    command walkthrough, including the registry-entry shape, lives in
    [`docs/plugin-authors/README.md`](../plugin-authors/README.md). Registry
@@ -85,9 +86,10 @@ the marketplace registry as a signed plugin bundle:
    bundled index is generated from it, so listing follows the next snapshot
    release rather than the PR merge alone.
 
-What users then see: your module on the Plugins modal's **Modules** shelf
-(card copy comes from your module's `displayName` + `summary` — say what it
-adds: workspace type, panels, commands), a trust prompt listing the REAL
+What users then see: your module in the Extensions door's **Plugins** view,
+carrying a `Module` component chip inside its source and category group (card
+copy comes from your module's `displayName` + `summary` — say what it adds:
+workspace type, panels, commands), a trust prompt listing the REAL
 permissions from your verified manifest at install time, and the module in
 Settings → Modules once installed. Signed community bundles install through
 that trust prompt; a publisher key fingerprint listed in
@@ -102,14 +104,21 @@ how to launch, resume, inject prompts into, and detect completion for a CLI.
 
 - The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`;
   `validateCliPluginManifest` is the **same validator the app runs** on load
-  (the app imports it from the SDK), so a manifest it accepts will load.
+  (the app imports it from the SDK), so a manifest it accepts will load. The
+  SDK type is the launch/resume/detect core; the bundled manifests also carry
+  the presentation and installation fields the app's own `PluginManifest`
+  models (`summary`, `category`, `icon`, `detect`, `install`, `update`,
+  `package`) — read `src/shared/plugin-manifest.ts` for those.
 - The bundled CLI plugins under `resources/plugins/` are the worked examples:
   each is a `plugin.json` in the shape a user plugin takes.
 - Install by dropping the folder into `~/.multicode/plugins/<id>/`, or from
-  **Settings → Agents → "Install CLI from folder"**. New plugins are picked up
-  immediately on install, or on the next launch / Settings refresh.
+  **Settings → Agents → "Install a CLI from a folder"**. New plugins are picked
+  up immediately on install, on the next launch, or when you press **Re-check
+  every CLI now**.
 
 Declarative CLI plugins run no code of their own — they only configure how the
 app spawns an external binary you already trust — so they are not gated behind
 the module trust prompt. (Executable *provider* adapters, a separate provider
-manifest kind, are signature-gated; see `src/shared/plugin-manifest.ts`.)
+manifest kind — `kind: "provider"`, the shape `resources/plugins/claude-agent`,
+`openrouter` and `xai` take — are signature-gated; see
+`src/shared/plugin-manifest.ts`.)

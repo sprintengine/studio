@@ -78,6 +78,15 @@ of the first release that ships it, then delete the line.
   unaffected - they were never part of the wizard. Three Learn Center cards under
   a "Design Wizard" category are gone with it.
 
+- Horizon and Multiloop, 2026-09-08: the two workspace modes are removed from
+  the tree. A workspace saved in either mode is DROPPED from the Projects list
+  on first load (`dropRetiredModeWorkspaces`, which runs on every list-entry
+  path, not only in the migration rung) — everything either wrote is on disk and
+  untouched, so open the project as a normal chat to keep working on those
+  files. Horizon's functional leftovers go with it: two tailnet scopes no tool
+  could require, a roster chip variant only its step rows used, and the backlog
+  header action only its Start sprint supplied.
+
 ## Tag And Build
 
 - Create a tag matching `package.json`, for example `v0.4.0` or `v0.4.0-preview.1`.
