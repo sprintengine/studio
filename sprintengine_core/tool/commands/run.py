@@ -1435,7 +1435,7 @@ def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, write_result)
 
 
-def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:
+def build_recovery_prompt(state: Dict[str, Any], state_path: Path) -> str:
     sprintengine = state.get("sprintengine", {})
     goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
     tasks = state.get("tasks", [])
@@ -1490,7 +1490,7 @@ def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: 
 
 def cmd_recover(args: argparse.Namespace) -> Dict[str, Any]:
     state = load_mutation_state(args.state)
-    prompt = build_recovery_prompt(state, args.state, args.state.parent)
+    prompt = build_recovery_prompt(state, args.state)
     return {
         "ok": True,
         "role": "architect",

@@ -59,15 +59,6 @@ SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
 # every worker alike, so the seat's own instructions live in `coordinator_brief_block`.
 SPRINTENGINE_ROLELESS_WORKFLOW_SKILL: str = "sprintengine_roleless_workflow"
 
-# The UNGATED full skill list for a roleless agent: the orchestration skill (in
-# place of a role soul) plus the universal norm + Multicode product layer.
-# `load_roleless_soul_prompt` composes the gated equivalent per run; this
-# constant remains the contract/reference list (tests assert against it).
-SPRINTENGINE_ROLELESS_SKILLS: tuple[str, ...] = (
-    SPRINTENGINE_ROLELESS_WORKFLOW_SKILL,
-    *SPRINTENGINE_SOUL_EXTRA_SKILLS,
-)
-
 
 def knowledge_root_is_configured(env: Optional[Mapping[str, str]] = None) -> bool:
     """Whether this process was launched with a workspace Knowledge Graph root."""

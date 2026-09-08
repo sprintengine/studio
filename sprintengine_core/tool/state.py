@@ -338,15 +338,6 @@ def refuse_if_run_canceled(state: Dict[str, Any], action: str) -> None:
         )
 
 
-def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
-    for task in state.get("tasks", []) or []:
-        if not isinstance(task, dict):
-            continue
-        if task.get("role") == role and task.get("status") not in {"done", "canceled"}:
-            return True
-    return False
-
-
 def set_if_changed(record: Dict[str, Any], key: str, value: Any) -> bool:
     if record.get(key) == value:
         return False
@@ -411,10 +402,6 @@ def _resolve_mutation_state(path: Path, *, initial_state: Optional[Dict[str, Any
     raise SystemExit(
         "Sprint Engine folder store is not initialized. Run `sprintengine init` for this team before using this command."
     )
-
-
-def load_state(path: Path) -> Dict[str, Any]:
-    return load_mutation_state(path)
 
 
 def mutation_lock_for_state(path: Path):

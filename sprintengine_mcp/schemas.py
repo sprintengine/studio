@@ -98,17 +98,6 @@ CHANGED_PATHS_PROPERTY = {
     ),
 }
 
-ACTOR_SCHEMA = {
-    "type": "object",
-    "required": ["id"],
-    "properties": {
-        "id": {"type": "string"},
-        "role": {"type": "string"},
-        "authenticated": {"type": "boolean"},
-        "mcpAuthorized": {"type": "boolean"},
-    },
-}
-
 
 # `statePath` and `workspaceRoot` are server-resolvable from launch env
 # (`SPRINTENGINE_STATE_PATH`, `SPRINTENGINE_WORKSPACE_ROOT`) and from

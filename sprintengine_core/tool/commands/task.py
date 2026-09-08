@@ -709,11 +709,6 @@ def planner_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str
     return tasks
 
 
-# Legacy alias: the old name asserted the triager is an architect, which is what
-# left runs with no architect unable to triage anything.
-architect_actionable_needs_input_tasks = planner_actionable_needs_input_tasks
-
-
 def normalized_needs_input_for_routing(needs_input: Any) -> Dict[str, Any]:
     if not isinstance(needs_input, dict):
         return {}
@@ -1102,5 +1097,3 @@ def comment(args: argparse.Namespace) -> Dict[str, Any]:
     if args.comment_action == "list":
         return cmd_task_comment_list(args)
     return cmd_task_comment(args)
-
-comment_list = cmd_task_comment_list

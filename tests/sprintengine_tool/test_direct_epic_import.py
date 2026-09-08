@@ -427,13 +427,17 @@ def test_the_skip_rule_matches_the_renderers_copy_of_it() -> None:
 
     from sprintengine_core.tool.plans import CLOSED_CHILD_STATUSES
 
+    # The renderer's copy relocated to the shared scan it reads (MC-2160);
+    # `src/renderer/src/utils/backlogEpics.ts` is now a bare `export *` shim
+    # over this module, so the declaration itself lives here.
+    renderer_source = "src/shared/backlog/epics.ts"
     repo_root = _Path(__file__).resolve().parents[2]
-    source = (repo_root / "src/renderer/src/utils/backlogEpics.ts").read_text(encoding="utf-8")
+    source = (repo_root / renderer_source).read_text(encoding="utf-8")
     match = re.search(
         r"CLOSED_EPIC_CHILD_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>\(\[([^\]]*)\]",
         source,
     )
-    assert match, "CLOSED_EPIC_CHILD_STATUSES not found in src/renderer/src/utils/backlogEpics.ts"
+    assert match, f"CLOSED_EPIC_CHILD_STATUSES not found in {renderer_source}"
     renderer = {value.strip().strip("'\"") for value in match.group(1).split(",") if value.strip()}
     assert renderer == CLOSED_CHILD_STATUSES
 

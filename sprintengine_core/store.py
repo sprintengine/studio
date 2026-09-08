@@ -134,7 +134,6 @@ REWORK_COMMENT_TYPES = FEEDBACK_COMMENT_TYPES | {"needs_input"}
 # claim guard without a data migration. An absent policy reads as `per_task`.
 WORKER_ASSIGNMENT_PER_TASK = "per_task"
 WORKER_ASSIGNMENT_POLICIES = (WORKER_ASSIGNMENT_PER_TASK,)
-DEFAULT_ROSTER_POLICY = {"workerAssignment": WORKER_ASSIGNMENT_PER_TASK}
 DEFAULT_RUNNER_POLICY = {
     # The CLI watch loop this policy configured was retired with the CLI-runner
     # era (MC-1827); nothing in the engine polls any more. `cliWatchPolling`
@@ -165,10 +164,6 @@ def validate_status(value: str, allowed: Iterable[str], label: str) -> str:
 
 def validate_task_status(value: str) -> str:
     return validate_status(value, TASK_STATUSES, "task")
-
-
-def validate_artifact_status(value: str) -> str:
-    return validate_status(value, ARTIFACT_STATUSES, "artifact")
 
 
 def task_repo(task: dict[str, Any]) -> str:
@@ -442,16 +437,6 @@ def normalize_roster_policy(raw: Any) -> dict[str, Any]:
     if assignment not in WORKER_ASSIGNMENT_POLICIES:
         assignment = WORKER_ASSIGNMENT_PER_TASK
     return {"workerAssignment": assignment}
-
-
-def worker_assignment_policy(state: dict[str, Any]) -> str:
-    """The run's worker-assignment policy id, defaulting to per_task."""
-    return normalize_roster_policy(state.get("rosterPolicy"))["workerAssignment"]
-
-
-def roster_is_configured_in_state(state: dict[str, Any]) -> bool:
-    sprintengine = state.get("sprintengine") if isinstance(state.get("sprintengine"), dict) else {}
-    return bool(sprintengine.get("rosterConfigured"))
 
 
 def atomic_write_text(path: Path, text: str) -> None:

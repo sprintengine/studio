@@ -243,12 +243,6 @@ def add_architect_difficulty_defaults(target: dict[str, Any], payload: dict[str,
     target["difficulty_reason"] = payload.get("difficultyReason", payload.get("difficulty_reason", ""))
 
 
-def add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, Any]) -> None:
-    target["reviewed_difficulty_pct"] = payload.get("reviewed_difficulty_pct", payload.get("reviewedDifficultyPct"))
-    target["reviewed_difficulty_dimension"] = payload.get("reviewedDifficultyDimension", payload.get("reviewed_difficulty_dimension", ""))
-    target["reviewed_difficulty_reason"] = payload.get("reviewedDifficultyReason", payload.get("reviewed_difficulty_reason", ""))
-
-
 def _backlog_ref_fields(raw: Any) -> dict[str, Any]:
     """`backlogRef: {projectRelativePath, displayKey}` -> the CLI's two flat arguments."""
     if not isinstance(raw, dict):

@@ -40,10 +40,6 @@ SCORE_LABELS = {
 PRIVATE_CONTENT_NOTICE = "sanitized_aggregates_only"
 
 
-def feedback_metrics_path(team_dir: Path) -> Path:
-    return team_dir / "metrics" / "agent-feedback.jsonl"
-
-
 def load_feedback_records(path: Path) -> list[dict[str, Any]]:
     """Load JSONL feedback records, ignoring blank lines."""
 

@@ -505,7 +505,7 @@ def test_join_stops_when_only_other_role_tasks_are_ready(tmp_path) -> None:
     assert product_task["ownerAgentId"] is None
 
 
-def test_recover_returns_integrity_prompt_and_backup_path(tmp_path) -> None:
+def test_recover_returns_integrity_prompt(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
         "recover-prompt",

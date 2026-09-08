@@ -109,13 +109,6 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.vcs.pr",
 })
 
-# Operator-only compatibility surface. `sprintengine.join` backs the human
-# `sprintengine --backend mcp-local join` CLI flow and must keep its response
-# shape; managed autonomous agents use `agent.join` followed by `task.next`.
-OPERATOR_ONLY_TOOLS: frozenset[str] = frozenset({
-    "sprintengine.join",
-})
-
 # Tools whose payload `role` names the caller (not a task's assigned role —
 # e.g. plan.add_task `role` is the task's role). Role-bound sessions must not
 # impersonate another role through these.
