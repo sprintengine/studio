@@ -4663,6 +4663,50 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
+/* ── Inline (2026-09-09) ─────────────────────────────────────────────────
+ * The pager as a STEPPER inside a band: `n/m` between two chevrons, sitting in
+ * a toolbar beside other controls rather than under a list.
+ *
+ * The diff window's file stepper is what it was drawn for — "2/27" between the
+ * hunk arrows and the view toggle — where the foot of a list does not exist and
+ * there is no room for a sentence.
+ *
+ * Three things go, and each for the same reason (the band has no width to spend
+ * on them): the numbered strip, the words sentence, and the foot padding. What
+ * does NOT go is the rule that makes a pager a pager — the ends stay reachable
+ * and the chevrons are DISABLED there, never absent, because removing them
+ * reflows the band under the pointer that is clicking them.
+ *
+ * The sentence does not disappear either; it moves to the position's accessible
+ * name, so the announcement is unchanged while the drawing shrinks to "2/27". */
+.ds-pager--inline {
+  display: inline-flex;
+  justify-content: flex-start;
+  gap: var(--sem-space-3xs);
+  padding-top: 0;
+}
+
+/* Square chevrons at the band's own control step, so the stepper sits level
+ * with the `button --icon` items beside it instead of standing a step taller. */
+.ds-pager--inline .ds-pager-step {
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-control-xs);
+  padding: 0;
+}
+
+/* The position itself. Tabular so the band does not twitch as the number grows
+ * a digit, and muted because "where am I" is a state display — the same reason
+ * the numbered strip never takes the accent. */
+.ds-pager-position {
+  flex: none;
+  padding-inline: var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}
+
 /* components/panel-header/component.css */
 /* Panel header — the one header contract for every panel: a single 34px band
  * (size.control.md) carrying name, canonical count, optional scope, and at
@@ -5487,6 +5531,32 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   .ds-segmented-control-segment {
     transition: none;
   }
+}
+
+/* ── Icon-only (2026-09-09) ──────────────────────────────────────────────
+ * Square segments carrying a glyph instead of a word, for a strip on a band
+ * that cannot spend width on labels — the diff window's side-by-side / unified
+ * toggle, sharing its row with the file stepper and the include counter.
+ *
+ * `size.control.xs` square, so the strip matches the `button --icon` items
+ * beside it in a `toolbar` band rather than standing a step taller than them,
+ * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
+ * a mark beside the word that is.
+ *
+ * The label does not disappear — it becomes the segment's `aria-label` and its
+ * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
+ * with no label and no tooltip is a blank button, and it is the only thing this
+ * variant can get wrong. */
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  justify-content: center;
+  padding: 0;
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
 }
 
 /* components/select/component.css */
@@ -8284,6 +8354,19 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
+  }
+.ds-embed-component-pager .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-pager .demo-band {
+    display: flex;
+    align-items: center;
+    max-width: 320px;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-xs);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
   }
 .ds-embed-component-pager .demo-label {
     margin: 0 0 var(--sem-space-sm);
@@ -23888,6 +23971,14 @@ document.addEventListener('keydown', (event) =&gt; {
       <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–8 of 8</span>
     </nav>
   </div>
+  <p class="demo-label demo-label--second">--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.</p>
+  <div class="demo-band">
+    <nav class="ds-pager ds-pager--inline" aria-label="Files in this commit">
+      <button type="button" class="ds-pager-step" aria-label="Previous file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <span class="ds-pager-position" role="status" aria-live="polite" aria-label="File 2 of 27">2/27</span>
+      <button type="button" class="ds-pager-step" aria-label="Next file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+    </nav>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -23910,6 +24001,14 @@ document.addEventListener('keydown', (event) =&gt; {
       </span>
     </nav>
   </div>
+  <p class="demo-label demo-label--second">--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.</p>
+  <div class="demo-band">
+    <nav class="ds-pager ds-pager--inline" aria-label="Files in this commit">
+      <button type="button" class="ds-pager-step" aria-label="Previous file" disabled><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <span class="ds-pager-position" role="status" aria-live="polite" aria-label="File 1 of 27">1/27</span>
+      <button type="button" class="ds-pager-step" aria-label="Next file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+    </nav>
+  </div>
 </div>
 </div>
 <div class="catalog-doc">
@@ -23917,24 +24016,29 @@ document.addEventListener('keydown', (event) =&gt; {
 <p>Use a pager when a list is longer than a person will scroll and its order means something — a catalogue of 318 connectors kept in categories, a repository's skills kept in folders. Use progressive disclosure (&quot;Show N more&quot;) only for a short tail inside one section. Use infinite scroll for a feed, where position does not matter and there is no last page.</p>
 <p>A pager exists because the toggle it replaces cannot state a position. &quot;Show 25 more&quot; grows the page without ever saying how much is left, it forgets where you were the moment you leave, and three sections each expanded to a different depth is a list with no position at all.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-pager</code> | yes — <code>&lt;nav&gt;</code> with an <code>aria-label</code> naming what is paged | | Range | <code>.ds-pager-range</code> | yes — the position in words, tabular, a polite live region | | Controls | <code>.ds-pager-controls</code> | no — absent when there is only one page | | Step | <code>.ds-pager-step</code> | yes (with controls) — previous, each page number, next | | Elision | <code>.ds-pager-gap</code> | no — <code>…</code> standing for skipped numbers, <code>aria-hidden</code> | | Icon | <code>.ds-pager-icon</code> | no — the chevrons, <code>icon.size.xs</code>, <code>aria-hidden</code> |</p>
+<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-pager</code> | yes — <code>&lt;nav&gt;</code> with an <code>aria-label</code> naming what is paged | | Range | <code>.ds-pager-range</code> | yes — the position in words, tabular, a polite live region | | Controls | <code>.ds-pager-controls</code> | no — absent when there is only one page | | Step | <code>.ds-pager-step</code> | yes (with controls) — previous, each page number, next | | Elision | <code>.ds-pager-gap</code> | no — <code>…</code> standing for skipped numbers, <code>aria-hidden</code> | | Icon | <code>.ds-pager-icon</code> | no — the chevrons, <code>icon.size.xs</code>, <code>aria-hidden</code> | | Position | <code>.ds-pager-position</code> | <code>--inline</code> only — <code>n/m</code>, tabular, carrying the sentence as its accessible name |</p>
 <p>Steps sit <code>size.control.sm</code> (30px) tall and at least that wide, spaced by <code>space.3xs</code>, with <code>space.md</code> inline padding so a three-digit page still fits its box. The row is separated from the list above it by <code>space.lg</code> of top padding and nothing else — the list's own last row is the only edge it needs.</p>
 <h4>Variants</h4>
 <p>There is one pager. What changes is how much of it is there:</p>
 <ul><li><strong>Paged</strong> — the range plus the controls.</li><li><strong>Single page</strong> — the range alone. The count is still news (&quot;Showing 1–8 of 8&quot;); a strip of one number is not.</li><li><strong>Empty</strong> — the range says what is missing (&quot;Nothing matches “stripe”&quot;, &quot;No plugins here&quot;) and there are no controls. An empty list still gets its sentence, because the alternative is a blank region that reads as broken.</li></ul>
+<p>…and one modifier, for a pager that is not the foot of anything:</p>
+<ul><li><strong><code>--inline</code></strong> (2026-09-09) — the pager as a <strong>stepper inside a band</strong>: <code>n/m</code> in <code>tabular-nums</code> between two <code>size.control.xs</code> chevrons, sitting in a [toolbar](../toolbar/component.md) beside other controls. The diff window's file stepper is what it was drawn for — &quot;2/27&quot; between the hunk arrows and the view toggle.</li></ul>
+<p>Three things go, all for the same reason (the band has no width to spend on them): the numbered strip, the words sentence, and the foot padding. The chevrons drop to <code>size.control.xs</code> so the stepper sits level with the <code>button --icon</code> items beside it rather than standing a step taller.</p>
+<p><strong>What does not go is the rule that makes a pager a pager.</strong> The ends stay reachable, and the chevrons are *disabled* at them, never absent — removing them reflows the band under the pointer that is clicking them. And the sentence does not disappear: it moves to the position's <strong>accessible name</strong>, so a screen reader still hears &quot;File 2 of 27&quot; while the drawing shrinks to &quot;2/27&quot;.</p>
+<p>Use it only where a foot does not exist. A list with a bottom edge gets the full pager; <code>n/m</code> in a band is a compression, and compressions are paid for.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | <code>text.muted</code> on a transparent ground | | Hover | <code>bg.hover</code> and an ink lift to <code>text.primary</code> | | Current page | <code>bg.selected</code> + <code>text.primary</code> + <code>font.weight.medium</code>, marked <code>aria-current=&quot;page&quot;</code> | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> — previous on page 1, next on the last |</p>
+<p>| State | Treatment | |---|---| | Rest | <code>text.muted</code> on a transparent ground | | Hover | <code>bg.hover</code> and an ink lift to <code>text.primary</code> | | Current page | <code>bg.selected</code> + <code>text.primary</code> + <code>font.weight.medium</code>, marked <code>aria-current=&quot;page&quot;</code> | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> — previous on page 1, next on the last | | Inline position | <code>.ds-pager-position</code> at <code>text.muted</code>, tabular. Never the accent: &quot;where am I&quot; is a state display |</p>
 <h4>Usage</h4>
 <p><strong>The current page is neutral.</strong> <code>bg.selected</code> plus an ink lift, exactly as a selected segment. An accent-filled page number is a reject on sight: the accent is the view's one primary action, and &quot;which page am I on&quot; is a state display.</p>
 <p><strong>The ends stay reachable.</strong> Always draw page 1 and the last page, plus a window around the current one, and elide the rest. The strip's width must not grow with the source — a 27-page catalogue and a 3-page one draw the same number of buttons. A single skipped page is drawn rather than elided: <code>1 … 3</code> is wider than <code>1 2 3</code> and hides more.</p>
 <p><strong>Previous and next are disabled, not absent.</strong> Removing them at the ends reflows the strip under the pointer that is clicking it.</p>
 <p><strong>One pager per region.</strong> It walks the whole region, groups included: a group that does not fit continues onto the next page under a heading that says so. Two pagers, or a pager per group, is a list with two positions.</p>
-<p><strong>Say the position in words.</strong> &quot;Showing 13–24 of 318&quot; is the whole point. Numbers alone tell you where you can go, not where you are.</p>
+<p><strong>Say the position in words.</strong> &quot;Showing 13–24 of 318&quot; is the whole point. Numbers alone tell you where you can go, not where you are. <code>--inline</code> is the one place the words are not *drawn*, and even there they are still said: the sentence becomes the position's accessible name rather than being dropped.</p>
 <p><strong>Paging replaces rows; it must not move focus.</strong> The clicked page button keeps focus, so the range sentence is a <code>role=&quot;status&quot;</code> live region — that announcement is the only signal a screen-reader user gets that the list changed.</p>
 <h4>Accessibility</h4>
-<ul><li>The root is <code>&lt;nav&gt;</code> with a required <code>aria-label</code> naming what is being paged (&quot;Plugins in SprintEngine Studio&quot;), so a page with several lists does not present several identical &quot;pagination&quot; landmarks.</li><li>Page numbers are <code>&lt;button&gt;</code>s; the current one carries <code>aria-current=&quot;page&quot;</code> and every one carries an <code>aria-label</code> (&quot;Page 3&quot;) so the number is not read as a bare digit.</li><li>Previous and next are <code>aria-label</code>led; their chevrons are <code>aria-hidden</code>.</li><li>The elision is <code>aria-hidden</code> — it names no page.</li><li>The range is <code>role=&quot;status&quot; aria-live=&quot;polite&quot;</code>, and it is the only live region in the pager.</li><li>Tab order is the natural one: the strip is a row of ordinary buttons, not a roving-tabindex composite. A pager is reached rarely and left immediately, so a person tabbing to page 4 should not first have to discover that arrow keys drive it.</li></ul>
+<ul><li>The root is <code>&lt;nav&gt;</code> with a required <code>aria-label</code> naming what is being paged (&quot;Plugins in SprintEngine Studio&quot;), so a page with several lists does not present several identical &quot;pagination&quot; landmarks.</li><li>Page numbers are <code>&lt;button&gt;</code>s; the current one carries <code>aria-current=&quot;page&quot;</code> and every one carries an <code>aria-label</code> (&quot;Page 3&quot;) so the number is not read as a bare digit.</li><li>Previous and next are <code>aria-label</code>led; their chevrons are <code>aria-hidden</code>.</li><li>The elision is <code>aria-hidden</code> — it names no page.</li><li>The range is <code>role=&quot;status&quot; aria-live=&quot;polite&quot;</code>, and it is the only live region in the pager. On <code>--inline</code> the position takes that role, and an <code>aria-label</code> carrying the full sentence — so the visible &quot;2/27&quot; and the announced &quot;File 2 of 27&quot; are one element, and there is still exactly one live region.</li><li>Tab order is the natural one: the strip is a row of ordinary buttons, not a roving-tabindex composite. A pager is reached rarely and left immediately, so a person tabbing to page 4 should not first have to discover that arrow keys drive it.</li></ul>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/Pager.tsx</code>, exporting <code>Pager</code> (the row) and <code>pagerSteps</code> (which numbers to draw, given the page and the count). What a page CONTAINS is not the primitive's business: the consumer's own model slices its groups and hands over <code>page</code>, <code>pageCount</code> and the range sentence. The Extensions catalogues' model is <code>src/renderer/src/components/workspace/globalSurface/extensions/catalogue/cataloguePaging.ts</code>.</p>
+<p><code>src/renderer/src/components/ui/Pager.tsx</code>, exporting <code>Pager</code> (the row, with an <code>inline</code> prop) and <code>pagerSteps</code> (which numbers to draw, given the page and the count). What a page CONTAINS is not the primitive's business: the consumer's own model slices its groups and hands over <code>page</code>, <code>pageCount</code> and the range sentence. The Extensions catalogues' model is <code>src/renderer/src/components/workspace/globalSurface/extensions/catalogue/cataloguePaging.ts</code>.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/pager/component.css</summary><pre><code>/* Pager — the foot of a list walked one page at a time
@@ -24028,6 +24132,50 @@ document.addEventListener('keydown', (event) =&gt; {
     transition: none;
   }
 }
+
+/* ── Inline (2026-09-09) ─────────────────────────────────────────────────
+ * The pager as a STEPPER inside a band: `n/m` between two chevrons, sitting in
+ * a toolbar beside other controls rather than under a list.
+ *
+ * The diff window's file stepper is what it was drawn for — &quot;2/27&quot; between the
+ * hunk arrows and the view toggle — where the foot of a list does not exist and
+ * there is no room for a sentence.
+ *
+ * Three things go, and each for the same reason (the band has no width to spend
+ * on them): the numbered strip, the words sentence, and the foot padding. What
+ * does NOT go is the rule that makes a pager a pager — the ends stay reachable
+ * and the chevrons are DISABLED there, never absent, because removing them
+ * reflows the band under the pointer that is clicking them.
+ *
+ * The sentence does not disappear either; it moves to the position's accessible
+ * name, so the announcement is unchanged while the drawing shrinks to &quot;2/27&quot;. */
+.ds-pager--inline {
+  display: inline-flex;
+  justify-content: flex-start;
+  gap: var(--sem-space-3xs);
+  padding-top: 0;
+}
+
+/* Square chevrons at the band's own control step, so the stepper sits level
+ * with the `button --icon` items beside it instead of standing a step taller. */
+.ds-pager--inline .ds-pager-step {
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-control-xs);
+  padding: 0;
+}
+
+/* The position itself. Tabular so the band does not twitch as the number grows
+ * a digit, and muted because &quot;where am I&quot; is a state display — the same reason
+ * the numbered strip never takes the accent. */
+.ds-pager-position {
+  flex: none;
+  padding-inline: var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/pager/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
@@ -24046,6 +24194,21 @@ document.addEventListener('keydown', (event) =&gt; {
     padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  /* A band for the inline stepper to sit in — a toolbar is its host, not a
+     list's foot. */
+  .demo-band {
+    display: flex;
+    align-items: center;
+    max-width: 320px;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-xs);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
   }
   .demo-label {
     margin: 0 0 var(--sem-space-sm);
@@ -24091,6 +24254,14 @@ document.addEventListener('keydown', (event) =&gt; {
       &lt;span class=&quot;ds-pager-range&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Showing 1–8 of 8&lt;/span&gt;
     &lt;/nav&gt;
   &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.&lt;/p&gt;
+  &lt;div class=&quot;demo-band&quot;&gt;
+    &lt;nav class=&quot;ds-pager ds-pager--inline&quot; aria-label=&quot;Files in this commit&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous file&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;span class=&quot;ds-pager-position&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; aria-label=&quot;File 2 of 27&quot;&gt;2/27&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next file&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+    &lt;/nav&gt;
+  &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
@@ -24111,6 +24282,14 @@ document.addEventListener('keydown', (event) =&gt; {
           &lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
         &lt;/button&gt;
       &lt;/span&gt;
+    &lt;/nav&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.&lt;/p&gt;
+  &lt;div class=&quot;demo-band&quot;&gt;
+    &lt;nav class=&quot;ds-pager ds-pager--inline&quot; aria-label=&quot;Files in this commit&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous file&quot; disabled&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;span class=&quot;ds-pager-position&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; aria-label=&quot;File 1 of 27&quot;&gt;1/27&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next file&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
     &lt;/nav&gt;
   &lt;/div&gt;
 &lt;/div&gt;
@@ -26889,7 +27068,7 @@ window.addEventListener('resize', repositionAll)
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-segmented-control">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — arrow keys move the selection itself; the group is one tab stop.</p>
+  <p class="demo-label">Light — arrow keys move the selection itself; the group is one tab stop. The last strip is --icon-only: the label is still there, as each segment's aria-label. Its other half, the tooltip, is the `tooltip` component in the consuming framework — never a native `title`, which this system does not put on a control.</p>
   <div class="demo-row">
     <span class="demo-field">
       <span id="l-scope">Scope</span>
@@ -26915,6 +27094,15 @@ window.addEventListener('resize', repositionAll)
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Low</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Medium</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">High</button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-view">Diff layout</span>
+      <div class="ds-segmented-control ds-segmented-control--icon-only" role="radiogroup" aria-labelledby="l-view">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0" aria-label="Side by side"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="Unified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h10.8v9.6H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4.6 6.2h6.8M4.6 9.8h6.8" stroke-width="1.2" stroke-linecap="round" /></svg></button>
       </div>
     </span>
   </div>
@@ -26950,6 +27138,15 @@ window.addEventListener('resize', repositionAll)
       </div>
     </span>
   </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-view">Diff layout</span>
+      <div class="ds-segmented-control ds-segmented-control--icon-only" role="radiogroup" aria-labelledby="d-view">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0" aria-label="Side by side"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="Unified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h10.8v9.6H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4.6 6.2h6.8M4.6 9.8h6.8" stroke-width="1.2" stroke-linecap="round" /></svg></button>
+      </div>
+    </span>
+  </div>
 </div>
 </div>
 <div class="catalog-doc">
@@ -26960,18 +27157,21 @@ window.addEventListener('resize', repositionAll)
 <p>| Part | Class | Required | |---|---|---| | Group | <code>.ds-segmented-control</code> | yes — <code>role=&quot;radiogroup&quot;</code> with an accessible name; owns the border, radius, and overflow clip | | Segment | <code>.ds-segmented-control-segment</code> | 2–4 — real <code>&lt;button&gt;</code>s with <code>role=&quot;radio&quot;</code> |</p>
 <p>The group owns everything structural. Segments are separated by a single internal <code>border.subtle</code> hairline on each segment after the first — never a doubled border, never a gap.</p>
 <h4>Variants</h4>
-<ul><li>Default (no modifier) — <code>size.control.sm</code> height, <code>font.size.meta</code> labels at <code>font.weight.medium</code>. The form-control size: it shares a row height with inputs and selects.</li><li><code>ds-segmented-control--sm</code> — <code>size.control.xs</code> height, <code>font.size.micro</code> labels. The dense variant for an inline sub-control inside a compact popover; never the default on a form.</li><li><strong>No accent variant.</strong> The selected segment is a *selection*, and selection is neutral: <code>bg.selected</code> with the label lifted to <code>text.primary</code>. An accent-filled segment would spend the one solid accent on a state display.</li></ul>
+<ul><li>Default (no modifier) — <code>size.control.sm</code> height, <code>font.size.meta</code> labels at <code>font.weight.medium</code>. The form-control size: it shares a row height with inputs and selects.</li><li><code>ds-segmented-control--sm</code> — <code>size.control.xs</code> height, <code>font.size.micro</code> labels. The dense variant for an inline sub-control inside a compact popover; never the default on a form.</li><li><code>ds-segmented-control--icon-only</code> (2026-09-09) — square <code>size.control.xs</code> segments carrying a glyph at <code>icon.size.sm</code> instead of a word, and the label becomes the segment's <code>aria-label</code> <strong>and</strong> its tooltip. For a strip on a band that cannot spend width on labels: the diff window's side-by-side / unified toggle, which shares its row with the file stepper and the include counter. The square matches the <code>button --icon</code> items beside it in a [toolbar](../toolbar/component.md) band rather than standing a step taller. Every item must carry an icon.</li><li><strong>No accent variant.</strong> The selected segment is a *selection*, and selection is neutral: <code>bg.selected</code> with the label lifted to <code>text.primary</code>. An accent-filled segment would spend the one solid accent on a state display.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Selected | <code>bg.selected</code>, label at <code>text.primary</code>. Exactly one, always | | Unselected | <code>bg.surface</code>, label at <code>text.muted</code> | | Hover (unselected) | <code>bg.hover</code>, label lifts to <code>text.primary</code> | | Focus | <code>focus.ring</code> outline on the segment, on <code>:focus-visible</code> only | | Disabled segment | 45% opacity, <code>not-allowed</code>; skipped by arrow keys |</p>
+<p>| State | Treatment | |---|---| | Selected | <code>bg.selected</code>, label at <code>text.primary</code>. Exactly one, always. On <code>--icon-only</code> the glyph takes the ink lift; the fill is the same | | Unselected | <code>bg.surface</code>, label at <code>text.muted</code> | | Hover (unselected) | <code>bg.hover</code>, label lifts to <code>text.primary</code> | | Focus | <code>focus.ring</code> outline on the segment, on <code>:focus-visible</code> only | | Disabled segment | 45% opacity, <code>not-allowed</code>; skipped by arrow keys |</p>
 <p>There is no empty state. A segmented control renders with a selection and keeps one; &quot;none of these&quot; is itself a segment if the domain has it.</p>
 <h4>Keyboard</h4>
 <p>The group is a <strong>single tab stop</strong>, and selection follows focus:</p>
 <ul><li>Tab enters on the selected segment (it alone carries <code>tabindex=&quot;0&quot;</code>; the rest are <code>-1</code>).</li><li>ArrowRight / ArrowDown select the next enabled segment; ArrowLeft / ArrowUp the previous. Both wrap, both skip disabled segments, and focus moves with the selection.</li><li>Click selects directly. Enter/Space need no handling beyond the native button activation.</li></ul>
 <p>Selection-follows-focus is the deliberate choice, and it is why the control is restricted to cheap, reversible values: arrowing through the options *applies* them. A choice with side effects (kicking off work, discarding state) must not live here — it belongs in a select or radio rows, where focus and commitment are separate steps.</p>
 <h4>Usage</h4>
-<ul><li>Labels are one or two words, sentence case, no glyphs-as-labels. If a label needs truncation the control is overloaded.</li><li>Segments get equal visual weight from the strip itself; do not stretch one segment wider to make it look primary. If one option is primary, the choice is not a segmented control.</li><li>One strip per question. Two adjacent strips answering one question (&quot;scope&quot; split across two rows) is a select wearing two costumes.</li><li>The group needs a visible label beside it (see the <code>field</code> component's standalone label) or an <code>aria-label</code>; the segment labels name options, not the question.</li></ul>
+<ul><li>Labels are one or two words, sentence case, and a glyph is not a label. <strong>One carve-out, added 2026-09-09</strong> — the same one [tabs](../tabs/component.md) already carries: the <code>--icon-only</code> variant may draw the glyph *instead of* the word, and only because the word is still there. It becomes the segment's <code>aria-label</code> and its tooltip, so the name is one hover or one focus away and unchanged for assistive tech, and the accessible name is identical in both variants.</li></ul>
+<p>What the line forbids is unchanged and is a different thing: a glyph <strong>beside</strong> a label, or a glyph standing in for a name that was never written. The condition is load-bearing — a segment with no label and no tooltip is a blank button, and it is the only thing this variant can get wrong. Reach for it only where the band genuinely cannot spend the width; two words are always more legible than two pictures.</p>
+<p>If a label needs truncation the control is overloaded.</p>
+<ul><li>Segments get equal visual weight from the strip itself; do not stretch one segment wider to make it look primary. If one option is primary, the choice is not a segmented control.</li><li>One strip per question. Two adjacent strips answering one question (&quot;scope&quot; split across two rows) is a select wearing two costumes.</li><li>The group needs a visible label beside it (see the <code>field</code> component's standalone label) or an <code>aria-label</code>; the segment labels name options, not the question.</li></ul>
 <h4>Accessibility</h4>
-<ul><li><code>role=&quot;radiogroup&quot;</code> with <code>aria-label</code> (or <code>aria-labelledby</code>) on the group; <code>role=&quot;radio&quot;</code> and <code>aria-checked</code> on each segment. Real <code>&lt;button&gt;</code> elements — never styled <code>&lt;div&gt;</code>s, never a hidden native radio hack that breaks the single-tab-stop contract.</li><li><code>aria-describedby</code> on the group is opt-in, for a visible line describing the selected option. Without one the group is named but undescribed — correct when the labels stand alone.</li><li>Selection is conveyed by <code>aria-checked</code>, with the neutral fill and ink lift as its visual echo — it survives grayscale because the fill is a luminance step, not a hue.</li><li>Disabled segments stay in the DOM and visible: which options *exist* is information even when one is unavailable.</li></ul>
+<ul><li><code>role=&quot;radiogroup&quot;</code> with <code>aria-label</code> (or <code>aria-labelledby</code>) on the group; <code>role=&quot;radio&quot;</code> and <code>aria-checked</code> on each segment. Real <code>&lt;button&gt;</code> elements — never styled <code>&lt;div&gt;</code>s, never a hidden native radio hack that breaks the single-tab-stop contract.</li><li><code>aria-describedby</code> on the group is opt-in, for a visible line describing the selected option. Without one the group is named but undescribed — correct when the labels stand alone.</li><li>Selection is conveyed by <code>aria-checked</code>, with the neutral fill and ink lift as its visual echo — it survives grayscale because the fill is a luminance step, not a hue.</li><li>Disabled segments stay in the DOM and visible: which options *exist* is information even when one is unavailable.</li><li>On <code>--icon-only</code>, the glyph is <code>aria-hidden</code> and the label moves to the segment's <code>aria-label</code>, so the accessible name is identical to the labelled variant's; the tooltip is the sighted user's version of that same string, and it opens on focus as well as hover.</li></ul>
 <h4>Known drift</h4>
 <p>~~Shipped <code>SegmentedControl.tsx</code> rounds the group at 6px (<code>rounded-md</code>) — a radius that exists in no token — and pads md segments at 14px, a step the space scale does not have. Token canon, which this entry specifies: <code>radius.control</code> on the group and <code>space.lg</code> segment padding. The sm variant's 26px height is <code>size.control.xs</code> and is written as the literal in the source; the token is the canon there too.~~ <strong>Resolved 2026-09-02:</strong> the group rounds at <code>rounded-sm</code> (<code>radius.control</code>), md segments pad <code>px-3</code> (<code>space.lg</code>), and the sm variant is <code>h-control-xs</code>. (<code>rounded-md</code> had by then come to mean <code>radius.overlay</code>, 7px, in the app's <code>@theme</code> — the drift had grown by a pixel.)</p>
 </div>
@@ -27050,6 +27250,32 @@ window.addEventListener('resize', repositionAll)
     transition: none;
   }
 }
+
+/* ── Icon-only (2026-09-09) ──────────────────────────────────────────────
+ * Square segments carrying a glyph instead of a word, for a strip on a band
+ * that cannot spend width on labels — the diff window's side-by-side / unified
+ * toggle, sharing its row with the file stepper and the include counter.
+ *
+ * `size.control.xs` square, so the strip matches the `button --icon` items
+ * beside it in a `toolbar` band rather than standing a step taller than them,
+ * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
+ * a mark beside the word that is.
+ *
+ * The label does not disappear — it becomes the segment's `aria-label` and its
+ * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
+ * with no label and no tooltip is a blank button, and it is the only thing this
+ * variant can get wrong. */
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  justify-content: center;
+  padding: 0;
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/segmented-control/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
@@ -27098,7 +27324,7 @@ window.addEventListener('resize', repositionAll)
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — arrow keys move the selection itself; the group is one tab stop.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — arrow keys move the selection itself; the group is one tab stop. The last strip is --icon-only: the label is still there, as each segment's aria-label. Its other half, the tooltip, is the `tooltip` component in the consuming framework — never a native `title`, which this system does not put on a control.&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;span class=&quot;demo-field&quot;&gt;
       &lt;span id=&quot;l-scope&quot;&gt;Scope&lt;/span&gt;
@@ -27124,6 +27350,15 @@ window.addEventListener('resize', repositionAll)
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;Low&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot;&gt;Medium&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;High&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;l-view&quot;&gt;Diff layout&lt;/span&gt;
+      &lt;div class=&quot;ds-segmented-control ds-segmented-control--icon-only&quot; role=&quot;radiogroup&quot; aria-labelledby=&quot;l-view&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot; aria-label=&quot;Side by side&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot; aria-label=&quot;Unified&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.2h10.8v9.6H2.6z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M4.6 6.2h6.8M4.6 9.8h6.8&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
       &lt;/div&gt;
     &lt;/span&gt;
   &lt;/div&gt;
@@ -27156,6 +27391,15 @@ window.addEventListener('resize', repositionAll)
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;Low&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot;&gt;Medium&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;High&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;d-view&quot;&gt;Diff layout&lt;/span&gt;
+      &lt;div class=&quot;ds-segmented-control ds-segmented-control--icon-only&quot; role=&quot;radiogroup&quot; aria-labelledby=&quot;d-view&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot; aria-label=&quot;Side by side&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-segmented-control-segment&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot; aria-label=&quot;Unified&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.2h10.8v9.6H2.6z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M4.6 6.2h6.8M4.6 9.8h6.8&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
       &lt;/div&gt;
     &lt;/span&gt;
   &lt;/div&gt;

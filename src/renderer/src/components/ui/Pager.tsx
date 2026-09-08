@@ -53,24 +53,92 @@ export function pagerSteps(page: number, pageCount: number, window = 2): PagerSt
 const STEP_CLASS =
   'inline-flex h-control-sm min-w-[30px] items-center justify-center rounded-md px-2 text-meta tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 
+/** The inline stepper's chevrons: square at the band's own control step, so the
+ *  stepper sits level with the `ToolbarButton`s beside it rather than standing
+ *  a step taller. */
+const INLINE_STEP_CLASS =
+  'grid size-control-xs shrink-0 place-items-center rounded-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent'
+
 export function Pager({
   page,
   pageCount,
   rangeLabel,
   onPageChange,
   ariaLabel,
+  inline = false,
+  inlineNoun,
   className,
 }: {
   /** 1-based, already clamped by the caller's own model. */
   page: number
   pageCount: number
-  /** "Showing 13–24 of 318" — the position, in words, beside the numbers. */
+  /** "Showing 13–24 of 318" — the position, in words, beside the numbers. On
+   *  `inline` it is not drawn but is still SAID: it becomes the position's
+   *  accessible name. */
   rangeLabel: string
   onPageChange: (page: number) => void
   /** Names what is being paged ("Plugins in SprintEngine Studio"). */
   ariaLabel: string
+  /**
+   * The pager as a STEPPER inside a band (design-system/components/pager,
+   * `--inline`, 2026-09-09): `n/m` between two `size.control.xs` chevrons,
+   * sitting in a `Toolbar` beside other controls rather than under a list. The
+   * diff window's file stepper is what it was drawn for.
+   *
+   * Three things go, all because the band has no width for them: the numbered
+   * strip, the words sentence, and the foot padding. What does NOT go is the
+   * rule that makes a pager a pager — the chevrons are disabled at the ends,
+   * never absent, because removing them reflows the band under the pointer
+   * that is clicking them.
+   *
+   * Use it only where a foot does not exist. A list with a bottom edge gets
+   * the full pager.
+   */
+  inline?: boolean
+  /** One short noun after the numbers on an inline stepper ("2/27 files").
+   *  Optional: the variant's shape is `n/m`, and the noun is what the diff
+   *  window's own band draws. */
+  inlineNoun?: string
   className?: string
 }): JSX.Element {
+  if (inline) {
+    return (
+      <nav
+        aria-label={ariaLabel}
+        className={['inline-flex items-center gap-0.5', className ?? ''].filter(Boolean).join(' ')}
+      >
+        <button
+          type="button"
+          aria-label="Previous"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
+        >
+          <ChevronLeft />
+        </button>
+        {/* One element, two readings: "2/27" is drawn, the full sentence is
+            announced, and it is still the pager's only live region. */}
+        <span
+          role="status"
+          aria-live="polite"
+          aria-label={rangeLabel}
+          className="shrink-0 whitespace-nowrap px-1 text-meta tabular-nums text-[color:var(--text-muted)]"
+        >
+          {page}/{pageCount}
+          {inlineNoun ? ` ${inlineNoun}` : ''}
+        </span>
+        <button
+          type="button"
+          aria-label="Next"
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+          className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
+        >
+          <ChevronRight />
+        </button>
+      </nav>
+    )
+  }
   const steps = pagerSteps(page, pageCount)
   return (
     <nav
