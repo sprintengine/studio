@@ -29,7 +29,7 @@
 
 import React from 'react'
 import SprintEngineWordmark from '../brand/SprintEngineWordmark'
-import { Popover, Tooltip } from '../ui'
+import { IconButton, Popover, Tooltip } from '../ui'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { APP_RAIL_WIDTH, TRAFFIC_LIGHT_RESERVE } from './AppRail'
@@ -176,18 +176,24 @@ export function AppMenuButton<MenuItem extends string>({
       surfaceClassName={`w-44 ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip content="Menu" placement="bottom">
-          <button
+          {/* The kit's icon button at `md` (size.control.sm): the neutral ghost
+              tone IS this control's ink pair (--text-muted, lifting to
+              --bg-hover + --text-strong), and rounded-sm and rounded-md are the
+              same 7px step today. It also arrives with the focus ring this
+              hand-rolled trigger never drew — the one thing that made it
+              unreachable to say where it was from the keyboard. */}
+          <IconButton
             ref={ref}
-            type="button"
+            size="md"
             onClick={togglePopover}
             aria-label="Application menu"
-            className="app-no-drag inline-flex size-control-sm items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="app-no-drag"
             {...triggerProps}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
               <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-          </button>
+          </IconButton>
         </Tooltip>
       )}
     >

@@ -7,9 +7,8 @@
     "components/htmlArtifact": 17,
     "components/memory": 1,
     "components/panels": 74,
-    "components/remote": 1,
     "components/settings": 5,
-    "components/workspace": 110,
+    "components/workspace": 107,
     "components/worktree": 1,
     "review": 4,
     "utils": 2

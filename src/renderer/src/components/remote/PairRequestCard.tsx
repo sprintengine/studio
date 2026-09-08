@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { PAIR_REQUEST_CODE_ATTEMPTS, type TailnetPairRequest } from '../../../../shared/tailnet'
-import { Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { Checkbox, Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { pairRequestAnswerable } from '../settings/tailnetPanelModel'
 import { PAIR_SCOPE_ROWS, usePairRequestAnswer } from './pairRequestAnswer'
 
@@ -97,24 +97,29 @@ export function PairRequestCard({
       </div>
       <div className="flex flex-col gap-1 pb-2">
         {PAIR_SCOPE_ROWS.map((row) => (
-          <label key={row.label} className="flex cursor-pointer items-center gap-2 text-meta text-[color:var(--text-default)]">
-            <input
-              type="checkbox"
-              className="accent-[color:var(--accent-primary)]"
-              checked={granted.has(row.label)}
-              disabled={disabled}
-              onChange={(event) => {
-                setGranted((current) => {
-                  const next = new Set(current)
-                  if (event.target.checked) next.add(row.label)
-                  else next.delete(row.label)
-                  return next
-                })
-              }}
-            />
-            {row.label}
-            {row.note ? <span className="text-[color:var(--text-subtle)]">({row.note})</span> : null}
-          </label>
+          // The kit checkbox, not a browser `accent-color` one: same row shape
+          // (the primitive's own label is `flex items-center gap-2` at `meta`),
+          // and the box now carries the shared focus ring every other control
+          // in this card already has.
+          <Checkbox
+            key={row.label}
+            checked={granted.has(row.label)}
+            disabled={disabled}
+            onChange={(checked) => {
+              setGranted((current) => {
+                const next = new Set(current)
+                if (checked) next.add(row.label)
+                else next.delete(row.label)
+                return next
+              })
+            }}
+            label={
+              <>
+                {row.label}
+                {row.note ? <span className="text-[color:var(--text-subtle)]">({row.note})</span> : null}
+              </>
+            }
+          />
         ))}
       </div>
       <div className="flex items-center gap-2">

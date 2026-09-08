@@ -3,7 +3,8 @@ import React from 'react'
 import type { RegisteredGlobalSurface, SurfaceIconComponent } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { Badge } from '../ui/Badge'
-import { FOCUS_RING_CLASS, type Tone } from '../ui/tokens'
+import { IconButton } from '../ui/Buttons'
+import { type Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
@@ -166,17 +167,20 @@ function RailGlyph({
 }) {
   return (
     <Tooltip content={label} placement="right" wrapperClassName="flex">
-      <button
-        type="button"
+      {/* The kit's icon button at its one `lg` step — the rail's own square,
+          which is what `size.control.lg` exists for. `pressed` carries the
+          neutral selection fill for BOTH rail states; the explicit
+          `aria-pressed` after it keeps a section glyph out of the toggle
+          vocabulary (it says `aria-current="page"` instead), which is exactly
+          the tri-state contract the prop documents. */}
+      <IconButton
+        size="lg"
+        pressed={active}
         onClick={onClick}
         aria-label={label}
         aria-current={current === 'section' && active ? 'page' : undefined}
         aria-pressed={current === 'surface' ? active : undefined}
-        className={`app-no-drag relative flex size-control-lg items-center justify-center rounded-md transition-colors ${FOCUS_RING_CLASS} ${
-          active
-            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-        }`}
+        className="app-no-drag relative"
       >
         {children}
         {badge && badge.count > 0 ? (
@@ -189,7 +193,7 @@ function RailGlyph({
             className="border-[color:var(--bg-canvas)]"
           />
         ) : null}
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react'
 
-import { IconButton, Popover, Tooltip } from '../../ui'
-import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
+import { IconButton, MenuItem, Popover, Tooltip } from '../../ui'
+import { MENU_LIST_CLASS } from '../../ui/menuClasses'
 import type { PaneKindDefinition, PaneLaunchKind } from './paneKinds'
 
 // The strip's "+": a menu of the kinds this workspace can open, each row with
@@ -90,19 +90,23 @@ export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProp
     >
       <div className={`w-[200px] ${MENU_LIST_CLASS}`} onKeyDown={onKeyDown}>
         {kinds.map(({ kind, label, letter, Glyph }) => (
-          <button
+          // The kit's menu item, which is what `MENU_ITEM_CLASS` was standing in
+          // for here. The letter rides `trailing` rather than `shortcut`: the
+          // hint is decoration the row's own key handler acts on, so it stays
+          // `aria-hidden` and out of the row's accessible name, which the
+          // shortcut slot would not do.
+          <MenuItem
             key={kind}
-            type="button"
-            role="menuitem"
             onClick={() => pick(kind)}
-            className={MENU_ITEM_CLASS}
+            icon={<Glyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />}
+            trailing={
+              <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
+                {letter}
+              </span>
+            }
           >
-            <Glyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />
-            <span className="flex-1 text-left">{label}</span>
-            <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
-              {letter}
-            </span>
-          </button>
+            {label}
+          </MenuItem>
         ))}
       </div>
     </Popover>
