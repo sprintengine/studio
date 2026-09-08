@@ -234,7 +234,10 @@ function withSprintEngineEnv(
     managedPython.source === 'bundled' || managedPython.source === 'override'
       ? { MULTICODE_PYTHON: managedPython.command }
       : {}
-  const nextEnv = {
+  // Annotated rather than inferred: spreading `env` into a literal drops its
+  // index signature, and the PATH lookup below indexes by a key computed at
+  // runtime (the variable's case differs by platform).
+  const nextEnv: Record<string, string> = {
     ...env,
     SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
@@ -731,8 +734,8 @@ export function cleanupTerminalStartupScript(scriptPath: string | undefined): vo
 // the model could not tell host from user, a resumed session was never told at
 // all, and a headless launch got only half of it. It is built here instead,
 // because this is the one seam every launcher passes through: the interactive
-// spawn, the mobile spawn, and `AgentLaunchService` (gateway, automations,
-// Horizon) all reach the pty through `getShellLaunchConfig`.
+// spawn, the mobile spawn, and `AgentLaunchService` (gateway, automations) all
+// reach the pty through `getShellLaunchConfig`.
 //
 // The manifest decides the channel (`contextInjection`), not this file.
 

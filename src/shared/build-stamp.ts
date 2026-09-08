@@ -3,7 +3,7 @@
 // Main and the renderer are separate bundles with separate lifetimes. In a
 // from-source dev run the renderer hot-reloads out of `src/renderer` while main
 // keeps running the bundle it booted with, so delivering into the working tree
-// the app is running from (an unattended horizon merging into `main`) can leave
+// the app is running from (an unattended automated merge into `main`) can leave
 // the halves on different commits with no signal at all. Every IPC contract
 // that crosses the boundary is exposed to that, not just one surface.
 //

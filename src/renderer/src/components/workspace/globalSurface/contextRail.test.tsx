@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   run('with no host column the shell keeps its inline aside, at the ONE rail width', () => {
     const view = mount(
       <GlobalSurfaceShell
-        ariaLabel="Horizon"
+        ariaLabel="Sprints"
         bar={{ title: 'summer26' }}
         rail={<button type="button" data-testid="rail-row">summer26</button>}
         onBack={() => undefined}
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     const view = mount(
       <ContextRailSlotContext.Provider value={{ el: slot as unknown as HTMLElement }}>
         <GlobalSurfaceShell
-          ariaLabel="Horizon"
+          ariaLabel="Sprints"
           bar={{ title: 'summer26' }}
           rail={<button type="button" data-testid="rail-row">summer26</button>}
           onBack={() => undefined}
@@ -260,8 +260,8 @@ async function main(): Promise<void> {
   run('the host column is the rail scrollport and nothing else', () => {
     const view = mount(
       <ContextRailColumn
-        surfaceKey="roadmap"
-        ariaLabel="Horizon rail"
+        surfaceKey="sprints"
+        ariaLabel="Sprints rail"
         active
         railRef={() => undefined}
       />,
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
     assert.ok(column, 'the column is findable by the marker Escape resolution uses')
     const children = [...column!.children] as HTMLElement[]
     assert.equal(children.length, 1, 'the scrollport, and nothing pinned under it')
-    assert.equal(children[0].getAttribute('aria-label'), 'Horizon rail', 'the scrollport is the named rail')
+    assert.equal(children[0].getAttribute('aria-label'), 'Sprints rail', 'the scrollport is the named rail')
     // The column carries navigation only. Back used to be a row pinned here,
     // below the scrollport — reaching it meant travelling past every row the
     // door brought, so it moved to the bar beside the door's name.

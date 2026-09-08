@@ -11,9 +11,9 @@
 // rather than only reacting to a refused click. Documented mirror, not an import,
 // because that logic is Python; a contract note keeps the pair aligned.
 //
-// Lived in `roadmap-surface.ts` until Horizon retired (2026-09-05); the Sprints
-// door and the run board's repo strip are its consumers, so it moved here rather
-// than going with the plan surface. Node-free by construction (tsconfig.web-safe).
+// Lived in `roadmap-surface.ts` until the plan door retired (2026-09-05); the
+// Sprints door and the run board's repo strip are its consumers, so it moved
+// here rather than going with the plan surface. Node-free by construction (tsconfig.web-safe).
 
 import type { SprintEngineTask, SprintEngineVcsRepo } from './run-types'
 

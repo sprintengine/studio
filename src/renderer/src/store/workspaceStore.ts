@@ -28,7 +28,6 @@ import type {
   AgentConfigAdoptionResult,
   AgentConversationRuntime,
   AppSettings,
-  UsageTelemetrySettings,
   VoiceDictationSettings,
   CliRuntimeSettings,
   SpecialistActionId,
@@ -117,8 +116,7 @@ import {
 } from './slices/cliVersionAdvisorySlice'
 import {
   dedupeAutomationsHostWorkspaces,
-  dropRetiredMultiloopWorkspaces,
-  dropRetiredRoadmapWorkspaces,
+  dropRetiredModeWorkspaces,
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
 } from './slices/normalizers'
@@ -302,7 +300,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setGuidedBriefConversationSessions: (enabled: boolean) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
-  setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   saveSprintEngineRoster: (input: {
@@ -1082,15 +1079,10 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = envelope.state.workspaces.filter(
       (workspace) => (workspace as { mode?: string }).mode !== 'automations',
     )
-    // Roadmap is an instance-global sidebar surface now, not a workspace type
-    // (store v65). This backup-recovery path bypasses the migrate ladder too, so
-    // drop any retired roadmap-mode workspace here before we re-persist it.
-    envelope.state.workspaces = dropRetiredRoadmapWorkspaces(
-      envelope.state.workspaces as Workspace[],
-    )
-    // Multiloop retired outright (store v66); same migrate-ladder bypass, same
-    // drop before re-persisting.
-    envelope.state.workspaces = dropRetiredMultiloopWorkspaces(
+    // Roadmap (store v65) and Multiloop (store v66) are retired workspace modes.
+    // This backup-recovery path bypasses the migrate ladder too, so run the same
+    // retired-mode filter here before we re-persist.
+    envelope.state.workspaces = dropRetiredModeWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
     // Same bypass applies to the one-host-per-project invariant (store v64):
@@ -1265,16 +1257,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // Version-gated migrations cannot be the only enforcement of these
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
-        // un-migrated rows — duplicate Automations hosts, or a retired
-        // roadmap-mode (store v65) or multiloop-mode (store v66) workspace — in a
+        // un-migrated rows — duplicate Automations hosts, or a workspace in a
+        // mode whose feature was retired (store v65, v66) — in a
         // "current-version" envelope the migrate ladder will never look at again,
         // exactly how the v63 dedupe was bypassed in the wild. merge() runs on
         // every hydration regardless of version, so the invariants self-heal here.
         const rawWorkspaces = nameGenericWorkspaceAgents(
-          dropRetiredMultiloopWorkspaces(
-            dropRetiredRoadmapWorkspaces(
-              dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
-            ),
+          dropRetiredModeWorkspaces(
+            dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
           ),
         // The MC-1573 lockstep invariant (moduleState.sprintengine === the
         // legacy sprintEngineState mirror) is enforced here, not only in the

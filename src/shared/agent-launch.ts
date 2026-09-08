@@ -13,7 +13,7 @@
  *
  * - {@link AgentLaunchRequest} — what a caller asks for. Identical in shape to
  *   the old `agent.launch` renderer request, so the gateway, the automations
- *   executor, and Horizon migrate without changing what they send.
+ *   executor, and the plan orchestrators migrate without changing what they send.
  * - {@link AgentLaunchRecord} — what main DECIDED, carried back on the terminal
  *   session snapshot. The renderer projects it into an `AgentState` so the tab
  *   is a view of main's session list rather than the thing that created it.

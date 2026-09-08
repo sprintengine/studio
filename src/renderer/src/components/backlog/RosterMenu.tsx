@@ -3,15 +3,14 @@
 // only action row (owner ruling 2026-07-26 — one door, no per-roster edit rows
 // and no separate create row).
 //
-// Two triggers, one menu body. The policy control is a bordered field; the row
-// variant is a compact chip — resting, never hover-only (MC-2066). The Horizon
-// step rows that used the chip, and their "Use the horizon's roster" option,
-// retired with Horizon on 2026-09-05.
+// One trigger: a bordered policy field. The compact chip variant, and its
+// "use the inherited roster" option, went with the plan door that mounted them
+// on step rows (2026-09-05).
 
 import { useCallback, useState } from 'react'
 
 import { CheckIcon, ChevronDownIcon } from '../AppIcons'
-import { MenuItem, Popover, StatusDot, Tooltip, roveMenuFocus } from '../ui'
+import { MenuItem, Popover, StatusDot, roveMenuFocus } from '../ui'
 import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
@@ -27,33 +26,11 @@ export const JUST_AN_AGENT_LABEL = 'Just an agent'
 export const POLICY_ROSTER_TRIGGER_CLASS =
   'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
-const ROW_ROSTER_TRIGGER_BASE =
-  'interactive inline-flex max-w-[5.25rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] focus-visible:focus-ring'
-
-// How a step row's team reads at a glance. It RESTS visible on every row
-// (MC-2066), deliberately reversing MC-1924's density call for this one control:
-// the thing that decides who does the work was the least visible thing on the
-// surface, reachable only by hovering the row it belongs to.
-//
-// The tiers stay distinguishable without hover. An OVERRIDE is a bordered chip,
-// because a row deciding for itself is the interesting state. A MISSING roster
-// is loud, because that run cannot start —
-// but loud is a warn `StatusDot` leading the label, never a tone-tinted border
-// or tone ink (status is a glyph, chrome stays neutral; design-system audit
-// 2026-09-02). The chip keeps the override's bordered shape so a missing
-// roster still reads as "this step decided for itself".
-export const ROW_ROSTER_TRIGGER_CLASS: Record<'inherited' | 'override' | 'missing', string> = {
-  inherited: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]`,
-  override: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--border-subtle)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)]`,
-  missing: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--border-subtle)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)]`,
-}
-
 export function RosterMenu({
   rosters,
   selectedName,
   onSelect,
   onManageRosters,
-  variant = 'control',
   ariaLabel = 'Roster for this sprint',
 }: {
   /** The user's saved rosters, as records — the menu shows what each staffs. */
@@ -61,13 +38,12 @@ export function RosterMenu({
   selectedName: string | null
   onSelect: (name: string | undefined) => void
   onManageRosters: () => void
-  variant?: 'control' | 'row'
   ariaLabel?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const noRolesSelected = !selectedName || isNoRolesRosterRef(selectedName)
-  // A roster named in frontmatter that no longer exists keeps its name and is
-  // marked "(not found)". It must never silently read as the default — the step
+  // A roster named by a caller that no longer exists keeps its name and is
+  // marked "(not found)". It must never silently read as the default — the run
   // start fails loudly instead (the epic's standing decision).
   const missing = Boolean(
     selectedName
@@ -75,7 +51,6 @@ export function RosterMenu({
     && !rosters.some((roster) => roster.name.trim().toLowerCase() === selectedName.trim().toLowerCase()),
   )
   const triggerLabel = noRolesSelected ? JUST_AN_AGENT_LABEL : selectedName ?? JUST_AN_AGENT_LABEL
-  const triggerTone: 'inherited' | 'override' | 'missing' = missing ? 'missing' : 'override'
   // The tier reaches a screen reader too, which cannot see the border.
   const triggerTier = missing ? ' (not found)' : ''
   const pick = (name: string | undefined): void => {
@@ -87,8 +62,7 @@ export function RosterMenu({
   // the first row when the menu opens, and ArrowUp/Down (wrapping), Home and End
   // rove through the `MenuItem`s. The surface `Popover` draws carries
   // `role="menu"`, which is what `roveMenuFocus` walks — the rows inside it are
-  // the kit's own, so a menu opened from a step row and one opened from the
-  // policy bar are the same menu with the same keys.
+  // the kit's own, so every menu opened from this control has the same keys.
   const focusFirstRow = useCallback((surface: HTMLElement) => {
     surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
   }, [])
@@ -112,48 +86,33 @@ export function RosterMenu({
       placement="bottom-start"
       surfaceClassName={`w-[260px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstRow}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => {
-        const trigger = (
-          <button
-            ref={ref}
-            type="button"
-            {...triggerProps}
-            onClick={(event) => {
-              // The plan column's row is a sibling click target; opening the menu
-              // must not also re-select the row underneath.
-              event.stopPropagation()
-              togglePopover()
-            }}
-            // The trigger's own text is only a roster NAME, which does not say what
-            // the control does. `ariaLabel` names the popup; the button needs its
-            // own accessible name or a screen-reader user hears just "Mobile UI".
-            aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
-            className={variant === 'row' ? ROW_ROSTER_TRIGGER_CLASS[triggerTone] : POLICY_ROSTER_TRIGGER_CLASS}
-          >
-            {/* The missing tier is a status, so it is carried by the app's status
-                glyph beside the word — never by tone ink or a tinted edge alone. */}
-            {missing ? <StatusDot tone="warn" /> : null}
-            <span className={variant === 'row' ? 'min-w-0 truncate' : undefined}>
-              {triggerLabel}
-              {missing ? ' (not found)' : ''}
-            </span>
-            {variant === 'row' ? null : (
-              <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            )}
-          </button>
-        )
-        // A row chip truncates to keep the step's title readable, so the full
-        // team name and its tier stay reachable — through the product tooltip on
-        // the focusable trigger, so the keyboard reaches it too, never a native
-        // `title=`.
-        return variant === 'row' ? (
-          <Tooltip content={`${triggerLabel}${triggerTier}`} wrapperClassName="inline-flex min-w-0">
-            {trigger}
-          </Tooltip>
-        ) : (
-          trigger
-        )
-      }}
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          {...triggerProps}
+          onClick={(event) => {
+            // A host may make the surrounding row a click target of its own;
+            // opening the menu must not also re-select what sits underneath.
+            event.stopPropagation()
+            togglePopover()
+          }}
+          // The trigger's own text is only a roster NAME, which does not say what
+          // the control does. `ariaLabel` names the popup; the button needs its
+          // own accessible name or a screen-reader user hears just "Mobile UI".
+          aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
+          className={POLICY_ROSTER_TRIGGER_CLASS}
+        >
+          {/* The missing tier is a status, so it is carried by the app's status
+              glyph beside the word — never by tone ink or a tinted edge alone. */}
+          {missing ? <StatusDot tone="warn" /> : null}
+          <span>
+            {triggerLabel}
+            {missing ? ' (not found)' : ''}
+          </span>
+          <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+        </button>
+      )}
     >
       <div onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}>
         {/* A missing roster leads, so the problem is the first thing read. It is

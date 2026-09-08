@@ -411,7 +411,7 @@ async function main(): Promise<void> {
   })
 
   await check('an epic that never declared its ordering done plans, prompt and all (MC-2137)', async () => {
-    // Horizon and automations omit `intake`, so this path resolves the engine's
+    // Orchestrated and automation launches omit `intake`, so this path resolves the engine's
     // default itself. Get it wrong and a planned run opens its plan gate with
     // nobody prompted to fill it.
     const h = harness()
@@ -529,7 +529,7 @@ async function main(): Promise<void> {
   })
 
   await check('an unlaunchable CLI fails the start loudly', async () => {
-    // MC-2145's trap: silently falling back would launch a horizon's every step
+    // MC-2145's trap: silently falling back would launch a plan's every step
     // on an agent the author never picked, and never say so.
     const h = harness()
     const result = await h.service.createSprint(request({
@@ -684,7 +684,7 @@ async function main(): Promise<void> {
   })
 
   await check('a plan-sourced run spawns in bypass unless its caller says otherwise', async () => {
-    // The other half of MC-1900: a horizon step or automation is unwatched by
+    // The other half of MC-1900: a plan step or automation is unwatched by
     // construction, and its escalation comes from the owner's own file.
     const h = harness()
     const unstated = await h.service.createSprint(request({ sourceRelativePath: LOOSE_REF }))
@@ -707,7 +707,7 @@ async function main(): Promise<void> {
   })
 
   await check('an out-of-range agent ceiling is clamped, not written raw', async () => {
-    // The MCP tool boundary refuses these, but a horizon step or automation
+    // The MCP tool boundary refuses these, but a plan step or automation
     // reaches this same request type without passing through it, and the
     // plan-sourced path writes the auto-state straight through.
     for (const [asked, expected] of [[99, 10], [0, 3], [2.7, 2]] as const) {

@@ -1126,7 +1126,7 @@ async function main(): Promise<void> {
       'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CLASS/,
       // Migrated onto Modal outright — no shell of their own left to check.
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
-      // RosterManagerModal left with Horizon (2026-09-05); nothing replaced it.
+      // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
       // The modal-surface host: Settings and the Diff popout mount through this
       // one Modal. Plugins, Automations and Design were modals here from
@@ -1394,7 +1394,7 @@ async function main(): Promise<void> {
   //
   // MC-2103 put the menu's material in `ui/menuClasses` and converged the five
   // kit hosts onto it. What survived was every menu row the kit does not own:
-  // the horizon's roster popover, both in-app menubar fallbacks, the account
+  // the roster popover, both in-app menubar fallbacks, the account
   // menu, the reasoning selector. Each was the same hand-roll — `rounded px-2`
   // or `px-3`, its own type step, no disabled state, an OUTSET focus ring — and
   // each was internally consistent, so nothing read as wrong until two of them

@@ -161,12 +161,6 @@ export type AutomationBackends = {
    * loaded — tools report that explicitly instead of buffering.
    */
   getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
-  /**
-   * The instance roadmap's read + plan + steer surface (MC-1693), resolved lazily
-   * like the Automations front door (the orchestrator boots with the Automations
-   * module, after these tools are constructed). Null while that module is disabled
-   * or not yet loaded — the horizon.* tools report that explicitly.
-   */
   /** Absolute run.yaml paths under <root>/.multi-code/sprintengine, newest first. */
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */

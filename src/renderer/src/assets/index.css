@@ -2362,8 +2362,8 @@ body:has([data-selection-pane]:focus-within)
 }
 
 /* A third case the two above cannot express: one rail carrying two LEVELS of
- * navigation (design-system/patterns/context-rail.html). Horizon's rail lists
- * horizons and, under it, the selected horizon's plan. Both selections are real
+ * navigation (design-system/patterns/context-rail.html): a rail listing the
+ * containers and, under it, the selected container's contents. Both selections are real
  * and both are in the same pane, so `data-selection-pane` — which resolves per
  * pane, by focus — has nothing to say. The outer group's selection is CONTEXT,
  * not the thing being worked on: it rests permanently, whether or not the rail

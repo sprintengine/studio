@@ -31,7 +31,7 @@ import {
 } from './designRailState'
 
 // The Design door (epic `design-door`, item 2002): design is a first-class
-// surface beside Extensions, Horizon, Backlog, Sprints and Automations. The
+// surface beside Extensions, Backlog, Sprints and Automations. The
 // product model is bring, render, point at — a user builds a design system
 // wherever they like, keeps it in a Git repo, and points this door at the folder
 // so they can SEE it next to the agents that consume it.

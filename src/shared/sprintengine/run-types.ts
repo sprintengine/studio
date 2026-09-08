@@ -1132,7 +1132,7 @@ export type SprintEngineSavedRoster = {
 export const NO_ROLES_ROSTER_ID = 'builtin:no-roles'
 export const NO_ROLES_ROSTER_NAME = 'No roles'
 
-// True for the built-in, by id OR by name — a horizon may name it either way
+// True for the built-in, by id OR by name — a plan file may name it either way
 // (`roster: No roles` in frontmatter). Case- and space-insensitive on the name
 // so hand-authored frontmatter resolves.
 export function isNoRolesRosterRef(ref: string | null | undefined): boolean {

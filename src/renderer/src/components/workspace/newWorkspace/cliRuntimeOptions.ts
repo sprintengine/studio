@@ -553,8 +553,8 @@ export type RuntimeCrumbCliOption = {
 }
 
 // Human "CLI · model" crumb for a line that names a runtime — the New sprint
-// dialog's roster rows, and the Horizon step's team band (MC-2066). Lifted out
-// of NewSprintDialog when the second host arrived: two copies of this would drift
+// dialog's roster rows, and any host's team band (MC-2066). Lifted out of
+// NewSprintDialog when the second host arrived: two copies of this would drift
 // on how a model with no catalog entry reads. Null when there is no CLI to name,
 // so a caller renders nothing rather than an empty crumb.
 export function runtimeLabelFor(

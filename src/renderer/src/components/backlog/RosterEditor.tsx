@@ -1,6 +1,6 @@
 // The roster-editing surface (MC-2065), extracted from RosterManagerModal so
-// two hosts mount the SAME editor instead of lookalikes: Horizon's
-// "Manage rosters…" modal, and the New sprint dialog's second screen (MC-2062).
+// every host mounts the SAME editor instead of a lookalike — today the New
+// sprint dialog's second screen (MC-2062).
 //
 // Shell-free BY CONTRACT: no dialog role, no aria-modal, no scrim. Hosts own
 // all chrome — the dialog host is itself a modal, and nesting two aria-modal
@@ -25,8 +25,8 @@ export function RosterEditor({
 }): JSX.Element {
   // Transient input for the rail's create box — form state, not roster state.
   const [newName, setNewName] = useState('')
-  // Two editors can be live at once (the wizard open behind the Horizon
-  // modal), so the label target cannot be a fixed id.
+  // Two editors can be live at once (a wizard open behind a modal), so the
+  // label target cannot be a fixed id.
   const newNameId = useId()
   const trimmedNewName = newName.trim()
   const nameCollides = sprintEngineRosterNameTaken(editor.rosters, trimmedNewName)

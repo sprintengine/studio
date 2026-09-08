@@ -360,7 +360,7 @@ const DEFAULT_CLIS = {
   assert.deepEqual(
     sprintEngineLaunchRoleCounts(NO_ROLES_ROSTER_NAME, specialistCounts),
     PLAIN_AGENT_ROLE_COUNTS,
-    'by name as well as by id — horizon frontmatter references it by name',
+    'by name as well as by id — plan frontmatter references it by name',
   )
 
   // The acceptance criterion in full: a no-roles launch seats NO architect, and
@@ -391,8 +391,8 @@ const DEFAULT_CLIS = {
 
 // --- MC-1876: "No roles" is the zero-configuration default -----------------
 
-// The built-in resolves by id AND by name, so `roster: No roles` in a horizon's
-// frontmatter works as well as the internal id.
+// The built-in resolves by id AND by name, so `roster: No roles` in a plan
+// file's frontmatter works as well as the internal id.
 {
   assert.equal(isNoRolesRosterRef(NO_ROLES_ROSTER_ID), true, 'the built-in resolves by id')
   assert.equal(isNoRolesRosterRef(NO_ROLES_ROSTER_NAME), true, 'and by name')
@@ -491,7 +491,7 @@ const DEFAULT_CLIS = {
 }
 
 // The reserved name cannot be taken by a user roster, so nothing can shadow the
-// default in a picker or in horizon frontmatter (where NAME is the reference).
+// default in a picker or in plan frontmatter (where NAME is the reference).
 {
   assert.equal(sprintEngineRosterNameTaken([], NO_ROLES_ROSTER_NAME), true, 'the built-in name is reserved')
   assert.equal(sprintEngineRosterNameTaken([], 'no roles'), true, 'case-insensitively')
@@ -531,7 +531,7 @@ const DEFAULT_CLIS = {
 //
 // This pins the shared decision both paths now make. The regression it guards
 // is "one caller honors the contract and the other does not", which is invisible
-// to any test that only exercises the Horizon path.
+// to any test that only exercises the plan-sourced path.
 {
   const defaultResolved = resolveInitialSprintEngineRoster({
     savedRosters: [],

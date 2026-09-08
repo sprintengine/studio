@@ -40,7 +40,6 @@ import {
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
   normalizeSprintEngineRunSettings,
-  normalizeUsageTelemetrySettings,
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
@@ -48,8 +47,7 @@ import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import {
   clearSprintEngineAgentLaunchState,
   dedupeAutomationsHostWorkspaces,
-  dropRetiredMultiloopWorkspaces,
-  dropRetiredRoadmapWorkspaces,
+  dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
 import { reconcileWorkspaceModuleState } from './workspaceModuleState'
@@ -620,9 +618,6 @@ export function migratePersistedWorkspaceState(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),
       ),
-      usageTelemetry: normalizeUsageTelemetrySettings(
-        current.appSettings?.usageTelemetry,
-      ),
     }
   }
   if (version < 29) {
@@ -668,9 +663,6 @@ export function migratePersistedWorkspaceState(
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),
-      ),
-      usageTelemetry: normalizeUsageTelemetrySettings(
-        current.appSettings?.usageTelemetry,
       ),
     }
   }
@@ -955,7 +947,7 @@ export function migratePersistedWorkspaceState(
     // the user authored is lost. Window membership is reconciled by
     // normalizeWorkspaceWindows during merge; keep the top-level active pointer
     // honest too (mirrors the v62 automations-mode drop).
-    migrationState.workspaces = dropRetiredRoadmapWorkspaces(migrationState.workspaces ?? [])
+    migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
@@ -964,13 +956,12 @@ export function migratePersistedWorkspaceState(
     }
   }
   if (version < 66) {
-    // The `multiloop` workspace mode retired: the Multiloop feature was removed
-    // outright (the Roadmap/Horizon door replaces it). Drop any persisted
-    // multiloop-mode workspace — any loop state on disk under the project folder
-    // is untouched. Window membership is reconciled by normalizeWorkspaceWindows
-    // during merge; keep the top-level active pointer honest too (mirrors the
-    // v65 roadmap-mode drop above).
-    migrationState.workspaces = dropRetiredMultiloopWorkspaces(migrationState.workspaces ?? [])
+    // The `multiloop` workspace mode retired: the feature was removed outright.
+    // Drop any persisted multiloop-mode workspace — any loop state on disk under
+    // the project folder is untouched. Window membership is reconciled by
+    // normalizeWorkspaceWindows during merge; keep the top-level active pointer
+    // honest too (mirrors the v65 roadmap-mode drop above).
+    migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)

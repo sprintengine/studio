@@ -25,7 +25,7 @@ import type { HighlightColor } from '../../types/workspace'
 // `.settings-overlay-panel` carry `transform: translate3d(…)` AND
 // `will-change: transform` permanently, including at rest
 // (assets/index.css:2140-2148, :2185-2194), so a menu opened inside one was
-// clipped at the panel edge (the horizon rail's kebab showed `Ma… Rev… Del…`).
+// clipped at the panel edge (a door rail's kebab showed `Ma… Rev… Del…`).
 // Positioning is unchanged — `useClampedMenuPosition` already measures against
 // the viewport, which is exactly what the portal now makes true.
 //

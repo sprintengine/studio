@@ -16,7 +16,7 @@ import {
 } from './run-types'
 import { SPRINT_ENGINE_ROLELESS_KEY } from './state'
 
-// Re-exported so the wizard, the Horizon picker (MC-1880) and the launch path
+// Re-exported so the wizard, the roster picker (MC-1880) and the launch path
 // all import the built-in from one place. Defined in shared — see the comment
 // on the constant for why.
 export { NO_ROLES_ROSTER_ID, NO_ROLES_ROSTER_NAME, isNoRolesRosterRef }
@@ -109,7 +109,7 @@ function effectiveSavedRoleModel(
 // Resolve the roster the new-workspace wizard opens with, so the roster step is
 // a single Continue on a runnable team. Precedence:
 //   1. An explicit roster reference (id or name), INCLUDING the built-in
-//      "No roles" — this is how a horizon's `roster:` frontmatter resolves.
+//      "No roles" — this is how a plan file's `roster:` frontmatter resolves.
 //   2. The most recently selected saved roster (lastSelectedRosterId), which
 //      may itself be the built-in.
 //   3. The legacy single saved roster.
@@ -133,7 +133,7 @@ export function resolveInitialSprintEngineRoster(input: {
   savedRoster: SprintEngineSavedRoster | null
   defaultRoleCounts: SprintEngineRoleCounts
   defaultRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  /** Explicit roster id or name (a horizon's `roster:`, an automation config). */
+  /** Explicit roster id or name (a plan file's `roster:`, an automation config). */
   explicitRosterRef?: string | null
 }): ResolvedInitialSprintEngineRoster {
   // PRECEDENCE (order matters, and getting it wrong is the bug this epic
@@ -190,8 +190,8 @@ export function resolveInitialSprintEngineRoster(input: {
   }
 }
 
-// Find a saved roster by id OR by (case-insensitive) name. Horizon frontmatter
-// and automation configs name a roster by NAME; the wizard selects by id.
+// Find a saved roster by id OR by (case-insensitive) name. Plan frontmatter and
+// automation configs name a roster by NAME; the wizard selects by id.
 // Returns null for the built-in — callers must check `isNoRolesRosterRef`
 // first, because the built-in is not in this list by design.
 export function findSavedSprintEngineRoster(
@@ -208,7 +208,7 @@ export function findSavedSprintEngineRoster(
 
 // What a resolved roster selection actually staffs at launch. The one place the
 // no-roles/roster choice turns into role counts, shared by the wizard's create
-// path and the plan-sourced (Horizon / automation) launch path so the two
+// path and the plan-sourced (orchestrator / automation) launch path so the two
 // cannot diverge. Keyed off the roster REFERENCE (`isNoRolesRosterRef`), never
 // a stored formation — MC-2064 deleted the `mode` axis.
 //
@@ -307,7 +307,7 @@ export function sprintEngineRosterNameTaken(
   const trimmed = name.trim().toLowerCase()
   if (!trimmed) return false
   // The built-in's name is RESERVED (MC-1876): a user roster called "No roles"
-  // would shadow the default in every picker and in horizon frontmatter, where
+  // would shadow the default in every picker and in plan frontmatter, where
   // the name is how a roster is referenced.
   if (isNoRolesRosterRef(trimmed)) return true
   return teams.some((team) => team.id !== excludeId && team.name.trim().toLowerCase() === trimmed)

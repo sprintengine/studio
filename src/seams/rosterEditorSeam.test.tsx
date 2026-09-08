@@ -5,10 +5,10 @@ import { installJsdomEnvironment } from './jsdomEnvironment'
 // ── Seam: one roster editor, two surfaces (MC-1879 → MC-1880) ────────────────
 //
 // MC-1879 lifted the roster editor's state out of the sprint wizard into
-// `useRosterEditor` so MC-1880's Horizon roster manager could drive the SAME
+// `useRosterEditor` so MC-1880's roster manager could drive the SAME
 // `SprintEngineRosterPanel` instead of a rebuilt lookalike. Each item's own
 // suite proves its half in isolation: the wizard suites prove the wizard still
-// behaves, and the Horizon suite proves the picker renders. Neither can catch
+// behaves, and the manager suite proves the picker renders. Neither can catch
 // this seam failing, because the failure only appears when BOTH consumers are
 // alive at once:
 //
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
 
     // Last-used is the BUILT-IN, and the manager is opened on a real roster.
     // The explicit reference must win: otherwise unrelated wizard state decides
-    // what a horizon staffs, which is the class of bug MC-1876 set out to kill.
+    // what a launch staffs, which is the class of bug MC-1876 set out to kill.
     // (The first version of the resolver OR-ed these two and failed here.)
     await act(async () => {
       useWorkspaceStore.getState().setSprintEngineLastSelectedRoster(NO_ROLES_ROSTER_ID)

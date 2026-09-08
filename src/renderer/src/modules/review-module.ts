@@ -106,9 +106,9 @@ async function drainRetiredReviewWorkspaces(): Promise<void> {
 // Arm the retirement once per app session: drain immediately, then keep watching
 // the workspace list. Persisted state hydrates asynchronously, and cross-window
 // sync or backup recovery can re-introduce a review-mode row after the first
-// drain — the same reason dropRetiredRoadmapWorkspaces (MC-1692) runs on every
+// drain — the same reason dropRetiredModeWorkspaces (MC-1692) runs on every
 // list-entry path, adapted here to the lift-before-drop ordering reviews require
-// (roadmap rows had nothing to preserve; review rows carry unposted comments).
+// (a retired-mode row has nothing to preserve; review rows carry unposted comments).
 function armReviewWorkspaceRetirement(): void {
   if (retirementArmed) return
   retirementArmed = true

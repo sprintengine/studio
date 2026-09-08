@@ -156,8 +156,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // this axis; these are three deletions the ratchet is now banking, because
     // headroom left unspent is where the next regression hides.
     'components/workspace': 37,
-    // 35 → 34, 2026-09-06: `roadmapBoard/HorizonPlanColumn.tsx` was deleted
-    // when Horizon retired (a70ba0931).
+    // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
+    // with its door (a70ba0931).
     // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
     // the eight WatchtowerPanel files left the tree with their feature. Banked
     // rather than left as headroom — that is where the next regression hides.
@@ -199,8 +199,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/workspace': 6,
     // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
     // app's one toast region (remote-sessions-ux / toast-host-region).
-    // 9 → 8, 2026-09-06: `roadmapBoard/HorizonBacklogSource.tsx` was deleted
-    // when Horizon retired (a70ba0931).
+    // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted
+    // with its door (a70ba0931).
     'components/panels': 8,
     'components/ui': 1,
     'components/memory': 1,

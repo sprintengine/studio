@@ -2342,7 +2342,6 @@ export function BacklogDetail({
   onCloseMockupPreview,
   onPopOutMockup,
   headerExtra,
-  headerAction,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2400,10 +2399,6 @@ export function BacklogDetail({
   onPopOutMockup: () => void
   /** Host-supplied band rendered directly under the title (MC-1923). */
   headerExtra?: React.ReactNode
-  /** Host-supplied primary action, on the title's own line — the Horizon door's
-   *  "Start sprint". The one control loud enough to share the title row, so a
-   *  host offers at most one; everything quieter belongs in `headerExtra`. */
-  headerAction?: React.ReactNode
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2610,10 +2605,6 @@ export function BacklogDetail({
             placement="bottom"
             className="min-w-0 flex-1 line-clamp-2 text-heading font-semibold leading-snug text-[color:var(--text-strong)]"
           />
-          {/* The host's one loud action, on the title row it acts on (the
-              Horizon door's "Start sprint"). Before the identity cluster so the
-              quiet metadata stays the rightmost, least-competing thing. */}
-          {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
           {/* Time + the menu that acts on this item, right-aligned on the
               title's own line. The id moved to lead the title; an item the scan
               never minted one for (allocation is best-effort) keeps its file
@@ -2828,8 +2819,8 @@ export function BacklogDetail({
         ) : null}
 
         {/* A host's own band, directly under the title — the loudest thing in
-            the pane when it is present. The Horizon door puts the run that is
-            delivering this step here (MC-1923): the one fact about a backlog
+            the pane when it is present. The sprint Epic tab puts the task that is
+            delivering this item here (MC-1923): the one fact about a backlog
             item that Backlog itself cannot know. Absent everywhere else, so the
             panel and the Backlog door render byte-identically without it. */}
         {headerExtra}

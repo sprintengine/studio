@@ -305,8 +305,8 @@ async function main(): Promise<void> {
   }
 
   // ── 7. a two-level rail: one scrollport, one outer-context group ──────────
-  // The Horizon door lists horizons and, under them, the selected horizon's
-  // plan. Both were in one column but only one was in the scrollport, so they
+  // A two-level door lists containers and, under them, the selected container's
+  // contents. Both were in one column but only one was in the scrollport, so they
   // scrolled independently (MC-2099).
   //
   // The second claim is the subtler one, and it is a regression this change
@@ -320,11 +320,11 @@ async function main(): Promise<void> {
   {
     const twoLevel = mount(
       <SurfaceRail
-        label="Horizons"
+        label="Projects"
         rows={[{ id: 'h1', title: 'Q3 platform', stateLine: 'active' }]}
         selectedId="h1"
         onSelect={() => undefined}
-        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        newAffordance={{ label: 'New project', onActivate: () => undefined }}
         outerContext
         afterRows={
           <section data-testid="plan">
@@ -360,21 +360,21 @@ async function main(): Promise<void> {
 
     // A search that narrows the OUTER level to nothing hides the inner one with
     // it. The row that owns the second level is off screen too, so leaving the
-    // plan rendered put it directly under "No horizons match." — a plan for a
-    // horizon the filter had just hidden.
+    // plan rendered put it directly under "No projects match." — a plan for a
+    // project the filter had just hidden.
     const narrowed = mount(
       <SurfaceRail
-        label="Horizons"
+        label="Projects"
         rows={[]}
         selectedId={null}
         onSelect={() => undefined}
-        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        newAffordance={{ label: 'New project', onActivate: () => undefined }}
         outerContext
-        emptyNotice="No horizons match."
+        emptyNotice="No projects match."
         afterRows={<section data-testid="plan">A plan</section>}
       />,
     )
-    assert.match(narrowed.container.textContent ?? '', /No horizons match\./, 'the notice explains the empty list')
+    assert.match(narrowed.container.textContent ?? '', /No projects match\./, 'the notice explains the empty list')
     assert.equal(
       narrowed.container.querySelector('[data-testid="plan"]'),
       null,
@@ -388,11 +388,11 @@ async function main(): Promise<void> {
     // no rows never shows afterRows".
     const noRowsNoNotice = mount(
       <SurfaceRail
-        label="Horizons"
+        label="Projects"
         rows={[]}
         selectedId={null}
         onSelect={() => undefined}
-        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        newAffordance={{ label: 'New project', onActivate: () => undefined }}
         afterRows={<section data-testid="plan">A plan</section>}
       />,
     )

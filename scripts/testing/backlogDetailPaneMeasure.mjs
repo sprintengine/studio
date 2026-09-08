@@ -1,13 +1,12 @@
 // The backlog detail pane's OWN anatomy (MC-2047), read off computed style.
 //
 // This lives in a module of its own because the pane is ONE component
-// (`BacklogDetail`, via `BacklogItemDetailPane`) mounted by THREE surfaces — the
-// sprint Epic tab, the Backlog door, the Horizon door — and the item's
-// acceptance is "all three checked, light and dark". Two passes drive those
-// surfaces (`sprintengine-epic-tab-pass.mjs` for the tab and the Backlog door,
-// `horizon-chrome-rows-pass.mjs` for the Horizon door), and a measurement copied
-// into both is a measurement that drifts in one of them. `[data-backlog-detail]`
-// resolves on all three, so one probe serves all three.
+// (`BacklogDetail`, via `BacklogItemDetailPane`) mounted by more than one
+// surface — the sprint Epic tab and the Backlog door — and the item's
+// acceptance is "every one checked, light and dark". One pass drives them
+// (`sprintengine-epic-tab-pass.mjs`), and a measurement copied into more than
+// one place is a measurement that drifts in one of them.
+// `[data-backlog-detail]` resolves on each, so one probe serves them all.
 //
 // Two rules, both geometric rather than textual:
 //   • "Space groups, rules do not" — no hairline inside the pane. A RULE is a

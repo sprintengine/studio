@@ -299,7 +299,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // With no intake stated, the engine's DEFAULT for an epic now follows the
   // epic's own `dependenciesPlanned:` mark (MC-2137) — an epic whose ordering
   // was never declared finished plans first. Callers that omit `intake`
-  // (Horizon, automations) must resolve it the same way here, or a planned run
+  // (orchestrators, automations) must resolve it the same way here, or a planned run
   // would open its plan gate with nobody prompted to fill it.
   const supportsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind)
   const resolvedIntake: SprintEngineIntake =

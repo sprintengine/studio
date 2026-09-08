@@ -1,8 +1,8 @@
 /**
  * The `sprint.create` contract (MC-2160).
  *
- * Sprint creation is a main-process capability now: the gateway lane, Horizon's
- * `startSprint`, and the `sprint-engine-start` automation action all call
+ * Sprint creation is a main-process capability now: the gateway lane, the plan
+ * orchestrators' `startSprint`, and the `sprint-engine-start` automation action all call
  * `SprintCreateService` (`src/main/sprint-create-service.ts`) instead of asking
  * a window to run the wizard's store actions. The request shape is unchanged —
  * it moved here from `automation.ts` so a delegate that no longer runs it is
@@ -60,8 +60,8 @@ export type SprintCreateRequest = {
   /**
    * How the run gets its task graph (MC-2128/2129). Absent takes the default
    * for the source — `direct` for an epic, `planned` for everything else —
-   * which is decided in the engine, not here. Automations and Horizon set it
-   * only to override that.
+   * which is decided in the engine, not here. Automations and orchestrators set
+   * it only to override that.
    */
   intake?: 'direct' | 'planned'
   /** Saved ROSTER name to staff the run with; absent resolves like the wizard (last selected, else default). */
@@ -87,12 +87,12 @@ export type SprintCreateRequest = {
   /**
    * The CLI permission preset the run's agents SPAWN with (MC-1900).
    *
-   * Honored on the PLAN-SOURCED path only — a horizon step, an automation,
+   * Honored on the PLAN-SOURCED path only — a plan step, an automation,
    * a chained sprint: there the escalation comes from a human-authored plan
    * file or automation definition, which is consent. The goal-sourced path
    * (an arbitrary external caller with a bare goal) keeps its hardcoded
    * 'default' and cannot be escalated through this field, which is the
-   * "external creation never self-escalates" rule the pre-horizon comment
+   * "external creation never self-escalates" rule the earlier comment
    * was protecting. Absent on the plan-sourced path = bypass, because a
    * plan-sourced run is unwatched by construction.
    *

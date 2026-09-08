@@ -101,12 +101,6 @@ const normalized = normalizeAppSettings(
       '/Users/example/bad': '/absolute',
     },
     recentWorkspaceFolders: [' /Users/example/project ', '/Users/example/project/', '', '/Users/example/other'],
-    usageTelemetry: {
-      sendUsageData: true,
-      localDevExportEnabled: false,
-      lastExportAt: 42 as unknown as string,
-      exportDiagnostics: false,
-    },
     learning: {
       showTipsOnStartup: false,
       lastShownTipId: ' tip-intro ',
@@ -135,12 +129,6 @@ assert.deepEqual(normalized.recentWorkspaceFolders, [
   '/Users/example/project',
   '/Users/example/other',
 ])
-assert.deepEqual(normalized.usageTelemetry, {
-  sendUsageData: true,
-  localDevExportEnabled: false,
-  lastExportAt: null,
-  exportDiagnostics: false,
-})
 assert.deepEqual(normalized.learning, {
   showTipsOnStartup: false,
   lastShownTipId: 'tip-intro',
@@ -1035,7 +1023,7 @@ assert.equal(migrated.savedRosters?.[0]?.name, 'opus', 'the migrated roster keep
 assert.equal(
   migrated.savedRosters?.[0]?.id,
   'bihOkvw7kvxXoKTxOfmrD',
-  'the migrated roster keeps its id, so a horizon or automation naming it still resolves',
+  'the migrated roster keeps its id, so a plan or automation naming it still resolves',
 )
 assert.deepEqual(
   migrated.savedRosters?.[0]?.roleCounts,

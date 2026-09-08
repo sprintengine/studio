@@ -10,7 +10,8 @@
 // BOUNDARY (deliberate, so the hook stays small): this hook is about EDITING a
 // roster. The wizard's create-time derivations — `sprintEnginePlainAgents`,
 // `sprintEngineEffectiveCreateRoleCounts`, `sprintEngineEffectiveVisibleRoleCounts`
-// — are about LAUNCHING a run and stay in the panel. Horizon does not need them.
+// — are about LAUNCHING a run and stay in the panel. An editing host does not
+// need them.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
@@ -442,8 +443,8 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
   }
 }
 
-// DUPLICATE MOUNTS: two live instances (the wizard open behind the Horizon
-// roster manager) each run the registry effect, so the registry is read twice.
+// DUPLICATE MOUNTS: two live instances (a wizard open behind a roster-editing
+// modal) each run the registry effect, so the registry is read twice.
 // That read is a cheap main-process file scan with no write side effects, and
 // the two instances hold independent editing state ON PURPOSE — a modal edit
 // must not mutate the rows the wizard is showing until it is saved, and the

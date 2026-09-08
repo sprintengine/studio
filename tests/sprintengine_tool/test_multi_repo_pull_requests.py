@@ -832,7 +832,7 @@ def test_merge_succeeds_while_the_users_checkout_sits_on_another_branch(tmp_path
     # MC-1909 suspected the lane merge needed the user's checkout free. It does not:
     # the merge runs in the RUN'S OWN worktree and lands through `gh`, so the
     # workspace checkout is neither read for its branch nor moved off it. Parked on
-    # an unrelated spike branch — the exact state the first horizon stalled in.
+    # an unrelated spike branch — the exact state the first orchestrated run stalled in.
     fixture = _single_project_run(tmp_path)
     workspace = tmp_path / "ws"
     _git(workspace, "checkout", "-q", "-b", "spike/unrelated")

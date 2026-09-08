@@ -1376,7 +1376,7 @@ export default function NewSprintDialog({
               </div>
               <p className="max-w-[64ch] shrink-0 px-4 pb-3 text-meta text-[color:var(--text-muted)]">
                 Rosters are shared. Editing one here changes it everywhere it is used — in this
-                dialog and in every horizon.
+                dialog and in every launch that names it.
               </p>
               <div className="flex min-h-0 flex-1 border-t border-[color:var(--border-subtle)]">
                 <RosterEditor editor={editor} />

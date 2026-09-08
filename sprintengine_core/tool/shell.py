@@ -1676,12 +1676,12 @@ def _open_repo_pull_request(
         # swallows stdout (or an older gh) leaves none to parse — and the pull request
         # exists all the same. Ask GitHub for it rather than recording an OPEN pull
         # request the run cannot name, which is the state that stalled the first
-        # horizon lane (MC-1909).
+        # orchestrated lane (MC-1909).
         resolved = _optional_str(url)
         if not resolved:
             # Unreachable: every caller resolves the url (or fails) before it gets
             # here. Kept because recording an OPEN pull request the run cannot name is
-            # exactly the state that stalled the first horizon lane (MC-1909), and the
+            # exactly the state that stalled the first orchestrated lane (MC-1909), and the
             # state layer refuses it — this fails with the reason instead.
             return failed(
                 "The pull request was opened but GitHub returned no url for it, so this run cannot "

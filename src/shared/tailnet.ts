@@ -21,8 +21,6 @@ export const TAILNET_SCOPES = [
   'sprint:operate',
   'backlog:read',
   'backlog:operate',
-  'horizon:read',
-  'horizon:operate',
   'terminal:observe',
   'terminal:control',
 ] as const
@@ -41,6 +39,9 @@ export function isTailnetScope(value: unknown): value is TailnetScope {
 export function normalizeTailnetScopes(value: unknown): TailnetScope[] {
   if (!Array.isArray(value)) return []
   const unique = new Set<TailnetScope>()
+  // Anything outside the vocabulary is dropped rather than rejected, which is
+  // also how a device paired against a retired tool family loads: it keeps every
+  // scope that still means something and silently loses the ones that do not.
   for (const entry of value) if (isTailnetScope(entry)) unique.add(entry)
   // Stable vocabulary order, so a stored device and a freshly minted one compare equal.
   return TAILNET_SCOPES.filter((scope) => unique.has(scope))

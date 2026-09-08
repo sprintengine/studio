@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// RosterEditor (MC-2065) is the shell-free roster surface shared by two hosts:
-// Horizon's RosterManagerModal and the New sprint dialog's second screen. The
-// contract this suite pins is the one that makes the second host possible at
+// RosterEditor (MC-2065) is the shell-free roster surface a host mounts inside
+// its own chrome — today the New sprint dialog's second screen. The contract
+// this suite pins is the one that makes a host inside a modal possible at
 // all — the editor renders NO dialog role, NO aria-modal and NO scrim of its
 // own (the dialog host is already a modal; nesting two aria-modal surfaces
 // breaks focus containment), and every piece of roster state flows through the

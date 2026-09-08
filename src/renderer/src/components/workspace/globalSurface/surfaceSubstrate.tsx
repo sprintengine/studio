@@ -495,7 +495,7 @@ export function SurfaceRail({
    *  search field that caused it, right above the Back row. Five doors had
    *  copy-pasted it; five doors had both bugs. */
   emptyNotice?: React.ReactNode
-  /** This rail's rows are the OUTER level of a two-level rail — which horizon,
+  /** This rail's rows are the OUTER level of a two-level rail — which container,
    *  which project — so their selection rests permanently rather than competing
    *  with the inner list's (assets/index.css, "Selection tiers").
    *
@@ -504,17 +504,17 @@ export function SurfaceRail({
    *  `afterRows` renders, and the inner list's real selection would quietly
    *  render as resting. The group is the rows, not the column. */
   outerContext?: boolean
-  /** A second level rendered INSIDE the scrollport, below the rows — the Horizon
-   *  door's plan under its horizons. It belongs in the scrollport rather than
+  /** A second level rendered INSIDE the scrollport, below the rows — a
+   *  two-level door's contents under its containers. It belongs in the scrollport rather than
    *  beside the rail, because a rail column has one scroll region: as a sibling
    *  it scrolled separately from the list it hangs off, and anything with its own
    *  height cap became a third. */
   afterRows?: React.ReactNode
   /** What `afterRows` HANGS OFF, which decides whether an empty list takes it
-   *  with it. `'rows'` (the default, and Horizon's) means it belongs to a row:
-   *  the horizons' plan is the plan of the horizon that is selected, so a search
-   *  that hides every horizon hides the plan too, rather than leaving it
-   *  stranded under "No horizons match." `'list'` means it belongs to the LIST
+   *  with it. `'rows'` (the default) means it belongs to a row: the contents are
+   *  the contents of the row that is selected, so a search that hides every row
+   *  hides them too, rather than leaving them
+   *  stranded under "Nothing matches." `'list'` means it belongs to the LIST
    *  itself — the run doors' `+` — and a list you can add to is still a list you
    *  can add to when the filter matches nothing. Getting this wrong on the run
    *  doors removed the only way to make a run from a door whose search happened
@@ -709,8 +709,8 @@ export function SurfaceRail({
       {emptyNotice && rows.length === 0 ? (
         <p className="px-2 pt-1 text-meta leading-4 text-[color:var(--text-muted)]">{emptyNotice}</p>
       ) : null}
-      {/* No heading over an ungrouped list, and none over a lone group. "Horizons"
-          above a field that already reads "Search horizons…" is the placeholder
+      {/* No heading over an ungrouped list, and none over a lone group. "Projects"
+          above a field that already reads "Search projects…" is the placeholder
           said twice, and a "Recent" header spanning every row groups nothing —
           a group heading earns its place only by separating one group from
           another. The list's accessible name carries the label either way. */}
@@ -749,8 +749,8 @@ export function SurfaceRail({
       )}
       {/* The inner level goes with its outer one. While a search has narrowed
           the rows to nothing, the row that OWNS this second level is not on
-          screen either — rendering it anyway put the Horizon door's plan
-          directly under "No horizons match.", a plan belonging to a horizon the
+          screen either — rendering it anyway put a two-level door's inner list
+          directly under "Nothing matches.", contents belonging to a row the
           filter had just hidden. The notice explains an empty list; it cannot
           also explain the populated thing under it.
           That reasoning is about a level hanging off a ROW, which is why it is
@@ -793,7 +793,7 @@ export function BarStatusChip({
 // selection, pulling focus off the control the operator is using.
 //
 // Exported because every keyboard-navigable list on a door owes the same rule:
-// the Horizon plan column's own j/k reads it too, so a search field or a popover
+// an inner plan column's own j/k reads it too, so a search field or a popover
 // trigger cannot be typed into while a list quietly moves underneath.
 export function swallowsRailNavigation(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false

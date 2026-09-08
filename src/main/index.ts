@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:multicode-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
-import { MODULE_NOTIFICATIONS_EVENT_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
@@ -51,7 +50,7 @@ const services = createAppServices(MULTICODE_DIAGNOSTICS)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
 // Dev-only capability surfaces (Voice, Mobile Relay, and the
-// not-yet-production-ready Roadmap and Review) ship only in
+// not-yet-production-ready Review) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
@@ -75,11 +74,11 @@ const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
 )
 // Live-resolved main enablement, kept in step with the renderer's overrides (see
-// recomputeMainEnablement below). The `roadmap` module has no main runtime of its
-// own — its orchestrator rides the Automations engine tick — so the reconcile
-// gate reads this set each tick to honor the roadmap toggle (and its dependency
-// cascade) without a reload. Declared before module construction so the predicate
-// can close over it; the set is filled in once the manifest list exists.
+// recomputeMainEnablement below). A module with no main runtime of its own — one
+// whose work rides another module's engine tick — is honored through this set
+// rather than through load/unload, so its toggle (and its dependency cascade)
+// takes effect without a reload. Declared before module construction so the
+// predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
   createBundledMainModules({
@@ -100,7 +99,7 @@ const moduleManifestsById = new Map<string, CapabilityManifest>(
 const getModulePermissions = (moduleId: string): readonly string[] | undefined =>
   moduleManifestsById.get(moduleId)?.permissions
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
-// reference its manifest for the roadmap enablement gate; constructed after
+// reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
 const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions })
 const moduleLoad = loadMainModules({
@@ -109,12 +108,6 @@ const moduleLoad = loadMainModules({
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
-  deliverNotification: (notification) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-      window.webContents.send(MODULE_NOTIFICATIONS_EVENT_CHANNEL, notification)
-    }
-  },
   // Module events fan out to every open window on the one host-owned channel;
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
@@ -125,8 +118,8 @@ const moduleLoad = loadMainModules({
     }
   },
 })
-// The manifest universe the roadmap gate resolves against — every main module
-// present this channel, so `roadmap` and its dependencies (sprint-engine,
+// The manifest universe the enablement gate resolves against — every main module
+// present on this channel, so a module and its dependencies (sprint-engine,
 // automations, agent-runtime) all resolve. Recompute mirrors the renderer's
 // resolution so the gate's answer matches what the user sees in Settings.
 const mainModuleManifests = [
@@ -144,8 +137,8 @@ applyModuleEnablementLive = async (overrides) => {
   const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
   const automationsError = report.errors.find((error) => error.id === 'automations')
   if (automationsError) return { ok: false, message: automationsError.message }
-  // Roadmap has no live-loadable main module, so its toggle takes effect through
-  // the reconcile gate rather than module load/unload — refresh the resolved set.
+  // A module with no live-loadable main half takes its toggle through the
+  // enablement gate rather than module load/unload — refresh the resolved set.
   recomputeMainEnablement(overrides)
   // Sprint Engine's raw IPC registrations are not live-unloaded yet, but its
   // Python sidecar must honor the toggle immediately: close the spawn gate and

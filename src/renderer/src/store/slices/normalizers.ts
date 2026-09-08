@@ -15,15 +15,17 @@ import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import { partializeWorkspaceModuleState } from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
-// The retired `roadmap` workspace-mode string (MC-1692). Kept as a local literal
-// rather than a live `WorkspaceMode` constant: it is a legacy value with no
-// producer left, referenced only to filter it out of persisted state.
-const RETIRED_ROADMAP_WORKSPACE_MODE = 'roadmap'
-
-// The retired `multiloop` workspace-mode string. Same contract as the roadmap
-// literal above: the Multiloop feature was removed (the Roadmap/Horizon door
-// replaces it), so the mode survives only as a filter target for persisted state.
-const RETIRED_MULTILOOP_WORKSPACE_MODE = 'multiloop'
+// Workspace-mode strings whose features were retired. Kept as local literals
+// rather than live `WorkspaceMode` constants precisely because nothing may mint
+// them again: they are legacy values with no producer left, named here only so
+// persisted state written by an older build can be filtered.
+//
+//   `roadmap`   — store v65: the per-project Roadmap workspace became an
+//                 instance-global sidebar surface. The plan on disk (the home
+//                 project's `backlog/roadmaps/`) is untouched; the surface reads it.
+//   `multiloop` — store v66: the feature was removed outright. Any loop state on
+//                 disk under the project folder is untouched.
+const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop']
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
@@ -163,32 +165,25 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
   return result
 }
 
-// The `roadmap` workspace mode retired in store v65 (MC-1692): Roadmap became an
-// instance-global sidebar surface, so a per-project "Roadmap workspace" no longer
-// exists. Drop any persisted roadmap-mode row on every list-entry path, not only
-// in the v65 migration step — a dev-HMR reload (or any write that stamps the
-// current store version onto un-migrated state) would otherwise leave a roadmap
-// row the migrate ladder never revisits, exactly how the v63 host dedupe was
-// bypassed in the wild. The roadmap plan on disk (the home project's
-// `backlog/roadmaps/`) is untouched; the global surface reads it. Returns the
-// input array unchanged when there is no roadmap-mode row.
-export function dropRetiredRoadmapWorkspaces(workspaces: Workspace[]): Workspace[] {
-  if (!workspaces.some((workspace) => workspace.mode === RETIRED_ROADMAP_WORKSPACE_MODE)) return workspaces
-  return workspaces.filter((workspace) => workspace.mode !== RETIRED_ROADMAP_WORKSPACE_MODE)
-}
-
-// The `multiloop` workspace mode retired in store v66: the Multiloop feature was
-// removed outright (the Roadmap/Horizon door replaces it), so a per-project
-// "Multiloop workspace" no longer exists. Drop any persisted multiloop-mode row
-// on every list-entry path, not only in the v66 migration step — a dev-HMR
-// reload (or any write that stamps the current store version onto un-migrated
-// state) would otherwise leave a multiloop row the migrate ladder never
-// revisits, exactly how the v63 host dedupe was bypassed in the wild. Any
-// on-disk loop state under the project folder is untouched. Returns the input
-// array unchanged when there is no multiloop-mode row.
-export function dropRetiredMultiloopWorkspaces(workspaces: Workspace[]): Workspace[] {
-  if (!workspaces.some((workspace) => workspace.mode === RETIRED_MULTILOOP_WORKSPACE_MODE)) return workspaces
-  return workspaces.filter((workspace) => workspace.mode !== RETIRED_MULTILOOP_WORKSPACE_MODE)
+// THE retired-workspace-mode filter. One function for every mode in
+// RETIRED_WORKSPACE_MODES above, because they all need the same treatment and a
+// per-feature copy of it only invites the next one to be forgotten.
+//
+// It runs on every list-entry path, not only in the migration rung that retired
+// each mode: a dev-HMR reload (or any write that stamps the current store
+// version onto un-migrated state) would otherwise leave a retired-mode row the
+// migrate ladder never revisits, exactly how the v63 host dedupe was bypassed in
+// the wild.
+//
+// This is the only thing standing between a profile written by an older build
+// and a workspace row nothing can render, so it outlives the features it names
+// and is removable only alongside a store-version floor bump ("we no longer
+// migrate profiles older than vNN"). Returns the input array unchanged — same
+// reference — when there is no retired-mode row, which is the normal load.
+export function dropRetiredModeWorkspaces(workspaces: Workspace[]): Workspace[] {
+  const isRetired = (workspace: Workspace): boolean => RETIRED_WORKSPACE_MODES.includes(workspace.mode)
+  if (!workspaces.some(isRetired)) return workspaces
+  return workspaces.filter((workspace) => !isRetired(workspace))
 }
 
 // Every agent carries a real name like the specialists do, but workspaces

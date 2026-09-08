@@ -1,7 +1,7 @@
 // The one Backlog item detail pane every full-page surface mounts (MC-1836 /
 // MC-1917). It renders the WORKSPACE panel's `BacklogDetail` — one detail
 // implementation, so an epic's crumb, linked-children roll-up, triage, mockups and
-// body can never drift between the aside, the Backlog door and the Horizon door.
+// body can never drift between the aside and the Backlog door.
 //
 // This adapter maps a per-project feed (`useAllProjectsBacklog`) onto the panel's
 // props and degrades the workspace-only inputs explicitly:
@@ -64,7 +64,6 @@ export function BacklogItemDetailPane({
   onBack,
   onNavigate,
   headerExtra,
-  headerAction,
 }: {
   item: BacklogItem
   project: BacklogProjectRef
@@ -81,12 +80,9 @@ export function BacklogItemDetailPane({
   showBack: boolean
   onBack: () => void
   onNavigate: (itemId: string) => void
-  /** A host band rendered directly under the title — the Horizon door's run
+  /** A host band rendered directly under the title — the sprint Epic tab's task
    *  strip (MC-1923). Omitted by the Backlog door, which has no run to show. */
   headerExtra?: React.ReactNode
-  /** A host's one loud action on the title row — the Horizon door's
-   *  "Start sprint". Omitted by the Backlog door. */
-  headerAction?: React.ReactNode
 }): JSX.Element {
   // Inline mockup preview: clicking an attached/detected mockup swaps this pane
   // for the rendered file (the panel's behaviour). Resolution re-runs across BOTH
@@ -197,7 +193,6 @@ export function BacklogItemDetailPane({
       onCloseMockupPreview={() => {}}
       onPopOutMockup={() => {}}
       headerExtra={headerExtra}
-      headerAction={headerAction}
     />
   )
 }

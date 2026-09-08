@@ -587,6 +587,7 @@ export default function WorkspaceManager() {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
+  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
@@ -1215,8 +1216,8 @@ export default function WorkspaceManager() {
     if (surfaceRegionEl.contains(document.activeElement)) return
     // An overlay ON the door keeps the keyboard. A door's rail can appear or
     // vanish mid-surface (a door declares no rail until it has content), and that
-    // is exactly when a confirm or prompt is likely to be open — deleting the last
-    // horizon both empties the rail and holds a dialog. Taking focus to the region
+    // is exactly when a confirm or prompt is likely to be open — deleting a door's
+    // last row both empties the rail and holds a dialog. Taking focus to the region
     // behind it would leave that dialog un-dismissable from the keyboard.
     const active = document.activeElement
     if (active instanceof HTMLElement && active.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]')) return
@@ -1562,9 +1563,15 @@ export default function WorkspaceManager() {
         },
       },
     })
-    // Remember an explicit pick as General's own default — never the shared
-    // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
-    if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
+    // Remember an explicit pick as General's own default, and as the app-wide
+    // default CLI: a New chat is the app's own agent, so the CLI it was started
+    // on is the answer every surface without a remembered CLI of its own falls
+    // back to (see globalCliFromEnginePick). A specialist's pick still moves
+    // only that specialist.
+    if (chosenCli) {
+      setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
+      setLastSelectedCli(chosenCli)
+    }
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
     // The solo template carries exactly one agent tab, and the seed patch above
     // was merged onto it at creation, so the lone agent record IS this chat's
@@ -1574,7 +1581,7 @@ export default function WorkspaceManager() {
     const created = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
     const agentId = Object.keys(created?.agents ?? {})[0]
     return agentId ? { workspaceId, agentId } : null
-  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, openSettingsOverlay, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
+  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, openSettingsOverlay, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault, setLastSelectedCli])
 
   // The isolated connector-chat runtime (a worktree per connector, single-
   // server MCP) left with the Skills & MCPs picker: MCP picks are synced into

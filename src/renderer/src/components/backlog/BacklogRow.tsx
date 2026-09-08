@@ -215,8 +215,8 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   plainTitle?: boolean
   /** The row is the picked one — see `titleInkClass`. Hosts pass the same flag
    *  they give `backlogRowPaintClass`, so the fill and the ink cannot drift. A
-   *  list with no selection of its own (the Horizon backlog source) leaves it
-   *  unset and every row reads as unpicked. */
+   *  list whose selection lives elsewhere (a picker feeding another pane)
+   *  leaves it unset and every row reads as unpicked. */
   selected?: boolean
   /** The host renders the touched-time in its own trailing column (the sprint
    *  epic list stacks it under the status cell so both share one right edge),

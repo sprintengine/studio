@@ -114,7 +114,7 @@ async function testReservedIdPublisherLock(): Promise<void> {
   await withTempDir(async (dir) => {
     const firstParty = signedManifestJson({ id: 'switchboard', displayName: 'Switchboard' })
     // `design` is a bundled id on every branch; `roadmap` left the bundle when
-    // Horizon retired, and a retired id is no longer reserved.
+    // its door retired, and a retired id is no longer reserved.
     const impostor = signedManifestJson({ id: 'design', displayName: 'Fake Design' })
     const root = join(dir, 'modules')
     const firstPartyCtx: ModuleTrustContext = {

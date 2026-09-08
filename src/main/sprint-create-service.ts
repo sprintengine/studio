@@ -245,11 +245,11 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
       }
     }
 
-    // MC-1876 — THE DEFAULT FLIP. An externally-created run (a Horizon step with
+    // MC-1876 — THE DEFAULT FLIP. An externally-created run (a plan step with
     // no `roster:`, an automation with no roster configured) used to resolve
     // through `lastSelectedRosterId`: whatever roster the user last touched in
-    // the sprint WIZARD. A horizon running over days could therefore staff step 3
-    // differently from step 1 because someone opened the wizard in between, and
+    // the sprint WIZARD. A multi-step plan running over days could therefore staff
+    // step 3 differently from step 1 because someone opened the wizard in between, and
     // nothing in the UI admitted it. Absent now means No roles — deterministic,
     // and independent of unrelated UI state.
     return { ok: true, roster: builtInRoster(savedRosters, namedRoster?.id ?? NO_ROLES_ROSTER_ID) }
@@ -299,7 +299,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
   ): RuntimeResolution {
     // A named runtime that cannot spawn fails the start loudly (MC-2145's trap),
     // matching the unknown-`rosterName` precedent — a silent fallback would
-    // launch a horizon's every step on an agent the author never picked and
+    // launch a plan's every step on an agent the author never picked and
     // never be told.
     const launchable = new Set(deps.listLaunchableClis())
     const requestedClis = [request.runtime?.cli, ...Object.values(request.roleClis ?? {})]
@@ -674,7 +674,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
           // human-authored plan file behind it, so there is no consent to read.
           // Deliberately does NOT honor `request.permissionPreset` (MC-1900) —
           // otherwise the field would be exactly the self-escalation hole this
-          // literal exists to close. A horizon always arrives plan-sourced.
+          // literal exists to close. An orchestrator always arrives plan-sourced.
           cliPermissionPreset: 'manual',
         },
         {
@@ -776,7 +776,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
     // An epic source launched from here gets the same shape the dialog builds:
     // `planKind: epic` plus its open children marked as the work list (MC-2129).
     // Without it `inferSourcePlanKind` calls an epic `unknown`, so an
-    // automation- or Horizon-started epic never reached the epic intake at all.
+    // automation- or orchestrator-started epic never reached the epic intake at all.
     const epicSource = selection?.ok
       ? null
       : await buildEpicSourcePlan(request.folderPath, normalizedSourcePath)
@@ -786,7 +786,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
         ? { sourcePlanKind: epicSource.sourcePlanKind, sourceBundle: epicSource.sourceBundle }
         : null
     // Pending child links are written for EVERY launch path that carries epic
-    // children — single-epic (automation chaining, Horizon, MCP sourceRef) and
+    // children — single-epic (automation chaining, MCP sourceRef) and
     // multi-selection alike. Without the link, claim → in_progress and land →
     // completed never fire: propagation only reconciles links that already exist
     // on the item (integration review, 2026-08-05).
@@ -822,7 +822,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
         sourcePlanKind: epicPlan?.sourcePlanKind ?? inferSourcePlanKind(normalizedSourcePath, sourceContent),
         ...(epicPlan?.sourceBundle ? { sourceBundle: epicPlan.sourceBundle } : {}),
         // Absent leaves the default with the engine: direct for an epic, planned
-        // for everything else. Horizon and automations inherit that rather than
+        // for everything else. Externally-created runs inherit that rather than
         // restating it here.
         ...(request.intake ? { intake: request.intake } : {}),
         roleCounts: launchRoleCounts,
@@ -834,9 +834,9 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
         initialSpawnRoles: null,
         sprintEngineAutoState: {
           ...sprintEngineAutomationInitialStateForMode(automationMode),
-          // Plan-sourced launches are horizon/automation-orchestrated: nobody is
+          // Plan-sourced launches are orchestrated: nobody is
           // watching to answer per-tool prompts, so agents spawn in bypass unless
-          // the horizon's own `permissions:` policy says otherwise (MC-1900). The
+          // the plan file's own `permissions:` policy says otherwise (MC-1900). The
           // escalation is the OWNER'S file, not this caller — which is why the
           // goal-sourced twin refuses to read this field.
           //

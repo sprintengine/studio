@@ -2131,7 +2131,7 @@ export function pickSprintEngineBootstrapCandidate(
   // `&& !hasUndeliveredStartupPrompt` read that as "tasks exist, but the prompt
   // is still undelivered" and spawned a planner that booted, read a complete
   // task list, and exited: a wasted CLI launch and model session per
-  // epic-sourced sprint (once per horizon step), and on the board
+  // epic-sourced sprint (once per plan step), and on the board
   // indistinguishable from an agent that crashed.
   //
   // Neither case that needs the prompt loses it. A goal-only run has no tasks

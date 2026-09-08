@@ -384,8 +384,8 @@ const MEASURE = `(() => {
 })()`
 
 // The pane's own anatomy (MC-2047) and the polarity stamp are the shared probe:
-// the same measurement runs on the Horizon door from `horizon-chrome-rows-pass.mjs`,
-// and one component measured two ways is how two surfaces disagree.
+// the same measurement reads the pane on every surface that mounts it, and one
+// component measured two ways is how two surfaces disagree.
 
 async function click(page, locator) {
   if ((await locator.count()) === 0) return false

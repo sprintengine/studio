@@ -234,7 +234,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     const specialistId = request.specialistId?.trim() || undefined
     // A specialist run must fetch its Soul before acting, just like an
     // interactively-spawned specialist. Composed here rather than by the caller,
-    // so a directive sent by the gateway, an automation, or a Horizon step is
+    // so a directive sent by the gateway, an automation, or a plan step is
     // wrapped identically; a non-specialist run sends the prompt unchanged.
     const specialistPrompt = specialistId
       ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt ?? '')

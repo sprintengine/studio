@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     })
 
     // Module isolation is by construction: another module never sees the keys.
-    assert.deepEqual(await storage.list('multiloop', { workspaceRoot }), { ok: true, keys: [] })
+    assert.deepEqual(await storage.list('planner', { workspaceRoot }), { ok: true, keys: [] })
     assert.deepEqual(await storage.list('calendar', { workspaceRoot }), { ok: true, keys: ['events'] })
     assert.deepEqual(await storage.list('calendar'), { ok: true, keys: ['prefs'] })
 

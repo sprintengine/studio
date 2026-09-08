@@ -3197,7 +3197,7 @@ export default function WorkspaceSidebar({
       <div className={`mx-2 mb-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
         {/* Home's one control above the tree: New chat, the one way in (owner,
             2026-09-04). The doors that used to share this band — Sprints,
-            Backlog, Horizon, Reviews — live under the app rail's Extensions
+            Backlog, Reviews — live under the app rail's Extensions
             glyph now, so the tree starts one row down. The row keeps the
             tab-extract drop target. */}
         <div className="flex items-stretch gap-px">

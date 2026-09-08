@@ -1,13 +1,13 @@
 // The context rail (item 1993, `design-system/patterns/context-rail.html`) — one
 // rail, ever. Before this, opening a door kept the app sidebar mounted and added
-// the door's own rail beside it, and Horizon added a third column after that:
-// three columns of navigation before the first word of content.
+// the door's own rail beside it, and a two-level door added a third column after
+// that: three columns of navigation before the first word of content.
 //
 // The fix is a REPLACEMENT, not another column. A drilled-in surface's rail
 // renders in the app sidebar's own column, at the same width. A surface that
 // seems to need two levels of rail folds the outer level into grouped sections
-// of the one rail (Horizon: a Horizons group at the resting selection tier, a
-// Plan group at the focused one), and a surface whose canvas was a list beside a
+// of the one rail (an outer-context group at the resting selection tier, its
+// contents at the focused one), and a surface whose canvas was a list beside a
 // preview moves that list here whole (Backlog).
 //
 // `Back` used to be a row pinned to this column's bottom. It is the door's bar
@@ -97,7 +97,7 @@ export function ContextRailColumn({
 }: {
   /** The open surface's id. A change re-runs the swap, so door → door slides too. */
   surfaceKey: string
-  /** Accessible name for the rail scrollport, e.g. "Horizon rail". */
+  /** Accessible name for the rail scrollport, e.g. "Sprints rail". */
   ariaLabel: string
   /**
    * The surface put a rail here. False keeps the column mounted but out of the

@@ -1,8 +1,8 @@
-// What is left of the roadmap object after Horizon retired (2026-09-05): the
+// What is left of the roadmap object after its door retired (2026-09-05): the
 // test that keeps a `backlog/roadmaps/<name>.md` file OUT of the backlog lists.
 //
-// Horizon planned an ordered run of backlog items in these files, and every
-// repo that ever used it still carries them. They are not backlog items — a
+// The retired door planned an ordered run of backlog items in these files, and
+// every repo that ever used it still carries them. They are not backlog items — a
 // plan is not work — so the main-process listing tags them (`isRoadmap`) and
 // every backlog list (the workspace panel, the New sprint dialog's picker) drops
 // them, exactly as before. The parser, the policy model, the eligibility

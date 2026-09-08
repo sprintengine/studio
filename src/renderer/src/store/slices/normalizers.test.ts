@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { Workspace } from '../../types/workspace'
 import {
   dedupeAutomationsHostWorkspaces,
-  dropRetiredRoadmapWorkspaces,
+  dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
@@ -441,23 +441,25 @@ assert.equal(
   )
 }
 
-// dropRetiredRoadmapWorkspaces — the `roadmap` workspace mode retired (v65,
-// MC-1692). Every list-entry path (migration, merge, recovery, cross-window sync)
-// filters it so a dev-HMR version-stamp cannot resurrect a roadmap-mode row.
+// dropRetiredModeWorkspaces — the `roadmap` (v65, MC-1692) and `multiloop` (v66)
+// workspace modes retired. Every list-entry path (migration, merge, recovery,
+// cross-window sync) filters them so a dev-HMR version-stamp cannot resurrect a
+// row in a mode nothing can render.
 {
   const roadmap = baseWorkspace({ id: 'ws-roadmap', mode: 'roadmap', folderPath: '/Users/example/project' })
+  const multiloop = baseWorkspace({ id: 'ws-multiloop', mode: 'multiloop', folderPath: '/Users/example/other' })
   const standard = baseWorkspace({ id: 'ws-standard', mode: 'standard' })
   const sprint = baseWorkspace({ id: 'ws-sprint', mode: 'sprintengine' })
   assert.deepEqual(
-    dropRetiredRoadmapWorkspaces([standard, roadmap, sprint]).map((w) => w.id),
+    dropRetiredModeWorkspaces([standard, roadmap, multiloop, sprint]).map((w) => w.id),
     ['ws-standard', 'ws-sprint'],
-    'roadmap-mode rows are dropped, others kept in order',
+    'every retired-mode row is dropped, others kept in order',
   )
-  const noRoadmap = [standard, sprint]
+  const noRetired = [standard, sprint]
   assert.equal(
-    dropRetiredRoadmapWorkspaces(noRoadmap),
-    noRoadmap,
-    'no roadmap-mode row → the exact input array is returned by reference (cheap no-op)',
+    dropRetiredModeWorkspaces(noRetired),
+    noRetired,
+    'no retired-mode row → the exact input array is returned by reference (cheap no-op)',
   )
 }
 
