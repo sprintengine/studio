@@ -445,11 +445,12 @@ export function DiffViewer({
   const appliedRevisionRef = useRef<number | null>(null)
   useEffect(() => {
     if (appliedRevisionRef.current === treeRevision) return
-    // The first tick is the read this viewer opened on — the target effect
-    // above is already loading it.
-    const first = appliedRevisionRef.current === null
+    const previous = appliedRevisionRef.current
     appliedRevisionRef.current = treeRevision
-    if (first) return
+    // Nothing to re-read until this viewer has seen a completed read: 0 is
+    // "the hook has not answered yet", and the first real number is the read
+    // the target effect above is already loading from.
+    if (previous === null || previous === 0) return
     const item = currentItemRef.current
     if (!item) return
     const token = loadSeqRef.current

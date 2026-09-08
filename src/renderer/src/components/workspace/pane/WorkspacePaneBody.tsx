@@ -113,6 +113,10 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
             repoRoot={repoRoot}
             focusPath={tab.diff?.focusPath ?? null}
             focusKind={tab.diff?.focusKind ?? null}
+            // Carried into the window when the band's "Open in separate
+            // window" is used, so that window's "Show in the app" knows the
+            // pane it came from and can hand the diff back.
+            workspaceId={workspaceId}
             variant="pane"
             onItemCountChange={onDiffCountChange}
             // The pane is the only host with a branch to step through; the aux
