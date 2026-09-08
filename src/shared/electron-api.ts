@@ -1,6 +1,7 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ObservedCheckout } from './observed-checkout'
 import type { ConversationPeek } from './conversation-peek'
+import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
 export type {
   ConversationPeek,
   ConversationPeekAttachment,
@@ -4027,6 +4028,11 @@ export type ElectronApi = {
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   cliUpdate: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
+  // One-shot text generation on the person's own agent CLI (their login, no
+  // API key): today the chat title from a first prompt. Never rejects — a
+  // failure is a typed `{ ok: false }` the caller answers by keeping what it
+  // had. See src/shared/text-generation/contract.ts.
+  generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
   openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>

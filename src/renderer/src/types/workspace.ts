@@ -415,6 +415,7 @@ import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
+import type { TextGenerationSettings } from '../../../shared/text-generation/contract'
 
 export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -491,6 +492,15 @@ export type AppSettings = {
    * available option at spawn time.
    */
   lastSelectedConversationModel: AgentConversationRuntime | null
+  /**
+   * Whether, and on which of the person's own agent CLIs, small pieces of
+   * text are written by a model instead of a heuristic — today the chat
+   * title from a first prompt. Runs under the CLI's own login, never an API
+   * key, and the heuristic stands whenever this is off, no supported CLI is
+   * installed, or the call fails. `engine: null` means the first supported
+   * installed CLI at its cheap default (see TEXT_GENERATION_BACKENDS).
+   */
+  textGeneration: TextGenerationSettings
   /**
    * Agent the sidebar's "New chat in project" item spawns on a plain click.
    * Updated whenever the user picks an agent from the new-chat picker, so the

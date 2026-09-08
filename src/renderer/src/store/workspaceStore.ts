@@ -272,6 +272,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
+  setTextGenerationEnabled: (enabled: boolean) => void
+  setTextGenerationEngine: (selection: AgentCliModelSelection | null) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
@@ -354,7 +356,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
-  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => void
+  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => string | null
+  applyGeneratedWorkspaceTitle: (id: WorkspaceId, title: string, replacing: string | null) => boolean
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void

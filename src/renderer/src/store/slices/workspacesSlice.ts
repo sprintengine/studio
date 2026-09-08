@@ -390,9 +390,19 @@ export interface WorkspacesSliceActions {
   /**
    * Name a still-default workspace after `prompt`, the first real request sent
    * inside it. No-op when the name is already locked or the prompt yields no
-   * usable title.
+   * usable title. Returns the title it applied, or null when it applied none,
+   * so a model-written title arriving later knows what it may replace.
    */
-  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => void
+  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => string | null
+  /**
+   * Land a model-written title that was requested when `replacing` was applied
+   * by the heuristic (or null when the heuristic applied nothing). It lands
+   * only if nobody has renamed the workspace since: the name must still be
+   * `replacing`, or, when that is null, the name must still be unlocked. Returns
+   * whether it landed. A late result after a hand rename is dropped, and the
+   * person's name stands (MC-2484).
+   */
+  applyGeneratedWorkspaceTitle: (id: WorkspaceId, title: string, replacing: string | null) => boolean
   setActiveWorkspace: (id: WorkspaceId) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
@@ -1584,6 +1594,28 @@ export function createWorkspacesSlice(
         accepted = title
       })
       if (accepted) void workspaceSyncClient.dispatchRenameWorkspace(id, accepted, true)
+      return accepted
+    },
+
+    applyGeneratedWorkspaceTitle: (id, rawTitle, replacing) => {
+      // The service guards its answer, but this is a public action, and the
+      // two beside it (rename, auto-title) each refuse an empty name themselves.
+      const title = rawTitle.trim()
+      if (!title) return false
+      let landed = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        // `titleLocked` is the one gate every other path uses for "still the
+        // app's name"; a hand rename and an explicit name at birth both set it.
+        const stillOurs = replacing !== null ? ws.name === replacing : !ws.titleLocked
+        if (!stillOurs || ws.name === title) return
+        ws.name = title
+        ws.titleLocked = true
+        landed = true
+      })
+      if (landed) void workspaceSyncClient.dispatchRenameWorkspace(id, title, true)
+      return landed
     },
 
     setActiveWorkspace: (id) =>

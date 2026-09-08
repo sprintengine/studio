@@ -9,6 +9,7 @@ import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
+import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
 import { registerCredentialIpc } from './ipc/credential-ipc'
@@ -84,6 +85,7 @@ export function registerCoreIpc(
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
+  registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
   // here so `voice:transcribe` is genuinely absent in a packaged build, not just

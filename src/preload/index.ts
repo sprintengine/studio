@@ -12,6 +12,7 @@ import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
+import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { conversationPeekApi } from './api/conversation-peek'
@@ -69,6 +70,7 @@ const api = {
   ...builtinSkillsApi,
   ...clipboardApi,
   ...cliRuntimeApi,
+  ...textGenerationApi,
   ...hostedModelFeedApi,
   ...hostedCardFeedApi,
   ...cliVersionApi,

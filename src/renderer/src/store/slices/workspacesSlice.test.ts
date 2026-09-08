@@ -1200,6 +1200,119 @@ useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(renamedId, 'add a retr
 assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a hand-typed name')
 
 
+// --- a model-written title landing on top of the heuristic (MC-2484) --------
+//
+// The two halves of titling meet here: `autoTitleWorkspaceFromPrompt` reports
+// the name it applied, and `applyGeneratedWorkspaceTitle` is only allowed to
+// replace exactly that name. Everything in this block is about the window
+// between the two — the person renaming by hand, a second answer arriving, a
+// workspace that is gone by the time the model answers.
+{
+  const genId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/generated-title',
+    background: true,
+  })
+
+  // The heuristic reports what it did, so the late half knows what it may
+  // replace: null when it applied nothing, the title itself when it did.
+  assert.equal(
+    useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(genId, '/backlog'),
+    null,
+    'a prompt with no usable topic reports that it applied no title',
+  )
+  const interim = useWorkspaceStore
+    .getState()
+    .autoTitleWorkspaceFromPrompt(genId, 'so can you fix the git stash panel dropping its hash')
+  assert.equal(interim, 'Fix the git stash panel dropping', 'the heuristic returns the title it applied')
+  assert.equal(nameOf(genId), interim)
+  assert.equal(
+    useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(genId, 'now migrate the settings store'),
+    null,
+    'a locked workspace reports that it applied nothing',
+  )
+
+  // The model's answer replaces the heuristic's name, and locks it in turn.
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(genId, 'Stash panel loses its hash', interim),
+    true,
+    'a generated title lands on the name it was asked to replace',
+  )
+  assert.equal(nameOf(genId), 'Stash panel loses its hash')
+  assert.equal(lockedOf(genId), true, 'and the generated name is locked like any other')
+
+  // A second answer for the same request has nothing left to replace.
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(genId, 'A later answer', interim),
+    false,
+    'a second answer naming the same stale name is dropped',
+  )
+  assert.equal(nameOf(genId), 'Stash panel loses its hash')
+
+  // A hand rename in the window between request and answer wins.
+  const racedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/generated-title-raced',
+    background: true,
+  })
+  const racedInterim = useWorkspaceStore
+    .getState()
+    .autoTitleWorkspaceFromPrompt(racedId, 'add a retry to the uploader')
+  assert.equal(racedInterim, 'Add a retry to the uploader')
+  useWorkspaceStore.getState().renameWorkspace(racedId, 'Uploader retries')
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(racedId, 'Uploader gains a retry', racedInterim),
+    false,
+    'a late answer never overwrites a name typed by hand in the meantime',
+  )
+  assert.equal(nameOf(racedId), 'Uploader retries', 'the hand-typed name stands')
+
+  // replacing === null — the heuristic applied nothing — so the gate is the
+  // lock rather than the name: it lands while the workspace is still on its
+  // app-minted name, and never after something has locked it.
+  const unlockedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/generated-title-unlocked',
+    background: true,
+  })
+  assert.equal(useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(unlockedId, '/backlog'), null)
+  assert.notEqual(lockedOf(unlockedId), true, 'the rejected prompt left it unlocked')
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(unlockedId, 'Backlog sweep', null),
+    true,
+    'with nothing to replace, an unlocked workspace takes the generated title',
+  )
+  assert.equal(nameOf(unlockedId), 'Backlog sweep')
+  assert.equal(lockedOf(unlockedId), true)
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(unlockedId, 'A second sweep', null),
+    false,
+    'and never again once the name is locked',
+  )
+  assert.equal(nameOf(unlockedId), 'Backlog sweep')
+
+  // The model answered with the name already showing: nothing to do, and the
+  // caller is told nothing happened rather than that a rename occurred.
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(unlockedId, 'Backlog sweep', 'Backlog sweep'),
+    false,
+    'a generated title equal to the current name is a no-op',
+  )
+  assert.equal(nameOf(unlockedId), 'Backlog sweep')
+
+  // An empty answer is refused here too, not only by the service's guardrail.
+  const blankId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    folderPath: '/Users/example/generated-title-blank',
+    background: true,
+  })
+  assert.equal(useWorkspaceStore.getState().applyGeneratedWorkspaceTitle(blankId, '   ', null), false)
+  assert.notEqual(lockedOf(blankId), true, 'a blank answer neither renames nor locks')
+
+  // The workspace was closed while the model was thinking.
+  assert.equal(
+    useWorkspaceStore.getState().applyGeneratedWorkspaceTitle('workspace-that-is-gone', 'Anything', null),
+    false,
+    'an unknown workspace id is refused, not fatal',
+  )
+}
+
 // Settled chats (2026-09-07): the hand decisions, the sweep, and the wake.
 {
   const DAY = 24 * 60 * 60 * 1000
