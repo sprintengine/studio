@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { useRelativeNow } from '../../../../hooks/useRelativeNow'
-import { basename, pathJoin } from '../../../../utils/paths'
+import { basename } from '../../../../utils/paths'
+import { resolveDeclaredPath } from '../../../../utils/workspaceWorktree'
 import { FolderTypeIcon } from '../../../AppIcons'
 import { AgentWorkingDots, LifecycleGlyph, Tooltip } from '../../../ui'
 import {
@@ -62,10 +63,11 @@ import { SPRINTS_DOOR, type RunDoorDefinition } from './runDoorCopy'
 const ALL_PROJECTS = ' all'
 
 /**
- * The whole-row summary: the run, the lifecycle word its glyph draws, and the
- * state line — the one sentence a screen reader and the rail tests read off a
- * row, and what the row's lifecycle mark says on hover. A pure function so the
- * rail test can assert on it rather than markup it can grep for.
+ * The run in one sentence: the run, the lifecycle word its glyph draws, and the
+ * state line. The rich row no longer wears it as a whole-row tooltip — its parts
+ * each say their own piece, and a focused row's accessible name is those parts
+ * in order — but it remains the sentence the rail's tests and the surface bar
+ * read off a row, and stays a pure function for exactly that reason.
  */
 export function sprintRowTooltip(row: SprintRailRow): string {
   return `${row.title} — ${row.glyph.label} · ${row.stateLine}`
@@ -86,11 +88,16 @@ function useUnseenRunCompletions(
   useEffect(() => {
     const justCompleted = deriveSprintRunCompletions(previous.current, runs)
     previous.current = new Map(runs.map((summary) => [summary.statePath, summary.runtimeState]))
-    if (justCompleted.length === 0) return
     setUnseen((current) => {
-      const next = new Set(current)
+      // Kept to the runs that still exist: a deleted run's announcement goes
+      // with it, so a new run created later at the same path never opens
+      // wearing a wash it did not earn.
+      const live = new Set(runs.map((summary) => summary.statePath))
+      const next = new Set([...current].filter((statePath) => live.has(statePath)))
       for (const statePath of justCompleted) if (statePath !== selectedStatePath) next.add(statePath)
-      return next
+      return next.size === current.size && [...next].every((statePath) => current.has(statePath))
+        ? current
+        : next
     })
   }, [runs, selectedStatePath])
   useEffect(() => {
@@ -104,9 +111,49 @@ function useUnseenRunCompletions(
   return unseen
 }
 
-/** The checkout a run's ±lines are read from: its run worktree, under its project root. */
+/**
+ * The checkout a run's ±lines are read from: its run worktree under its project
+ * root, resolved the way every surface that opens a run worktree resolves it —
+ * so the rail and the sidebar spell one tree one way, and main shares the git
+ * read between them.
+ */
 function runCheckoutPath(summary: SprintRunSummary): string | null {
-  return summary.worktreePath ? pathJoin(summary.projectRoot, summary.worktreePath) : null
+  return summary.worktreePath ? resolveDeclaredPath(summary.projectRoot, summary.worktreePath) : null
+}
+
+/**
+ * What the ±lines chip may claim, from the reading's honesty contract
+ * (`WorkspaceChangeSummary.scope`, main's workspace-change-summary): a run's
+ * own worktree is the run's work; a shared checkout may carry a person's; a
+ * folder reading — also what a failed branch read degrades to — is nobody's,
+ * and steps back. The sidebar's three sentences, restated for a run.
+ */
+function diffChipCopy(
+  scope: 'worktree' | 'branch' | 'folder',
+  branch: string | null,
+  noun: string,
+  additions: number,
+  deletions: number,
+): { tooltip: string; srText: string; dim: boolean } {
+  if (scope === 'worktree') {
+    return {
+      tooltip: `Changed by this ${noun} — it has its own worktree`,
+      srText: `${additions} added, ${deletions} removed by this ${noun}`,
+      dim: false,
+    }
+  }
+  if (scope === 'branch') {
+    return {
+      tooltip: `Changed on ${branch ?? 'this branch'} — the checkout is shared, so a person or another terminal may have made some of it`,
+      srText: `${additions} added, ${deletions} removed on ${branch ?? 'this branch'}`,
+      dim: false,
+    }
+  }
+  return {
+    tooltip: 'Uncommitted changes in this folder — not attributable to this ' + noun,
+    srText: `${additions} added, ${deletions} removed in this folder`,
+    dim: true,
+  }
 }
 
 /** A run whose branch is still being worked — the only ones worth asking git about. */
@@ -144,11 +191,13 @@ export function SprintsRail({
   onSearch: (query: string) => void
   onSort: (sort: SprintSort) => void
   onCreate: () => void
-  /** The clock the resting rows read. Tests pin it; the app leaves it to the
-   *  shared 30-second tick. */
+  /** The clock the resting rows read. Tests pin it, which also stops the
+   *  shared 30-second tick; the app leaves it to that tick. A live run's
+   *  working clock (`WorkingElapsed`) keeps its own second-hand and is never
+   *  pinned — it is the one part of the rail that must actually move. */
   now?: number
 }): JSX.Element {
-  const tick = useRelativeNow()
+  const tick = useRelativeNow(30_000, nowOverride === undefined)
   const now = nowOverride ?? tick
   const chips = deriveSprintProjectChips(runs)
   const unseenDone = useUnseenRunCompletions(runs, selectedStatePath)
@@ -174,9 +223,10 @@ export function SprintsRail({
     const wantsYou = summary.runtimeState === 'needs_input'
     const finishedUnseen = !wantsYou && unseenDone.has(row.id)
     const emphasis = finishedUnseen ? 'active' : sprintRunEmphasis(summary, selected, now)
-    const quiet = emphasis === 'quiet' && !selected
+    const quiet = emphasis === 'quiet'
     const git = gitSummaries[row.id]
     const checkout = runCheckoutPath(summary)
+    const diff = git ? diffChipCopy(git.scope, summary.branchName, door.noun, git.additions, git.deletions) : null
     return {
       id: row.id,
       title: row.title,
@@ -192,11 +242,11 @@ export function SprintsRail({
       context: {
         icon: <FolderTypeIcon className="icon-xs shrink-0" />,
         label: sprintRunProjectPhrase(summary),
-        seat: <RunClockSeat clock={clock} now={now} wantsYou={wantsYou} />,
+        seat: <RunClockSeat clock={clock} now={now} wantsYou={wantsYou} working={summary.runtimeState === 'running'} />,
       },
       detail: (
         <>
-          <Tooltip content={sprintRowTooltip(row)} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+          <Tooltip content={row.glyph.label} placement="bottom" wrapperClassName="flex shrink-0 items-center">
             <LifecycleGlyph
               state={row.glyph.state}
               live={row.glyph.live}
@@ -207,12 +257,13 @@ export function SprintsRail({
           {summary.branchName ? (
             <BranchChip branch={summary.branchName} worktree={checkout !== null} cwd={checkout} dim={quiet} />
           ) : null}
-          {git ? (
+          {git && diff ? (
             <DiffChip
               additions={git.additions}
               deletions={git.deletions}
-              tooltip={`Changed on ${summary.branchName ?? 'the run branch'} by this ${door.noun}`}
-              srText={`${git.additions} added, ${git.deletions} removed by this ${door.noun}`}
+              tooltip={diff.tooltip}
+              srText={diff.srText}
+              dim={diff.dim}
             />
           ) : null}
           <span className="min-w-0 truncate">{sprintRunDetailWords(summary)}</span>
@@ -323,20 +374,25 @@ function RunClockSeat({
   clock,
   now,
   wantsYou,
+  working,
 }: {
   clock: ReturnType<typeof sprintRunClock>
   now: number
   wantsYou: boolean
+  /** The run is at work. The dots say so whether or not it has a start stamp
+   *  to count from — a run without one shows the dots alone, as a sidebar
+   *  turn without a timestamp does. */
+  working: boolean
 }): JSX.Element | null {
-  if (!clock) return null
-  if (clock.kind === 'working') {
+  if (working) {
     return (
       <>
         <AgentWorkingDots label="Agents working" />
-        <WorkingElapsed since={clock.since} label="Running" />
+        {clock?.kind === 'working' ? <WorkingElapsed since={clock.since} label="Running" /> : null}
       </>
     )
   }
+  if (!clock) return null
   if (clock.kind === 'waiting') {
     return (
       <RestingClock
@@ -348,5 +404,6 @@ function RunClockSeat({
       />
     )
   }
+  if (clock.kind !== 'rested') return null
   return <RestingClock at={clock.at} now={now} verb={clock.verb} className="text-meta tabular-nums" />
 }

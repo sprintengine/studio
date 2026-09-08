@@ -195,19 +195,34 @@ function deriveRepoRollup(state: SprintEngineState): SprintRunSummary['repoRollu
   return { declared: rollup.total, merged: rollup.merged, open: rollup.unmerged }
 }
 
+// The primary repo's record: entry zero of `vcs.repos` (always the primary,
+// `root: '.'`), falling back to the flat `vcs.*` fields only for a store whose
+// list is empty — the same preference `resolveWorkspaceWorktrees` applies, so
+// the rail names the tree every other surface opens.
+function primaryRepo(state: SprintEngineState): { branchName?: string; worktreePath?: string } | null {
+  const vcs = state.vcs
+  if (!vcs) return null
+  return vcs.repos?.[0] ?? vcs
+}
+
+function trimmedOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 // The run branch as the projection records it, trimmed. Null for a run with no
 // vcs block (never provisioned a worktree) or an empty name.
 function deriveBranchName(state: SprintEngineState): string | null {
-  const branchName = state.vcs?.branchName
-  return typeof branchName === 'string' && branchName.trim() ? branchName.trim() : null
+  const repo = primaryRepo(state)
+  return trimmedOrNull(repo?.branchName) ?? trimmedOrNull(state.vcs?.branchName)
 }
 
 // The PRIMARY repo's run worktree, kept project-root-RELATIVE exactly as the
 // projection stores it — joining it to a root is a node concern and this module
-// is node-free. Null for a run with no vcs block or an empty path.
+// is node-free (the renderer resolves it with `resolveDeclaredPath`). Null for
+// a run with no vcs block or an empty path.
 function deriveWorktreePath(state: SprintEngineState): string | null {
-  const worktreePath = state.vcs?.worktreePath
-  return typeof worktreePath === 'string' && worktreePath.trim() ? worktreePath.trim() : null
+  const repo = primaryRepo(state)
+  return trimmedOrNull(repo?.worktreePath) ?? trimmedOrNull(state.vcs?.worktreePath)
 }
 
 /**

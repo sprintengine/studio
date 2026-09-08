@@ -141,10 +141,15 @@ export function sprintRunShortDate(iso: string | null): string | null {
   return month ? `${month} ${Number(match[3])}` : null
 }
 
-// Sort stamp: last update, falling back to creation. An undated run sorts last
-// within its rank rather than jumping the queue.
+// Sort stamp: the moment the row's clock shows. A decided run is placed by when
+// it finished — the same stamp its "2d" reads — so the Recent group never lists
+// a run whose clock says `3d` above one whose clock says `6m` because a merge
+// poll rewrote the older run's file this morning. An undecided run is placed by
+// its last update, falling back to creation; an undated run sorts last within
+// its rank rather than jumping the queue.
 function runStamp(summary: SprintRunSummary): number {
-  return stampOf(summary.updatedAt ?? summary.startedAt)
+  const decided = summary.runtimeState === 'completed' || summary.runtimeState === 'canceled'
+  return stampOf((decided ? summary.finishedAt : null) ?? summary.updatedAt ?? summary.startedAt)
 }
 
 function createdStamp(summary: SprintRunSummary): number {

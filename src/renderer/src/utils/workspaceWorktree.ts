@@ -71,7 +71,14 @@ export type ResolvedWorkspaceWorktree = {
  * Task-owned paths are a different thing entirely and still reject `..`
  * outright; only a run's own declared roots reach here.
  */
-function resolveDeclaredPath(folderPath: string, value: string): string {
+/**
+ * A project-root-relative path from a run store, made absolute the way every
+ * surface that opens a run worktree does: an absolute value is used as-is
+ * (out of contract, but defended against), `.` is the root, and `..` segments
+ * collapse — so two callers naming one tree spell it one way, which is what
+ * lets main share a git read between them.
+ */
+export function resolveDeclaredPath(folderPath: string, value: string): string {
   const trimmed = value.trim()
   if (isAbsoluteFilePath(trimmed)) return trimmed
   if (!trimmed || trimmed === '.') return folderPath

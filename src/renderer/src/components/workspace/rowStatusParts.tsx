@@ -41,7 +41,9 @@ export function attentionRowSurfaceClass(selected: boolean): string {
     'bg-[color:var(--tone-warn-soft)] hover:bg-[color:var(--tone-warn-soft)]',
     selected ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-warn-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -53,7 +55,9 @@ export function doneRowSurfaceClass(selected: boolean): string {
     'bg-[color:var(--tone-good-faint)] hover:bg-[color:var(--tone-good-faint)]',
     selected ? SELECTION_EDGE_CLASS : '',
     'text-[color:var(--tone-good-on-tint)]',
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -125,9 +129,9 @@ export function WorkingElapsed({ since, label = 'Working' }: { since: number; la
 
 /**
  * The clock a resting row wears: how long since it last did anything, as the
- * sidebar's "2h" — and, on hover, the sentence and the exact date. Blank under
- * a minute (the sidebar's rule: a row that just moved needs no clock) unless
- * `verb` asks for one, in which case it reads "just now".
+ * sidebar's "2h" — and, on hover, the sentence and the exact date. Nothing at
+ * all under a minute, the sidebar's rule: a row that only just came to rest
+ * needs no clock yet, and its wash or its mark already says what happened.
  *
  * `verb` is what the clock measures — "Finished", "Canceled", "Updated" — so
  * the tooltip and the sr text say what happened, not just when. `measure`
@@ -201,7 +205,9 @@ export function BranchChip({
  * red removed (a true minus sign, never a hyphen), monospace and tabular so a
  * column of them lines up. Nothing when both are zero — a `+0 −0` is a chip
  * saying nothing. `tooltip` says whose changes they are; `srText` says the
- * same for the screen reader.
+ * same for the screen reader. `dim` is for a reading that is the folder's,
+ * not the row's own (`scope: 'folder'`): the numbers are real, but nobody can
+ * say the row made them, so they step back (the sidebar's `opacity-60`).
  */
 export function DiffChip({
   additions,

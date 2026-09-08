@@ -459,7 +459,8 @@ async function main(): Promise<void> {
   assert.ok(rows[0]?.textContent?.includes('relay-traffic'), 'needs-input run leads the rail')
   assert.ok(rows[0]?.textContent?.includes('needs your input'), 'and flags why')
   assert.ok(rows[1]?.textContent?.includes('wake-filter-sprint'), 'running run is second')
-  assert.ok(rows[1]?.textContent?.includes('running · 4 of 9 tasks'))
+  assert.ok(rows[1]?.textContent?.includes('4 of 9 tasks'), 'and its detail line says the progress')
+  assert.ok(rows[1]?.querySelector('[aria-label="Agents working"]'), 'and it wears the working dots')
 
   // Auto-selection opens on content: the leading (needs-input) run fills the
   // canvas — its own projection, not the index row.
@@ -619,7 +620,7 @@ async function main(): Promise<void> {
   const needsYouList = container.querySelector('ul[role="list"][aria-label="Sprints: Needs you"]')
   assert.ok(needsYouList, 'the rail leads with a Needs you group')
   assert.ok(needsYouList?.textContent?.includes('relay-traffic'), 'holding the waiting run')
-  assert.ok(needsYouList?.textContent?.includes('since Jul'), 'with an honest waiting-since date')
+  assert.ok(needsYouList?.textContent?.includes('Waiting on you for'), 'with an honest waiting-for clock')
   const activeList = container.querySelector('ul[role="list"][aria-label="Sprints: Active"]')
   assert.ok(activeList?.textContent?.includes('wake-filter-sprint'), 'live work sits under Active')
   const recentList = container.querySelector('ul[role="list"][aria-label="Sprints: Recent"]')

@@ -258,7 +258,10 @@ export interface SurfaceRailRow {
   emphasis?: 'active' | 'quiet'
   /** Pointer-inert siblings layered over the row (the one-shot state-change
    *  flash). Rendered inside the row's `li`, absolutely positioned, never
-   *  inside the button — so replaying one never remounts the button. */
+   *  inside the button — so replaying one never remounts the button.
+   *
+   *  A rich row does not take `actions`: its trailing edge is the clock's
+   *  seat, and nothing has asked for a second thing there yet. */
   overlay?: React.ReactNode
 }
 
@@ -479,15 +482,18 @@ function renderRichRowButton(
       <span className="flex min-w-0 items-center gap-1.5">
         <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${titleWeight} ${titleInk}`} />
       </span>
+      {/* The detail line's parts are the accessible sentence — the mark's
+          label, the branch, the words — so `stateLine` is not spoken again
+          here: a row that said its project and its state twice over was the
+          rich row's first review finding. It renders only on a row with a
+          context line and no detail of its own. */}
       {row.detail ? (
         <span className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${lineInk}`}>
           {row.detail}
-          <span className="sr-only">{row.stateLine}</span>
         </span>
       ) : (
         <TruncatedText as="span" text={row.stateLine} className={`text-meta ${lineInk}`} />
       )}
-      {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
     </button>
   )
 }
@@ -686,12 +692,9 @@ export function SurfaceRail({
     )
     return (
       <li key={row.id} className="group/rail-row relative flex min-w-0">
-        {/* The flash is a sibling of the button, under it in the tree and over
-            it on screen — replaying it never remounts the row under the pointer. */}
-        {row.overlay ?? null}
         {/* A rich row carries its own tooltips (the mark, the chip, the clock),
-            so no whole-row tooltip wraps it — one dialect per row, and a chip's
-            tooltip inside a row's tooltip was two surfaces fighting for one hover. */}
+            so no whole-row tooltip wraps it — a chip's tooltip inside a row's
+            tooltip would be two surfaces fighting for one hover. */}
         {row.tooltip && !rich ? (
           <Tooltip content={row.tooltip} wrapperClassName="flex min-w-0 flex-1">
             {rowButton}
@@ -699,6 +702,11 @@ export function SurfaceRail({
         ) : (
           rowButton
         )}
+        {/* The flash is a sibling of the button, AFTER it in the tree so it
+            paints over it (two positioned siblings paint in tree order), and
+            pointer-inert — replaying it never remounts the row under the
+            pointer. */}
+        {row.overlay ?? null}
         {row.actions ? (
           <span
             className={`absolute right-1 top-1/2 flex -translate-y-1/2 items-center transition-opacity ${
