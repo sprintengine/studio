@@ -82,9 +82,13 @@ export function summarizeCommandResult(result: MobileSprintEngineCommandResult):
       commandId: result.commandId,
       commandType: result.commandType,
       code: result.error.code,
-      message: result.error.message,
+      // The relay rejects the WHOLE summary if any string in it carries an
+      // absolute local path, and a rejected post leaves the phone polling to
+      // its timeout instead of seeing the error. So the message and the audit
+      // are redacted exactly as data is, not only data.
+      message: deepRedactLocalPaths(result.error.message),
       retryable: result.error.retryable,
-      audit: summarizeAudit(result.audit),
+      audit: deepRedactLocalPaths(summarizeAudit(result.audit)),
     }
   }
 
@@ -94,7 +98,7 @@ export function summarizeCommandResult(result: MobileSprintEngineCommandResult):
     commandType: result.commandType,
     executedAt: result.executedAt,
     data: sanitizeResultData(result.data),
-    audit: summarizeAudit(result.audit),
+    audit: deepRedactLocalPaths(summarizeAudit(result.audit)),
   }
 }
 
