@@ -281,9 +281,10 @@ in this order:
 
 - A subtitle that restates the title. "Add a skill source" / "A public GitHub
   repository. We walk it and find the skills" says the same thing twice.
-- A field label that restates the dialog title. One field under "New horizon"
-  does not need a "Horizon name" label above it — pass the name to the control
-  as its accessible name and let the placeholder do the visible work.
+- A field label that restates the dialog title. One field under "New
+  automation" does not need an "Automation name" label above it — pass the name
+  to the control as its accessible name and let the placeholder do the visible
+  work.
 - Helper text that restates the placeholder. A field showing `owner/repo` does
   not need "a github.com address, or owner/repo" beneath it.
 - A closing paragraph reassuring the user about what just happened. "X is now
@@ -364,7 +365,7 @@ for a second band means asking which band the new control belongs in, not where
 to put the new band.
 
 **The door surface** — a full-page surface that takes over the content region
-(Backlog, Sprints, Reviews, Horizon, Automations, Extensions) — has an anatomy
+(Sprints, Workflows, Design, Reviews, Automations, Extensions) — has an anatomy
 too, and it has exactly one band of chrome:
 
 1. **The app's top strip is the door's title bar.** The door's name and its

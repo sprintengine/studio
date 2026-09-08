@@ -1,5 +1,10 @@
 # Souls
 
+> **Being retired.** Owner ruling 2026-09-08 (`backlog/epics/roles-come-from-the-skill-pack.md`):
+> the souls mechanism is retired in favour of role skills published as a skill
+> pack, so this document describes a runtime on its way out rather than the
+> shape roles will keep.
+
 Souls are reusable role prompts for agent identity, judgment, and quality
 standards. They are not Sprint Engine state, task cards, or workflow rules.
 

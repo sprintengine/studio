@@ -8144,7 +8144,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Copy</h4>
 <p>Copy is the last resort, not the first. A sentence in the interface is an admission that the interface did not carry the meaning on its own.</p>
 <p><strong>The UI does not explain the UI.</strong> If a control needs a sentence beside it to say why it exists or what will happen, the control is wrong — redesign it. The generated-interface tell is a screen where every element has a caption. Delete, in this order:</p>
-<ul><li>A subtitle that restates the title. &quot;Add a skill source&quot; / &quot;A public GitHub repository. We walk it and find the skills&quot; says the same thing twice.</li><li>A field label that restates the dialog title. One field under &quot;New horizon&quot; does not need a &quot;Horizon name&quot; label above it — pass the name to the control as its accessible name and let the placeholder do the visible work.</li><li>Helper text that restates the placeholder. A field showing <code>owner/repo</code> does not need &quot;a github.com address, or owner/repo&quot; beneath it.</li><li>A closing paragraph reassuring the user about what just happened. &quot;X is now one of your sources. Nothing is installed yet — take skills from it when you want them&quot; is three sentences replacing a state the screen already shows.</li></ul>
+<ul><li>A subtitle that restates the title. &quot;Add a skill source&quot; / &quot;A public GitHub repository. We walk it and find the skills&quot; says the same thing twice.</li><li>A field label that restates the dialog title. One field under &quot;New automation&quot; does not need an &quot;Automation name&quot; label above it — pass the name to the control as its accessible name and let the placeholder do the visible work.</li><li>Helper text that restates the placeholder. A field showing <code>owner/repo</code> does not need &quot;a github.com address, or owner/repo&quot; beneath it.</li><li>A closing paragraph reassuring the user about what just happened. &quot;X is now one of your sources. Nothing is installed yet — take skills from it when you want them&quot; is three sentences replacing a state the screen already shows.</li></ul>
 <p>A line of copy earns its place only by carrying something the screen cannot: a consequence the user cannot see (where a file will be written), or a fact they cannot infer (which project this adopted as its home).</p>
 <p><strong>The product does not name itself.</strong> UI copy never says the application's name. &quot;Multicode will run this command&quot;, &quot;cannot be undone from Multicode&quot;, &quot;while Multicode is open&quot; — every one of these is the app narrating itself in the third person, and no serious product does it. Write the sentence without the name: &quot;Will run:&quot;, &quot;cannot be undone from here&quot;, &quot;while the app is open&quot;. The name belongs in exactly four places: the window title, the About/version line, the sign-in and account surfaces, and first-run onboarding.</p>
 <p>The one carve-out is the brand <strong>wordmark</strong>, which may appear exactly once, as window chrome at the top of the left column. A mark is not a sentence: it identifies the window the way a title bar does, and it does not narrate. The rule above is unchanged for copy — no label, message, tooltip, or empty state gains the name because the wordmark exists — and &quot;exactly once&quot; is literal, so a second placement retires the first rather than joining it.</p>
@@ -8158,7 +8158,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Two consequences follow, and both were real defects:</p>
 <ul><li><strong>A second full-width control never stacks above the search.</strong> A project Select sitting over the field it narrows is a control competing with the control beside it, and it puts the same choice in two different shapes on two different surfaces.</li><li><strong>The search belongs to the column it narrows, not to the screen.</strong> In a list-plus-detail layout, a search bar spanning the full width reads as &quot;search this screen&quot; while it only ever filters the left column. Constrain it — and its divider — to the column it acts on.</li></ul>
 <p><strong>One chrome band per region of content.</strong> Everything that is chrome for the same content shares a row: status on the left, controls on the right. Reaching for a second band means asking which band the new control belongs in, not where to put the new band.</p>
-<p><strong>The door surface</strong> — a full-page surface that takes over the content region (Backlog, Sprints, Reviews, Horizon, Automations, Extensions) — has an anatomy too, and it has exactly one band of chrome:</p>
+<p><strong>The door surface</strong> — a full-page surface that takes over the content region (Sprints, Workflows, Design, Reviews, Automations, Extensions) — has an anatomy too, and it has exactly one band of chrome:</p>
 <p>1. <strong>The app's top strip is the door's title bar.</strong> The door's name and its controls ride the strip that is already there. A door that draws its own title row puts two title bars on one screen, with the first one empty. 2. <strong>The name sits on the content gutter (20px).</strong> The title, the leading edge of the tab row under it, and the canvas body share one vertical line. A title inset to the window chrome's 6px hangs off the left edge of its own page. 3. <strong>The bar is the name and the controls, nothing else.</strong> No status chip, no counts line: the page under the bar already shows its own state, and the rail row that opened the door already carries its glyph. 4. <strong>Nothing stacks between the bar and the content.</strong> A status sentence or a tools row under the strip is the second band this anatomy exists to prevent — the controls belong in the strip, and a status belongs to the thing that has it. A notice about the content (a stale change, a failed run) is not chrome and keeps its own band.</p>
 <p><strong>Surfaces, not modals</strong> (ruled 2026-09-05, reversing the doors→modals ruling of 2026-09-01). A destination the shell's own chrome offers — anything an app rail square or a sidebar drawer row opens — is a DOOR: it takes the card region and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs and the Extensions home are doors. They spent four days as modals, and the modal was wrong for them twice over: a scrim put a dialog between the person and the very column they had just navigated with, and a float over the card region means back, forward and the window's history all step to a destination that mounts invisibly behind it.</p>
 <p>What stays a modal is the shape a modal is actually for — a <strong>pick-and-close task floated over work that stays put</strong>, reached from inside that work rather than from the chrome:</p>
@@ -9954,7 +9954,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
-<p>The one-of-a-set form control: a value the person marks now and submits later. The <code>switch</code> entry already draws the line — a switch commits immediately, a checkbox belongs to a form — and today the checkbox side of that line has no primitive. Five hand-rolled <code>type=&quot;checkbox&quot;</code> stylings ship in the product (<code>learn/TipStartupModal.tsx</code>, <code>settings/TrackerWriteBackSettings.tsx</code> — the styled-peer control that motivated <code>FOCUS_RING_PEER_CLASS</code> — <code>workspace/NewWorkspacePanel.tsx</code>, <code>panels/SprintEngineBoardPanel.tsx</code>, <code>worktree/WorktreeManager.tsx</code>), each with its own box chrome and focus treatment. This entry replaces all five with one token-backed control: <code>radius.chip</code> box, <code>accent.primary</code> checked fill, the shared focus ring, and a real <code>&lt;label&gt;</code>.</p>
+<p>The one-of-a-set form control: a value the person marks now and submits later. The <code>switch</code> entry already draws the line — a switch commits immediately, a checkbox belongs to a form. Five surfaces had each styled the same <code>&lt;input type=&quot;checkbox&quot;&gt;</code> independently — 3px and 3.5px boxes, one on the browser's <code>accent-color</code>, one with a hand-rolled ring whose <code>ring-offset-color</code> was pinned to one surface's background and therefore wrong on any other, and one with no focus treatment at all. The most complete of them — the styled-peer control that motivated <code>FOCUS_RING_PEER_CLASS</code> — is what this entry promotes: one token-backed control with a <code>radius.chip</code> box, <code>accent.primary</code> checked fill, the shared focus ring, and a real <code>&lt;label&gt;</code>.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/checkbox/component.css</summary><pre><code>/* Checkbox — the one-of-a-set form control: a value the person marks now and
@@ -12083,7 +12083,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>| State | Treatment | |---|---| | Rest | Label in <code>text.default</code> at <code>font.weight.medium</code>; help visible if present | | Invalid | Control carries <code>aria-invalid=&quot;true&quot;</code>; error message shown, help hidden | | Required | <code>*</code> after the label (<code>aria-hidden</code>) mirrored by <code>aria-required</code> on the control | | Disabled | The control disables itself; the label does not gray out — it still names the thing |</p>
 <p><strong>Empty is not invalid.</strong> A required field nobody has typed in yet shows no error and no red; the disabled confirm button already says &quot;not yet&quot;. Validation appears after the first keystroke, never on open.</p>
 <h4>Usage</h4>
-<ul><li>Labels are sentence case, no trailing colon, and name the value (&quot;Folder path&quot;), not the interaction (&quot;Enter a folder path&quot;).</li><li>Do not label what the dialog title already labels: one field under &quot;New horizon&quot; needs no &quot;Horizon name&quot; label — give the control its accessible name and let the placeholder do the visible work.</li><li>Help text earns its line only by carrying what the screen cannot show: a consequence (&quot;Shown in the sidebar and the switcher&quot;), never a restatement of the placeholder or the label.</li><li>Error copy names the problem in a sentence a person can act on (&quot;That folder does not exist&quot;), not a validator's classification (&quot;Invalid path&quot;).</li><li>One control per field. Two controls under one label are two fields, or one composed control that owns its own internals.</li></ul>
+<ul><li>Labels are sentence case, no trailing colon, and name the value (&quot;Folder path&quot;), not the interaction (&quot;Enter a folder path&quot;).</li><li>Do not label what the dialog title already labels: one field under &quot;New automation&quot; needs no &quot;Automation name&quot; label — give the control its accessible name and let the placeholder do the visible work.</li><li>Help text earns its line only by carrying what the screen cannot show: a consequence (&quot;Shown in the sidebar and the switcher&quot;), never a restatement of the placeholder or the label.</li><li>Error copy names the problem in a sentence a person can act on (&quot;That folder does not exist&quot;), not a validator's classification (&quot;Invalid path&quot;).</li><li>One control per field. Two controls under one label are two fields, or one composed control that owns its own internals.</li></ul>
 <h4>Accessibility</h4>
 <ul><li>The label is a real <code>&lt;label for&gt;</code> pointing at the control's <code>id</code>. For grouped controls (radiogroup, segmented control), the standalone label plus <code>aria-labelledby</code> replaces it.</li><li><code>aria-describedby</code> on the control points at the visible message — the help's id or the error's id, whichever is currently shown, never both, never a hidden node.</li><li>Invalid state is <code>aria-invalid=&quot;true&quot;</code> plus the error text naming the problem; the red border on the control (see <code>input</code>) is the echo, never the message.</li><li>The required <code>*</code> is <code>aria-hidden</code> decoration; <code>aria-required</code> on the control is what assistive tech hears. Neither appears as an accusation on an untouched form — see *Empty is not invalid*.</li></ul>
 <h4>Known drift (MC-2114)</h4>
@@ -12267,13 +12267,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" stroke-width="1.7"/>
       <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12.5 15H16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-ws-switchboard" viewBox="0 0 24 24" fill="none">
-      <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" stroke-width="1.4"/>
-      <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor"/>
-      <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor"/>
-      <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor"/>
     </symbol>
     <symbol id="g-ws-sprintengine" viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="6" r="2.4" stroke="currentColor" stroke-width="1.7"/>
@@ -12512,7 +12505,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
     <h2 class="demo-heading">Workspace-type identity — registry-resolved</h2>
     <div class="demo-row">
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">standard</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-switchboard"/></svg><span class="demo-name">switchboard</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-guided-brief"/></svg><span class="demo-name">guided-brief</span></span>
@@ -12672,20 +12664,20 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
 <p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
-<p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.3</code> on the Switchboard dividers), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
-<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tool-switchboard</code>), the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
+<p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.3</code> on the <code>RoleGenericIcon</code> inner ring), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
+<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tone-accent</code>), the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
 <p><strong>The size ramp</strong> — these four steps are the sanctioned sizes, and 16 px is the rail canon (the leading-glyph slot of every sidebar and door-rail row):</p>
 <p>| Token | Value | Use | |---|---|---| | <code>--sem-icon-size-xs</code> | 13px | Inline glyphs beside meta copy and inside chips | | <code>--sem-icon-size-sm</code> | 16px | <strong>The default.</strong> List-row leading slots, toolbars, close glyphs | | <code>--sem-icon-size-md</code> | 18px | Icons paired with button labels, panel-header chrome | | <code>--sem-icon-size-lg</code> | 22px | Empty-state glyphs, large overlay close buttons |</p>
 <p>A rail row reserves a fixed 16 px leading slot whether or not the glyph fills it — an unreserved slot is what lets sibling doors' titles start at three different x-offsets (Known drift, MC-2098).</p>
 <h4>Variants</h4>
 <p>The variants of this system are its families. Within a family, glyphs share a grid, a stroke, and a naming pattern; across families they share nothing but the ramp and <code>currentColor</code>.</p>
 <h5>Core actions and navigation (24-grid)</h5>
-<p>| Export | Meaning | |---|---| | <code>PlusIcon</code> | Create. Owned by *New workspace* — a second plus on the same surface reads as the same action | | <code>MinusIcon</code> | Remove / decrement | | <code>CloseIcon</code> | Dismiss (the 24-grid sibling of <code>glyphs/close.svg</code>) | | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>ArrowRightIcon</code> | Forward navigation, go-to | | <code>CopyIcon</code> | Copy to clipboard | | <code>CommentIcon</code> | Comment thread (empty speech bubble) | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because New workspace owns the plus | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character |</p>
+<p>| Export | Meaning | |---|---| | <code>PlusIcon</code> | Create. The system's single *add* mark — a second plus on the same surface reads as the same action | | <code>MinusIcon</code> | Remove / decrement | | <code>CloseIcon</code> | Dismiss (the 24-grid sibling of <code>glyphs/close.svg</code>) | | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>ArrowRightIcon</code> | Forward navigation, go-to | | <code>CopyIcon</code> | Copy to clipboard | | <code>CommentIcon</code> | Comment thread (empty speech bubble) | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because the plus means create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character |</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Export | Mark | |---|---| | <code>StandardWorkspaceTypeIcon</code> | Terminal-in-frame — the generic fallback | | <code>SwitchboardWorkspaceTypeIcon</code> | Patch-bay columns | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>GuidedBriefWorkspaceTypeIcon</code> | Brief speech bubble with text lines |</p>
+<p>| Export | Mark | |---|---| | <code>StandardWorkspaceTypeIcon</code> | Terminal-in-frame — the generic fallback | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>GuidedBriefWorkspaceTypeIcon</code> | Brief speech bubble with text lines |</p>
 <h5>Status and priority (24-grid, parameterized, self-labelling)</h5>
-<p>| Export | Meaning | |---|---| | <code>PriorityIcon(priority)</code> | Backlog priority as signal bars: urgent (filled disc + <code>!</code>), high / medium / low (3-bar fill), none (three dashes). Carries <code>role=&quot;img&quot;</code> + label itself | | <code>StatusIcon(status)</code> | The 11 Switchboard folder states: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while <code>_in_progress</code>), done disc-check, canceled slash ring |</p>
+<p>| Export | Meaning | |---|---| | <code>PriorityIcon(priority)</code> | Backlog priority as signal bars: urgent (filled disc + <code>!</code>), high / medium / low (3-bar fill), none (three dashes). Carries <code>role=&quot;img&quot;</code> + label itself | | <code>StatusIcon(status)</code> | The 11 task folder states of <code>FOLDER_STATUSES</code>: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while <code>_in_progress</code>), done disc-check, canceled slash ring |</p>
 <p>These two are the 24-grid cousins of <code>LifecycleGlyph</code>. One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a lifecycle/status glyph, never both.</p>
 <h5>Lifecycle (16-grid — <code>ui/LifecycleGlyph.tsx</code>)</h5>
 <p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint Engine task state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
@@ -12714,11 +12706,11 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>Utility marks (16-grid)</h5>
 <p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
-<p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>RolesSettingsIcon</code> (badge card), <code>SpecialistPacksSettingsIcon</code> (package cube), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>LearnSettingsIcon</code> (open book). All at <code>iconStroke</code> so the rail reads as one set.</p>
+<p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>SpecialistPacksSettingsIcon</code> (package cube), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines), <code>LearnSettingsIcon</code> (open book). All at <code>iconStroke</code> so the rail reads as one set.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | Inherits the surrounding ink — typically <code>--sem-color-text-muted</code> in a row or toolbar | | Hover / active | The *owning control* shifts its ink and background; the glyph itself defines no hover | | Live | <code>LifecycleGlyph</code> <code>in_progress</code> with <code>live</code> rotates (<code>.ds-glyph--spin</code>). The only animated glyph state, honoring <code>prefers-reduced-motion</code> | | Disabled | Ink drops to <code>--sem-color-text-disabled</code> via the owning control | | Meaning-bearing | <code>role=&quot;img&quot;</code> + <code>aria-label</code> (see Accessibility) | | Decorative | <code>aria-hidden=&quot;true&quot;</code> |</p>
 <h4>Usage</h4>
-<ul><li><strong>Pick the family by the question, then the glyph by the table.</strong> Never answer a lifecycle question with a status dot *and* a glyph, or an identity question with an action icon.</li><li><strong>Size from the ramp, nothing else.</strong> Rails and toolbars at <code>sm</code>; chips and inline-with-meta at <code>xs</code>; button-paired and panel-header at <code>md</code>; empty states at <code>lg</code>. A 28 px icon button is not a size the system has (Known drift, MC-2119).</li><li><strong>Reserve the slot.</strong> A rail row's leading glyph slot is a fixed <code>--sem-icon-size-sm</code> box; a smaller glyph centers in it rather than narrowing it.</li><li><strong>One meaning per shape.</strong> The plus belongs to New workspace; compose gets the pencil-in-square; a second surface wanting &quot;add&quot; reuses <code>PlusIcon</code>, it does not redraw it. Duplicating a path into a second file is how the title-bar chrome ended up with two divergent copies of the same four glyphs (Known drift).</li><li><strong>Drawing a new glyph:</strong> 24-grid, <code>iconStroke</code> 1.7, <code>currentColor</code>, one concept, <code>fill=&quot;none&quot;</code> line work, legible at 16 px. Name it <code>&lt;Concept&gt;Icon</code> (24-grid) or <code>&lt;Concept&gt;Glyph</code> (16-grid); a framework-neutral copy contributed to <code>glyphs/</code> takes a kebab-case concept name per the naming grammar in <code>design-system.json</code>.</li><li><strong>Rebuilding in a framework:</strong> React consumers import from <code>AppIcons.tsx</code> and the <code>ui/</code> primitives — never paste paths inline. Framework-neutral consumers take the <code>glyphs/</code> assets. Both size via the ramp tokens and ink via <code>currentColor</code>.</li></ul>
+<ul><li><strong>Pick the family by the question, then the glyph by the table.</strong> Never answer a lifecycle question with a status dot *and* a glyph, or an identity question with an action icon.</li><li><strong>Size from the ramp, nothing else.</strong> Rails and toolbars at <code>sm</code>; chips and inline-with-meta at <code>xs</code>; button-paired and panel-header at <code>md</code>; empty states at <code>lg</code>. A 28 px icon button is not a size the system has (Known drift, MC-2119).</li><li><strong>Reserve the slot.</strong> A rail row's leading glyph slot is a fixed <code>--sem-icon-size-sm</code> box; a smaller glyph centers in it rather than narrowing it.</li><li><strong>One meaning per shape.</strong> The plus belongs to create; compose gets the pencil-in-square; a second surface wanting &quot;add&quot; reuses <code>PlusIcon</code>, it does not redraw it. Duplicating a path into a second file is how the title-bar chrome ended up with two divergent copies of the same four glyphs (Known drift).</li><li><strong>Drawing a new glyph:</strong> 24-grid, <code>iconStroke</code> 1.7, <code>currentColor</code>, one concept, <code>fill=&quot;none&quot;</code> line work, legible at 16 px. Name it <code>&lt;Concept&gt;Icon</code> (24-grid) or <code>&lt;Concept&gt;Glyph</code> (16-grid); a framework-neutral copy contributed to <code>glyphs/</code> takes a kebab-case concept name per the naming grammar in <code>design-system.json</code>.</li><li><strong>Rebuilding in a framework:</strong> React consumers import from <code>AppIcons.tsx</code> and the <code>ui/</code> primitives — never paste paths inline. Framework-neutral consumers take the <code>glyphs/</code> assets. Both size via the ramp tokens and ink via <code>currentColor</code>.</li></ul>
 <h4>Accessibility</h4>
 <ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>RoleGlyph</code>/<code>RoleAvatar</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator — the one narrow exception is merged-vs-unmerged on the branch fork, where a distinct merge shape read as noise at 16 px and the label carries the difference.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
@@ -12906,13 +12898,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;rect x=&quot;4&quot; y=&quot;5.5&quot; width=&quot;16&quot; height=&quot;13&quot; rx=&quot;2.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
       &lt;path d=&quot;M7.25 10L10 12.5L7.25 15&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.8&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
       &lt;path d=&quot;M12.5 15H16.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.8&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-ws-switchboard&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;rect x=&quot;3.5&quot; y=&quot;5&quot; width=&quot;17&quot; height=&quot;14&quot; rx=&quot;2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;path d=&quot;M9 5.5V18.5M15 5.5V18.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
-      &lt;rect x=&quot;4.75&quot; y=&quot;8&quot; width=&quot;3&quot; height=&quot;2.5&quot; rx=&quot;0.6&quot; fill=&quot;currentColor&quot;/&gt;
-      &lt;rect x=&quot;10.5&quot; y=&quot;11&quot; width=&quot;3&quot; height=&quot;2.5&quot; rx=&quot;0.6&quot; fill=&quot;currentColor&quot;/&gt;
-      &lt;rect x=&quot;16.25&quot; y=&quot;14&quot; width=&quot;3&quot; height=&quot;2.5&quot; rx=&quot;0.6&quot; fill=&quot;currentColor&quot;/&gt;
     &lt;/symbol&gt;
     &lt;symbol id=&quot;g-ws-sprintengine&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
       &lt;circle cx=&quot;12&quot; cy=&quot;6&quot; r=&quot;2.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
@@ -13151,7 +13136,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
     &lt;h2 class=&quot;demo-heading&quot;&gt;Workspace-type identity — registry-resolved&lt;/h2&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-standard&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;standard&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-switchboard&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;switchboard&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-sprintengine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;sprintengine&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-automations&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;automations&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-guided-brief&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;guided-brief&lt;/span&gt;&lt;/span&gt;
@@ -16316,7 +16300,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>The values then moved out of the components and into one shared class pair, <code>ui/menuClasses.ts</code> — the surface and the item — which is what makes a host unable to drift: a component that takes <code>MENU_ITEM_CLASS</code> gets the size, the full-bleed geometry, the one highlight state and the inset ring together, and has nothing left to answer for itself. Every menu host now consumes it, and the flyout size pin above is gone with it.</p>
 <p><code>SplitButton</code>'s alternatives list and <code>Select</code>'s listbox belong to the same family: same chrome, same row geometry, same highlight. A select option keeps <code>body</code> (13px) rather than <code>meta</code>, because its popup echoes strings its trigger is already showing at that size and picking a value must not resize it ([select](../select/component.md)). A menu item has no such at-rest twin, which is why 12px is right here and not there.</p>
 <p>Held by <code>ui/designSystemAxes.test.ts</code>, whose menu checks take <strong>this document — <code>design-system/components/menu/component.md</code> — as their source of truth</strong>, and which compares the three components against each other rather than each against itself: the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
-<p><strong>Reconciled 2026-08-05, again (MC-2138).</strong> The class pair above had converged the five components the kit owns; every menu row *outside* them was still hand-rolled — the horizon's roster popover, both in-app menubar fallbacks, the account menu, the reasoning selector — each with its own inset, its own type step and no disabled state. Two of them were the same menu drawn at two sizes. They consume <code>MENU_ITEM_CLASS</code> now, their surfaces consume <code>MENU_LIST_CLASS</code> (and so gave up the horizontal padding this spec rules out), and the two picker popovers that had shipped as byte-identical copies of one hand-rolled row became the stacked item above. <code>role=&quot;menuitem&quot;</code> also stopped appearing on things that are not rows: the notifications popover put it on a report block carrying its own buttons, and is a <code>dialog</code> popover now.</p>
+<p><strong>Reconciled 2026-08-05, again (MC-2138).</strong> The class pair above had converged the five components the kit owns; every menu row *outside* them was still hand-rolled — the sprint roster popover, both in-app menubar fallbacks, the account menu, the reasoning selector — each with its own inset, its own type step and no disabled state. Two of them were the same menu drawn at two sizes. They consume <code>MENU_ITEM_CLASS</code> now, their surfaces consume <code>MENU_LIST_CLASS</code> (and so gave up the horizontal padding this spec rules out), and the two picker popovers that had shipped as byte-identical copies of one hand-rolled row became the stacked item above. <code>role=&quot;menuitem&quot;</code> also stopped appearing on things that are not rows: the notifications popover put it on a report block carrying its own buttons, and is a <code>dialog</code> popover now.</p>
 <p>Held additionally by the <code>MC-2138</code> rules in <code>src/renderer/src/components/ui/designSystemConformance.test.tsx</code>, which read the literals a developer types across a directory list that grows as each surface converges — the earlier sweeps' scoped guards plus an unscoped &quot;complete&quot; claim are precisely how this tail survived three of them.</p>
 </div>
 </div>
@@ -24162,7 +24146,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
         <div class="ds-toast-title">Review requested</div>
-        <div class="ds-toast-description">watchtower picked it up.</div>
+        <div class="ds-toast-description">The review guide picked it up.</div>
       </div>
     </div>
     <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
@@ -24584,7 +24568,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
         &lt;div class=&quot;ds-toast-title&quot;&gt;Review requested&lt;/div&gt;
-        &lt;div class=&quot;ds-toast-description&quot;&gt;watchtower picked it up.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;The review guide picked it up.&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;ds-toast ds-toast--warn&quot; role=&quot;alert&quot; aria-live=&quot;assertive&quot;&gt;
@@ -25852,7 +25836,7 @@ measureAll()
               <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
-              Horizon
+              Sprints
             </label>
             <div class="cr-group">Projects</div>
             <div class="cr-group-rows">
@@ -25866,10 +25850,10 @@ measureAll()
           <div class="cr-scroll">
             <!-- Outer level, folded into a GROUP of this one rail rather than
                  given a column of its own. -->
-            <div class="cr-group">Horizons</div>
+            <div class="cr-group">Runs</div>
             <div class="cr-group-rows cr-group-rows--outer">
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">Q3 platform</button>
-              <button type="button" class="cr-row">Mobile beta</button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
+              <button type="button" class="cr-row">sprint-1940</button>
             </div>
             <div class="cr-group">Plan</div>
             <div class="cr-group-rows">
@@ -25890,18 +25874,18 @@ measureAll()
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </label>
-        <span class="cr-bar-title">Horizon</span>
+        <span class="cr-bar-title">Sprints</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
         <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
       </div>
     </div>
   </div>
   <p class="pat-caption">
-    Click <strong>Horizon</strong>, then <strong>Back</strong>. The rail is
+    Click <strong>Sprints</strong>, then <strong>Back</strong>. The rail is
     replaced in place and slides in from its leading edge; the brand row above it
     does not move, and the canvas keeps the whole of the rest of the window.
   </p>
@@ -25919,8 +25903,8 @@ measureAll()
     <div class="cr-column">
       <div class="cr-nested-tag">door rail</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--resting" aria-current="true">Q3 platform</button>
-        <button type="button" class="cr-row">Mobile beta</button>
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">sprint-1932</button>
+        <button type="button" class="cr-row">sprint-1940</button>
       </div>
     </div>
     <div class="cr-column">
@@ -26039,8 +26023,8 @@ measureAll()
   <ul class="pat-list">
     <li>The rail keeps <strong>one focused selection</strong>, at
       <code>bg.selected</code>: the thing the canvas is showing.</li>
-    <li>A group carrying <strong>outer context</strong> — which horizon, which
-      project, which run — rests at <code>bg.selected-resting</code>
+    <li>A group carrying <strong>outer context</strong> — which project, which
+      run, which board — rests at <code>bg.selected-resting</code>
       <em>permanently</em>, whether or not the rail holds focus. It answers
       "where am I?", and it must not compete with "what am I looking at?".</li>
     <li>Mark the group, never infer it from position: which group is the outer one
@@ -26068,10 +26052,10 @@ measureAll()
       <div class="cr-brand">sprint<em>engine</em></div>
       <div class="cr-rail">
         <div class="cr-scroll">
-          <div class="cr-group">Horizons</div>
+          <div class="cr-group">Runs</div>
           <div class="cr-group-rows cr-group-rows--outer">
-            <button type="button" class="cr-row cr-row--selected" aria-current="true">Q3 platform</button>
-            <button type="button" class="cr-row">Mobile beta</button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
+            <button type="button" class="cr-row">sprint-1940</button>
           </div>
           <div class="cr-group">Plan</div>
           <div class="cr-group-rows">
@@ -26089,11 +26073,11 @@ measureAll()
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <span class="cr-bar-title">Horizon</span>
+        <span class="cr-bar-title">Sprints</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
       </div>
     </div>
@@ -26454,7 +26438,7 @@ measureAll()
               &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
                 &lt;path d=&quot;M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
               &lt;/svg&gt;
-              Horizon
+              Sprints
             &lt;/label&gt;
             &lt;div class=&quot;cr-group&quot;&gt;Projects&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
@@ -26468,10 +26452,10 @@ measureAll()
           &lt;div class=&quot;cr-scroll&quot;&gt;
             &lt;!-- Outer level, folded into a GROUP of this one rail rather than
                  given a column of its own. --&gt;
-            &lt;div class=&quot;cr-group&quot;&gt;Horizons&lt;/div&gt;
+            &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Q3 platform&lt;/button&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Mobile beta&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
             &lt;/div&gt;
             &lt;div class=&quot;cr-group&quot;&gt;Plan&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
@@ -26492,18 +26476,18 @@ measureAll()
             &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
           &lt;/svg&gt;
         &lt;/label&gt;
-        &lt;span class=&quot;cr-bar-title&quot;&gt;Horizon&lt;/span&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Sprints&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
         &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Depends on&lt;/span&gt;&lt;span&gt;Type + icon ramp&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    Click &lt;strong&gt;Horizon&lt;/strong&gt;, then &lt;strong&gt;Back&lt;/strong&gt;. The rail is
+    Click &lt;strong&gt;Sprints&lt;/strong&gt;, then &lt;strong&gt;Back&lt;/strong&gt;. The rail is
     replaced in place and slides in from its leading edge; the brand row above it
     does not move, and the canvas keeps the whole of the rest of the window.
   &lt;/p&gt;
@@ -26521,8 +26505,8 @@ measureAll()
     &lt;div class=&quot;cr-column&quot;&gt;
       &lt;div class=&quot;cr-nested-tag&quot;&gt;door rail&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;Q3 platform&lt;/button&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Mobile beta&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;cr-column&quot;&gt;
@@ -26641,8 +26625,8 @@ measureAll()
   &lt;ul class=&quot;pat-list&quot;&gt;
     &lt;li&gt;The rail keeps &lt;strong&gt;one focused selection&lt;/strong&gt;, at
       &lt;code&gt;bg.selected&lt;/code&gt;: the thing the canvas is showing.&lt;/li&gt;
-    &lt;li&gt;A group carrying &lt;strong&gt;outer context&lt;/strong&gt; — which horizon, which
-      project, which run — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
+    &lt;li&gt;A group carrying &lt;strong&gt;outer context&lt;/strong&gt; — which project, which
+      run, which board — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
       &lt;em&gt;permanently&lt;/em&gt;, whether or not the rail holds focus. It answers
       &quot;where am I?&quot;, and it must not compete with &quot;what am I looking at?&quot;.&lt;/li&gt;
     &lt;li&gt;Mark the group, never infer it from position: which group is the outer one
@@ -26670,10 +26654,10 @@ measureAll()
       &lt;div class=&quot;cr-brand&quot;&gt;sprint&lt;em&gt;engine&lt;/em&gt;&lt;/div&gt;
       &lt;div class=&quot;cr-rail&quot;&gt;
         &lt;div class=&quot;cr-scroll&quot;&gt;
-          &lt;div class=&quot;cr-group&quot;&gt;Horizons&lt;/div&gt;
+          &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Q3 platform&lt;/button&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Mobile beta&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
           &lt;/div&gt;
           &lt;div class=&quot;cr-group&quot;&gt;Plan&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows&quot;&gt;
@@ -26691,11 +26675,11 @@ measureAll()
             &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
           &lt;/svg&gt;
         &lt;/button&gt;
-        &lt;span class=&quot;cr-bar-title&quot;&gt;Horizon&lt;/span&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Sprints&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
         &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;

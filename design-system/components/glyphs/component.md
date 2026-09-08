@@ -26,7 +26,7 @@ Two drawing grids, each with its own stroke discipline:
 | 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4), `FileTypeGlyph` (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in `glyphs/` |
 
 The 24-grid stroke flexes deliberately and narrowly: secondary strokes step
-*down* by 0.1–0.3 (`iconStroke - 0.3` on the Switchboard dividers), and a
+*down* by 0.1–0.3 (`iconStroke - 0.3` on the `RoleGenericIcon` inner ring), and a
 check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile
 letterforms). Anything outside that band is drift, not a variant.
 
@@ -34,7 +34,7 @@ letterforms). Anything outside that band is drift, not a variant.
   and never carries its own palette. The whole list of self-coloring
   exceptions: `PriorityIcon` urgent/high (`--tone-error` / `--tone-warn`),
   `StatusIcon` done and the in-progress wedge family (`--tone-good` /
-  `--tool-switchboard`), the role tone applied by `RoleGlyph` / `RoleAvatar`
+  `--tone-accent`), the role tone applied by `RoleGlyph` / `RoleAvatar`
   (see Variants), and the two **identity-colour** families ruled 2026-09-06
   (principles.md → "Identity colour"): vendor marks in their vendors' colours
   (`CliIcon`, `brand/EditorMarks`), and `FileTypeGlyph` under `tone="kind"`,
@@ -71,7 +71,7 @@ the ramp and `currentColor`.
 
 | Export | Meaning |
 |---|---|
-| `PlusIcon` | Create. Owned by *New workspace* — a second plus on the same surface reads as the same action |
+| `PlusIcon` | Create. The system's single *add* mark — a second plus on the same surface reads as the same action |
 | `MinusIcon` | Remove / decrement |
 | `CloseIcon` | Dismiss (the 24-grid sibling of `glyphs/close.svg`) |
 | `CheckIcon` | Confirmed / applied |
@@ -79,7 +79,7 @@ the ramp and `currentColor`.
 | `ArrowRightIcon` | Forward navigation, go-to |
 | `CopyIcon` | Copy to clipboard |
 | `CommentIcon` | Comment thread (empty speech bubble) |
-| `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because New workspace owns the plus |
+| `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because the plus means create |
 | `WarningIcon` | Finding / warning triangle — a real glyph so it scales and inks like one, never the `▲` character |
 
 ### Workspace-type identity (24-grid, registry-resolved)
@@ -93,7 +93,6 @@ the registry to point at:
 | Export | Mark |
 |---|---|
 | `StandardWorkspaceTypeIcon` | Terminal-in-frame — the generic fallback |
-| `SwitchboardWorkspaceTypeIcon` | Patch-bay columns |
 | `SprintEngineWorkspaceTypeIcon` | Three-node crew triangle |
 | `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
@@ -104,7 +103,7 @@ the registry to point at:
 | Export | Meaning |
 |---|---|
 | `PriorityIcon(priority)` | Backlog priority as signal bars: urgent (filled disc + `!`), high / medium / low (3-bar fill), none (three dashes). Carries `role="img"` + label itself |
-| `StatusIcon(status)` | The 11 Switchboard folder states: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while `_in_progress`), done disc-check, canceled slash ring |
+| `StatusIcon(status)` | The 11 task folder states of `FOLDER_STATUSES`: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while `_in_progress`), done disc-check, canceled slash ring |
 
 These two are the 24-grid cousins of `LifecycleGlyph`. One status idiom per
 surface: a surface shows the 6 px `StatusDot` *or* a lifecycle/status glyph,
@@ -258,11 +257,12 @@ the first set had to be learned from the tooltip.
 `GeneralSettingsIcon` (sliders), `ProfileSettingsIcon` (person),
 `AppearanceSettingsIcon` (half-filled disc), `ShortcutsSettingsIcon`
 (keyboard), `AgentsSettingsIcon` (robot), `ProvidersSettingsIcon` (plug),
-`RolesSettingsIcon` (badge card), `SpecialistPacksSettingsIcon` (package
-cube), `GithubSettingsIcon` (branch), `TrackersSettingsIcon` (tagged file),
-`KnowledgeGraphSettingsIcon` (node triangle), `ModulesSettingsIcon` (2 × 2
-grid), `MobileSettingsIcon` (phone), `LearnSettingsIcon` (open book). All at
-`iconStroke` so the rail reads as one set.
+`SpecialistPacksSettingsIcon` (package cube), `GithubSettingsIcon` (branch),
+`TrackersSettingsIcon` (tagged file), `KnowledgeGraphSettingsIcon` (node
+triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
+`ModulesSettingsIcon` (2 × 2 grid), `MobileSettingsIcon` (phone),
+`RemoteSettingsIcon` (two linked machines), `LearnSettingsIcon` (open book).
+All at `iconStroke` so the rail reads as one set.
 
 ## States
 
@@ -287,7 +287,7 @@ grid), `MobileSettingsIcon` (phone), `LearnSettingsIcon` (open book). All at
 - **Reserve the slot.** A rail row's leading glyph slot is a fixed
   `--sem-icon-size-sm` box; a smaller glyph centers in it rather than
   narrowing it.
-- **One meaning per shape.** The plus belongs to New workspace; compose gets
+- **One meaning per shape.** The plus belongs to create; compose gets
   the pencil-in-square; a second surface wanting "add" reuses `PlusIcon`, it
   does not redraw it. Duplicating a path into a second file is how the
   title-bar chrome ended up with two divergent copies of the same four

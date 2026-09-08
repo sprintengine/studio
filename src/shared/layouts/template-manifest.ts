@@ -10,7 +10,7 @@
 // what would otherwise throw in Model.fromJson.
 //
 // Hand-rolled validator (the repo ships no JSON-schema runtime); the
-// human/marketplace schema lives at resources/layouts/layout-template.schema.json.
+// human/marketplace schema lives at docs/plugin-authors/layout-template.schema.json.
 
 export type LayoutTemplatePreviewSlot = {
   x: number

@@ -56,8 +56,8 @@ Validation appears after the first keystroke, never on open.
 - Labels are sentence case, no trailing colon, and name the value ("Folder
   path"), not the interaction ("Enter a folder path").
 - Do not label what the dialog title already labels: one field under "New
-  horizon" needs no "Horizon name" label — give the control its accessible
-  name and let the placeholder do the visible work.
+  automation" needs no "Automation name" label — give the control its
+  accessible name and let the placeholder do the visible work.
 - Help text earns its line only by carrying what the screen cannot show: a
   consequence ("Shown in the sidebar and the switcher"), never a restatement
   of the placeholder or the label.
