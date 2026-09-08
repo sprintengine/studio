@@ -120,12 +120,12 @@ def _referencing_scripts(scripts: Dict[str, str], test_path: str) -> Set[str]:
     # The basename fallback exists for a script that cds into a subdirectory
     # before naming the file, so it must only match a BARE mention. Matching the
     # basename anywhere let an unrelated script's longer path vouch for a new
-    # file: this repo already has six duplicated test basenames (engine.test.ts,
-    # automations.test.ts, backlog.test.ts, railState.test.ts,
-    # roadmap-orchestrator.test.ts, workspace-sync.test.ts), so a new
-    # `src/anywhere/engine.test.ts` that nothing runs read as wired because
-    # `src/main/automations/engine.test.ts` is named by a wired script. A gate
-    # that silently passes is the failure this item exists to close.
+    # file: this repo carries duplicated test basenames (as of 2026-09-08:
+    # automations.test.ts, backlog.test.ts, conversation-peek.test.ts,
+    # railState.test.ts, workspace-sync.test.ts), so a new
+    # `src/anywhere/backlog.test.ts` that nothing runs read as wired because
+    # `src/main/mobile/sprintengine/backlog.test.ts` is named by a wired script.
+    # A gate that silently passes is the failure this item exists to close.
     bare = re.compile(rf"(?<![\w./-]){re.escape(basename)}")
     hits = set()
     for name, body in scripts.items():

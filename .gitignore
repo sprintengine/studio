@@ -92,11 +92,13 @@ electron.vite.config.*.mjs
 
 # Vendored third-party skill packs (Cloudflare, WorkOS, agents-sdk, wrangler…).
 # Installed into the harness skill dirs by their own publishers and re-installable
-# from them, so the checkout is a cache, not a source. The first-party skills that
-# live beside them — backlog, prototype, review-guide, sprintengine,
-# workspace-knowledge, use-railway, multicode-electron-playwright — ARE authored
-# here and stay tracked, which is why these are named one by one rather than the
-# whole `.agents/skills/` tree being ignored.
+# from them, so the checkout is a cache, not a source. Two skills beside them ARE
+# authored here and stay tracked — `multicode-electron-playwright` and
+# `sprintengine`, neither of which exists anywhere else in the tree — which is why
+# these are named one by one rather than the whole `.agents/skills/` tree being
+# ignored. `prototype` is a third-party skill too (its marker records
+# `github:mattpocock/skills`) but stays tracked pending a decision on where it
+# should live.
 .agents/skills/agents-sdk/
 .agents/skills/cloudflare-email-service/
 .agents/skills/cloudflare-one/
@@ -120,11 +122,35 @@ electron.vite.config.*.mjs
 .grok/skills/studio-*/
 .opencode/skills/studio-*/
 
+# Same installer, same `installedAt` stamp, different naming: the BUILT-IN skills
+# it copies out of `resources/studio-plugin/studio-skills/skills/` carry no
+# `studio-` prefix, so they have to be named one by one. Their markers say
+# `"source": "multicode-builtin"`. `.agents/skills/workspace-knowledge/` is the
+# proof they are output and not source — its tracked copy was stamped 2026-05-19
+# and had since drifted from the tracked file it was copied from. `use-railway`
+# no longer HAS a source: it was retired with the other third-party-tool skills
+# on 2026-09-08, so its rule only keeps an old install from reappearing.
+.agents/skills/debug/
+.agents/skills/review-guide/
+.agents/skills/use-railway/
+.agents/skills/workspace-knowledge/
+.claude/skills/debug/
+.claude/skills/review-guide/
+.grok/skills/debug/
+.grok/skills/review-guide/
+.opencode/skills/debug/
+.opencode/skills/review-guide/
+
 # Agent-state hook files the studio writes into this workspace when it opens
 # it, with the socket and reporter paths of the machine substituted in. They
 # are install-time output, not source: the templates live under resources/.
 .grok/hooks/multicode-agent-state.json
 .opencode/plugin/multicode-agent-state.js
+# …and the reporter script itself. `AGENT_STATE_HOOK_SCRIPT_REL` in
+# src/main/agent-state.ts is `.multicode/hooks/agent-state.mjs`: the app copies
+# `resources/hooks/multicode-agent-state.mjs` there byte for byte when it opens a
+# workspace, so the tracked copy was a second, staler original.
+.multicode/hooks/
 
 # Leftover app metadata from the retired Design Wizard (deleted 2026-09-08):
 # its idea seed and inspiration drops. Nothing writes here any more, and the
