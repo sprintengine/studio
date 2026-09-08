@@ -27,7 +27,9 @@ primary button, and it shares its hue with selection chrome.
   the view's primary.
 - Sizes: `ds-button--xs` at `size.control.xs` with a `font.size.meta` label
   (dense chrome — toolbars, row actions), default sm at `size.control.sm`, and
-  `ds-button--md` at `size.control.md`.
+  `ds-button--md` at `size.control.md`. The icon-only species has one step
+  more, `size.control.lg`, for the app rail's foot alone (the account badge
+  and the Settings gear, 2026-09-07) — a labelled button never takes it.
 
 Label padding tracks the size rather than being constant: 8px at xs and sm,
 12px at md. A single 12px inset makes a dense `xs` control read as mostly

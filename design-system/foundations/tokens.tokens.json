@@ -1642,6 +1642,24 @@
               "doNotUse": "Inline chrome inside a modal \u2014 a row action or a section-header action in a settings tab is not the modal\u2019s primary action, and takes sm or xs."
             }
           }
+        },
+        "lg": {
+          "$type": "dimension",
+          "$value": "40px",
+          "$description": "The app rail's glyph square: the one control drawn to be found from across the window rather than read in a row.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "sizing",
+              "use": "The app rail's section and tool glyphs, and the account + Settings cluster at its foot (owner ruling 2026-09-07: Slack's rail squares are a step above the product's largest control, and that step is what makes them findable). Pairs with icon.size.lg.",
+              "doNotUse": "Anything inside a panel, a row, a toolbar or an overlay \u2014 those stop at md. This step exists for one column of window chrome, and a second consumer is a ruling, not a styling choice.",
+              "platforms": {
+                "compact": {
+                  "$value": "50px",
+                  "$description": "Touch. Pointer 40px + 10, keeping the ramp's constant lift."
+                }
+              }
+            }
+          }
         }
       },
       "hit-target-min": {

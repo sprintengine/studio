@@ -240,12 +240,13 @@ export function SidebarChrome<MenuItem extends string>({
   //
   // The row is: [leading] + mark 100 + (4 × 26 controls + 3 × 2 gaps + 8 pad) 118.
   // Leading is the 34px app-menu cluster on win/linux (4 pad + 30 button), the
-  // 32px traffic-light remainder on macOS, or nothing on macOS in fullscreen.
+  // 22px traffic-light remainder on macOS (78 − the 56px rail), or nothing on
+  // macOS in fullscreen.
   //
   // Literal class strings, never interpolated: Tailwind generates a container
   // query only from a variant it can see in the source text.
   const wordmarkVisibility = trafficLightInset > 0
-    ? 'hidden @[250px]:inline-flex' // 32 + 100 + 118
+    ? 'hidden @[240px]:inline-flex' // 22 + 100 + 118
     : isMac
       ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
       : 'hidden @[252px]:inline-flex' // 34 + 100 + 118

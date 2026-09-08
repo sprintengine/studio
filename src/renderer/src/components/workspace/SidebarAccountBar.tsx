@@ -232,10 +232,13 @@ export default function SidebarAccountBar({
 
   // The tier-coloured ring stays around the photo: the colour is the plan
   // signal, and the photo replaces only the initials inside it.
+  // On the rail (collapsed) the disc steps up with the square it sits in —
+  // control-sm inside the rail's control-lg, the same glyph-to-square ratio the
+  // section squares keep — so the foot is not a small cluster under big glyphs.
   const avatar = (
     <AccountAvatar
       user={authState.user}
-      className="size-control-xs text-meta"
+      className={collapsed ? 'size-control-sm text-body' : 'size-control-xs text-meta'}
       style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
       glyphClassName="icon-sm"
     />
@@ -256,8 +259,13 @@ export default function SidebarAccountBar({
 
   const settingsButton = (
     <Tooltip content="Settings" placement="top">
-      <IconButton size="md" pressed={settingsOpen} onClick={() => openSettings(false)} aria-label="Settings">
-        <GearIcon className="size-icon-md" />
+      <IconButton
+        size={collapsed ? 'lg' : 'md'}
+        pressed={settingsOpen}
+        onClick={() => openSettings(false)}
+        aria-label="Settings"
+      >
+        <GearIcon className={collapsed ? 'size-icon-lg' : 'size-icon-md'} />
       </IconButton>
     </Tooltip>
   )
@@ -284,7 +292,7 @@ export default function SidebarAccountBar({
         >
           <IconButton
             ref={ref}
-            size="md"
+            size={collapsed ? 'lg' : 'md'}
             pressed={accountOpen}
             onClick={togglePopover}
             aria-label={`Account · ${tierStyle.label} plan`}
@@ -306,11 +314,15 @@ export default function SidebarAccountBar({
     <OutlineButton
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}
-      className={collapsed ? 'w-8' : 'min-w-0 flex-1'}
+      // On the rail the icon-only sign-in fills the same control-lg square as
+      // the glyphs above it. `min-h` rather than a fourth labelled size: the
+      // outline variant's own `h-control-sm` is the height a LABELLED button
+      // takes, and the button spec keeps lg for icon-only chrome.
+      className={collapsed ? 'size-control-lg min-h-control-lg p-0' : 'min-w-0 flex-1'}
       aria-busy={authState.status === 'checking'}
       aria-label="Sign in"
     >
-      {collapsed ? <AccountUserGlyph className="icon-sm" /> : 'Sign in'}
+      {collapsed ? <AccountUserGlyph className="icon-md" /> : 'Sign in'}
     </OutlineButton>
   )
 
@@ -321,9 +333,14 @@ export default function SidebarAccountBar({
     // pointer before React sees it, so from the day the cluster moved there the
     // account badge and the gear painted but did not click. Every control in
     // this footer opts out here in one place, the popover trigger included.
+    //
+    // No rule above the cluster (owner, 2026-09-07): the rail is one column of
+    // squares from its first glyph to its foot, and a hairline cutting the
+    // account off from the sections above it boxed a strip that the space
+    // already separates (principles, "Hairlines carry the structure").
     <div
-      className={`app-no-drag shrink-0 border-t border-[color:var(--border-subtle)] ${
-        collapsed ? 'flex flex-col items-center gap-1.5 px-1.5 py-1.5' : 'flex items-center gap-1.5 px-2 py-1.5'
+      className={`app-no-drag shrink-0 ${
+        collapsed ? 'flex flex-col items-center gap-1.5 px-2 py-2' : 'flex items-center gap-1.5 px-2 py-1.5'
       }`}
     >
       {accountControl}

@@ -27,7 +27,8 @@ import { subscribeAutomationRunNotifications } from './runTarget'
 // just-delivered scheduled-run event could arrive before the listener is live.
 //
 // Disjoint from T6 by design: scheduledRunNotification notifies ONLY on
-// `trigger:'timer'` failed/blocked events, so a manual Run-now is never
+// `trigger:'timer'` events (failed and blocked as before; completed as an info
+// row since the rail badges, 2026-09-07), so a manual Run-now is never
 // double-toasted. Reuses the source-'automations' action provider and the
 // run-target deep-link contract registered in T6 — no second provider, no new
 // surface. Observer only: it reads the store to resolve a folder but never

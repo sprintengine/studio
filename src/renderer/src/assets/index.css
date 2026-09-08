@@ -51,6 +51,7 @@
   --spacing-control-xs: var(--control-xs);
   --spacing-control-sm: var(--control-sm);
   --spacing-control-md: var(--control-md);
+  --spacing-control-lg: var(--control-lg);
 }
 
 /* The focus indicator, as markup's one name for it. Both utilities declare bare
@@ -357,10 +358,12 @@
   /* Control heights. The one vertical rhythm for anything interactive: an
      input, a select, and a button sharing a row all sit on the same step.
      `xs` is icon-only triggers, `sm` is the default for anything carrying a
-     label, `md` is overlay primary actions. */
+     label, `md` is overlay primary actions, `lg` is the app rail's glyph
+     square and nothing else (owner, 2026-09-07). */
   --control-xs: var(--sem-size-control-xs);
   --control-sm: var(--sem-size-control-sm);
   --control-md: var(--sem-size-control-md);
+  --control-lg: var(--sem-size-control-lg);
 
   /* The floor no interactive box goes under, on either axis. A glyph keeps its
      drawn --icon-* size and the button pads out to this; it never shrinks to

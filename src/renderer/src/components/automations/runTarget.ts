@@ -71,29 +71,34 @@ export function decodeAutomationTargetRef(
 
 // The notification a background (scheduled) run event should raise, or null
 // when it must be ignored. Disjoint from T6's manual Run-now by trigger: only
-// `timer` runs notify here, and only failed/blocked terminal states (completed
-// stays silent, matching the panel's low-noise policy). `resolveFolderPath` is
-// a thunk so the (store-backed) lookup only runs when we actually notify, and so
-// the decision stays pure + unit-testable. Pairs with the source-'automations'
-// action provider's deep-link contract.
+// `timer` runs notify here. A failed or blocked run is an error or a warning; a
+// completed one is an info row (owner, 2026-09-07, with the app rail's badges):
+// an overnight run that finished is exactly what the Automations square counts
+// while the door is closed, and info never toasts, never pulses the bell and
+// never inflates its error count — the low-noise policy holds. `resolveFolderPath`
+// is a thunk so the (store-backed) lookup only runs when we actually notify,
+// and so the decision stays pure + unit-testable. Pairs with the
+// source-'automations' action provider's deep-link contract.
 export function scheduledRunNotification(
   event: AutomationsRunEvent,
   resolveFolderPath: () => string | null,
 ): DiagnosticLogInput | null {
   if (event.trigger !== 'timer') return null
-  if (event.status !== 'failed' && event.status !== 'blocked') return null
   // Copy is interpolation-free per status: templating the status into the
   // sentence produced "The scheduled run ended failed." The run's own summary
   // names the cause (it cannot be shown here — the run event carries no summary
-  // field), so both lines send the reader to the run rather than guessing for them.
-  const failed = event.status === 'failed'
+  // field), so every line sends the reader to the run rather than guessing for them.
+  const copy =
+    event.status === 'failed'
+      ? { level: 'error' as const, title: 'Automation failed', message: 'This scheduled run did not finish. Open it to see what stopped it.' }
+      : event.status === 'blocked'
+        ? { level: 'warning' as const, title: 'Automation blocked', message: 'This scheduled run is blocked and cannot continue. Open it to see why.' }
+        : { level: 'info' as const, title: 'Automation finished', message: 'This scheduled run finished. Open it to see what it did.' }
   return {
-    level: failed ? 'error' : 'warning',
+    level: copy.level,
     source: 'automations',
-    title: `${failed ? 'Automation failed' : 'Automation blocked'}: ${event.definitionName}`,
-    message: failed
-      ? 'This scheduled run did not finish. Open it to see what stopped it.'
-      : 'This scheduled run is blocked and cannot continue. Open it to see why.',
+    title: `${copy.title}: ${event.definitionName}`,
+    message: copy.message,
     workspaceId: event.workspaceId,
     // The full-page Automations door target (item 1707): Open opens the door and
     // selects this run's automation, not the retired host workspace.

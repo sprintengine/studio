@@ -38,13 +38,18 @@ export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherPr
             type="button"
             onClick={() => onPick(kind)}
             className={[
-              'interactive flex h-control-md items-center gap-2 rounded-[7px] border border-[color:var(--border-default)]',
-              'bg-[color:var(--bg-surface)] px-3 text-meta text-[color:var(--text-default)]',
+              'interactive flex min-h-control-md items-center gap-2.5 rounded-[7px] border border-[color:var(--border-default)]',
+              'bg-[color:var(--bg-surface)] px-3 py-2.5 text-meta text-[color:var(--text-default)]',
               'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
               FOCUS_RING_CLASS,
             ].join(' ')}
           >
-            <Glyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />
+            {/* icon.size.lg, the step whose token documentation names empty-state
+                glyphs as its use — this launcher IS the pane's empty state, and a
+                toolbar-sized mark on it read as a row of settings rather than as
+                six doors. The card is padded rather than height-clamped so the
+                bigger glyph gets its air instead of touching the border. */}
+            <Glyph className="icon-lg shrink-0 text-[color:var(--text-subtle)]" />
             <span className="flex-1 text-left">{label}</span>
             <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
               {letter}

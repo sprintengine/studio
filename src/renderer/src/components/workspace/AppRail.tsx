@@ -2,7 +2,8 @@ import React from 'react'
 
 import type { RegisteredGlobalSurface, SurfaceIconComponent } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { Badge } from '../ui/Badge'
+import { FOCUS_RING_CLASS, type Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
@@ -42,14 +43,18 @@ import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 // everything to its right swaps.
 //
 // Geometry. The rail is a layout measure like SIDEBAR_DEFAULT_WIDTH, not a
-// token: a `size.control.md` square plus a `space.xs` gutter each side, which
-// is also the narrowest the collapsed account cluster at its foot fits in. Its
-// top reserves the title strip's height on every platform so the first glyph
-// sits below the chrome row beside it. On macOS the native traffic lights,
-// which the hiddenInset frame pins at x:12 (window-factory.ts), start in that
-// reserve and run past the rail's edge — the sidebar's chrome row insets for
-// the remainder (SidebarChrome, TRAFFIC_LIGHT_RESERVE − APP_RAIL_WIDTH).
-export const APP_RAIL_WIDTH = 46
+// token: a `size.control.lg` square plus a `space.sm` gutter each side, which
+// is also the width the account cluster at its foot sits in. The rail's
+// squares are a step above the product's largest in-panel control (owner ruling
+// 2026-09-07, revising the 46px control-md cut): the point of the column is to
+// be found from across the window, and 34px squares carrying 18px glyphs were
+// read rather than seen. Its top reserves the title strip's height on every
+// platform so the first glyph sits below the chrome row beside it. On macOS the
+// native traffic lights, which the hiddenInset frame pins at x:12
+// (window-factory.ts), start in that reserve and run past the rail's edge — the
+// sidebar's chrome row insets for the remainder (SidebarChrome,
+// TRAFFIC_LIGHT_RESERVE − APP_RAIL_WIDTH).
+export const APP_RAIL_WIDTH = 56
 // Where the three lights end, as AppTitleBar's own reserve measures it.
 export const TRAFFIC_LIGHT_RESERVE = 78
 
@@ -101,9 +106,25 @@ export function ExtensionsGlyph({ className }: { className?: string }) {
   )
 }
 
+// What a rail square wears at its corner when its area has news: the count of
+// things there that the person has not seen or that are waiting on them, in the
+// tone of the loudest one. Null (or absent) is no badge at all — a zero is
+// never drawn (badge spec: "a number that really is nothing is words").
+export type RailBadge = {
+  count: number
+  tone: Tone
+  /** The accessible name — a bare "3" tells a screen reader nothing. */
+  label: string
+}
+
+// Keyed by what the square opens: `home`, `extensions`, or a rail surface's id
+// (`automations`). Derived by the host (useRailBadges); the rail only wears them.
+export type RailBadges = Readonly<Partial<Record<string, RailBadge | null>>>
+
 type AppRailProps = {
   section: SidebarSection
   onSelectSection: (section: SidebarSection) => void
+  badges?: RailBadges
   // The module surfaces promoted onto the rail (railSurfacesOf), already
   // enablement-filtered by the host.
   surfaces: readonly RailSurface[]
@@ -114,23 +135,32 @@ type AppRailProps = {
   accountSlot?: React.ReactNode
 }
 
-// One rail glyph on a control-md square, named by its tooltip and accessible
+// One rail glyph on a control-lg square, named by its tooltip and accessible
 // name. Selection is the neutral `bg-selected` fill — never the accent, never a
 // bar on the window's edge (principles, "Selection is neutral"). A section
 // glyph is `aria-current` while its section shows; a surface glyph is
 // `aria-pressed` while its surface holds the card region — the two can light
 // together, and they say different things: which column, and what is in the
 // region beside it.
+//
+// The badge (owner, 2026-09-07) is the kit's corner counter docked on the
+// square to count unread activity: a number in a circle, never a glass
+// toast — a toast for every chat that finished would be over the top, and the
+// count is what says "come back here" without interrupting what the person is
+// doing. It sits ON the square, so its separating ring is the rail's own
+// canvas rather than the app ground the primitive assumes.
 function RailGlyph({
   label,
   active,
   current,
+  badge,
   onClick,
   children,
 }: {
   label: string
   active: boolean
   current: 'section' | 'surface'
+  badge?: RailBadge | null
   onClick: () => void
   children: React.ReactNode
 }) {
@@ -142,19 +172,37 @@ function RailGlyph({
         aria-label={label}
         aria-current={current === 'section' && active ? 'page' : undefined}
         aria-pressed={current === 'surface' ? active : undefined}
-        className={`app-no-drag flex size-control-md items-center justify-center rounded-md transition-colors ${FOCUS_RING_CLASS} ${
+        className={`app-no-drag relative flex size-control-lg items-center justify-center rounded-md transition-colors ${FOCUS_RING_CLASS} ${
           active
             ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
             : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
         }`}
       >
         {children}
+        {badge && badge.count > 0 ? (
+          <Badge
+            corner
+            tone={badge.tone}
+            count={badge.count}
+            max={99}
+            ariaLabel={badge.label}
+            className="border-[color:var(--bg-canvas)]"
+          />
+        ) : null}
       </button>
     </Tooltip>
   )
 }
 
-export function AppRail({ section, onSelectSection, surfaces, activeGlobalSurface, onOpenSurface, accountSlot }: AppRailProps) {
+export function AppRail({
+  section,
+  onSelectSection,
+  badges,
+  surfaces,
+  activeGlobalSurface,
+  onOpenSurface,
+  accountSlot,
+}: AppRailProps) {
   return (
     <nav
       aria-label="App rail"
@@ -169,7 +217,7 @@ export function AppRail({ section, onSelectSection, surfaces, activeGlobalSurfac
       {/* The divider starts BELOW that reserve (owner, 2026-09-05), which is why
           it is a positioned hairline and not the nav's `border-r`. The macOS
           traffic lights are pinned at x:12 by the hiddenInset frame and their
-          78px span runs past this 46px column, so a full-height edge drew a line
+          78px span runs past this 56px column, so a full-height edge drew a line
           straight through the green light. Below the title row the rail and the
           sidebar's chrome share one unbroken band, and the rule picks up where
           the window controls end. */}
@@ -178,9 +226,15 @@ export function AppRail({ section, onSelectSection, surfaces, activeGlobalSurfac
         className="pointer-events-none absolute bottom-0 right-0 w-px bg-[color:var(--border-subtle)]"
         style={{ top: TITLE_BAR_HEIGHT_PX }}
       />
-      <div className="flex flex-col items-center gap-1.5 px-1.5 pt-1">
-        <RailGlyph label="Home" current="section" active={section === 'home'} onClick={() => onSelectSection('home')}>
-          <HomeGlyph className="icon-md" />
+      <div className="flex flex-col items-center gap-1.5 px-2 pt-1">
+        <RailGlyph
+          label="Home"
+          current="section"
+          active={section === 'home'}
+          badge={badges?.home}
+          onClick={() => onSelectSection('home')}
+        >
+          <HomeGlyph className="icon-lg" />
         </RailGlyph>
         {surfaces.map((surface) => (
           <RailGlyph
@@ -188,18 +242,20 @@ export function AppRail({ section, onSelectSection, surfaces, activeGlobalSurfac
             label={surface.label}
             current="surface"
             active={activeGlobalSurface === surface.id}
+            badge={badges?.[surface.id]}
             onClick={() => onOpenSurface(surface)}
           >
-            <surface.Icon className="icon-md" />
+            <surface.Icon className="icon-lg" />
           </RailGlyph>
         ))}
         <RailGlyph
           label="Extensions"
           current="section"
           active={section === 'extensions'}
+          badge={badges?.extensions}
           onClick={() => onSelectSection('extensions')}
         >
-          <ExtensionsGlyph className="icon-md" />
+          <ExtensionsGlyph className="icon-lg" />
         </RailGlyph>
       </div>
       <div className="flex-1" />

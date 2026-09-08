@@ -32,7 +32,7 @@ import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
-import { APP_RAIL_WIDTH, AppRail, RAIL_SURFACE_IDS, TRAFFIC_LIGHT_RESERVE, railSurfacesOf, type RailSurface } from './AppRail'
+import { APP_RAIL_WIDTH, AppRail, RAIL_SURFACE_IDS, TRAFFIC_LIGHT_RESERVE, railSurfacesOf, type RailBadges, type RailSurface } from './AppRail'
 import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
 const surface = (id: string, label: string): RegisteredGlobalSurface => ({
@@ -71,6 +71,7 @@ function render(
   section: 'home' | 'extensions',
   activeGlobalSurface: string | null,
   surfaces: RailSurface[] = [surface('automations', 'Automations') as RailSurface],
+  badges?: RailBadges,
 ) {
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
@@ -83,6 +84,7 @@ function render(
         surfaces,
         activeGlobalSurface,
         onOpenSurface: (s) => opened.push(s.id),
+        badges,
       }),
     )
   })
@@ -99,6 +101,11 @@ assert.deepEqual(
 )
 assert.ok(buttons().every((b) => (b.textContent ?? '').trim() === ''), 'a glyph spells no caption: its name is the tooltip and the accessible name')
 assert.ok(
+  buttons().every((b) => (b.getAttribute('class') ?? '').includes('size-control-lg')),
+  'every square is the rail’s own control-lg step (owner, 2026-09-07: large control step, found rather than read)',
+)
+assert.equal(APP_RAIL_WIDTH, 56, 'one control-lg square plus a space.sm gutter each side')
+assert.ok(
   buttons().every((b) => (b.getAttribute('class') ?? '').includes('focus-visible:focus-ring')),
   'every glyph carries the shared focus ring — the rail is reachable by keyboard',
 )
@@ -111,8 +118,30 @@ assert.deepEqual(selected, ['extensions'], 'the Extensions glyph selects its sec
 act(() => { buttons()[1]?.click() })
 assert.deepEqual(opened, ['automations'], 'the Automations glyph opens its surface')
 
+// ── The badges ───────────────────────────────────────────────────────────────
+// The rail's unread activity badge: a count docked on the square, in the tone of
+// the loudest thing it counts, named for a screen reader. Never a zero.
+dom.window.document.body.innerHTML = ''
+render('home', null, undefined, {
+  home: { count: 3, tone: 'warn', label: '3 chats want you' },
+  automations: { count: 120, tone: 'error', label: '120 automation runs to look at' },
+  extensions: null,
+})
+{
+  const badgeIn = (b: HTMLElement | undefined) => b?.querySelector('[role="status"]') as HTMLElement | null
+  assert.equal(badgeIn(buttons()[0])?.textContent, '3', 'Home wears the count of chats wanting you')
+  assert.equal(badgeIn(buttons()[0])?.getAttribute('aria-label'), '3 chats want you', 'and the badge is named, not a bare number')
+  assert.ok((buttons()[0]?.getAttribute('class') ?? '').includes('relative'), 'the square is the badge’s positioning context')
+  assert.equal(badgeIn(buttons()[1])?.textContent, '99+', 'a surface square wears its own count, capped')
+  assert.equal(badgeIn(buttons()[2]), null, 'a null badge draws nothing')
+  assert.equal(buttons()[0]?.getAttribute('aria-label'), 'Home', 'the glyph’s own name is unchanged by its badge')
+}
+dom.window.document.body.innerHTML = ''
+render('home', null, undefined, { home: { count: 0, tone: 'good', label: 'nothing' } })
+assert.equal(buttons()[0]?.querySelector('[role="status"]'), null, 'a zero is never drawn')
+
 // ── The divider clears the title strip ───────────────────────────────────────
-// The macOS traffic lights are pinned at x:12 and run past this 46px column, so
+// The macOS traffic lights are pinned at x:12 and run past this 56px column, so
 // a full-height `border-r` cut through the green light. The rule is a hairline
 // that starts at the title reserve instead.
 assert.ok(!(nav().getAttribute('class') ?? '').includes('border-r'), 'the rail draws no full-height right border')

@@ -185,7 +185,9 @@ export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
 type IconButtonProps = ButtonBase & {
   /** Required: icon-only buttons must expose an accessible name. */
   'aria-label': string
-  size?: 'sm' | 'md'
+  // `lg` is the app rail's step (size.control.lg): the account badge and the
+  // Settings gear at the rail's foot, and nothing inside a panel or a row.
+  size?: 'sm' | 'md' | 'lg'
   /** Same contract as `GhostButton`'s: a destructive icon action is a prop. */
   tone?: ButtonTone
   /**
@@ -212,9 +214,10 @@ type IconButtonProps = ButtonBase & {
   pressed?: boolean
 }
 
-const ICON_SIZE: Record<'sm' | 'md', string> = {
+const ICON_SIZE: Record<'sm' | 'md' | 'lg', string> = {
   sm: 'size-control-xs text-body',
   md: 'size-control-sm text-heading',
+  lg: 'size-control-lg text-heading',
 }
 
 // Pressed is the neutral selection fill, never the accent: an engaged toggle is

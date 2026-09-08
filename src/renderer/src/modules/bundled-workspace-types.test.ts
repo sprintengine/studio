@@ -266,11 +266,10 @@ assert.deepEqual(
     null,
     'manual runs are ignored (owned by T6, no double-toast)',
   )
-  assert.equal(
-    scheduledRunNotification({ ...baseEvent, status: 'completed' }, () => '/repo/app'),
-    null,
-    'completed runs stay silent (low-noise)',
-  )
+  const completed = scheduledRunNotification({ ...baseEvent, status: 'completed' }, () => '/repo/app')
+  assert.equal(completed?.level, 'info', 'a completed scheduled run is an info row — the rail’s Automations badge counts it, the bell’s error count and the toast never see it')
+  assert.equal(completed?.title, 'Automation finished: Nightly QA')
+  assert.equal(completed?.navigationTarget?.kind, AUTOMATIONS_DOOR_TARGET_KIND, 'and opens the door at the run like the others')
 }
 
 // T13 C7/C9/C10: the observer's delivered-event -> publish boundary (the path
@@ -304,7 +303,8 @@ assert.deepEqual(
 
   const completedPublished: DiagnosticLogInput[] = []
   handleAutomationRunEvent({ ...event, status: 'completed' }, resolveFolderPath, (input) => completedPublished.push(input))
-  assert.equal(completedPublished.length, 0, 'completed events publish nothing (low-noise)')
+  assert.equal(completedPublished.length, 1, 'a completed timer run publishes an info row for the rail’s Automations badge')
+  assert.equal(completedPublished[0]?.level, 'info', 'info: the bell’s error count and the toast never see it')
 }
 
 // T13 C7/C9/C15: the mounted observer's subscription boundary — the exact wiring
@@ -348,10 +348,11 @@ async function runSubscriptionBoundaryTest(): Promise<void> {
   // Flush the deferred folder-resolution promise chain each delivered event queued.
   await new Promise((resolve) => setTimeout(resolve, 0))
 
-  assert.equal(published.length, 2, 'only the timer failed + blocked events publish through the subscription')
+  assert.equal(published.length, 3, 'every timer event publishes through the subscription; the manual one is T6’s')
   assert.equal(published[0].source, 'automations')
   assert.equal(published[0].level, 'error', 'delivered timer failed event is error severity')
   assert.equal(published[1].level, 'warning', 'delivered timer blocked event is warning severity')
+  assert.equal(published[2].level, 'info', 'delivered timer completed event is an info row (rail badge, no toast)')
   assert.deepEqual(
     decodeRunRef(published[0].navigationTarget!.ref),
     { automationId: 'auto-3', runId: 'run-7', folderPath: '/repo/app' },

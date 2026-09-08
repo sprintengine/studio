@@ -438,12 +438,16 @@ drilled-in surface still replaces that column's content rather than standing
 beside it. "One rail, ever" is unchanged: the app rail holds no list a person
 walks. Its anatomy:
 
-1. **A fixed set of glyphs on `size.control.md` squares, no captions.** A
+1. **A fixed set of glyphs on `size.control.lg` squares, no captions.** A
    house and a tile grid do not need "Home" and "Extensions" written under
    them, and the caption is what made the first cut 76px wide. The name is the
    glyph's tooltip and accessible name — the idiom the sidebar's collapsed
-   rows already use. The column is one square plus a `space.xs` gutter each
-   side: 46px, and no wider.
+   rows already use. The column is one square plus a `space.sm` gutter each
+   side: 56px, and no wider. (Revised 2026-09-07 from `control.md` squares in
+   a 46px column: the rail squares are a step above the largest in-panel
+   control, and that step is what lets the column be found from across the
+   window rather than read. `size.control.lg` exists for this column and
+   nothing else; the glyphs on it are `icon.size.lg`.)
 2. **Selection is `bg.selected` on the square.** Never the accent, never a
    bar on the window's edge. A section glyph is current while its column
    shows; a tool glyph is pressed while its surface floats. The two can light
@@ -480,7 +484,11 @@ walks. Its anatomy:
    Modules, and one choice in two shapes on two surfaces is two things to keep
    in agreement.
 5. **The account and Settings cluster pins to its foot.** They belong to the
-   window, not to whichever section the sidebar is showing.
+   window, not to whichever section the sidebar is showing. They sit on the
+   same `control.lg` squares as the sections, and no rule separates them from
+   the glyphs above: the rail is one column from its first square to its
+   last, and the space does the separating (*Hairlines carry the structure*).
+   The sidebar's chrome makes the same call — no rule under New chat.
 6. **Its top reserves the title strip's height** on every platform, so its
    first glyph sits below the chrome row beside it. On macOS the native
    traffic lights start in that reserve and run past the rail's edge; the
@@ -491,6 +499,16 @@ walks. Its anatomy:
    edge that ran the whole height drew a line straight through the green light.
    Across the title row the rail and the chrome beside it are one unbroken
    band.
+8. **A square with news wears the badge's corner count** (2026-09-07) — an
+   unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or
+   finished while you were away) other than the one on screen; Automations
+   counts scheduled runs that ended while its door was closed; Extensions
+   counts unread news from anything under it, cards published since its home
+   was last open, and sprints waiting on an answer. The tone is the loudest
+   thing counted — danger, then warn, then good or the accent. Opening the
+   section reads its count; a thing still waiting on the person stays counted.
+   Never a toast: a glass card for every chat that finished would be over the
+   top, and the count is what says "come back here" without interrupting.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.

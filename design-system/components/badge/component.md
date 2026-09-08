@@ -46,6 +46,13 @@ already says the same thing. A badge carrying meaning takes an `ariaLabel` (a
 bare "3" tells a screen reader nothing); one that merely repeats adjacent text
 is marked `decorative` so it is not read twice.
 
+**On the app rail** (2026-09-07) the corner count reports unread activity: each
+section square wears the number of things in its area the person has not seen
+or that are waiting on them (principles.md, "The app rail", item 8). It is
+named, never decorative — nothing beside a glyph says what the number is — and
+its ring is the rail's own `bg.canvas`, since the square sits on the canvas
+rather than the app ground the default ring assumes.
+
 ## Only a count is a live region (2026-09-02)
 
 The two species announce differently, and this is the part a consumer gets

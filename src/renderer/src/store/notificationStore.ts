@@ -1,16 +1,26 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
-import type { AppNotification, DiagnosticLogEntry } from '../types/workspace'
+import type { AppNotification, DiagnosticLogEntry, DiagnosticSource } from '../types/workspace'
 
 const NOTIFICATION_STORAGE_KEY = 'multicode-notifications'
 const MAX_NOTIFICATIONS = 120
 
+// The rail sections whose badge counts something that is not a notification:
+// Extensions counts the hosted cards published since its home was last looked
+// at. Kept here rather than in appSettings because it is the same kind of fact
+// as `read` — what this person has seen — and it persists alongside it.
+export type RailSeenSection = 'extensions'
+
 interface NotificationStore {
   notifications: AppNotification[]
+  sectionSeenAt: Partial<Record<RailSeenSection, string>>
   addNotification: (entry: DiagnosticLogEntry) => AppNotification
   markRead: (id: string) => void
   markAllRead: () => void
+  /** Opening a rail section reads everything its badge was counting. */
+  markReadBySources: (sources: ReadonlySet<DiagnosticSource>) => void
+  markSectionSeen: (section: RailSeenSection, at: string) => void
   clearAll: () => void
 }
 
@@ -18,6 +28,7 @@ export const useNotificationStore = create<NotificationStore>()(
   persist(
     immer((set) => ({
       notifications: [],
+      sectionSeenAt: {},
 
       addNotification: (entry) => {
         const notification: AppNotification = {
@@ -46,6 +57,18 @@ export const useNotificationStore = create<NotificationStore>()(
           state.notifications.forEach((notification) => {
             notification.read = true
           })
+        }),
+
+      markReadBySources: (sources) =>
+        set((state) => {
+          for (const notification of state.notifications) {
+            if (!notification.read && sources.has(notification.source)) notification.read = true
+          }
+        }),
+
+      markSectionSeen: (section, at) =>
+        set((state) => {
+          state.sectionSeenAt[section] = at
         }),
 
       clearAll: () =>
