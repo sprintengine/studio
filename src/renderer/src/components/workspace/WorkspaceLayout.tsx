@@ -57,7 +57,6 @@ import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { ContextMenu, FOCUS_RING_CLASS, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
-import AgentPanel from '../panels/AgentPanel'
 
 interface Props {
   workspaceId: string
@@ -90,6 +89,14 @@ function countOpenTabs(model: Model | null): number {
 // `file-editor` (a per-file editor with a `filePath`) and `explorer`
 // (`onStartFuturePlan`). They share the editor/explorer chunks with the
 // host-served panels, so a disabled dev-tools module ships none of them.
+// The agent tab's panel — the chat composer, its transcript and the terminal
+// under them. Lazy like every other panel in this factory (bundle-budget
+// ratchet): it is the largest thing the boot graph used to carry that no first
+// paint can show before a workspace layout has resolved its tabs, and the
+// terminal inside it is already fetched on demand, so a tab that opens goes
+// through one Suspense step it was going through anyway. It also kept the kit's
+// skill picker (and the skills catalogue behind it) eager for everyone.
+const AgentPanel = React.lazy(() => import('../panels/AgentPanel'))
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
@@ -565,7 +572,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       }
 
       // Arms below are only for components the host can't serve generically:
-      // always-on chrome (agent, terminal) and panels that take bespoke props
+      // the shell's own chrome (agent, terminal) and panels that take bespoke props
       // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
       // paths, the sprintengine fixed-view/summary fallbacks, guided-brief).
       // Every plain `{ workspaceId }` host panel — editor, content-search, git,
@@ -573,14 +580,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
-          return (
+          return timedPanel('AgentPanel', (
             <AgentPanel
               workspaceId={workspaceId}
               agentId={config?.agentId ?? node.getId()}
               sessionId={config?.sessionId}
               shouldKillTerminalOnUnmount={shouldKillTerminalOnUnmount}
             />
-          )
+          ))
         case 'file-editor':
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)

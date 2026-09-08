@@ -111,7 +111,6 @@ import {
   requestTerminalFocus,
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
-import { ToastHost } from './ToastHost'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import type { RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
@@ -121,7 +120,7 @@ import { showToast, useToastStore } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
-import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
+import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceErrorBoundary'
 import { doorLabelForSurfaceId, resolveActiveDoorSurface, resolveActiveModalSurface } from './globalSurface/absentDoorSurface'
 import {
   ContextRailColumn,
@@ -134,7 +133,6 @@ import {
   setExtensionsSurfaceHost,
   type ExtensionsSurfaceHostPorts,
 } from './globalSurface/extensions/extensionsSurfaceHost'
-import { WorkspacePaneColumn } from './pane/WorkspacePaneColumn'
 import { isWorkspacePaneFocused } from './pane/paneFocus'
 import { closePaneTabAndItsTerminal } from './pane/paneTerminals'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
@@ -264,6 +262,22 @@ const CORE_EXTENSIONS_HOME_SURFACE = {
   railPlacement: 'inline',
   Component: ExtensionsHomeSurface,
 } as const
+// The workspace pane column (browser-pane epic): the right-edge column that
+// hosts Files, Git, Backlog, Diff and the browser. It renders collapsed to zero
+// width until the active workspace's pane is opened, so nothing it draws is on
+// screen at first paint — and the tab strip, the browser guest and the pane
+// bodies behind it are a large part of the boot graph. Fetched when the column
+// mounts; `fallback={null}` because a collapsed column occupies no space and a
+// loader there would be a stripe of chrome nobody asked for.
+const WorkspacePaneColumn = React.lazy(() =>
+  import('./pane/WorkspacePaneColumn').then((m) => ({ default: m.WorkspacePaneColumn })),
+)
+// The toast region and its app-level producers (pair requests, the tailnet
+// listener notice, fleet loss/revocation). Nothing it draws exists at first
+// paint — the region is empty until something raises a toast, and its producers
+// are subscriptions to events that arrive after boot — so it is fetched with
+// the rest of the deferred shell rather than carried through it.
+const ToastHost = React.lazy(() => import('./ToastHost').then((m) => ({ default: m.ToastHost })))
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
@@ -4461,7 +4475,9 @@ export default function WorkspaceManager() {
       {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
       {/* The one toast region (design-system/components/toast) + its app-level
           producers. Fixed-position; its place in this tree carries no layout. */}
-      <ToastHost />
+      <React.Suspense fallback={null}>
+        <ToastHost />
+      </React.Suspense>
 
       <div className="relative flex min-h-0 flex-1 flex-row">
       {/* The app rail (app shell, 2026-09-05): the window's far-left
@@ -4863,11 +4879,13 @@ export default function WorkspaceManager() {
       </div>
       </div>
       </div>
-      <WorkspacePaneColumn
-        activeWorkspaceId={windowActiveWorkspaceId}
-        renderedWorkspaceIds={renderedWorkspaceIds}
-        onStartFuturePlan={openFuturePlanWorkspace}
-      />
+      <React.Suspense fallback={null}>
+        <WorkspacePaneColumn
+          activeWorkspaceId={windowActiveWorkspaceId}
+          renderedWorkspaceIds={renderedWorkspaceIds}
+          onStartFuturePlan={openFuturePlanWorkspace}
+        />
+      </React.Suspense>
       </div>
       {/* Win/linux caption buttons pin to the window's absolute top-right corner
           (above whatever column owns that edge — content or the aside column),

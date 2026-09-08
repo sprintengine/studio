@@ -47,11 +47,25 @@ import type {
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
-import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
-import { RemotePopover, remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemoteSettings } from './topbar/RemotePopover'
+import type { NotificationRowAction } from './topbar/NotificationsPopover'
+import { remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemoteSettings } from './topbar/remoteGlyph'
 import { useTailnetPresence } from './topbar/useTailnetPresence'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+
+// The two title-bar popovers' bodies. Both hang off a glyph in this cluster and
+// neither is rendered until that glyph is pressed — the Remote list of machines
+// and pair-request cards, and the notification reports with their per-report
+// actions — so they are fetched at open time rather than carried through boot
+// (bundle-budget ratchet; same shape as the Settings / New sprint surfaces in
+// WorkspaceManager). The glyphs themselves, and the state they wear, stay eager:
+// `remoteGlyph.ts` holds that half.
+const RemotePopover = React.lazy(() =>
+  import('./topbar/RemotePopover').then((m) => ({ default: m.RemotePopover })),
+)
+const NotificationsPopover = React.lazy(() =>
+  import('./topbar/NotificationsPopover').then((m) => ({ default: m.NotificationsPopover })),
+)
 
 // The bucket a session row is listed under. Almost every session belongs to a
 // resident workspace. One keyed to an id no workspace row claims — a review
@@ -691,13 +705,15 @@ export function WorkspaceActions({
                 </Tooltip>
               )}
             >
-              <RemotePopover
-                presence={remotePresence}
-                onOpenRemoteSettings={() => {
-                  setRemoteOpen(false)
-                  openRemoteSettings()
-                }}
-              />
+              <React.Suspense fallback={null}>
+                <RemotePopover
+                  presence={remotePresence}
+                  onOpenRemoteSettings={() => {
+                    setRemoteOpen(false)
+                    openRemoteSettings()
+                  }}
+                />
+              </React.Suspense>
             </Popover>
           </div>
         ) : null}
@@ -738,14 +754,16 @@ export function WorkspaceActions({
               </Tooltip>
             )}
           >
-            <NotificationsPopover
-              notifications={notifications}
-              onMarkRead={markNotificationRead}
-              onMarkAllRead={markAllNotificationsRead}
-              onClear={clearNotifications}
-              onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
-              resolveActions={resolveNotificationActions}
-            />
+            <React.Suspense fallback={null}>
+              <NotificationsPopover
+                notifications={notifications}
+                onMarkRead={markNotificationRead}
+                onMarkAllRead={markAllNotificationsRead}
+                onClear={clearNotifications}
+                onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
+                resolveActions={resolveNotificationActions}
+              />
+            </React.Suspense>
           </Popover>
         </div>
 

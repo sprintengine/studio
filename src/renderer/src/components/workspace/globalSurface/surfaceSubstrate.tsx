@@ -138,63 +138,12 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
 }
 
 // ── GlobalSurfaceErrorBoundary ───────────────────────────────────────────────
-// A door failure is contained to the door (MC-1835). Without this, any throw in
-// a surface's render — or a lazy chunk failing to load — propagated to the root
-// and white-screened the whole renderer. The fallback follows the copy-voice
-// error shape: state first, blast radius named, two recoveries — remount the
-// surface, or close the door and keep working.
-
-interface GlobalSurfaceErrorBoundaryProps {
-  /** The door id ("reviews", "sprints", …) — names the surface in the log line. */
-  surfaceId: string
-  /** Human name for the fallback title ("Reviews hit a problem and stopped"). */
-  surfaceLabel: string
-  onClose: () => void
-  children: React.ReactNode
-}
-
-interface GlobalSurfaceErrorBoundaryState {
-  failed: boolean
-}
-
-export class GlobalSurfaceErrorBoundary extends React.Component<
-  GlobalSurfaceErrorBoundaryProps,
-  GlobalSurfaceErrorBoundaryState
-> {
-  state: GlobalSurfaceErrorBoundaryState = { failed: false }
-
-  static getDerivedStateFromError(): GlobalSurfaceErrorBoundaryState {
-    return { failed: true }
-  }
-
-  componentDidCatch(error: unknown): void {
-    console.error(`[global-surface] the ${this.props.surfaceId} door crashed`, error)
-  }
-
-  componentDidUpdate(previous: GlobalSurfaceErrorBoundaryProps): void {
-    // The boundary instance is reused as the operator moves between doors; a
-    // failure in one surface must not stick to the next one.
-    if (previous.surfaceId !== this.props.surfaceId && this.state.failed) {
-      this.setState({ failed: false })
-    }
-  }
-
-  render(): React.ReactNode {
-    if (this.state.failed) {
-      return (
-        <SurfaceCanvasState
-          kind="error"
-          title={`${this.props.surfaceLabel} hit a problem and stopped.`}
-          hint="The rest of the app is unaffected. Reload the surface, or close it and keep working."
-          onRetry={() => this.setState({ failed: false })}
-          retryLabel="Reload surface"
-          extraAction={<GhostButton onClick={this.props.onClose}>Close</GhostButton>}
-        />
-      )
-    }
-    return this.props.children
-  }
-}
+// The boundary itself moved to `surfaceErrorBoundary.tsx` — it is the ONE piece
+// of this module the shell must hold before any door opens, and importing it
+// from here dragged the rail, its filter menu and its search input into the
+// eager boot chunk (bundle-budget ratchet). Re-exported so every existing
+// importer, and the door tests, still name this module.
+export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 
 // ── SurfaceRail ──────────────────────────────────────────────────────────────
 // The internal list rail shared by every door. A row is a status glyph, a

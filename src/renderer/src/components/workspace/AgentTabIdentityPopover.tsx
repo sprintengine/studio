@@ -1,7 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PointerPopover } from '../ui'
-import { ConversationPeekCard, type ConversationPeekIdentity } from './ConversationPeekCard'
+import type { ConversationPeekIdentity } from './ConversationPeekCard'
 import { useConversationPeek, useCopyValue } from './useConversationPeek'
+
+// The peek card itself — the transcript excerpt, the roster heads, the
+// attachment chips — behind a `React.lazy` boundary at this call site (bundle-
+// budget ratchet). It is only ever rendered inside an OPEN popover, so the
+// hover that opens one fetches it; nothing on first paint reads it. The named
+// export stays where it was, so anything importing the card directly is
+// untouched. `fallback={null}` because the glass surface is already on screen
+// with its own size, and a loader inside it would flash for one frame.
+const ConversationPeekCard = React.lazy(() =>
+  import('./ConversationPeekCard').then((m) => ({ default: m.ConversationPeekCard })),
+)
+
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 
 // Identity shown for an agent terminal tab. Assembled by the caller from the
@@ -124,20 +136,22 @@ export function AgentTabIdentityPopover({
               copy button and the attachment chips are reachable across the gap
               from the tab. */}
           <div onMouseEnter={hover.keepOpen} onMouseLeave={closeSoon}>
-            <ConversationPeekCard
-              identity={identity}
-              peek={hover.peek}
-              loading={hover.loading}
-              now={now}
-              copied={copied}
-              onCopySession={copy}
-              onOpenAttachment={hover.openAttachment}
-              selectedSessionId={hover.selectedSessionId}
-              pinnedSessionId={hover.pinnedSessionId}
-              onPreviewAgent={hover.previewAgent}
-              onEndPreview={hover.endPreview}
-              onPinAgent={hover.pinAgent}
-            />
+            <React.Suspense fallback={null}>
+              <ConversationPeekCard
+                identity={identity}
+                peek={hover.peek}
+                loading={hover.loading}
+                now={now}
+                copied={copied}
+                onCopySession={copy}
+                onOpenAttachment={hover.openAttachment}
+                selectedSessionId={hover.selectedSessionId}
+                pinnedSessionId={hover.pinnedSessionId}
+                onPreviewAgent={hover.previewAgent}
+                onEndPreview={hover.endPreview}
+                onPinAgent={hover.pinAgent}
+              />
+            </React.Suspense>
           </div>
         </PointerPopover>
       ) : null}

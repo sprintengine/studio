@@ -11,7 +11,7 @@ import {
   deriveWorkspaceDisplayActivity,
   isLiveTerminal,
 } from '../../hooks/useTerminalSessions'
-import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/sessionAdapter'
+import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/agentLabels'
 import type { Workspace } from '../../types/workspace'
 import type { SessionGroup, SessionItem } from './WorkspaceActions'
 import type {

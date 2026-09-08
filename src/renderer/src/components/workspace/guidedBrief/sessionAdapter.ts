@@ -16,6 +16,7 @@ import {
   createGuidedInterviewParser,
   type GuidedInterviewState,
 } from './interviewProtocol'
+import { GUIDED_BRIEF_AGENT_LABELS } from './agentLabels'
 
 export type { GuidedBriefSpecialistKind }
 
@@ -300,12 +301,12 @@ export function guidedBriefSpecialistAgentId(
 // Human session-manager labels for wizard specialists, keyed by the agent id
 // above. Wizard agents are never registered in workspace.agents, so both
 // transports label their session rows from this one map.
-export const GUIDED_BRIEF_AGENT_LABELS: Record<string, string> = {
-  'guided-brief-strategist': 'Product Strategist',
-  'guided-brief-architect': 'Architect',
-  'guided-brief-designer': 'Frontend Designer',
-  'guided-brief-design-system': 'Design System Designer',
-}
+// The label map moved to `agentLabels.ts` so the sidebar's row naming can read
+// it without this adapter — the terminal wiring, the marker parser and the
+// interview protocol behind it — riding into the eager boot chunk
+// (bundle-budget ratchet). Re-exported here because this is the module the
+// four ids belong to.
+export { GUIDED_BRIEF_AGENT_LABELS } from './agentLabels'
 
 export function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
   if (input.kind === 'designer' && input.designSystem) return GUIDED_BRIEF_DESIGN_SYSTEM_MARKER

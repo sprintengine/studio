@@ -11,7 +11,15 @@
 
 import React from 'react'
 import { FOCUS_RING_CLASS, OutlineButton, OverflowMenu, SplitButton, StarGlyph, Tooltip, type OverflowMenuItem, type SplitButtonItem } from '../ui'
-import { CursorErrorPopover, type CursorAnchor } from '../ui/CursorErrorPopover'
+import type { CursorAnchor } from '../ui/CursorErrorPopover'
+
+// The "Open in editor" failure card, anchored at the cursor. It exists only
+// after a probe or a launch has failed, which is never at first paint, so the
+// card (and the lifecycle glyph and inline-notice shell it draws with) is
+// fetched when a failure actually has to be shown.
+const CursorErrorPopover = React.lazy(() =>
+  import('../ui/CursorErrorPopover').then((m) => ({ default: m.CursorErrorPopover })),
+)
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
@@ -237,12 +245,14 @@ export function useFolderOpenTargets(workspaceId: string | null, openPath: strin
     isMac,
     primaryRef,
     failureNode: failure ? (
-      <CursorErrorPopover
-        key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}
-        message={failure.message}
-        anchor={failure.anchor}
-        onDismiss={() => setFailure(null)}
-      />
+      <React.Suspense fallback={null}>
+        <CursorErrorPopover
+          key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}
+          message={failure.message}
+          anchor={failure.anchor}
+          onDismiss={() => setFailure(null)}
+        />
+      </React.Suspense>
     ) : null,
   }
 }
