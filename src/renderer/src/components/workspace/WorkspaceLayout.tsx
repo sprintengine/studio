@@ -144,8 +144,8 @@ type TabMenuState = {
 
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 /**
- * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Six tab
- * roles wear it — remote machine, switchboard/watchtower, sprint panel,
+ * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Five tab
+ * roles wear it — remote machine, sprint panel,
  * specialist, sprint role, CLI brand — and they have to stay the same object,
  * because they sit next to each other in one strip and any difference reads as
  * a difference in kind.
@@ -493,11 +493,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
     model.visitNodes((node) => {
       if (!(node instanceof TabNode)) return
 
-      if (node.getComponent() === 'switchboard-board' && node.getName() === 'Board') {
-        model.doAction(Actions.renameTab(node.getId(), 'Switchboard'))
-        return
-      }
-
       if (node.getComponent() !== 'agent') return
 
       const config = node.getConfig() as { agentId?: string } | undefined
@@ -525,7 +520,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   }, [workspaceAgents, sprintEngineAgents])
 
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
-  // switchboard, memory-graph, …) are gated generically in the
+  // memory-graph, …) are gated generically in the
   // factory's default case by their owning module's enablement, so a disabled
   // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
   // hides its button. Only the panels with bespoke props (file-editor, explorer, the
@@ -576,7 +571,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
       // paths, the sprintengine fixed-view/summary fallbacks, guided-brief).
       // Every plain `{ workspaceId }` host panel — editor, content-search, git,
-      // sprintengine, switchboard-*, memory-graph — falls
+      // sprintengine, memory-graph — falls
       // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
@@ -1220,19 +1215,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               aria-label={machineLabel}
             >
               <RemoteMachineGlyph className={TAB_CHIP_GLYPH_CLASS} />
-            </span>
-          )
-        } else if (componentId === 'watchtower-panel' || componentId === 'switchboard-board') {
-          const isWatchtower = componentId === 'watchtower-panel'
-          // Degrade the panel-tab accent + icon to generic when the switchboard
-          // module is disabled, matching the workspace tab/row contract (AC4).
-          renderValues.leading = (
-            <span
-              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass(isWatchtower ? 'watchtower' : 'switchboard', moduleOverrides)}`}
-              title={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
-              aria-label={isWatchtower ? 'Watchtower panel' : 'Switchboard panel'}
-            >
-              <WorkspaceTypeIcon mode="switchboard" moduleOverrides={moduleOverrides} className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
         } else if (componentId?.startsWith('sprintengine')) {

@@ -11,8 +11,8 @@ import { FOCUS_RING_CLASS } from './tokens'
 // keyboard handlers and list semantics vary per surface).
 //
 // Renders as <aside> by default (secondary content). Use `as="section"` for
-// primary content columns like the inbox column in Watchtower and Sprint
-// Engine, where the column carries the panel's main flow.
+// primary content columns like Sprint Engine's inbox column,
+// where the column carries the panel's main flow.
 //
 // Width presets match the documented sister-aside widths:
 //   sm — 38 % / 320–520. Quieter right-side asides (running agents,
@@ -241,8 +241,8 @@ export function SidePane({
 }
 
 // SidePaneHeader — the simple title+count+close header used by the
-// closable secondary asides (Switchboard running agents, Watchtower active
-// review). Detail panes with bespoke headers (Switchboard board detail,
+// closable secondary asides (running agents, an active review).
+// Detail panes with bespoke headers (the
 // Sprint Engine inspector) compose their own headers inside SidePane
 // directly and do not use this component.
 //

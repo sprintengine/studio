@@ -53,11 +53,6 @@ const panelHeader = read('src/renderer/src/components/ui/PanelHeader.tsx')
 const kbdChord = read('src/renderer/src/components/ui/KbdChord.tsx')
 const roleGlyph = read('src/renderer/src/components/ui/RoleGlyph.tsx')
 const rendererCss = read('src/renderer/src/assets/index.css')
-const switchboardPanel = read('src/renderer/src/components/panels/SwitchboardBoardPanel.tsx')
-const watchtowerPanel = [
-  read('src/renderer/src/components/panels/WatchtowerPanel.tsx'),
-  read('src/renderer/src/components/panels/WatchtowerPanel/ActiveReviewAside.tsx'),
-].join('\n')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
 const settingsPanel = read('src/renderer/src/components/settings/SettingsPanel.tsx')
 const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
@@ -481,16 +476,6 @@ expectIncludes(roleGlyph, 'getSprintEngineRoleLabel(role, registry)', 'RoleGlyph
 expectIncludes(roleGlyph, 'getSprintEngineRoleAccent(role, registry)', 'RoleGlyph reads tone via the registry-aware accent accessor')
 expectIncludes(roleGlyph, 'design-system/foundations/principles.md', 'RoleGlyph documents itself against the design system contract')
 
-expectIncludes(switchboardPanel, '[aria-label="Switchboard overflow"]', 'Switchboard runner restores focus to overflow trigger')
-expectMatches(
-  watchtowerPanel,
-  /(?:aria-label|ariaLabel)="Active review"/,
-  'Watchtower active review is a non-modal inline aside, not a Drawer',
-)
-assert.ok(
-  !/<Drawer\b/.test(watchtowerPanel),
-  'Watchtower no longer uses the modal Drawer chrome — the active review is an inline aside that joins the flex row',
-)
 expectIncludes(sprintEnginePanel, '[aria-label^="Run configuration"]', 'Sprint Engine run configuration restores focus to its chip trigger')
 expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose tabpanel semantics')
 expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-inbox"', 'Sprint Engine inbox panel is labelled by its tab')

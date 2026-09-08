@@ -3,7 +3,7 @@ import type { AutomationsEngine } from '../automations/engine'
 import type { ModuleAutomationsRegistry } from '../automations/module-service'
 import type { AutomationProviderRegistryService } from '../automations/provider-registry'
 import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
-import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
+import type { RepoTaskSourceFrontDoors } from '../automations/repo-task-source'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
@@ -96,8 +96,10 @@ export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomation
 export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFrontDoor>(
   'automations.app-front-door'
 )
-export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
-  'switchboard.automation-front-doors'
+// Backs the GitHub/Jira `repo-event` automation trigger. No bundled module
+// provides it today; a capability module that imports repo issues supplies one.
+export const RepoTaskSourceFrontDoorsToken = createServiceToken<RepoTaskSourceFrontDoors>(
+  'automations.repo-task-source'
 )
 export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEngineAutomationFrontDoors>(
   'sprint-engine.automation-front-doors'

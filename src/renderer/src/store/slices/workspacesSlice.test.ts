@@ -28,12 +28,6 @@ const standardTemplate: LayoutTemplate = {
   },
 }
 
-const switchboardTemplate: LayoutTemplate = {
-  ...standardTemplate,
-  id: 'switchboard-mode',
-  name: 'Switchboard',
-}
-
 const soloDevTemplate: LayoutTemplate = {
   ...standardTemplate,
   id: 'solo-dev-test',
@@ -61,7 +55,7 @@ const legacyPersistedWorkspace = {
 }
 assert.equal(normalizeWorkspaceMode(legacyPersistedWorkspace.mode), 'future-plugin-mode')
 assert.equal(normalizeWorkspaceMode('  future-plugin-mode  '), '  future-plugin-mode  ')
-assert.equal(normalizeWorkspaceMode('switchboard'), 'switchboard')
+assert.equal(normalizeWorkspaceMode('automations-host'), 'automations-host')
 assert.equal(normalizeWorkspaceMode(''), 'standard')
 assert.equal(normalizeWorkspaceMode('   '), 'standard')
 assert.equal(normalizeWorkspaceMode(null), 'standard')
@@ -383,29 +377,20 @@ assert.deepEqual(state.workspaces.map((workspace) => workspace.id), [firstId, so
 // (secondId) then reassigns to the last remaining workspace (soloDevId).
 assert.equal(state.activeWorkspaceId, soloDevId)
 
-const switchboardId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
-  folderPath: '/Users/example/switchboard',
+// forgetFolder drops the folder's workspaces and its recent-folders entry.
+const forgettableId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  folderPath: '/Users/example/forgettable',
 })
-useWorkspaceStore.getState().setFolderMissing(switchboardId, true)
-const reusedSwitchboardId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
-  folderPath: '/Users/example/switchboard/',
-})
+useWorkspaceStore.getState().forgetFolder('/Users/example/forgettable')
 state = useWorkspaceStore.getState()
-assert.equal(reusedSwitchboardId, switchboardId)
-assert.equal(state.workspaces.filter((workspace) => workspace.mode === 'switchboard').length, 1)
-assert.equal(state.workspaces.find((workspace) => workspace.id === switchboardId)?.folderMissing, false)
-assert.equal(state.activeWorkspaceId, switchboardId)
-
-useWorkspaceStore.getState().forgetFolder('/Users/example/switchboard')
-state = useWorkspaceStore.getState()
-assert.equal(state.workspaces.find((workspace) => workspace.id === switchboardId), undefined)
+assert.equal(state.workspaces.find((workspace) => workspace.id === forgettableId), undefined)
 assert.equal(
-  state.appSettings.recentWorkspaceFolders.some((folder) => folder.includes('switchboard')),
+  state.appSettings.recentWorkspaceFolders.some((folder) => folder.includes('forgettable')),
   false,
 )
 
-// The Automations host is one-per-project, same contract as Switchboard: a
-// second create for the same folder (mode card or automation executor) reuses
+// The Automations host is one-per-project: a
+// second create for the same folder (door or automation executor) reuses
 // the existing host instead of minting a duplicate.
 const firstHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Automations',
@@ -1087,23 +1072,23 @@ assert.equal(
   'addWorkspace clears the active surface (new-workspace path)',
 )
 useWorkspaceStore.getState().openGlobalSurface('roadmap')
-const switchboardReuseId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+const hostReuseId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   folderPath: '/Users/example/door-chat',
-  mode: 'switchboard',
+  mode: 'automations-host',
 })
 useWorkspaceStore.getState().openGlobalSurface('roadmap')
 assert.equal(
-  useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+  useWorkspaceStore.getState().addWorkspace(standardTemplate, {
     folderPath: '/Users/example/door-chat',
-    mode: 'switchboard',
+    mode: 'automations-host',
   }),
-  switchboardReuseId,
-  'second switchboard add for the folder reuses the existing workspace',
+  hostReuseId,
+  'a second host add for the folder reuses the existing workspace',
 )
 assert.equal(
   useWorkspaceStore.getState().activeGlobalSurface,
   null,
-  'addWorkspace clears the active surface (switchboard reuse early-return)',
+  'addWorkspace clears the active surface (host reuse early-return)',
 )
 // A BACKGROUND create (the automation executor's hidden host) must leave an
 // open door alone — only operator-initiated creation dismisses the surface.
@@ -1118,9 +1103,9 @@ assert.equal(
   'roadmap',
   'a background create leaves the door the operator is reading untouched',
 )
-useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   folderPath: '/Users/example/door-chat',
-  mode: 'switchboard',
+  mode: 'automations-host',
   background: true,
 })
 assert.equal(

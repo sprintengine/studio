@@ -452,8 +452,8 @@ export const COMMAND_REGISTRY = [
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.open.settings' },
   }),
-  // Switchboard's and Watchtower's built-in commands are registered through
-  // the module path (switchboard-module.ts, MC-1533) — the in-tree proof that
+  // The Automations module's built-in commands are registered through
+  // the module path (automations-module.ts) — the in-tree proof that
   // module-defined command scopes/availability carry a real feature.
 ] as const satisfies readonly CommandDefinition[]
 

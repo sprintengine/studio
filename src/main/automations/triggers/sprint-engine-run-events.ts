@@ -33,7 +33,7 @@ export type { SprintEngineRunCompletedTriggerConfig, SprintEngineRunNeedsInputTr
 // watched sprint blocks on a human question or finishes. Eventing is polling over
 // `projection.json` on the engine's 60s tick — Main has no projection-change push
 // channel — with the engine's persisted event-id dedupe (the same model as
-// `switchboard.repo-event` and `sprint-engine.run-landed`). Both read through the
+// `automations.repo-event` and `sprint-engine.run-landed`). Both read through the
 // Sprint Engine front doors, never the run store directly, and share the
 // canonical run-state predicates in `src/shared/sprintengine/state.ts` so a run
 // is judged identically here and in the renderer. Landed/PR-merge chaining is a

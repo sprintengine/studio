@@ -3,7 +3,6 @@ export type LearningCategory =
   | 'agents'
   | 'guided-brief'
   | 'sprintengine'
-  | 'switchboard'
   | 'git'
   | 'knowledge'
   | 'settings'
@@ -33,7 +32,6 @@ export type LearningContextRule = {
     | 'has-terminal'
     | 'has-sprintengine-state'
     | 'has-knowledge-root'
-    | 'has-switchboard-state'
   value?: string | boolean
 }
 
@@ -54,7 +52,6 @@ export const LEARNING_CATEGORY_LABELS: Record<LearningCategory, string> = {
   agents: 'Agents',
   'guided-brief': 'Design Wizard',
   sprintengine: 'Sprint',
-  switchboard: 'Switchboard',
   git: 'Git',
   knowledge: 'Knowledge Graph',
   settings: 'Settings',

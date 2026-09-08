@@ -24,7 +24,7 @@ import {
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
   SprintEngineAutomationFrontDoorsToken,
-  SwitchboardAutomationFrontDoorsToken,
+  RepoTaskSourceFrontDoorsToken,
   AgentLaunchServiceToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
@@ -41,10 +41,9 @@ import {
   type SprintEngineAutomationFrontDoors,
 } from '../automations/actions/sprint-engine'
 import {
-  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
-  WATCHTOWER_AUTOMATION_INTEGRATION_ID,
-  type SwitchboardAutomationFrontDoors,
-} from '../automations/actions/switchboard'
+  REPO_TASK_SOURCE_INTEGRATION_ID,
+  type RepoTaskSourceFrontDoors,
+} from '../automations/repo-task-source'
 import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
 
 export type AutomationsModuleOptions = {
@@ -106,18 +105,18 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const agentLaunchService = host.requireService(AgentLaunchServiceToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
       const terminalRuntime = host.requireService(TerminalRuntimeToken)
-      const switchboardFrontDoors = serviceBackedSwitchboardFrontDoors(() =>
-        host.getService(SwitchboardAutomationFrontDoorsToken)
+      const repoTaskFrontDoors = serviceBackedRepoTaskFrontDoors(() =>
+        host.getService(RepoTaskSourceFrontDoorsToken)
       )
       const sprintEngineFrontDoors = serviceBackedSprintEngineFrontDoors(() =>
         host.getService(SprintEngineAutomationFrontDoorsToken)
       )
       const isIntegrationAvailable = createFirstPartyAutomationIntegrationResolver({
-        hasSwitchboard: () => Boolean(host.getService(SwitchboardAutomationFrontDoorsToken)),
+        hasRepoTaskSource: () => Boolean(host.getService(RepoTaskSourceFrontDoorsToken)),
         hasSprintEngine: () => Boolean(host.getService(SprintEngineAutomationFrontDoorsToken)),
       })
       const providerRegistry = createBuiltInAutomationProviderRegistry({
-        switchboard: switchboardFrontDoors,
+        repoTasks: repoTaskFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
         createSprint: (request) => sprintCreateService.createSprint(request),
       })
@@ -278,27 +277,22 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
 export const automationsModule = createAutomationsModule()
 
 function createFirstPartyAutomationIntegrationResolver(input: {
-  hasSwitchboard(): boolean
+  hasRepoTaskSource(): boolean
   hasSprintEngine(): boolean
 }): (id: string) => boolean | undefined {
   return (id) => {
-    if (id === SWITCHBOARD_AUTOMATION_INTEGRATION_ID) return input.hasSwitchboard()
-    if (id === WATCHTOWER_AUTOMATION_INTEGRATION_ID) return input.hasSwitchboard()
+    if (id === REPO_TASK_SOURCE_INTEGRATION_ID) return input.hasRepoTaskSource()
     if (id === SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID) return input.hasSprintEngine()
     return undefined
   }
 }
 
-function serviceBackedSwitchboardFrontDoors(
-  resolve: () => SwitchboardAutomationFrontDoors | undefined
-): SwitchboardAutomationFrontDoors {
+function serviceBackedRepoTaskFrontDoors(
+  resolve: () => RepoTaskSourceFrontDoors | undefined
+): RepoTaskSourceFrontDoors {
   return {
     readAllTasks: async (input) =>
-      resolve()?.readAllTasks(input) ?? { ok: false, message: 'Switchboard is unavailable.' },
-    tickRunner: async (input) =>
-      resolve()?.tickRunner(input) ?? { ok: false, message: 'Switchboard is unavailable.' },
-    startWatchtowerReview: async (input) =>
-      resolve()?.startWatchtowerReview(input) ?? { ok: false, message: 'Watchtower is unavailable.' },
+      resolve()?.readAllTasks(input) ?? { ok: false, message: 'No repo task source is available.' },
   }
 }
 

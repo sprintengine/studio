@@ -48,5 +48,5 @@ assert.equal(
     'reviewer'
   ),
   'bypass',
-  'Watchtower and specialist agents keep their per-agent permission preset'
+  'specialist-kind agents keep their per-agent permission preset'
 )

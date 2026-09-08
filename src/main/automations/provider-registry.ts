@@ -8,8 +8,8 @@ import {
   createSprintEngineStartActionProvider,
   type SprintEngineAutomationFrontDoors,
 } from './actions/sprint-engine'
-import { createSwitchboardAutomationActionProviders, type SwitchboardAutomationFrontDoors } from './actions/switchboard'
 import { scheduleTriggerProvider } from './schedule'
+import type { RepoTaskSourceFrontDoors } from './repo-task-source'
 import { createRepoEventTriggerProvider } from './triggers/repo-event'
 import {
   createSprintEngineRunCompletedTriggerProvider,
@@ -19,11 +19,14 @@ import { createSprintEngineRunLandedTriggerProvider } from './triggers/sprint-en
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
 export const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
-export const SWITCHBOARD_PROVIDER_MODULE_ID = 'switchboard'
 export const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
 
 export type BuiltInAutomationProviderRegistryOptions = {
-  switchboard?: SwitchboardAutomationFrontDoors
+  /**
+   * Backs the GitHub/Jira `repo-event` trigger. Supplying it registers the
+   * trigger; a host without one advertises no repo-event family at all.
+   */
+  repoTasks?: RepoTaskSourceFrontDoors
   sprintEngine?: SprintEngineAutomationFrontDoors
   /**
    * Sprint creation for the `sprint-engine-start` action, backed by main's
@@ -134,11 +137,10 @@ export function createBuiltInAutomationProviderRegistry(
   registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createWebhookTriggerProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createSpawnAgentActionProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRunSkillLoopActionProvider())
-  if (options.switchboard) {
-    registry.registerTriggerProvider(SWITCHBOARD_PROVIDER_MODULE_ID, createRepoEventTriggerProvider(options.switchboard))
-    for (const provider of createSwitchboardAutomationActionProviders(options.switchboard)) {
-      registry.registerActionProvider(SWITCHBOARD_PROVIDER_MODULE_ID, provider)
-    }
+  // The repo-event trigger is owned by the automations module itself now: the
+  // repo task source is data it reads, not the module that contributes it.
+  if (options.repoTasks) {
+    registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRepoEventTriggerProvider(options.repoTasks))
   }
   if (options.sprintEngine) {
     registry.registerActionProvider(

@@ -16,11 +16,9 @@ import {
   normalizeGuidedBriefState,
 } from './guidedBriefSlice'
 import {
-  consolidateSwitchboardWorkspaceLayout,
   hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
-  markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   sprintEngineTabsLayoutModel,
   healRetiredRailLayout,
@@ -765,12 +763,9 @@ export function migratePersistedWorkspaceState(
       ),
     }))
   }
-  if (version < 47) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const next = markSwitchboardAnchorTabsSticky(ws.layoutModel)
-      return next ? { ...ws, layoutModel: next } : ws
-    })
-  }
+  // v47 and v50 forwarded the layouts of a workspace mode that has since been
+  // retired. `healRetiredRailLayout` now strips that mode's tabs on every
+  // hydration, so the two rungs are dropped rather than kept as no-ops.
   if (version < 48) {
     // Sprint Engine: Inbox / Roster / Tasks are now internal segmented chrome
     // inside SprintEngineBoardPanel rather than three closeable FlexLayout
@@ -786,16 +781,6 @@ export function migratePersistedWorkspaceState(
     // board in existing layouts without rewriting custom arrangements.
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = hideSprintEngineBoardTabStrip(ws.layoutModel)
-      return next ? { ...ws, layoutModel: next } : ws
-    })
-  }
-  if (version < 50) {
-    // Switchboard workspaces now anchor on a single 'switchboard-workspace'
-    // wrapper whose internal icon sub-nav switches between Watchtower and
-    // Switchboard. Forward existing layouts that still ship the two
-    // separate component tabs to the wrapper shape.
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const next = consolidateSwitchboardWorkspaceLayout(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws
     })
   }

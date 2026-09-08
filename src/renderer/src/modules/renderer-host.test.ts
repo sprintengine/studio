@@ -46,11 +46,11 @@ function workspaceType(id: string, pickerOrder?: number): WorkspaceTypeDefinitio
 
 const host = createRendererHost()
 const sprintType = workspaceType('sprintengine', 20)
-const switchboardType = workspaceType('switchboard', 10)
+const notesType = workspaceType('notes', 10)
 const notebookType = workspaceType('notebook', 10)
 
 host.hostFor('sprint-engine').registerWorkspaceType(sprintType)
-host.hostFor('switchboard').registerWorkspaceType(switchboardType)
+host.hostFor('notes').registerWorkspaceType(notesType)
 host.hostFor('notebook').registerWorkspaceType(notebookType)
 
 assert.throws(
@@ -76,17 +76,17 @@ assert.throws(
 
 assert.equal(host.getWorkspaceType('sprintengine')?.moduleId, 'sprint-engine')
 assert.equal(host.getWorkspaceType('sprintengine')?.createTemplate(), template)
-assert.equal(host.getWorkspaceTypeModule('switchboard'), 'switchboard')
+assert.equal(host.getWorkspaceTypeModule('notes'), 'notes')
 assert.equal(host.getWorkspaceType('missing'), undefined)
 assert.equal(host.getWorkspaceTypeModule('missing'), undefined)
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['notebook', 'switchboard', 'sprintengine'],
+  ['notebook', 'notes', 'sprintengine'],
   'workspace types sort by pickerOrder, then id',
 )
 assert.deepEqual(
-  host.getWorkspaceTypes((moduleId) => moduleId !== 'switchboard').map((definition) => definition.id),
+  host.getWorkspaceTypes((moduleId) => moduleId !== 'notes').map((definition) => definition.id),
   ['notebook', 'sprintengine'],
   'disabled modules are filtered from workspace type listings',
 )

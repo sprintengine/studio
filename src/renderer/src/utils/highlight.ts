@@ -164,7 +164,6 @@ export function hasHighlightOverride(
 
 const WORKSPACE_MODE_ACCENT_HEX: Record<WorkspaceMode, string | null> = {
   sprintengine: '#ffbf2f',
-  switchboard: '#a78bfa',
   'guided-brief': '#7c5cf2',
   standard: null,
 }

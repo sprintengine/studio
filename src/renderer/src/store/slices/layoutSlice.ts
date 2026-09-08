@@ -128,6 +128,19 @@ export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
   )
 }
 
+// Components whose modules were retired. A profile written by an older build
+// still names them in its persisted layout, and the model registry no longer
+// resolves them, so a surviving tab would render an empty surface — drop them
+// on hydration the same way the rail-to-pane move drops its tabs.
+const RETIRED_MODULE_TAB_COMPONENTS = ['switchboard-workspace', 'switchboard-board', 'watchtower-panel']
+
+export function stripRetiredModuleTabsFromLayout(layoutModel: unknown): unknown {
+  return RETIRED_MODULE_TAB_COMPONENTS.reduce(
+    (model, component) => stripComponentTabsFromLayout(model, component),
+    layoutModel,
+  )
+}
+
 /**
  * The whole rail-to-pane move for one workspace record: seed the pane from a
  * layout that still docks Files/Git/Backlog (only when the record carries no
@@ -142,47 +155,13 @@ export function healRetiredRailLayout(ws: Workspace): Workspace {
   const paneState = ws.paneState
     ? adoptLegacyBacklogTab(ws.layoutModel, ws.paneState)
     : paneStateFromLegacyLayout(ws.layoutModel)
-  const layoutModel = stripRetiredRailTabsFromLayout(ws.layoutModel)
+  const layoutModel = stripRetiredModuleTabsFromLayout(stripRetiredRailTabsFromLayout(ws.layoutModel))
   if (paneState === ws.paneState && layoutModel === ws.layoutModel) return ws
   return {
     ...ws,
     layoutModel: layoutModel as Workspace['layoutModel'],
     ...(paneState ? { paneState } : {}),
   }
-}
-
-const STICKY_TAB_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])
-
-function markStickyTabsInLayoutNode(node: unknown): unknown {
-  if (!node || typeof node !== 'object') return node
-  const record = node as Record<string, unknown>
-
-  if (
-    record.type === 'tab'
-    && typeof record.component === 'string'
-    && STICKY_TAB_COMPONENTS.has(record.component)
-  ) {
-    return { ...record, enableClose: false, enableDrag: false }
-  }
-
-  const rawChildren = record.children
-  if (!Array.isArray(rawChildren)) return record
-
-  const nextChildren = rawChildren.map((child) => markStickyTabsInLayoutNode(child))
-  return { ...record, children: nextChildren }
-}
-
-// Switchboard workspaces anchor on Watchtower + Switchboard panels. Disable
-// close/drag on those specific tabs in existing user layouts so they behave
-// like persistent workspace surfaces rather than disposable document tabs.
-export function markSwitchboardAnchorTabsSticky(
-  layoutModel: IJsonModel | null | undefined
-): IJsonModel | null | undefined {
-  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
-  const layout = layoutModel.layout
-  if (!layout) return layoutModel
-  const nextLayout = markStickyTabsInLayoutNode(layout)
-  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 
 function tabsetContainsSprintEngineBoard(record: Record<string, unknown>): boolean {
@@ -322,81 +301,6 @@ export function hideNavRailTabStrip(
   const layout = layoutModel.layout
   if (!layout) return layoutModel
   const nextLayout = hideNavRailTabStripInNode(layout)
-  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
-}
-
-const LEGACY_SWITCHBOARD_COMPONENTS = new Set(['watchtower-panel', 'switchboard-board'])
-
-function consolidateSwitchboardTabsInNode(node: unknown): unknown {
-  if (!node || typeof node !== 'object') return node
-  const record = node as Record<string, unknown>
-
-  if (record.type === 'tabset') {
-    const children = Array.isArray(record.children) ? record.children : []
-    const newChildren: unknown[] = []
-    let wrapperInserted = false
-    for (const child of children) {
-      const childRec = child && typeof child === 'object' ? (child as Record<string, unknown>) : null
-      if (
-        childRec?.type === 'tab'
-        && typeof childRec.component === 'string'
-        && LEGACY_SWITCHBOARD_COMPONENTS.has(childRec.component)
-      ) {
-        if (!wrapperInserted) {
-          newChildren.push({
-            type: 'tab',
-            name: 'Switchboard',
-            component: 'switchboard-workspace',
-            enableClose: false,
-          })
-          wrapperInserted = true
-        }
-        // Collapse any additional legacy tabs into the single wrapper.
-        continue
-      }
-      newChildren.push(child)
-    }
-    const next: Record<string, unknown> = { ...record, children: newChildren }
-    if (wrapperInserted && newChildren.length === 1) {
-      next.enableTabStrip = false
-    }
-    return next
-  }
-
-  if (Array.isArray(record.children)) {
-    return { ...record, children: record.children.map(consolidateSwitchboardTabsInNode) }
-  }
-
-  return record
-}
-
-function layoutContainsLegacySwitchboardTabs(node: unknown): boolean {
-  if (!node || typeof node !== 'object') return false
-  const record = node as Record<string, unknown>
-  if (
-    record.type === 'tab'
-    && typeof record.component === 'string'
-    && LEGACY_SWITCHBOARD_COMPONENTS.has(record.component)
-  ) {
-    return true
-  }
-  if (!Array.isArray(record.children)) return false
-  return record.children.some(layoutContainsLegacySwitchboardTabs)
-}
-
-// Forward layouts that still carry separate 'watchtower-panel' and
-// 'switchboard-board' tabs to a single 'switchboard-workspace' wrapper tab
-// inside the same tabset. The wrapper's tabset gets enableTabStrip: false
-// when it ends up containing only the wrapper, matching the Sprint Engine
-// pattern. Non-Switchboard workspaces are untouched.
-export function consolidateSwitchboardWorkspaceLayout(
-  layoutModel: IJsonModel | null | undefined
-): IJsonModel | null | undefined {
-  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
-  const layout = layoutModel.layout
-  if (!layout) return layoutModel
-  if (!layoutContainsLegacySwitchboardTabs(layout)) return layoutModel
-  const nextLayout = consolidateSwitchboardTabsInNode(layout)
   return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 

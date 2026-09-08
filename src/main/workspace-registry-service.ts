@@ -75,7 +75,7 @@ export type WorkspaceCreateResult = {
   workspace: WorkspaceRegistryRecord
   windowId: WorkspaceWindowId
   folderPath: string | null
-  /** True when an existing one-per-project host/switchboard was reused. */
+  /** True when an existing one-per-project host workspace was reused. */
   reused: boolean
 }
 

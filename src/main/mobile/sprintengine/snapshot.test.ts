@@ -27,7 +27,6 @@ import {
   type MobileControlRoleDescriptor,
   type MobileControlSnapshot,
 } from '../../../shared/mobile-control/protocol'
-import type { SwitchboardFolderStatus, SwitchboardTaskRecord, SwitchboardTaskStatus } from '../../../shared/switchboard'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
 const requiredMutationCommands = [
@@ -727,76 +726,10 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     artifacts: [artifact('A1', 'architect_plan', 'approved', 'T1')],
   })
   const workspaceRoot = workspaceRootForStatePath(statePath)
-  const service = new MobileSprintEngineSnapshotService({
-    stateReaders: {
-      readSwitchboardTasks: async () => ({
-        ok: true,
-        workspaceRoot,
-        switchboardRoot: join(workspaceRoot, '.multi-code', 'switchboard'),
-        tasks: [
-          switchboardRecord('inbox', 'Inbox task', generatedAt),
-          switchboardRecord('ready', 'Ready task', generatedAt),
-        ],
-        problems: [],
-      }),
-      getSwitchboardRunnerState: async () => ({
-        ok: true,
-        workspaceRoot,
-        enabled: true,
-        running: true,
-        paused: false,
-        provider: 'electron-session',
-        cli: 'codex',
-        maxConcurrency: 1,
-        queues: ['ready'],
-        activeExecutions: [
-          {
-            kind: 'switchboard_task',
-            executionId: 'exec_1',
-            taskId: 'task_1',
-            claimedFrom: 'ready',
-            claimedStatus: 'in_progress',
-            role: 'developer',
-            provider: 'electron-session',
-            providerRef: {},
-            startedAt: generatedAt,
-            lastSeenAt: generatedAt,
-            status: 'active',
-          },
-        ],
-        lastError: null,
-        updatedAt: generatedAt,
-      }),
-      listWatchtowerRuns: async () => ({
-        ok: true,
-        runs: [
-          {
-            schemaVersion: 1,
-            runId: 'run_1',
-            status: 'completed',
-            createdAt: generatedAt,
-            completedAt: generatedAt,
-            workspaceRoot,
-            preset: 'standard',
-            agents: [
-              {
-                agentId: 'watchtower-agent-1',
-                specialistId: 'reviewer',
-                status: 'completed',
-                outputDir: 'watchtower/run_1/agent_1',
-                reportPath: 'watchtower/run_1/agent_1/report.md',
-                taskIds: ['watchtower-task-1', 'watchtower-task-2'],
-              },
-            ],
-            counts: { valid: 1, invalid: 0, ingested: 2 },
-          },
-        ],
-      }),
-    },
-  })
+  const service = new MobileSprintEngineSnapshotService()
 
-  // The switchboard/watchtower projections are off in the default
-  // composition (item 1600); a surface that wants them names `desktopWorkspaces`.
+  // `desktopWorkspaces` is off in the default composition (item 1600) and no
+  // longer has a producer; naming it is tolerated and contributes nothing.
   const snapshot = await service.readSnapshot({
     desktopSessionId: 'desktop_1',
     statePaths: [statePath],
@@ -818,27 +751,10 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
   assert.equal(richTask.reviewSignals?.findingCount, 1)
   assert.equal(richTask.release?.reason, 'stale owner')
 
-  assert.deepEqual(snapshot.workspaces?.map((workspace) => workspace.kind), [
-    'sprintengine',
-    'switchboard',
-    'watchtower',
-  ])
-  assert.deepEqual(snapshot.workspaces?.find((workspace) => workspace.kind === 'switchboard')?.capabilities, ['summary.read', 'detail.read'])
-  assert.deepEqual(snapshot.workspaces?.find((workspace) => workspace.kind === 'watchtower')?.capabilities, ['summary.read', 'detail.read'])
+  // Only the sprint-engine projection ships now: asking for
+  // `desktopWorkspaces` no longer adds a workspace of any other kind.
+  assert.deepEqual(snapshot.workspaces?.map((workspace) => workspace.kind), ['sprintengine'])
   assert.equal(snapshot.workspaces?.some((workspace) => (workspace.capabilities as string[]).includes('tasks.move')), false)
-  assert.equal(snapshot.workspaces?.find((workspace) => workspace.kind === 'switchboard')?.summary.counts?.inbox, 1)
-  assert.equal(snapshot.workspaces?.find((workspace) => workspace.kind === 'watchtower')?.summary.counts?.generatedInboxItems, 2)
-  const switchboardDetail = snapshot.workspaces?.find((workspace) => workspace.kind === 'switchboard')?.detail
-  assert.equal(switchboardDetail?.kind, 'switchboard')
-  assert.equal(switchboardDetail?.kind === 'switchboard' ? switchboardDetail.data.tasks?.[0]?.title : '', 'Ready task')
-  assert.equal(switchboardDetail?.kind === 'switchboard' ? switchboardDetail.data.inboxItems?.[0]?.title : '', 'Inbox task')
-  assert.equal(switchboardDetail?.kind === 'switchboard' ? switchboardDetail.data.comments?.[0]?.body : '', 'Latest mobile-visible comment')
-  assert.equal(switchboardDetail?.kind === 'switchboard' ? switchboardDetail.data.evidence?.[0]?.commandCount : 0, 1)
-  assert.equal(switchboardDetail?.kind === 'switchboard' ? switchboardDetail.data.logs?.[0]?.executionId : '', 'exec_task_ready')
-  const watchtowerDetail = snapshot.workspaces?.find((workspace) => workspace.kind === 'watchtower')?.detail
-  assert.equal(watchtowerDetail?.kind, 'watchtower')
-  assert.equal(watchtowerDetail?.kind === 'watchtower' ? watchtowerDetail.data.runs?.[0]?.runId : '', 'run_1')
-  assert.equal(watchtowerDetail?.kind === 'watchtower' ? watchtowerDetail.data.generatedInboxItems?.length : 0, 2)
   service.shutdown()
 }
 
@@ -890,9 +806,6 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   )
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       // The real reader spawns the Sprint Engine MCP; stub it so this stays a unit test.
       readRoleCatalog: async () => [
         { roleId: 'architect', label: 'Architect', summary: 'Plans the run.', source: 'bundled' },
@@ -976,9 +889,6 @@ async function assertAutomationsJoinTheirSprintEngineOnProjectKey(): Promise<voi
 
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readRoleCatalog: async () => [],
     },
   })
@@ -1009,7 +919,7 @@ async function assertAutomationsJoinTheirSprintEngineOnProjectKey(): Promise<voi
 // (item 1599). It must be content-derived — no per-read wall-clock — or the fast
 // path can never match on an idle read. This reads the SAME on-disk state twice
 // WITHOUT a supplied `generatedAt`, so each read stamps its own `new Date()`; the
-// version must not move. Backlog, an automation, and a watchtower workspace (whose
+// version must not move. Backlog and an automation (whose
 // own `updatedAt` is that read's `generatedAt`) are all present, so the read-time
 // stamp is stripped from every collection it could leak through, not just the top.
 async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promise<void> {
@@ -1037,24 +947,6 @@ async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promis
   })
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({
-        ok: true,
-        runs: [
-          {
-            schemaVersion: 1,
-            runId: 'run_1',
-            status: 'completed',
-            createdAt: generatedAt,
-            completedAt: generatedAt,
-            workspaceRoot,
-            preset: 'standard',
-            agents: [],
-            counts: { valid: 1, invalid: 0, ingested: 0 },
-          },
-        ],
-      }),
       readRoleCatalog: async () => [],
     },
   })
@@ -1067,9 +959,6 @@ async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promis
   assert.notEqual(first.generatedAt, second.generatedAt)
   assert.equal(second.snapshotVersion, first.snapshotVersion,
     'the top-level snapshotVersion is content-derived and stable across idle reads')
-  // Sanity: the watchtower workspace really is present, so its read-time updatedAt
-  // was stripped rather than absent.
-  assert.equal(first.workspaces?.some((workspace) => workspace.kind === 'watchtower'), true)
   service.shutdown()
 }
 
@@ -1185,9 +1074,6 @@ async function assertSprintEngineChangeBumpsTopLevelSnapshotVersion(): Promise<v
 function backlogAutomationsUnitService(): MobileSprintEngineSnapshotService {
   return new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readRoleCatalog: async () => [],
     },
   })
@@ -1241,9 +1127,6 @@ async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
 
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readRoleCatalog: async () => [],
     },
   })
@@ -1295,9 +1178,6 @@ async function assertShedDropsRecentRunsBeforeAnySprintEngine(): Promise<void> {
   })
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readRoleCatalog: async () => [],
     },
   })
@@ -1489,9 +1369,6 @@ async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
 
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       // A registry that cannot be read publishes no catalog — the backlog is
       // unaffected, and the phone falls back to its bundled list (MC-1543).
       readRoleCatalog: async () => undefined,
@@ -1540,9 +1417,6 @@ async function assertEmptyRoleCatalogIsDistinctFromAnUnreadableOne(): Promise<vo
   const readWith = async (readRoleCatalog: (workspaceRoot: string) => Promise<MobileControlRoleDescriptor[] | undefined>) => {
     const service = new MobileSprintEngineSnapshotService({
       stateReaders: {
-        readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-        getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-        listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
         readRoleCatalog,
       },
     })
@@ -1581,11 +1455,6 @@ async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
     artifacts: [],
   })
   const service = new MobileSprintEngineSnapshotService({
-    stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-    },
   })
 
   const snapshot = await service.readSnapshot({
@@ -1605,11 +1474,6 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
     artifacts: [],
   })
   const service = new MobileSprintEngineSnapshotService({
-    stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-    },
   })
 
   const snapshot = await service.readSnapshot({
@@ -1624,7 +1488,7 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
 }
 
 // Item 1600 part 1: the unscoped default keeps every live run but only the
-// most-recent few terminal ones, and drops the switchboard/watchtower
+// most-recent few terminal ones, and drops the desktop-workspace
 // projections entirely.
 async function assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow(): Promise<void> {
   // Newest-first, mirroring discovery's updatedAt-descending order.
@@ -1650,7 +1514,7 @@ async function assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow(): Promis
   // Both live runs plus the three most-recent terminal runs survive; the fourth is shed.
   assert.deepEqual(ids, ['done-1', 'done-2', 'done-3', 'live-a', 'live-b'])
   assert.equal(snapshot.sprintEngines.some((sprintEngine) => sprintEngine.sprintEngineId === 'done-4'), false)
-  // Default composition carries no switchboard/watchtower projections.
+  // Default composition carries no desktop-workspace projections.
   assert.equal(snapshot.workspaces?.every((workspace) => workspace.kind === 'sprintengine'), true)
   service.shutdown()
 }
@@ -1952,60 +1816,3 @@ function workspaceRootForStatePath(statePath: string): string {
   return dirname(dirname(dirname(dirname(statePath))))
 }
 
-function switchboardRecord(folderStatus: SwitchboardFolderStatus, title: string, updatedAt: string): SwitchboardTaskRecord {
-  const taskState: SwitchboardTaskStatus = folderStatus === 'inbox' ? 'todo' : folderStatus
-  return {
-    location: {
-      folderStatus,
-      path: `.multi-code/switchboard/${folderStatus}/task.json`,
-    },
-    warnings: [],
-    task: {
-      schemaVersion: 1,
-      id: `task_${folderStatus}`,
-      identifier: `TASK-${folderStatus}`,
-      title,
-      description: title,
-      priority: null,
-      state: taskState,
-      branchName: null,
-      url: null,
-      labels: [],
-      blockedBy: [],
-      source: { type: folderStatus === 'inbox' ? 'watchtower' : 'manual', externalKey: `${folderStatus.toUpperCase()}-1` },
-      claim: null,
-      execution: {
-        attempts: folderStatus === 'ready'
-          ? [{
-              id: 'exec_task_ready',
-              agentId: 'developer-1',
-              startedAt: updatedAt,
-              completedAt: updatedAt,
-              summary: 'Completed ready task execution.',
-              worktreePath: null,
-            }]
-          : [],
-        worktreePath: null,
-        activeSessionId: null,
-      },
-      evidence: {
-        summary: folderStatus === 'ready' ? 'Ready task evidence' : '',
-        artifacts: [],
-        commandsRun: folderStatus === 'ready' ? ['npm test'] : [],
-        touchedFiles: folderStatus === 'ready' ? ['src/main/mobile/sprintengine/snapshot.ts'] : [],
-      },
-      comments: folderStatus === 'ready'
-        ? [{
-            id: 'comment_ready_1',
-            author: { type: 'agent', id: 'developer-1', name: 'Developer' },
-            kind: 'comment',
-            body: 'Latest mobile-visible comment',
-            createdAt: updatedAt,
-            confidencePct: 90,
-          }]
-        : [],
-      createdAt: updatedAt,
-      updatedAt,
-    },
-  }
-}

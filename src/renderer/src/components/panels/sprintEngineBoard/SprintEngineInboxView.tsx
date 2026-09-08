@@ -30,7 +30,7 @@ import {
 
 // Inbox tab: list + detail. The artifact queue sits in the primary content
 // column on the left; the inspector fills the remaining width when something
-// is selected, and a quiet empty state when not. This matches Watchtower's
+// is selected, and a quiet empty state when not. This matches the review inbox's
 // two-pane chrome — the roster lives on its own tab now, so the right pane
 // never has to compete for width with a third column. The "Inbox · N"
 // header and search live inside the list pane so the active tab carries

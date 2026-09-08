@@ -44,8 +44,6 @@ const TONES: { tone: Tone; label: string; supporting: string }[] = [
 ]
 
 const TOOLS: { id: ToolIdentity; label: string }[] = [
-  { id: 'switchboard', label: 'Switchboard' },
-  { id: 'watchtower', label: 'Watchtower' },
   { id: 'sprintengine', label: 'Sprint engine' },
 ]
 
@@ -386,7 +384,7 @@ export function PrimitivePreview() {
           <Toast
             tone="error"
             title="Lint failed"
-            description="3 violations in SwitchboardBoardPanel.tsx."
+            description="3 violations in AgentChatView.tsx."
             onDismiss={() => undefined}
           />
           <div className="flex items-center gap-2">

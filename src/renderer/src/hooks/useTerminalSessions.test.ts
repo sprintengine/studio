@@ -116,7 +116,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   ]
   assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(exited))
 
-  // Execution identity is how Switchboard/Sprint Engine panels connect a running
+  // Execution identity is how the Sprint Engine panels connect a running
   // task to its terminal.
   const executionChanged = [
     session({

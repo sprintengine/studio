@@ -494,10 +494,10 @@ export const sprintEngineRoleAccent: Record<SprintEngineRole, string> = {
 export const sprintEngineNeutralRoleAccent = '#7a8190'
 
 // Maps a SpecialistAction.soulRole string to the canonical bundled
-// SprintEngineRole so Watchtower (and any other panel showing specialists)
+// SprintEngineRole so any panel showing specialists
 // can render the same icon disc + role accent + role label that Sprint
 // Engine uses. This mapping is intentionally scoped to non-registry
-// specialist compatibility: it converts a fixed-set Watchtower specialist
+// specialist compatibility: it converts a fixed-set legacy specialist
 // identifier into a bundled Sprint Engine role for icon/accent reuse and
 // must not be used to coerce registry-discovered role ids. Returns null
 // for specialists with no bundled Sprint Engine equivalent (devops,

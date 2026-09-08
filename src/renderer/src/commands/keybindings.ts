@@ -197,19 +197,14 @@ export function keybindingToKbdKeys(input: string | KeybindingChord, platform: K
 }
 
 // Persisted keybinding overrides / disabled flags are keyed by command id.
-// When a command's id migrates (e.g. Watchtower's commands re-namespaced
-// under the switchboard module by MC-1533), the user's persisted settings
-// keep working through this map. Keys are the CURRENT ids, values the legacy
-// ids they replaced; every read of persisted keybinding state consults it.
+// When a command's id migrates (e.g. the voice toggle moving onto its own
+// module), the user's persisted settings keep working through this map. Keys
+// are the CURRENT ids, values the legacy ids they replaced; every read of
+// persisted keybinding state consults it. Aliases for commands that no longer
+// exist are dropped: an override keyed by a retired id is simply ignored.
 export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
   // Voice toggle moved from the shell registry onto the voice-dictation
   // module (MC-1861), so a user-reassigned or user-disabled `voice.toggle`
   // binding keeps winning over the module's default.
   'voice-dictation.toggle': 'voice.toggle',
-  'switchboard.watchtower.run.review': 'watchtower.run.review',
-  'switchboard.watchtower.triage.inbox': 'watchtower.triage.inbox',
-  'switchboard.watchtower.open.active-review': 'watchtower.open.active-review',
-  'switchboard.watchtower.import.github': 'watchtower.import.github',
-  'switchboard.watchtower.import.jira': 'watchtower.import.jira',
-  'switchboard.watchtower.refresh.board': 'watchtower.refresh.board',
 }

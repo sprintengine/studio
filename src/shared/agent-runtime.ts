@@ -2,7 +2,7 @@ import type { AgentPhase, AgentSessionSystem } from './electron-api'
 
 // Generic agent-session runtime contracts. These describe how the core
 // terminal runtime spawns, inventories, and reports exits for *any* system's
-// agent sessions (switchboard, watchtower, sprintengine, …). System-specific
+// agent sessions (sprintengine, automations, …). System-specific
 // modules layer their own behavior on top via the runtime's generic seams.
 
 export type AgentInjectionMode =

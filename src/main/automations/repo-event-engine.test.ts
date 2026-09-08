@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { AutomationDefinition } from '../../shared/automations/contracts'
-import type { SwitchboardTaskRecord } from '../../shared/switchboard'
+import { REPO_TASK_IMPORT_AUTHOR_ID, REPO_TASK_SOURCE_INTEGRATION_ID, type RepoTaskRecord } from './repo-task-source'
 import { AutomationsEngine } from './engine'
 import { TRIGGER_EVENT_DEDUP_RETENTION_LIMIT } from './polling-trigger-runner'
 import { AutomationsStore } from './store'
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   await assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
   await assertRepoEventCreatedTriggerFiresFromImportMetadata()
   await assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTimestamp()
-  await assertRepoEventTriggerBlocksWhenSwitchboardUnsynced()
+  await assertRepoEventTriggerBlocksWhenRepoTasksUnsynced()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -59,19 +59,13 @@ function repoEventDefinition(overrides: Partial<AutomationDefinition> = {}): Aut
   })
 }
 
-function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']> = {}): SwitchboardTaskRecord {
+function repoTaskRecord(overrides: Partial<RepoTaskRecord['task']> = {}): RepoTaskRecord {
   const task = {
-    schemaVersion: 1 as const,
     id: 'task-1',
     identifier: 'GH-1',
     title: 'Fix issue',
-    description: 'Synced from GitHub.',
-    priority: null,
     state: 'todo' as const,
-    branchName: null,
-    url: 'https://github.com/acme/repo/issues/1',
     labels: ['bug'],
-    blockedBy: [],
     source: {
       type: 'github' as const,
       externalId: 'github-node-1',
@@ -79,40 +73,19 @@ function switchboardTaskRecord(overrides: Partial<SwitchboardTaskRecord['task']>
       externalUrl: 'https://github.com/acme/repo/issues/1',
       externalUpdatedAt: '2026-06-17T09:00:00.000Z',
     },
-    claim: null,
-    execution: {
-      attempts: [],
-      worktreePath: null,
-      activeSessionId: null,
-    },
-    evidence: {
-      summary: '',
-      artifacts: [],
-      commandsRun: [],
-      touchedFiles: [],
-    },
     comments: [
       importComment(),
     ],
-    createdAt: '2026-06-17T09:00:00.000Z',
-    updatedAt: '2026-06-17T09:00:00.000Z',
     ...overrides,
   }
 
-  return {
-    task,
-    location: {
-      folderStatus: 'todo',
-      path: `.multi-code/switchboard/todo/${task.id}.json`,
-    },
-    warnings: [],
-  }
+  return { task }
 }
 
-function importComment(overrides: Partial<SwitchboardTaskRecord['task']['comments'][number]> = {}) {
+function importComment(overrides: Partial<RepoTaskRecord['task']['comments'][number]> = {}) {
   return {
     id: 'import-created',
-    author: { type: 'system' as const, id: 'switchboard-import', name: 'Switchboard Import' },
+    author: { type: 'system' as const, id: REPO_TASK_IMPORT_AUTHOR_ID, name: 'Repo Import' },
     kind: 'import' as const,
     body: 'Imported from github.',
     createdAt: '2026-06-17T09:05:00.000Z',
@@ -130,14 +103,12 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   assert.equal((await store.createDefinition(repoEventDefinition())).ok, true)
 
-  let syncedTasks = [switchboardTaskRecord()]
+  let syncedTasks = [repoTaskRecord()]
   const provider = createRepoEventTriggerProvider({
     readAllTasks: async (input) => ({
       ok: true,
       workspaceRoot: input.workspaceRoot,
-      switchboardRoot: '/switchboard',
       tasks: syncedTasks,
-      problems: [],
     }),
   })
   const triggerPayloads: Record<string, unknown>[] = []
@@ -146,7 +117,7 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
     new AutomationsEngine({
       getProjectFolders: () => [{ workspaceId: 'ws-repo-events', folderPath: workspaceRoot }],
       triggerProviders: [provider],
-      isIntegrationAvailable: (id) => id === 'module:switchboard',
+      isIntegrationAvailable: (id) => id === REPO_TASK_SOURCE_INTEGRATION_ID,
       now: () => now,
       createRunId: () => `repo-event-run-${runIndex += 1}`,
       runAutomation: async (input) => {
@@ -175,7 +146,7 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   assert.equal(triggerPayloads.length, 1)
 
   syncedTasks = [
-    switchboardTaskRecord({
+    repoTaskRecord({
       updatedAt: '2026-06-17T13:00:00.000Z',
     }),
   ]
@@ -184,7 +155,7 @@ async function assertRepoEventTriggerFiresOnceAndDedupesAcrossRestart(): Promise
   assert.equal(triggerPayloads.length, 1)
 
   syncedTasks = [
-    switchboardTaskRecord({
+    repoTaskRecord({
       updatedAt: '2026-06-17T13:05:00.000Z',
       source: {
         type: 'github',
@@ -238,8 +209,8 @@ async function assertRepoEventTriggerSharesReadAllWithinEngineTick(): Promise<vo
     externalUrl: 'https://github.com/acme/repo/issues/1',
     externalUpdatedAt,
   })
-  let syncedTasks: SwitchboardTaskRecord[] = [
-    switchboardTaskRecord({ source: sourceForExternalUpdatedAt('2026-06-17T09:00:00.000Z') }),
+  let syncedTasks: RepoTaskRecord[] = [
+    repoTaskRecord({ source: sourceForExternalUpdatedAt('2026-06-17T09:00:00.000Z') }),
   ]
   let readAllCalls = 0
   const provider = createRepoEventTriggerProvider({
@@ -248,9 +219,7 @@ async function assertRepoEventTriggerSharesReadAllWithinEngineTick(): Promise<vo
       return {
         ok: true,
         workspaceRoot: input.workspaceRoot,
-        switchboardRoot: '/switchboard',
-        tasks: syncedTasks.map((record) => clone(record)),
-        problems: [],
+          tasks: syncedTasks.map((record) => clone(record)),
       }
     },
   })
@@ -259,7 +228,7 @@ async function assertRepoEventTriggerSharesReadAllWithinEngineTick(): Promise<vo
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-repo-event-shared-read', folderPath: workspaceRoot }],
     triggerProviders: [provider],
-    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    isIntegrationAvailable: (id) => id === REPO_TASK_SOURCE_INTEGRATION_ID,
     now: () => now,
     createRunId: ({ automationId }) => `${automationId}-${runIndex += 1}`,
     runAutomation: async (input) => {
@@ -283,7 +252,7 @@ async function assertRepoEventTriggerSharesReadAllWithinEngineTick(): Promise<vo
   ])
 
   syncedTasks = [
-    switchboardTaskRecord({
+    repoTaskRecord({
       updatedAt: '2026-06-17T13:00:00.000Z',
       source: sourceForExternalUpdatedAt('2026-06-17T09:30:00.000Z'),
     }),
@@ -320,16 +289,14 @@ async function assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
   })
 
   let now = baseNow
-  let syncedTasks: SwitchboardTaskRecord[] = [
-    switchboardTaskRecord({ source: sourceForIndex(0) }),
+  let syncedTasks: RepoTaskRecord[] = [
+    repoTaskRecord({ source: sourceForIndex(0) }),
   ]
   const provider = createRepoEventTriggerProvider({
     readAllTasks: async (input) => ({
       ok: true,
       workspaceRoot: input.workspaceRoot,
-      switchboardRoot: '/switchboard',
       tasks: syncedTasks,
-      problems: [],
     }),
   })
   const triggerPayloads: Record<string, unknown>[] = []
@@ -337,7 +304,7 @@ async function assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-repo-event-bound', folderPath: workspaceRoot }],
     triggerProviders: [provider],
-    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    isIntegrationAvailable: (id) => id === REPO_TASK_SOURCE_INTEGRATION_ID,
     now: () => now,
     createRunId: () => `repo-event-bound-${runIndex += 1}`,
     runAutomation: async (input) => {
@@ -348,7 +315,7 @@ async function assertRepoEventTriggerDedupStateIsBoundedAndRetainsRecentEvents()
 
   const tickWithExternalUpdate = async (index: number) => {
     now = baseNow + index * 1_000
-    syncedTasks = [switchboardTaskRecord({ source: sourceForIndex(index) })]
+    syncedTasks = [repoTaskRecord({ source: sourceForIndex(index) })]
     return await engine.tick()
   }
 
@@ -402,16 +369,14 @@ async function assertRepoEventCreatedTriggerFiresFromImportMetadata(): Promise<v
     readAllTasks: async (input) => ({
       ok: true,
       workspaceRoot: input.workspaceRoot,
-      switchboardRoot: '/switchboard',
-      tasks: [switchboardTaskRecord()],
-      problems: [],
+      tasks: [repoTaskRecord()],
     }),
   })
   const triggerPayloads: Record<string, unknown>[] = []
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-repo-event-created', folderPath: workspaceRoot }],
     triggerProviders: [provider],
-    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    isIntegrationAvailable: (id) => id === REPO_TASK_SOURCE_INTEGRATION_ID,
     now: () => now,
     createRunId: () => 'repo-event-created-run',
     runAutomation: async (input) => {
@@ -441,9 +406,8 @@ async function assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTime
     readAllTasks: async (input) => ({
       ok: true,
       workspaceRoot: input.workspaceRoot,
-      switchboardRoot: '/switchboard',
       tasks: [
-        switchboardTaskRecord({
+        repoTaskRecord({
           source: {
             type: 'github',
             externalId: 'github-node-1',
@@ -457,7 +421,7 @@ async function assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTime
             }),
           ],
         }),
-        switchboardTaskRecord({
+        repoTaskRecord({
           id: 'task-2',
           identifier: 'GH-2',
           title: 'Invalid external timestamp',
@@ -470,7 +434,6 @@ async function assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTime
           },
         }),
       ],
-      problems: [],
     }),
   })
 
@@ -484,7 +447,7 @@ async function assertRepoEventIgnoresForgedImportCommentAndInvalidStructuredTime
   assert.deepEqual(result?.ok ? result.events : [], [])
 }
 
-async function assertRepoEventTriggerBlocksWhenSwitchboardUnsynced(): Promise<void> {
+async function assertRepoEventTriggerBlocksWhenRepoTasksUnsynced(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   const now = Date.parse('2026-06-17T10:00:00.000Z')
@@ -494,16 +457,14 @@ async function assertRepoEventTriggerBlocksWhenSwitchboardUnsynced(): Promise<vo
     readAllTasks: async (input) => ({
       ok: true,
       workspaceRoot: input.workspaceRoot,
-      switchboardRoot: '/switchboard',
       tasks: [],
-      problems: [],
     }),
   })
   let runAutomationCalled = 0
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-unsynced', folderPath: workspaceRoot }],
     triggerProviders: [provider],
-    isIntegrationAvailable: (id) => id === 'module:switchboard',
+    isIntegrationAvailable: (id) => id === REPO_TASK_SOURCE_INTEGRATION_ID,
     now: () => now,
     createRunId: () => 'repo-event-blocked',
     runAutomation: async () => {

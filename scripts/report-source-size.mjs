@@ -12,7 +12,6 @@ const SOURCE_ROOTS = [
   'src',
   'sprintengine_core',
   'sprintengine_mcp',
-  'switchboard_core',
 ]
 const SOURCE_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.ts', '.tsx', '.py'])
 const EXCLUDED_DIRS = new Set([

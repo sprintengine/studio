@@ -10,7 +10,6 @@ import type {
   Workspace,
 } from '../types/workspace'
 import { getSprintEngineRoleGlyphKind } from '../utils/sprintengine'
-import type { SwitchboardFolderStatus } from '../../../shared/switchboard'
 
 type IconProps = {
   className?: string
@@ -189,18 +188,6 @@ export function FolderTypeIcon({ className, logoSrc }: IconProps & { logoSrc?: s
   }
 
   return <FolderGlyphIcon className={className} />
-}
-
-export function SwitchboardWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" strokeWidth={iconStroke - 0.3} />
-      <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor" />
-      <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor" />
-      <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor" />
-    </svg>
-  )
 }
 
 // SprintEngine wherever the app names it as a thing you can open — the Sprints
@@ -497,7 +484,28 @@ export function CommentIcon({ className }: IconProps) {
   )
 }
 
-const STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
+/**
+ * The task folder states `StatusIcon` draws, and the vocabulary the app labels
+ * a task lane with. Lifted here from the task-store module that used to own it
+ * (retired 2026-09) so the glyph and its labels stay one thing.
+ */
+export const FOLDER_STATUSES = [
+  'inbox',
+  'planning',
+  'todo',
+  'ready',
+  'in_progress',
+  'testing',
+  'testing_in_progress',
+  'review',
+  'review_in_progress',
+  'done',
+  'canceled',
+] as const
+
+export type FolderStatus = (typeof FOLDER_STATUSES)[number]
+
+const STATUS_LABELS: Record<FolderStatus, string> = {
   inbox: 'Inbox',
   planning: 'Planning',
   todo: 'Todo',
@@ -514,7 +522,7 @@ const STATUS_LABELS: Record<SwitchboardFolderStatus, string> = {
 export function StatusIcon({
   status,
   className,
-}: IconProps & { status: SwitchboardFolderStatus }) {
+}: IconProps & { status: FolderStatus }) {
   const label = STATUS_LABELS[status]
 
   if (status === 'inbox') {
@@ -604,7 +612,7 @@ export function StatusIcon({
         ? 0.5
         : 0.75
   const dashed = status.endsWith('_in_progress')
-  const accentStyle = { fill: 'var(--tool-switchboard)', stroke: 'var(--tool-switchboard)' }
+  const accentStyle = { fill: 'var(--tone-accent)', stroke: 'var(--tone-accent)' }
 
   // Render the fill as a clipped wedge (sweep angle = 360 * progressFill, starting from 12 o'clock).
   const radius = 5.4

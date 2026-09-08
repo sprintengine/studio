@@ -2,15 +2,14 @@ import React, { useRef } from 'react'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { TruncatedText } from './TruncatedText'
 
-// BoardLane — canonical lane chrome for Switchboard, Sprint Engine, and any
+// BoardLane — canonical lane chrome for Sprint Engine and any
 // future board panel that needs a flexible-width column (260 px floor by
 // default) with a header, a FLIP-animated scrollable list, and optional
 // drag-and-drop.
 //
 // The lane primitive owns:
 //   - The flex column section (`flex-1` with a caller-set `minWidth` floor)
-//   - The header rhythm (label + optional glyph + count) matching the
-//     Switchboard pattern
+//   - The header rhythm (label + optional glyph + count)
 //   - The scrollable `<ol>` body with FLIP wired via useFlipReorder
 //   - The visual state classes for the four drag states (default, dimmed,
 //     legal-drop-target, source)
@@ -27,9 +26,9 @@ import { TruncatedText } from './TruncatedText'
 //   - Empty-state copy (caller renders the empty placeholder as one of the
 //     children when the records list is empty)
 //
-// Sprint Engine passes no `dnd` prop (gate-driven transitions). Switchboard
-// passes the three handlers and renders DropIndicator children at the
-// computed index. The visual state prop maps to:
+// Sprint Engine passes no `dnd` prop (gate-driven transitions). A lane that
+// participates in drag-and-drop passes the three handlers and renders
+// DropIndicator children at the computed index. The visual state prop maps to:
 //   default            — no special chrome
 //   dimmed             — 40 % opacity (lane is not a legal drop target)
 //   legal-drop-target  — accent ring (lane will accept the dragged card)
@@ -62,15 +61,15 @@ type BoardLaneProps = {
   state?: LaneState
   /** Render the lane as a filled, hairline-bordered panel (fill = --bg-surface,
    *  7 px radius) and lift the cards inside it one elevation step to
-   *  --bg-surface-raised with an inset hairline. Off by default: Switchboard
-   *  keeps its transparent lanes on the board canvas; Sprint Engine opts in so
+   *  --bg-surface-raised with an inset hairline. Off by default, which keeps
+   *  transparent lanes on a board canvas; Sprint Engine opts in so
    *  the columns read as discrete panels. The inset card hairline is what keeps
    *  cards legible in the light theme, where --bg-surface and
    *  --bg-surface-raised collapse to the same white. */
   surface?: boolean
   /** Minimum lane width in px before the board scrolls. Lanes are `flex-1`, so
    *  they grow to fill the row and shrink to this floor. Defaults to 260
-   *  (Switchboard's comfortable card width). Sprint Engine passes a thinner
+   *  (a comfortable card width). Sprint Engine passes a thinner
    *  floor so every lane fits the panel and the row only scrolls past it. */
   minWidth?: number
   /** DnD plumbing. Pass only when the lane participates in drag-and-drop. */

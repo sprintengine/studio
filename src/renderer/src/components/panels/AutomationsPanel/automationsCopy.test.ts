@@ -62,9 +62,7 @@ function summary(trigger: AutomationDefinition['trigger']): string {
 run('maps every known action kind to a sentence-case label', () => {
   assert.equal(actionLabel('spawn-agent'), 'Spawn an agent')
   assert.equal(actionLabel('run-skill-loop'), 'Run a skill loop')
-  assert.equal(actionLabel('watchtower-review'), 'Run a code review')
   assert.equal(actionLabel('sprint-engine-run'), 'Run a sprint')
-  assert.equal(actionLabel('switchboard-runner-tick'), 'Advance the Switchboard queue')
 })
 
 run('falls back to the raw kind for an unknown third-party action', () => {

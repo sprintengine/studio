@@ -21,8 +21,6 @@ export function evaluateContextRule(
       return Boolean(context.activeWorkspace?.sprintEngineState) === (rule.value ?? true)
     case 'has-knowledge-root':
       return context.hasKnowledgeRoot === (rule.value ?? true)
-    case 'has-switchboard-state':
-      return (context.activeWorkspace?.mode === 'switchboard') === (rule.value ?? true)
     default:
       return true
   }

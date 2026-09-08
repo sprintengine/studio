@@ -100,7 +100,7 @@
   }
 }
 
-/* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
+/* Shared UI tokens — shared by the Sprint Engine and Automations
  * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
  *
@@ -300,8 +300,6 @@
   --diff-context: var(--text-muted);
 
   /* Tool identity dots only — header chrome, never row chrome. */
-  --tool-switchboard: #7c5cf0;
-  --tool-watchtower: #d87858;
   --tool-sprintengine: #fcc030;
   /* Sprint mark ink: the brand yellow pulled toward the theme's strongest text
      color, so small glyphs stay legible everywhere — pure #fcc030 vanishes on
@@ -1251,7 +1249,7 @@ samp,
 .highlight-text-purple { color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa); }
 .highlight-text-pink   { color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
 
-/* Theme-portable chip surfaces for tone-coded badges (Switchboard priority,
+/* Theme-portable chip surfaces for tone-coded badges (backlog priority,
  * level chips, etc.). Same color-mix approach as highlight palette.
  * design-tokens-allow-block: semantic tone hue literals */
 .chip-bg-good { background-color: color-mix(in oklab, var(--bg-surface) 84%, var(--tone-good)); }

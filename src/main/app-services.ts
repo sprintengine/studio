@@ -561,7 +561,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   const githubTokenStore = new GitHubTokenStore()
 
-  // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
+  // The mobile relay bridge (construction + IPC + shutdown) and the Sprint Engine
   // session spawner/stopper/inventory/exit-recording wiring moved to their
   // capability modules (src/main/modules/), registered through the host kernel.
   // The terminal runtime now exposes only generic agent-session seams

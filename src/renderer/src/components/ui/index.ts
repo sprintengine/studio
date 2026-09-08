@@ -1,5 +1,5 @@
-// Shared UI primitives. Consumed by Switchboard, Watchtower,
-// and Sprint Engine panel rebuilds. Tokens live in
+// Shared UI primitives. Consumed by the Sprint Engine, Automations
+// and Review panel rebuilds. Tokens live in
 // src/renderer/src/assets/index.css; tone vocabulary lives in ./tokens.
 
 export { PanelHeader } from './PanelHeader'
@@ -87,7 +87,7 @@ export type { SegmentedControlItem } from './SegmentedControl'
 // The ONE Field. `ui/Modal` used to export a second component under this name —
 // a `text-micro` label with no `htmlFor` and no ARIA wiring at all — and both
 // arrived through this barrel, so whoever imported "the" Field got a coin flip
-// and Watchtower's dialogs got the inaccessible one (MC-2114).
+// several panel dialogs got the inaccessible one (MC-2114).
 export { Field } from './Field'
 export { INLINE_TITLE_EDIT_CLASS, Input, Textarea } from './Input'
 export type { InputSize, InputVariant } from './Input'

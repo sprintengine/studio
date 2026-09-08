@@ -64,11 +64,11 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
     ],
     workspaces: [
       {
-        workspaceId: `switchboard:${root}`,
-        kind: 'switchboard',
-        name: 'Switchboard',
+        workspaceId: `sprintengine:${root}`,
+        kind: 'sprintengine',
+        name: 'Sprint Engine',
         workspacePath: root,
-        statePath: join(root, '.multi-code', 'switchboard'),
+        statePath: join(root, '.multi-code', 'sprintengine'),
         updatedAt: '2026-06-27T00:00:00.000Z',
         capabilities: ['summary.read'],
         detailVersion: 2,

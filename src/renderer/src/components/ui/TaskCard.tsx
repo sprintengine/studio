@@ -10,7 +10,7 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * panels read as one family even when their layouts differ:
  *
  * - `variant="row"` — single line; identifier and title share a baseline; title
- *   truncates to one line; no glyph slot. Used by Switchboard backlog rows.
+ *   truncates to one line; no glyph slot. Used by backlog rows.
  * - `variant="card"` — identifier sits above the title; title clamps to two
  *   lines by default (pass `clampTitle={false}` to wrap fully); optional
  *   trailing glyph slot. Used by Sprint Engine kanban cards where role
@@ -63,7 +63,7 @@ export type TaskCardProps = {
   /** FLIP reorder key for `useFlipReorder`. */
   flipKey?: string
   /** Apply the just-moved highlight keyframe. Pass the desired class:
-   *  Switchboard uses `card-just-moved`; Sprint Engine uses
+   *  A list board uses `card-just-moved`; Sprint Engine uses
    *  `card-just-moved-gold`. */
   justMovedClassName?: string
   ariaLabel?: string

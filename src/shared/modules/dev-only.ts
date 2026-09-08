@@ -17,7 +17,6 @@
 // `manifest.ts`) — a third-party module must never be able to claim these ids,
 // even in a build where the feature is absent.
 export const DEV_ONLY_MODULE_IDS: readonly string[] = [
-  'switchboard', // Switchboard & Watchtower (Watchtower rides inside this module)
   'mobile-relay',
   'voice-dictation', // Voice module
   'review', // not production-ready yet; remove from this list to release

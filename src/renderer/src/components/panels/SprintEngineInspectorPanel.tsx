@@ -68,7 +68,7 @@ import {
   type SprintEngineAgentWorkedOnTask,
   type SprintEngineTaskImplementerEntry,
 } from '../../utils/sprintengine'
-import { formatRelativeTime } from '../../utils/switchboardBoard'
+import { formatRelativeTime } from '../../utils/time'
 import { formatTokenCount } from '../../utils/sprintengineTokenUsage'
 import type { SprintEngineTaskTokenUsage } from '../../../../shared/sprintengine-token-usage'
 import {

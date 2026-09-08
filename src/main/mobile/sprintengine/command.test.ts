@@ -307,7 +307,7 @@ async function assertAutomationsControlSurfacesABlockedProviderHonestly(): Promi
   // whose provider this build does not register comes to exist on disk.
   const fixture = await automationsFixture()
   await new AutomationsStore(fixture.workspaceRoot).createDefinition({
-    id: 'needs-watchtower',
+    id: 'needs-integration',
     name: 'Needs a connector this build lacks',
     status: 'blocked',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
@@ -321,7 +321,7 @@ async function assertAutomationsControlSurfacesABlockedProviderHonestly(): Promi
 
   const result = await fixture.service.dispatch(command('automations.control', {
     workspacePath: deriveWorkspaceId(fixture.workspaceRoot),
-    automationId: 'needs-watchtower',
+    automationId: 'needs-integration',
     action: 'enable',
   }))
 
@@ -330,7 +330,7 @@ async function assertAutomationsControlSurfacesABlockedProviderHonestly(): Promi
   // The provider's own reason reaches the phone, not a generic failure.
   assert.match(result.ok === false ? result.error.message : '', /acme\.unregistered-action/)
   // And it stays blocked: a refused enable must not half-apply.
-  assert.equal((await fixture.readDefinition('needs-watchtower')).status, 'blocked')
+  assert.equal((await fixture.readDefinition('needs-integration')).status, 'blocked')
 }
 
 async function assertAutomationsControlRejectsAnAutomationTheDesktopNoLongerHas(): Promise<void> {

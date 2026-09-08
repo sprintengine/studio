@@ -81,7 +81,7 @@ interface Command {
   description?: string
   // Extra match text that is searched but never displayed — used so a workspace
   // switch row still matches on its type label and curated search terms (e.g.
-  // "kanban", "watchtower") the way the retired sidebar search did, without
+  // "kanban", "roster") the way the retired sidebar search did, without
   // crowding those terms into the visible description.
   keywords?: string
   shortcut?: string

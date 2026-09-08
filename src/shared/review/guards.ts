@@ -1,5 +1,5 @@
 // Small shared validation primitives for the review contracts. Hand-rolled to
-// match the repo convention (src/shared/plugin-manifest.ts, switchboard.ts) — no
+// match the repo convention (src/shared/plugin-manifest.ts) — no
 // zod / json-schema. Node-free: this module and everything under
 // src/shared/review/ must never import from src/main/ or Electron.
 //

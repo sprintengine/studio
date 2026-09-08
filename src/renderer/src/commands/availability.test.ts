@@ -35,8 +35,8 @@ assert.equal(
 
 // Scope membership gate (open panel:* family — module-derived scopes match
 // by string identity like the named ones).
-assert.equal(isCommandInScope({ scopes: ['panel:watchtower'] }, ['panel:watchtower']), true)
-assert.equal(isCommandInScope({ scopes: ['panel:watchtower'] }, ['panel:switchboard']), false)
+assert.equal(isCommandInScope({ scopes: ['panel:notebook'] }, ['panel:notebook']), true)
+assert.equal(isCommandInScope({ scopes: ['panel:notebook'] }, ['panel:calendar']), false)
 assert.equal(isCommandInScope({ scopes: ['panel:calendar'] }, ['panel:calendar']), true)
 
 // Sprint Engine: verify-progress needs an architect; navigation needs only the
@@ -66,39 +66,38 @@ assert.equal(
   true,
 )
 
-// Switchboard / Watchtower moved to the module command path (registered via
-// RendererHost.registerCommand, MC-1533) — their availability now rides
-// module command contributions, not the shell registry. The module
-// contribution shapes are exercised here directly: the new availability
-// predicate evaluates against the published ModuleCommandContext view
-// (fail-closed with no context), and scope-only commands stay scope-gated.
+// A capability module's commands ride module command contributions, not the
+// shell registry (MC-1533). Those contribution shapes are exercised here
+// directly: an availability predicate evaluates against the published
+// ModuleCommandContext view (fail-closed with no context), and scope-only
+// commands stay scope-gated.
 const refreshBoard = {
-  scopes: ['panel:switchboard'] as const,
+  scopes: ['panel:notebook'] as const,
   availabilityPredicate: (context: { activeWorkspaceMode: string | null }) =>
-    context.activeWorkspaceMode === 'switchboard',
+    context.activeWorkspaceMode === 'notebook',
 }
-const switchboardScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:switchboard', 'panel:watchtower']
+const moduleScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:notebook', 'panel:calendar']
 assert.equal(
-  isCommandEnabled(refreshBoard, switchboardScopes, {}, { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'switchboard' }),
+  isCommandEnabled(refreshBoard, moduleScopes, {}, { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'notebook' }),
   true,
 )
 assert.equal(
-  isCommandEnabled(refreshBoard, switchboardScopes, {}, { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'standard' }),
+  isCommandEnabled(refreshBoard, moduleScopes, {}, { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'standard' }),
   false,
 )
-assert.equal(isCommandEnabled(refreshBoard, switchboardScopes, {}), false, 'no context wired fails closed')
+assert.equal(isCommandEnabled(refreshBoard, moduleScopes, {}), false, 'no context wired fails closed')
 // A throwing predicate fails closed instead of unwinding the caller.
 assert.equal(
   isCommandAvailable(
     { availabilityPredicate: () => { throw new Error('module bug') } },
     {},
-    { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'switchboard' },
+    { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'notebook' },
   ),
   false,
 )
-// Scope-only module commands (Watchtower's shape) stay scope-gated.
-assert.equal(isCommandEnabled({ scopes: ['panel:watchtower'] as const }, switchboardScopes, {}), true)
-assert.equal(isCommandEnabled({ scopes: ['panel:watchtower'] as const }, ['global', 'workspace'], {}), false)
+// Scope-only module commands stay scope-gated.
+assert.equal(isCommandEnabled({ scopes: ['panel:calendar'] as const }, moduleScopes, {}), true)
+assert.equal(isCommandEnabled({ scopes: ['panel:calendar'] as const }, ['global', 'workspace'], {}), false)
 
 // Git / terminal: workspace-scoped, gated on an active workspace.
 const workspaceScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation']

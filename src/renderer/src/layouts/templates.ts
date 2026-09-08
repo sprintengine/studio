@@ -7,7 +7,6 @@ export {
   EMPTY_CHAT_TEMPLATE,
   LAYOUT_TEMPLATES,
   REVIEWS_HOST_TEMPLATE,
-  SWITCHBOARD_TEMPLATE,
   defaultTemplateForWorkspaceMode,
   resolveHeadlessLayoutTemplate,
 } from '../../../shared/layouts/templates'

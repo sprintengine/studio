@@ -1,13 +1,8 @@
-# Runtime dependencies for the Switchboard / Watchtower backend.
-# Install into the project venv before running `multicode-cli switchboard runner run`
-# or starting the desktop app's embedded backend:
+# Runtime dependencies for the Python sidecars (sprintengine_core,
+# sprintengine_mcp, souls). Install into the project venv before starting the
+# desktop app's embedded backend:
 #     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 #
-# ptyprocess: required for live-attachable Switchboard / Watchtower agents.
-# When missing (or on Windows, where it's unavailable), the backend falls
-# back to the legacy non-PTY wrapper path and "View live" affordances are
-# hidden in the UI.
-ptyprocess>=0.7,<1; sys_platform != "win32"
 # PyYAML: hard runtime dependency of sprintengine_core (role registry + store).
 # sprintengine_core.store raises SystemExit when it is missing, so the bundled
 # CPython runtime must ship it.

@@ -2,11 +2,11 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 
-// Lazy so the Memory Graph bundle (and its d3-force dependency) only loads when
+// Lazy so the Memory Graph bundle only loads when
 // the panel is actually rendered — i.e. never, when the module is disabled.
 const MemoryGraphPanel = React.lazy(() => import('../components/panels/MemoryGraphPanel'))
 
-// Renderer-only module: gates the visualization panel (and its d3-force bundle).
+// Renderer-only module: gates the visualization panel.
 // The underlying knowledge-graph backend stays foundational/always-on (agents
 // and the Knowledge Graph settings tab depend on it), so there is no matching
 // main-process module.

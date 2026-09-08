@@ -6,19 +6,6 @@ import {
   parseSprintEngineAutomationIntentRecord,
 } from '../../../shared/sprintengine/automation-intent'
 import { selectTaskStatusSources } from './task-normalizer'
-import type {
-  SwitchboardReadResult,
-  SwitchboardRunnerExecution,
-  SwitchboardRunnerResult,
-  SwitchboardTaskRecord,
-  WatchtowerRun,
-  WatchtowerRunListResult,
-} from '../../../shared/switchboard'
-import {
-  getSwitchboardRunnerState,
-  listWatchtowerRuns,
-  readAllSwitchboardTasks,
-} from '../../switchboard-files'
 import {
   mobileControlProtocolVersion,
   mobileControlWorkspaceSnapshotVersion,
@@ -49,12 +36,6 @@ import type {
   MobileControlTaskRelease,
   MobileControlNeedsInputKind,
   MobileControlTaskCommentType as MobileTaskCommentType,
-  MobileControlSwitchboardTaskSummary as MobileSwitchboardTaskSummary,
-  MobileControlSwitchboardCommentSummary as MobileSwitchboardCommentSummary,
-  MobileControlSwitchboardEvidenceSummary as MobileSwitchboardEvidenceSummary,
-  MobileControlSwitchboardLogSummary as MobileSwitchboardLogSummary,
-  MobileControlWatchtowerRunSummary as MobileWatchtowerRunSummary,
-  MobileControlWatchtowerGeneratedInboxSummary as MobileWatchtowerGeneratedInboxSummary,
   MobileSnapshotCollection,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileAutomationSnapshots } from './automations'
@@ -74,8 +55,6 @@ export type {
 }
 
 const defaultPublishThrottleMs = 1000
-const maxWorkspaceCollectionItems = 20
-const maxNestedWorkspaceCollectionItems = 10
 const mobileSnapshotCommandTypes = [
   'snapshot.request',
   'artifact.read',
@@ -123,9 +102,22 @@ export type MobileSprintEngineSnapshotRequest = {
   include?: MobileSnapshotCollection[]
 }
 
-// The unscoped default: every collection except the switchboard/watchtower
-// projections (`desktopWorkspaces`), which nothing on the phone drives today, so they
-// ship only when a caller asks for them explicitly (item 1600).
+// The unscoped default: every collection except `desktopWorkspaces`, which no
+// longer has a producer — the desktop modules that projected into it (the
+// retired task board and its review runs) were removed 2026-09.
+//
+// RETAINED FOR PROTOCOL COMPATIBILITY. `src/shared/mobile-control/protocol.ts`
+// still declares `desktopWorkspaces`, the two retired `MobileControlWorkspaceKind`
+// members, and their `MobileControlSwitchboard*` / `MobileControlWatchtower*`
+// detail shapes, and its validator still accepts them on receipt. That file is
+// a byte-identical mirror of the mobile app's copy (pinned by sha256 in
+// snapshot.test.ts), so the note lives here rather than in it. An installed
+// companion on an older build may still ask for the collection and may hold a
+// cached snapshot containing those kinds; the desktop now answers with the
+// section simply absent — no workspace of either kind is ever emitted — so no
+// protocol version bump and no re-pair is needed. Delete the shapes from both
+// copies, and bump the protocol version, once the companion stops sending or
+// expecting them.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
   'sprintEngines',
   'backlog',
@@ -136,7 +128,7 @@ const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Se
 type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
 // Replace embedded workspace roots in a kind-scoped workspaceId (e.g.
-// `switchboard:/Users/...`) with the relay-safe token while preserving the kind
+// `sprintengine:/Users/...`) with the relay-safe token while preserving the kind
 // prefix. Ids that carry no local path (a bare sprintEngineId) are already
 // safe and left untouched.
 function relaySafeWorkspaceId(workspaceId: string, token: string): string {
@@ -242,16 +234,10 @@ type NormalizedTask = {
 }
 
 type DesktopWorkspaceStateReaders = {
-  readSwitchboardTasks(input: { workspaceRoot: string }): Promise<SwitchboardReadResult>
-  getSwitchboardRunnerState(input: string): Promise<SwitchboardRunnerResult>
-  listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
   readRoleCatalog: RoleCatalogReader
 }
 
 const defaultStateReaders: DesktopWorkspaceStateReaders = {
-  readSwitchboardTasks: readAllSwitchboardTasks,
-  getSwitchboardRunnerState,
-  listWatchtowerRuns,
   readRoleCatalog: readWorkspaceRoleCatalog,
 }
 
@@ -288,13 +274,9 @@ export class MobileSprintEngineSnapshotService {
       ...(request.workspaceRoots ?? []),
       ...sprintEngines.map((sprintEngine) => sprintEngine.workspacePath),
     ])
-    const desktopWorkspaces = collections.has('desktopWorkspaces')
-      ? await this.readDesktopWorkspaceSnapshots(workspaceRoots, generatedAt)
-      : []
-    const workspaces = [
-      ...sprintEngines.map(toSprintEngineWorkspaceSnapshot),
-      ...desktopWorkspaces,
-    ]
+    // `desktopWorkspaces` has no producer any more; a companion that still asks
+    // for the collection gets the sprint-engine workspaces and nothing else.
+    const workspaces = sprintEngines.map(toSprintEngineWorkspaceSnapshot)
     const backlog = collections.has('backlog')
       ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt, this.stateReaders.readRoleCatalog, collections.has('roleCatalogs'))
       : []
@@ -311,8 +293,8 @@ export class MobileSprintEngineSnapshotService {
       // Content-derived so the phone's If-None-Match (item 1599) matches on an
       // idle read. It folds NO per-read wall-clock: the top level dropped
       // `generatedAt`, and each workspace/backlog `updatedAt` — which falls back
-      // to `generatedAt` for an empty or desktop workspace, and is `generatedAt`
-      // outright for switchboard/watchtower — is stripped before hashing. Each
+      // to `generatedAt` for an empty or desktop workspace — is stripped before
+      // hashing. Each
       // sprint engine contributes its own content-stable sub-version (already
       // folds tasks, artifacts, automation mode and state mtime, preserving the
       // MC-1567 invariant); backlog and automations are folded so a backlog-only
@@ -389,18 +371,6 @@ export class MobileSprintEngineSnapshotService {
     if (!this.publishTimer) return
     clearTimeout(this.publishTimer)
     this.publishTimer = null
-  }
-
-  private async readDesktopWorkspaceSnapshots(workspaceRoots: string[], generatedAt: string): Promise<MobileWorkspaceSnapshot[]> {
-    const settled = await Promise.allSettled(workspaceRoots.map(async (workspaceRoot) => {
-      const [switchboard, watchtower] = await Promise.all([
-        readSwitchboardWorkspaceSnapshot(workspaceRoot, generatedAt, this.stateReaders),
-        readWatchtowerWorkspaceSnapshot(workspaceRoot, generatedAt, this.stateReaders),
-      ])
-      return [switchboard, watchtower].filter((workspace): workspace is MobileWorkspaceSnapshot => Boolean(workspace))
-    }))
-
-    return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
   }
 }
 
@@ -938,250 +908,6 @@ function normalizeMobileControlCommands(commands: readonly MobileControlCommandT
   return [...supported]
 }
 
-async function readSwitchboardWorkspaceSnapshot(
-  workspaceRoot: string,
-  generatedAt: string,
-  readers: Pick<DesktopWorkspaceStateReaders, 'readSwitchboardTasks' | 'getSwitchboardRunnerState'>
-): Promise<MobileWorkspaceSnapshot | null> {
-  const tasksResult = await readers.readSwitchboardTasks({ workspaceRoot })
-  if (!tasksResult.ok) return null
-
-  const runnerResult = await readers.getSwitchboardRunnerState(workspaceRoot).catch((): SwitchboardRunnerResult => ({
-    ok: false,
-    message: 'Switchboard runner state is unavailable.',
-  }))
-  const laneCounts = countSwitchboardLanes(tasksResult.tasks)
-  const inboxCount = laneCounts.inbox ?? 0
-  const activeExecutionCount = runnerResult.ok ? runnerResult.activeExecutions.length : 0
-  const sortedTasks = sortSwitchboardRecords(tasksResult.tasks)
-  const taskSummaries = sortedTasks
-    .filter((record) => record.location.folderStatus !== 'inbox')
-    .slice(0, maxWorkspaceCollectionItems)
-    .map(toSwitchboardTaskSummary)
-  const inboxItems = sortedTasks
-    .filter((record) => record.location.folderStatus === 'inbox')
-    .slice(0, maxWorkspaceCollectionItems)
-    .map(toSwitchboardTaskSummary)
-  const comments = sortedTasks.flatMap(toSwitchboardCommentSummaries).slice(0, maxWorkspaceCollectionItems)
-  const evidence = sortedTasks.flatMap(toSwitchboardEvidenceSummary).slice(0, maxWorkspaceCollectionItems)
-  const logs = [
-    ...sortedTasks.flatMap(toSwitchboardLogSummaries),
-    ...(runnerResult.ok ? runnerResult.activeExecutions.map(toActiveSwitchboardExecutionLogSummary) : []),
-  ].slice(0, maxWorkspaceCollectionItems)
-  if (tasksResult.tasks.length === 0 && tasksResult.problems.length === 0 && activeExecutionCount === 0) {
-    return null
-  }
-  const updatedAt = latestIso([
-    generatedAt,
-    ...tasksResult.tasks.map((record) => record.task.updatedAt),
-    ...(runnerResult.ok && runnerResult.updatedAt ? [runnerResult.updatedAt] : []),
-  ])
-
-  return {
-    workspaceId: `switchboard:${workspaceRoot}`,
-    kind: 'switchboard',
-    name: 'Switchboard',
-    workspacePath: workspaceRoot,
-    statePath: tasksResult.switchboardRoot,
-    updatedAt,
-    capabilities: ['summary.read', 'detail.read'],
-    detailVersion: mobileControlWorkspaceSnapshotVersion,
-    summary: {
-      status: switchboardWorkspaceStatus(activeExecutionCount, tasksResult.problems.length),
-      headline: `${inboxCount} inbox, ${activeExecutionCount} active`,
-      counts: {
-        ...laneCounts,
-        activeExecutions: activeExecutionCount,
-        problems: tasksResult.problems.length,
-      },
-    },
-    detail: {
-      kind: 'switchboard',
-      data: {
-        inboxCount,
-        laneCounts,
-        activeExecutionCount,
-        tasks: taskSummaries,
-        inboxItems,
-        comments,
-        evidence,
-        logs,
-      },
-    },
-  }
-}
-
-async function readWatchtowerWorkspaceSnapshot(
-  workspaceRoot: string,
-  generatedAt: string,
-  readers: Pick<DesktopWorkspaceStateReaders, 'listWatchtowerRuns'>
-): Promise<MobileWorkspaceSnapshot | null> {
-  const runsResult = await readers.listWatchtowerRuns(workspaceRoot)
-  if (!runsResult.ok || runsResult.runs.length === 0) return null
-
-  const sortedRuns = [...runsResult.runs].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-  const latestRun = sortedRuns[0]
-  const activeRunCount = runsResult.runs.filter((run) => run.status === 'pending' || run.status === 'running').length
-  const generatedInboxCount = runsResult.runs.reduce((count, run) => count + run.counts.ingested, 0)
-  const runs = sortedRuns.slice(0, maxWorkspaceCollectionItems).map(toWatchtowerRunSummary)
-  const generatedInboxItems = sortedRuns
-    .flatMap((run) => run.agents.flatMap((agent) => (agent.taskIds ?? []).map((taskId): MobileWatchtowerGeneratedInboxSummary => ({
-      runId: run.runId,
-      taskId,
-      source: 'watchtower',
-    }))))
-    .slice(0, maxWorkspaceCollectionItems)
-
-  return {
-    workspaceId: `watchtower:${workspaceRoot}`,
-    kind: 'watchtower',
-    name: 'Watchtower',
-    workspacePath: workspaceRoot,
-    updatedAt: latestIso([generatedAt, ...runsResult.runs.map((run) => run.completedAt ?? run.createdAt)]),
-    capabilities: ['summary.read', 'detail.read'],
-    detailVersion: mobileControlWorkspaceSnapshotVersion,
-    summary: {
-      status: watchtowerWorkspaceStatus(runsResult.runs),
-      headline: `${activeRunCount} active, ${generatedInboxCount} generated inbox items`,
-      counts: {
-        activeRuns: activeRunCount,
-        generatedInboxItems: generatedInboxCount,
-        problems: runsResult.problems?.length ?? 0,
-      },
-    },
-    detail: {
-      kind: 'watchtower',
-      data: {
-        activeRunCount,
-        latestRunStatus: latestRun.status,
-        generatedInboxCount,
-        runs,
-        generatedInboxItems,
-      },
-    },
-  }
-}
-
-function sortSwitchboardRecords(records: SwitchboardTaskRecord[]): SwitchboardTaskRecord[] {
-  return [...records].sort((a, b) => Date.parse(b.task.updatedAt) - Date.parse(a.task.updatedAt))
-}
-
-function toSwitchboardTaskSummary(record: SwitchboardTaskRecord): MobileSwitchboardTaskSummary {
-  return {
-    taskId: record.task.id,
-    identifier: record.task.identifier,
-    title: record.task.title,
-    status: record.task.state,
-    lane: record.location.folderStatus,
-    updatedAt: record.task.updatedAt,
-    source: {
-      type: record.task.source.type,
-      ...(record.task.source.externalId ? { externalId: record.task.source.externalId } : {}),
-      ...(record.task.source.externalKey ? { externalKey: record.task.source.externalKey } : {}),
-      ...(record.task.source.externalUrl ? { externalUrl: record.task.source.externalUrl } : {}),
-    },
-    ...(record.task.priority !== undefined ? { priority: record.task.priority } : {}),
-    ...(record.task.claim?.owner ? { claimedBy: record.task.claim.owner } : {}),
-  }
-}
-
-function toSwitchboardCommentSummaries(record: SwitchboardTaskRecord): MobileSwitchboardCommentSummary[] {
-  return [...record.task.comments]
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-    .slice(0, maxNestedWorkspaceCollectionItems)
-    .map((comment) => ({
-      taskId: record.task.id,
-      commentId: comment.id,
-      kind: comment.kind,
-      body: comment.body,
-      createdAt: comment.createdAt,
-      ...(comment.author.name !== undefined ? { authorName: comment.author.name } : {}),
-      ...(comment.confidencePct !== undefined ? { confidencePct: comment.confidencePct } : {}),
-    }))
-}
-
-function toSwitchboardEvidenceSummary(record: SwitchboardTaskRecord): MobileSwitchboardEvidenceSummary[] {
-  const evidence = record.task.evidence
-  if (
-    !evidence.summary
-    && evidence.artifacts.length === 0
-    && evidence.commandsRun.length === 0
-    && evidence.touchedFiles.length === 0
-  ) {
-    return []
-  }
-  return [{
-    taskId: record.task.id,
-    ...(evidence.summary ? { summary: evidence.summary } : {}),
-    artifactCount: evidence.artifacts.length,
-    commandCount: evidence.commandsRun.length,
-    touchedFileCount: evidence.touchedFiles.length,
-    updatedAt: record.task.updatedAt,
-  }]
-}
-
-function toSwitchboardLogSummaries(record: SwitchboardTaskRecord): MobileSwitchboardLogSummary[] {
-  return [...record.task.execution.attempts]
-    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
-    .slice(0, maxNestedWorkspaceCollectionItems)
-    .map((attempt) => ({
-      taskId: record.task.id,
-      executionId: attempt.id,
-      agentId: attempt.agentId ?? null,
-      status: attempt.completedAt ? 'completed' : 'running',
-      startedAt: attempt.startedAt,
-      completedAt: attempt.completedAt ?? null,
-      summary: attempt.summary ?? null,
-    }))
-}
-
-function toActiveSwitchboardExecutionLogSummary(execution: SwitchboardRunnerExecution): MobileSwitchboardLogSummary {
-  return {
-    ...(execution.kind === 'switchboard_task' ? { taskId: execution.taskId } : {}),
-    executionId: execution.executionId,
-    status: execution.status ?? 'active',
-    agentId: execution.role,
-    startedAt: execution.startedAt,
-    summary: execution.kind,
-  }
-}
-
-function toWatchtowerRunSummary(run: WatchtowerRun): MobileWatchtowerRunSummary {
-  return {
-    runId: run.runId,
-    status: run.status,
-    preset: run.preset,
-    createdAt: run.createdAt,
-    completedAt: run.completedAt,
-    validCount: run.counts.valid,
-    invalidCount: run.counts.invalid,
-    generatedInboxCount: run.counts.ingested,
-    agentCount: run.agents.length,
-  }
-}
-
-function countSwitchboardLanes(records: SwitchboardTaskRecord[]): Record<string, number> {
-  const counts: Record<string, number> = {}
-  for (const record of records) {
-    const lane = record.location.folderStatus
-    counts[lane] = (counts[lane] ?? 0) + 1
-  }
-  return counts
-}
-
-function switchboardWorkspaceStatus(activeExecutionCount: number, problemCount: number): MobileWorkspaceStatus {
-  if (problemCount > 0) return 'error'
-  if (activeExecutionCount > 0) return 'running'
-  return 'idle'
-}
-
-function watchtowerWorkspaceStatus(runs: WatchtowerRun[]): MobileWorkspaceStatus {
-  if (runs.some((run) => run.status === 'failed')) return 'error'
-  if (runs.some((run) => run.status === 'running' || run.status === 'pending')) return 'running'
-  if (runs.length > 0) return 'complete'
-  return 'idle'
-}
-
 function normalizeNeedsInput(value: unknown): NormalizedTask['needsInput'] | undefined {
   const record = recordObject(value)
   if (!record) return undefined
@@ -1443,13 +1169,6 @@ function normalizeTaskBacklogRef(value: unknown): MobileControlTaskBacklogRef | 
 function isoStringOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null
   return Number.isFinite(Date.parse(value)) ? value : null
-}
-
-function latestIso(values: Array<string | null | undefined>): string {
-  const timestamps = values
-    .flatMap((value) => value && Number.isFinite(Date.parse(value)) ? [value] : [])
-    .sort((a, b) => Date.parse(b) - Date.parse(a))
-  return timestamps[0] ?? new Date(0).toISOString()
 }
 
 function recordObject(value: unknown): Record<string, unknown> | null {

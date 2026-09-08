@@ -46,27 +46,11 @@ const SPRINT_SHAPE = glyphSvg(
   </>,
 )
 
-// Code review: a magnifier over the change.
-const REVIEW_SHAPE = glyphSvg(
-  <>
-    <circle cx="7" cy="7" r="4" stroke="currentColor" strokeWidth="1.3" />
-    <path d="M10 10l3.2 3.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-  </>,
-)
-
 // Skill loop: the repeat arrows.
 const LOOP_SHAPE = glyphSvg(
   <>
     <path d="M3 6.5A5 5 0 0 1 12.4 5M13 9.5A5 5 0 0 1 3.6 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     <path d="M12.4 2.6V5h-2.4M3.6 13.4V11h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-  </>,
-)
-
-// Queue tick (Switchboard): stacked lines advancing.
-const QUEUE_SHAPE = glyphSvg(
-  <>
-    <path d="M3 4.5h10M3 8h6.5M3 11.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    <path d="M11 9.5l2.5 2-2.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
   </>,
 )
 
@@ -81,8 +65,6 @@ const DEFAULT_SHAPE = glyphSvg(
 const TYPE_SHAPES: Record<string, JSX.Element> = {
   'spawn-agent': AGENT_SHAPE,
   'run-skill-loop': LOOP_SHAPE,
-  'watchtower-review': REVIEW_SHAPE,
   'sprint-engine-run': SPRINT_SHAPE,
   'sprint-engine-start': SPRINT_SHAPE,
-  'switchboard-runner-tick': QUEUE_SHAPE,
 }

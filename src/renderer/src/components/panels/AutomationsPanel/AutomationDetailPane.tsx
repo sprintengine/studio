@@ -135,7 +135,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   )
 }
 
-// Watchtower-style run row: leading lifecycle glyph (shape-coded), identifier in
+// Run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
 function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, finalizing }: {

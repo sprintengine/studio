@@ -11,7 +11,7 @@ export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
 // override so "merged" stays recognisable across themes.
 export type StatusTone = Tone | 'merged'
 
-export type ToolIdentity = 'switchboard' | 'watchtower' | 'sprintengine'
+export type ToolIdentity = 'sprintengine'
 
 export const TONE_COLOR_VAR: Record<Tone, string> = {
   neutral: 'var(--tone-neutral)',
@@ -35,8 +35,6 @@ export const TONE_SOFT_VAR: Record<Tone, string> = {
 }
 
 export const TOOL_COLOR_VAR: Record<ToolIdentity, string> = {
-  switchboard: 'var(--tool-switchboard)',
-  watchtower: 'var(--tool-watchtower)',
   sprintengine: 'var(--tool-sprintengine)',
 }
 

@@ -9,7 +9,6 @@ import { FolderTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '
 // icon identity rather than just "an svg renders".
 const EXPECTED_ICON_PATH: Record<string, string> = {
   standard: 'M7.25 10L10 12.5L7.25 15',
-  switchboard: 'M9 5.5V18.5M15 5.5V18.5',
   // The frond's stem — SprintEngine's mode wears the product's own mark
   // (`brand/SprintEngineFrond`), the same one the mobile app carries.
   sprintengine: 'M 303.12,855.85',
@@ -47,7 +46,6 @@ assert.ok(sprintEngineOnIcon.includes(EXPECTED_ICON_PATH.sprintengine), 'enabled
 // is the pure seam both WorkspaceTypeIcon and workspaceTabIconClass use.
 const allEnabled: ModuleEnablementOverrides = {}
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.id, 'sprintengine')
-assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.id, 'switchboard')
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.accentToken, '--tool-sprintengine')
 assert.equal(resolveEnabledWorkspaceType('standard', allEnabled), undefined, 'standard is shell-owned, not registered')
 assert.equal(resolveEnabledWorkspaceType('future-x' as Workspace['mode'], allEnabled), undefined, 'unknown id resolves to undefined')
@@ -69,7 +67,6 @@ assert.equal(
 // AC1: top-bar view sets live on the registry; no bundled type contributes one
 // today, and a disabled module exposes none.
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.topBarViews, undefined, 'sprintengine has no top-bar views')
-assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.topBarViews, undefined, 'switchboard has no top-bar views')
 
 // MC-2135, re-sited by the owner on 2026-09-02: the FOLDER header's icon slot
 // carries the project's own logo when its repo has one, and every way out of

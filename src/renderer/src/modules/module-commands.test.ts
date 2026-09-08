@@ -3,79 +3,76 @@ import assert from 'node:assert/strict'
 import { isCommandEnabled } from '../commands/availability'
 import { getEffectiveKeybindings } from '../commands/effectiveKeybindings'
 import { createRendererHost } from './renderer-host'
-import { switchboardRendererModule } from './switchboard-module'
+import { voiceDictationRendererModule } from './voice-dictation-module'
 
-// The 8 built-in commands migrated onto the module path (MC-1533) — this
-// exercises the REAL registrations in switchboard-module, not hand-rolled
-// lookalikes: ids (switchboard.* preserved; watchtower re-namespaced
-// switchboard.watchtower.*), scopes, the predicate pair that replaced the
-// switchboardWorkspace enum entry, and the legacy-id alias that keeps
-// persisted watchtower.* overrides working.
+// The module command path (MC-1533) exercised against a REAL registration
+// rather than a hand-rolled lookalike: the namespaced id, the scope, and the
+// legacy-id alias that keeps a persisted override for the shell command this
+// one replaced working.
 
 const kernel = createRendererHost()
-switchboardRendererModule.registerRenderer?.(kernel.hostFor(switchboardRendererModule.manifest.id))
+voiceDictationRendererModule.registerRenderer?.(kernel.hostFor(voiceDictationRendererModule.manifest.id))
 
 const commands = kernel.getModuleCommands()
 const byId = new Map(commands.map((command) => [command.id, command]))
 
 assert.deepEqual(
   [...byId.keys()].sort(),
-  [
-    'switchboard.open.runner',
-    'switchboard.refresh.board',
-    'switchboard.watchtower.import.github',
-    'switchboard.watchtower.import.jira',
-    'switchboard.watchtower.open.active-review',
-    'switchboard.watchtower.refresh.board',
-    'switchboard.watchtower.run.review',
-    'switchboard.watchtower.triage.inbox',
-  ],
-  'all 8 migrated commands register with their expected ids'
+  ['voice-dictation.toggle'],
+  'a module command registers under `<moduleId>.<id>`, never its bare id'
 )
 
-// The Switchboard pair rides the availability predicate: same semantics the
-// old switchboardWorkspace enum encoded, evaluated against the published view.
-const refreshBoard = byId.get('switchboard.refresh.board')!
-assert.equal(refreshBoard.availability, undefined)
-assert.equal(typeof refreshBoard.availabilityPredicate, 'function')
-const switchboardScopes = ['global', 'workspace', 'panel:switchboard', 'panel:watchtower'] as const
+// A global-scope module command is offered wherever the shell pushes 'global'.
+const toggle = byId.get('voice-dictation.toggle')!
+assert.deepEqual(toggle.scopes, ['global'])
+assert.equal(toggle.availability, undefined)
+assert.equal(toggle.availabilityPredicate, undefined)
+assert.equal(isCommandEnabled(toggle, ['global', 'workspace'], {}), true)
+assert.equal(isCommandEnabled(toggle, ['workspace'], {}), false, 'out of scope stays unoffered')
+
+// Persisted overrides keyed by the LEGACY shell id keep working.
+assert.deepEqual(
+  getEffectiveKeybindings(
+    'voice-dictation.toggle',
+    { overrides: { 'voice.toggle': ['Primary+Shift+R'] } },
+    toggle,
+  ),
+  ['Primary+Shift+R'],
+  'a legacy-id override resolves for the re-namespaced id'
+)
+assert.deepEqual(
+  getEffectiveKeybindings(
+    'voice-dictation.toggle',
+    { disabled: { 'voice.toggle': true } },
+    toggle,
+  ),
+  [],
+  'a legacy-id disable suppresses the re-namespaced id'
+)
+
+// An availability predicate is evaluated against the published context view,
+// and fails closed when no context is wired.
+kernel.hostFor('notebook').registerCommand({
+  id: 'refresh',
+  title: 'Refresh notebook',
+  category: 'Notebook',
+  scopes: ['panel:notebook'],
+  availability: (context) => Boolean(context.activeWorkspaceId) && context.activeWorkspaceMode === 'notebook',
+  run: () => undefined,
+})
+const refresh = kernel.getModuleCommands().find((command) => command.id === 'notebook.refresh')!
+assert.equal(refresh.availability, undefined)
+assert.equal(typeof refresh.availabilityPredicate, 'function')
+const notebookScopes = ['global', 'workspace', 'panel:notebook'] as const
 assert.equal(
-  isCommandEnabled(refreshBoard, switchboardScopes, {}, { activeWorkspaceId: 'ws', activeWorkspaceMode: 'switchboard' }),
+  isCommandEnabled(refresh, notebookScopes, {}, { activeWorkspaceId: 'ws', activeWorkspaceMode: 'notebook' }),
   true,
 )
 assert.equal(
-  isCommandEnabled(refreshBoard, switchboardScopes, {}, { activeWorkspaceId: 'ws', activeWorkspaceMode: 'standard' }),
+  isCommandEnabled(refresh, notebookScopes, {}, { activeWorkspaceId: 'ws', activeWorkspaceMode: 'standard' }),
   false,
 )
-assert.equal(isCommandEnabled(refreshBoard, switchboardScopes, {}), false, 'fail closed with no context')
-
-// Watchtower commands are scope-gated only, under the shell-pushed
-// panel:watchtower scope.
-const runReview = byId.get('switchboard.watchtower.run.review')!
-assert.deepEqual(runReview.scopes, ['panel:watchtower'])
-assert.equal(runReview.availability, undefined)
-assert.equal(runReview.availabilityPredicate, undefined)
-assert.equal(runReview.category, 'Watchtower', 'palette rows keep the Watchtower group label')
-
-// Persisted overrides keyed by the LEGACY watchtower ids keep working.
-assert.deepEqual(
-  getEffectiveKeybindings(
-    'switchboard.watchtower.run.review',
-    { overrides: { 'watchtower.run.review': ['Primary+Shift+R'] } },
-    runReview,
-  ),
-  ['Primary+Shift+R'],
-  'legacy watchtower.* override resolves for the re-namespaced id'
-)
-assert.deepEqual(
-  getEffectiveKeybindings(
-    'switchboard.watchtower.run.review',
-    { disabled: { 'watchtower.run.review': true } },
-    runReview,
-  ),
-  [],
-  'legacy watchtower.* disable suppresses the re-namespaced id'
-)
+assert.equal(isCommandEnabled(refresh, notebookScopes, {}), false, 'fail closed with no context')
 
 // A typo'd panel scope fails registration loudly instead of registering a
 // permanently dead command.

@@ -67,14 +67,14 @@ export type TriggerFieldsValue = ScheduleCadenceForm & {
 }
 
 // Reason a trigger family cannot be authored. schedule/webhook are always
-// registered; repo-event is only registered when the Switchboard module is
-// enabled, so its absence from providers.triggers is surfaced explicitly rather
-// than hiding the family.
+// registered; repo-event and sprint-landed depend on a module or a connected
+// integration, so their absence from providers.triggers is surfaced explicitly
+// rather than hiding the family.
 function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProviders | null): string | null {
   if (!providers) return null
   const provider = providers.triggers.find((t) => t.kind === kind)
   if (!provider) {
-    if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs the Switchboard module, which is not enabled.'
+    if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs a module that syncs GitHub or Jira issues into this project, and none is connected.'
     if (kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) return 'This trigger needs the Sprint Engine module, which is not enabled.'
     return null
   }

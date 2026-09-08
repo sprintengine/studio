@@ -241,10 +241,10 @@ console.log('AutomationEditor trigger round-trip tests passed')
 // family is disabled with its reason; cron stays read-only.
 // ---------------------------------------------------------------------------
 
-const switchboardProviders: AutomationsProviders = {
+const repoEventProviders: AutomationsProviders = {
   triggers: [
     { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'repo-event', configSchema: { type: 'object' }, requiredIntegrations: ['module:switchboard'], missingIntegrations: [] },
+    { kind: 'repo-event', configSchema: { type: 'object' }, requiredIntegrations: ['module:repo-tasks'], missingIntegrations: [] },
     { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
@@ -258,7 +258,7 @@ const switchboardProviders: AutomationsProviders = {
 const repoEventMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(repoEventTrigger) }}
-    providers={switchboardProviders}
+    providers={repoEventProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}
@@ -267,29 +267,29 @@ const repoEventMarkup = renderToStaticMarkup(
 assert.match(repoEventMarkup, /Event types/, 'repo-event renders its authoring fields')
 assert.doesNotMatch(repoEventMarkup, /Editing this trigger type isn.t supported yet/, 'repo-event is now editable, not read-only')
 
-// repo-event with Switchboard absent from providers.triggers — shown, not hidden.
-const noSwitchboardProviders: AutomationsProviders = {
+// repo-event absent from providers.triggers entirely — shown, not hidden.
+const noRepoEventProviders: AutomationsProviders = {
   triggers: [
     { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
     { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
-  actions: switchboardProviders.actions,
+  actions: repoEventProviders.actions,
 }
 const unavailableRepoMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(repoEventTrigger) }}
-    providers={noSwitchboardProviders}
+    providers={noRepoEventProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}
   />,
 )
-assert.match(unavailableRepoMarkup, /needs the Switchboard module/, 'an unavailable repo-event family shows its reason inline')
+assert.match(unavailableRepoMarkup, /needs a module that syncs GitHub or Jira issues/, 'an unavailable repo-event family shows its reason inline')
 
 const webhookMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(webhookTrigger) }}
-    providers={switchboardProviders}
+    providers={repoEventProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}
@@ -302,7 +302,7 @@ assert.match(webhookMarkup, /x-multicode-signature/, 'webhook shows the HMAC sig
 const cronMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(cronTrigger) }}
-    providers={switchboardProviders}
+    providers={repoEventProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}

@@ -6,7 +6,7 @@ import {
   type PaletteCommandGroup,
 } from './commandPaletteSearch'
 import { createRendererHost } from '../modules/renderer-host'
-import { registerSwitchboardWorkspaceTypes } from '../modules/switchboard-workspace-types'
+import { registerAutomationsWorkspaceTypes } from '../modules/automations-workspace-types'
 
 function run(name: string, body: () => void): void {
   try {
@@ -40,12 +40,12 @@ run('workspaceKeywordsFromDefinition falls back to the raw mode id when unregist
 const kanbanRow = {
   label: 'Switch to: API cleanup',
   description: '/Users/dev/work/acme-platform',
-  keywords: workspaceKeywordsFromDefinition({ label: 'Sprint Engine', searchTerms: ['roster', 'kanban', 'watchtower'] }, 'sprintengine'),
+  keywords: workspaceKeywordsFromDefinition({ label: 'Sprint Engine', searchTerms: ['roster', 'kanban', 'inbox'] }, 'sprintengine'),
 }
 
 run('commandMatchesQuery matches a mode search term carried in keywords', () => {
   assert.equal(commandMatchesQuery(kanbanRow, 'kanban'), true)
-  assert.equal(commandMatchesQuery(kanbanRow, 'watchtower'), true)
+  assert.equal(commandMatchesQuery(kanbanRow, 'inbox'), true)
   assert.equal(commandMatchesQuery(kanbanRow, 'sprint engine'), true)
 })
 
@@ -72,18 +72,17 @@ run('commandMatchesQuery tolerates a command with no description or keywords', (
   assert.equal(commandMatchesQuery({ label: 'New Chat' }, 'kanban'), false)
 })
 
-// MC-1533: search modes are registry-derived — the switchboard module's REAL
-// registered workspace type carries the terms the old hardcoded
-// watchtower/switchboard palette entries provided, so behavior for the
-// existing modes is identical with the hardcoded arrays gone.
-run('switchboard mode search terms derive from the live registry registration', () => {
+// MC-1533: search modes are registry-derived — a module's REAL registered
+// workspace type carries the terms the old hardcoded palette entries provided,
+// so behavior for the existing modes is identical with the arrays gone.
+run('workspace mode search terms derive from the live registry registration', () => {
   const kernel = createRendererHost()
-  registerSwitchboardWorkspaceTypes(kernel.hostFor('switchboard'))
-  const keywords = workspaceKeywordsFromDefinition(kernel.getWorkspaceType('switchboard'), 'switchboard')
-  const row = { label: 'Switch to: Ops board', keywords }
-  assert.equal(commandMatchesQuery(row, 'watchtower'), true)
-  assert.equal(commandMatchesQuery(row, 'switchboard'), true)
-  assert.equal(commandMatchesQuery(row, 'triage'), true)
+  registerAutomationsWorkspaceTypes(kernel.hostFor('automations'))
+  const keywords = workspaceKeywordsFromDefinition(kernel.getWorkspaceType('automations-host'), 'automations-host')
+  const row = { label: 'Switch to: Ops automations', keywords }
+  assert.equal(commandMatchesQuery(row, 'cron'), true)
+  assert.equal(commandMatchesQuery(row, 'automations'), true)
+  assert.equal(commandMatchesQuery(row, 'trigger'), true)
 })
 
 // The ⌘⇧F scope. `all` and `files` are one list filtered two ways, so the

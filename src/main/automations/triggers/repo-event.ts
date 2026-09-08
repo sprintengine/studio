@@ -6,15 +6,14 @@ import {
   type RepoEventTriggerConfig,
   type RepoEventType,
 } from '../../../shared/automations/contracts'
-import type {
-  SwitchboardReadResult,
-  SwitchboardImportProvider,
-  SwitchboardTaskRecord,
-} from '../../../shared/switchboard'
 import {
-  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
-  type SwitchboardAutomationFrontDoors,
-} from '../actions/switchboard'
+  REPO_TASK_IMPORT_AUTHOR_ID,
+  REPO_TASK_SOURCE_INTEGRATION_ID,
+  type RepoTaskProvider,
+  type RepoTaskReadResult,
+  type RepoTaskRecord,
+  type RepoTaskSourceFrontDoors,
+} from '../repo-task-source'
 
 // Canonical definitions now live in contracts.ts; re-export so existing importers
 // of this module (provider registry, tests) keep their import paths.
@@ -26,16 +25,16 @@ type RepoEventTriggerValidationResult =
   | { ok: false; error: string }
 
 const REPO_EVENT_TYPES = new Set<RepoEventType>(['created', 'updated'])
-const REPO_EVENT_PROVIDERS = new Set<SwitchboardImportProvider | 'any'>(['github', 'jira', 'any'])
+const REPO_EVENT_PROVIDERS = new Set<RepoTaskProvider | 'any'>(['github', 'jira', 'any'])
 const DEFAULT_REPO_EVENT_TYPES: RepoEventType[] = ['updated']
-const SWITCHBOARD_READ_ALL_CACHE_KEY_PREFIX = 'switchboard:read-all:'
+const REPO_TASK_READ_ALL_CACHE_KEY_PREFIX = 'repo-tasks:read-all:'
 
 export function createRepoEventTriggerProvider(
-  frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>
+  frontDoors: Pick<RepoTaskSourceFrontDoors, 'readAllTasks'>
 ): AutomationTriggerProvider {
   return {
     kind: REPO_EVENT_TRIGGER_KIND,
-    requiredIntegrations: [SWITCHBOARD_AUTOMATION_INTEGRATION_ID],
+    requiredIntegrations: [REPO_TASK_SOURCE_INTEGRATION_ID],
     configSchema: {
       type: 'object',
       required: ['kind'],
@@ -65,11 +64,11 @@ export function createRepoEventTriggerProvider(
       const validation = validateRepoEventTriggerConfig(input.config)
       if (!validation.ok) return { ok: false, blockedReason: validation.error }
 
-      const read = await readAllSwitchboardTasksForPoll(frontDoors, input.workspaceRoot, input.context)
+      const read = await readAllRepoTasksForPoll(frontDoors, input.workspaceRoot, input.context)
       if (!read.ok) {
         return {
           ok: false,
-          blockedReason: `Switchboard sync state is unavailable: ${read.message}`,
+          blockedReason: `Repo task sync state is unavailable: ${read.message}`,
         }
       }
 
@@ -82,8 +81,8 @@ export function createRepoEventTriggerProvider(
         return {
           ok: false,
           blockedReason: provider === 'any'
-            ? 'Switchboard has no GitHub or Jira sync state for this workspace.'
-            : `Switchboard has no ${provider} sync state for this workspace.`,
+            ? 'This workspace has no GitHub or Jira sync state.'
+            : `This workspace has no ${provider} sync state.`,
         }
       }
 
@@ -98,14 +97,14 @@ export function createRepoEventTriggerProvider(
   }
 }
 
-function readAllSwitchboardTasksForPoll(
-  frontDoors: Pick<SwitchboardAutomationFrontDoors, 'readAllTasks'>,
+function readAllRepoTasksForPoll(
+  frontDoors: Pick<RepoTaskSourceFrontDoors, 'readAllTasks'>,
   workspaceRoot: string,
   context: AutomationTriggerPollContext | undefined
-): Promise<SwitchboardReadResult> {
+): Promise<RepoTaskReadResult> {
   const readAll = () => frontDoors.readAllTasks({ workspaceRoot })
   return context
-    ? context.getSharedValue(`${SWITCHBOARD_READ_ALL_CACHE_KEY_PREFIX}${workspaceRoot}`, readAll)
+    ? context.getSharedValue(`${REPO_TASK_READ_ALL_CACHE_KEY_PREFIX}${workspaceRoot}`, readAll)
     : readAll()
 }
 
@@ -114,7 +113,7 @@ export function validateRepoEventTriggerConfig(config: unknown): RepoEventTrigge
   if (config.kind !== REPO_EVENT_TRIGGER_KIND) return invalid('Repo-event trigger kind must be "repo-event".')
 
   if (config.provider !== undefined) {
-    if (typeof config.provider !== 'string' || !REPO_EVENT_PROVIDERS.has(config.provider as SwitchboardImportProvider | 'any')) {
+    if (typeof config.provider !== 'string' || !REPO_EVENT_PROVIDERS.has(config.provider as RepoTaskProvider | 'any')) {
       return invalid('Repo-event trigger provider must be "github", "jira", or "any".')
     }
   }
@@ -154,7 +153,7 @@ export function validateRepoEventTriggerConfig(config: unknown): RepoEventTrigge
   }
 }
 
-function recordToRepoEvents(record: SwitchboardTaskRecord): AutomationTriggerPollEvent[] {
+function recordToRepoEvents(record: RepoTaskRecord): AutomationTriggerPollEvent[] {
   const provider = record.task.source.type
   if (provider !== 'github' && provider !== 'jira') return []
 
@@ -235,16 +234,16 @@ function matchesRepoEventConfig(event: AutomationTriggerPollEvent, config: RepoE
   return true
 }
 
-function isRepoSyncRecord(record: SwitchboardTaskRecord): boolean {
+function isRepoSyncRecord(record: RepoTaskRecord): boolean {
   return record.task.source.type === 'github' || record.task.source.type === 'jira'
 }
 
-function readImportMetadata(record: SwitchboardTaskRecord): { createdAt: string; externalUpdatedAt: string | null } | null {
+function readImportMetadata(record: RepoTaskRecord): { createdAt: string; externalUpdatedAt: string | null } | null {
   let createdAt: string | null = null
 
   for (const comment of record.task.comments) {
     if (comment.kind !== 'import') continue
-    if (comment.author.id !== 'switchboard-import') continue
+    if (comment.author.id !== REPO_TASK_IMPORT_AUTHOR_ID) continue
     const commentCreatedAt = normalizedIsoTimestamp(comment.createdAt)
     if (!commentCreatedAt) continue
     createdAt ??= commentCreatedAt

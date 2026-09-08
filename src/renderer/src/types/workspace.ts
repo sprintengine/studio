@@ -155,7 +155,6 @@ export type { ReviewWorkspaceState }
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
-export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
 export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
 // Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
 // single-surface type: one non-closeable review tab, its change set persisted on
@@ -165,7 +164,6 @@ export const REVIEW_WORKSPACE_MODE = 'review'
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
   | typeof SPRINT_ENGINE_WORKSPACE_MODE
-  | typeof SWITCHBOARD_WORKSPACE_MODE
   | typeof GUIDED_BRIEF_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
   | typeof REVIEWS_HOST_WORKSPACE_MODE
@@ -223,23 +221,6 @@ export type {
   SprintEngineAutomationStopReason,
   SprintEngineCliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
-
-export type WatchtowerReviewSectorId =
-  | 'code_review'
-  | 'spec_review'
-  | 'ai_slop'
-  | 'architecture_quality'
-  | 'frontend_design'
-  | 'production_readiness'
-  | 'cross_platform'
-  | 'brand_alignment'
-  | 'security'
-  | 'performance'
-  | 'qa_testing'
-  | 'infrastructure'
-  | 'product_strategy'
-  | 'accessibility'
-  | 'documentation'
 
 export type FuturePlanWorkspaceSource = {
   folderPath: string

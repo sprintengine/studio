@@ -3,7 +3,7 @@ import { homedir } from 'os'
 import { dirname, delimiter, join, resolve } from 'path'
 
 type CliTool = {
-  name: 'switchboard' | 'sprintengine' | 'souls'
+  name: 'sprintengine' | 'souls'
 }
 
 export type CliInstallResult = {
@@ -14,7 +14,6 @@ export type CliInstallResult = {
 }
 
 const CLI_TOOLS: CliTool[] = [
-  { name: 'switchboard' },
   { name: 'sprintengine' },
   { name: 'souls' },
 ]
@@ -116,7 +115,6 @@ function candidateToolRoots(): string[] {
     process.resourcesPath,
     process.env['APPDIR'],
     process.env['MULTICODE_TOOL_ROOT'],
-    process.env['MULTICODE_SWITCHBOARD_CORE_ROOT'],
     __dirname,
     process.cwd(),
   ].filter(Boolean) as string[]
@@ -139,8 +137,7 @@ function isAsarPath(pathValue: string): boolean {
 }
 
 function looksLikeMulticodeToolRoot(root: string): boolean {
-  return existsSync(join(root, 'switchboard_core'))
-    || existsSync(join(root, 'sprintengine_core'))
+  return existsSync(join(root, 'sprintengine_core'))
     || existsSync(join(root, 'souls'))
 }
 

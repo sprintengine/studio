@@ -139,7 +139,6 @@ async function resolveMemoryLaunchContext(
 
 function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
   if (kind === 'sprintengine') return 'sprintengine'
-  if (kind === 'watchtower') return 'watchtower'
   return 'manual'
 }
 

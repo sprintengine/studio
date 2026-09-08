@@ -1284,8 +1284,7 @@ export class MobileBridge {
     try {
       // The proactive publish is the unscoped default snapshot, so it sheds
       // terminal runs beyond the recent-N keep-window (item 1600) exactly as the
-      // unscoped on-demand read does. The default composition (readSnapshot with no
-      // `include`) also drops the switchboard/watchtower projections.
+      // unscoped on-demand read does.
       const snapshot = await this.snapshotService.publishSnapshot({
         desktopSessionId: this.desktopRelaySessionId,
         statePaths: await filterToDefaultSnapshotStatePaths(await this.statePathsProvider()),

@@ -253,17 +253,16 @@ test('folder keys are case- and separator-insensitive with no trailing slash', (
 
 test('reuse resolves the folder’s host for the one-per-project modes only', () => {
   const records = [
-    workspace({ id: 'sb', mode: 'switchboard', folderPath: '/repo' }),
     workspace({ id: 'auto', mode: 'automations-host', folderPath: '/repo' }),
     workspace({ id: 'rev', mode: 'reviews-host', folderPath: '/repo' }),
     workspace({ id: 'std', mode: 'standard', folderPath: '/repo' }),
   ]
-  assert.equal(resolveWorkspaceReuseTarget(records, 'switchboard', '/Repo/')?.id, 'sb')
+  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/Repo/')?.id, 'auto')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/repo')?.id, 'auto')
   assert.equal(resolveWorkspaceReuseTarget(records, 'reviews-host', '/repo')?.id, 'rev')
   assert.equal(resolveWorkspaceReuseTarget(records, 'standard', '/repo'), null, 'standard workspaces never reuse')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'switchboard', null), null, 'a folderless host cannot collide')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'switchboard', '/other'), null)
+  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', null), null, 'a folderless host cannot collide')
+  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/other'), null)
 })
 
 test('classification: every hydration row of the migration table', () => {

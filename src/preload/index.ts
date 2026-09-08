@@ -36,7 +36,6 @@ import { soulsApi } from './api/souls'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { sprintEngineApi } from './api/sprintengine'
-import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
@@ -90,7 +89,6 @@ const api = {
   ...designSystemApi,
   ...skillsApi,
   ...sprintEngineApi,
-  ...switchboardApi,
   ...terminalApi,
   ...updateApi,
   ...voiceApi,

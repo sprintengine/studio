@@ -150,11 +150,11 @@ export async function acquireWorkspaceRunnerLock(workspaceRoot: string): Promise
       }
       const owner = await readOwner(ownerPath)
       const ownerText = owner ? `pid ${owner.pid}` : 'another process'
-      return { ok: false, message: `Switchboard runner is already owned by ${ownerText}.` }
+      return { ok: false, message: `The workspace runner is already owned by ${ownerText}.` }
     }
   }
 
-  return { ok: false, message: 'Unable to acquire Switchboard runner lock.' }
+  return { ok: false, message: 'Unable to acquire the workspace runner lock.' }
 }
 
 export async function releaseWorkspaceRunnerLock(workspaceRoot: string): Promise<void> {

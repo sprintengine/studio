@@ -136,37 +136,6 @@ import type {
   AutomationsWorkspaceInput,
 } from './automations/contracts'
 import type {
-  SwitchboardAddCommentInput,
-  SwitchboardCancelTaskInput,
-  SwitchboardClaimTaskInput,
-  SwitchboardClaimTaskResult,
-  SwitchboardCreateTaskInput,
-  SwitchboardInitApiResult,
-  SwitchboardImportResult,
-  SwitchboardMoveTaskInput,
-  SwitchboardMutationResult,
-  SwitchboardPromoteInboxTaskInput,
-  SwitchboardPublishTaskInput,
-  SwitchboardReadResult,
-  SwitchboardRecoverLockInput,
-  SwitchboardRecoverLockResult,
-  SwitchboardRequeueTaskInput,
-  SwitchboardRunnerResult,
-  SwitchboardRunnerStartInput,
-  SwitchboardRunnerWorkspaceInput,
-  SwitchboardExecutionLogsInput,
-  SwitchboardExecutionLogsResult,
-  SwitchboardExecutionStatusInput,
-  SwitchboardExecutionStatusResult,
-  SwitchboardStopExecutionInput,
-  SwitchboardStopExecutionResult,
-  SwitchboardUpdateTaskInput,
-  WatchtowerRunListResult,
-  WatchtowerRunResult,
-  WatchtowerStartReviewInput,
-  WatchtowerStartTriageInput,
-} from './switchboard'
-import type {
   RoleInstallResult,
   UserRoleDeleteResult,
   UserRoleGetResult,
@@ -1640,7 +1609,7 @@ export type SkillSourceUpdateCheck = {
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
-export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
+export type AgentSessionSystem = 'sprintengine' | 'manual'
 
 export type AgentSessionIdentity = {
   sessionId: string
@@ -4177,33 +4146,6 @@ export type ElectronApi = {
   /** Per-task / per-agent / run token usage computed from the run's durable
    * token ledger + projection (read-only; coverage-truthful, counts only). */
   readSprintEngineTokenUsage: (statePath: string) => Promise<SprintEngineTokenUsageReport>
-  initializeSwitchboard: (workspaceRoot: string) => Promise<SwitchboardInitApiResult>
-  readSwitchboardTasks: (workspaceRoot: string) => Promise<SwitchboardReadResult>
-  createSwitchboardTask: (input: SwitchboardCreateTaskInput) => Promise<SwitchboardMutationResult>
-  updateSwitchboardTask: (input: SwitchboardUpdateTaskInput) => Promise<SwitchboardMutationResult>
-  moveSwitchboardTask: (input: SwitchboardMoveTaskInput) => Promise<SwitchboardMutationResult>
-  promoteSwitchboardInboxTask: (input: SwitchboardPromoteInboxTaskInput) => Promise<SwitchboardMutationResult>
-  cancelSwitchboardTask: (input: SwitchboardCancelTaskInput) => Promise<SwitchboardMutationResult>
-  addSwitchboardComment: (input: SwitchboardAddCommentInput) => Promise<SwitchboardMutationResult>
-  claimSwitchboardTask: (input: SwitchboardClaimTaskInput) => Promise<SwitchboardClaimTaskResult>
-  publishSwitchboardTask: (input: SwitchboardPublishTaskInput) => Promise<SwitchboardMutationResult>
-  recoverSwitchboardLock: (input: SwitchboardRecoverLockInput) => Promise<SwitchboardRecoverLockResult>
-  requeueSwitchboardTask: (input: SwitchboardRequeueTaskInput) => Promise<SwitchboardMutationResult>
-  startSwitchboardRunner: (input: SwitchboardRunnerStartInput) => Promise<SwitchboardRunnerResult>
-  pauseSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
-  resumeSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput) => Promise<SwitchboardRunnerResult>
-  stopSwitchboardRunner: (workspaceRoot: string) => Promise<SwitchboardRunnerResult>
-  tickSwitchboardRunner: (input: SwitchboardRunnerWorkspaceInput) => Promise<SwitchboardRunnerResult>
-  getSwitchboardRunnerState: (input?: string | SwitchboardRunnerWorkspaceInput) => Promise<SwitchboardRunnerResult>
-  stopSwitchboardExecution: (input: SwitchboardStopExecutionInput) => Promise<SwitchboardStopExecutionResult>
-  getSwitchboardExecutionStatus: (input: SwitchboardExecutionStatusInput) => Promise<SwitchboardExecutionStatusResult>
-  getSwitchboardExecutionLogs: (input: SwitchboardExecutionLogsInput) => Promise<SwitchboardExecutionLogsResult>
-  startWatchtowerReview: (input: WatchtowerStartReviewInput) => Promise<WatchtowerRunResult>
-  startWatchtowerTriage: (input: WatchtowerStartTriageInput) => Promise<WatchtowerRunResult>
-  getWatchtowerRun: (input: { workspaceRoot: string; runId: string }) => Promise<WatchtowerRunResult>
-  listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>
-  importGitHubIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
-  importJiraIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
   terminalSpawn: (
     sessionId: string,
     cols: number,

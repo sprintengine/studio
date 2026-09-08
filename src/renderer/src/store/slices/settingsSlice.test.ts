@@ -845,33 +845,33 @@ assert.deepEqual(
 // legacy id (LEGACY_COMMAND_ID_ALIASES), or the legacy-honoring read paths
 // resurrect it and e.g. a pre-rename disable can never be undone (MC-1533
 // re-namespacing; ported from extraction-branch commits 52d05235/0e57e36f).
-store.setCommandKeybindingDisabled('watchtower.run.review', true)
-store.setCommandKeybindingDisabled('switchboard.watchtower.run.review', false)
+store.setCommandKeybindingDisabled('voice.toggle', true)
+store.setCommandKeybindingDisabled('voice-dictation.toggle', false)
 assert.equal(
-  useWorkspaceStore.getState().appSettings.keybindings.disabled['watchtower.run.review'],
+  useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
   undefined,
   're-enabling under the current id clears a legacy-id disabled flag',
 )
-store.setCommandKeybindings('watchtower.run.review', ['Primary+R'])
-store.setCommandKeybindings('switchboard.watchtower.run.review', ['Primary+Shift+R'])
+store.setCommandKeybindings('voice.toggle', ['Primary+R'])
+store.setCommandKeybindings('voice-dictation.toggle', ['Primary+Shift+R'])
 assert.equal(
-  useWorkspaceStore.getState().appSettings.keybindings.overrides['watchtower.run.review'],
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['voice.toggle'],
   undefined,
   'overriding under the current id drops the legacy-id override',
 )
-store.setCommandKeybindings('switchboard.watchtower.run.review', [])
+store.setCommandKeybindings('voice-dictation.toggle', [])
 assert.equal(
-  useWorkspaceStore.getState().appSettings.keybindings.overrides['switchboard.watchtower.run.review'],
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['voice-dictation.toggle'],
   undefined,
   'clearing under the current id removes its override',
 )
-store.setCommandKeybindings('watchtower.run.review', ['Primary+R'])
-store.setCommandKeybindingDisabled('watchtower.run.review', true)
-store.resetCommandKeybindings('switchboard.watchtower.run.review')
+store.setCommandKeybindings('voice.toggle', ['Primary+R'])
+store.setCommandKeybindingDisabled('voice.toggle', true)
+store.resetCommandKeybindings('voice-dictation.toggle')
 assert.deepEqual(
   [
-    useWorkspaceStore.getState().appSettings.keybindings.overrides['watchtower.run.review'],
-    useWorkspaceStore.getState().appSettings.keybindings.disabled['watchtower.run.review'],
+    useWorkspaceStore.getState().appSettings.keybindings.overrides['voice.toggle'],
+    useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
   ],
   [undefined, undefined],
   'resetCommandKeybindings clears legacy-id override and disabled flag',

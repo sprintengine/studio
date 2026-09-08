@@ -63,8 +63,6 @@ electron.vite.config.*.mjs
 # Browser tab screenshots and element crops (browser-pane epic).
 .multi-code/browser/
 
-# Switchboard runtime state
-.multi-code/switchboard/
 # Captured conversation transcripts and review state: the app writes these as it
 # runs, in whatever workspace it has open — including this one. `backlog/config.json`
 # next to them IS project configuration (it carries the `MC` item-key prefix) and

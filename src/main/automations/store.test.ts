@@ -311,7 +311,7 @@ async function assertStateRoundTrip(): Promise<void> {
       },
     },
     triggerBlockedReasonByAutomationId: {
-      'repo-event-watch': 'Switchboard has no GitHub sync state for this workspace.',
+      'repo-event-watch': 'This workspace has no github sync state.',
     },
   })
   const written = await store.writeState(nextState)

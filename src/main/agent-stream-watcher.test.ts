@@ -29,7 +29,7 @@ function testReadinessPatternFiresOncePerWatcher(): void {
 }
 
 function testCompletionSentinelDetectedAcrossChunks(): void {
-  // The sentinel literal is plugin-defined (Switchboard agent descriptors).
+  // The sentinel literal is plugin-defined (agent plugin descriptors).
   // Use a neutral test literal so the fixture does not look like a Sprint
   // Engine stdout wake-up signal — Sprint Engine wake-up is dispatch-driven.
   const watcher = createAgentStreamWatcher({

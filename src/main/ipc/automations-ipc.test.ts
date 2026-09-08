@@ -31,12 +31,7 @@ import {
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
 import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
-import {
-  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
-  SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
-  WATCHTOWER_AUTOMATION_INTEGRATION_ID,
-  WATCHTOWER_REVIEW_ACTION_KIND,
-} from '../automations/actions/switchboard'
+import { REPO_TASK_SOURCE_INTEGRATION_ID } from '../automations/repo-task-source'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
@@ -282,14 +277,8 @@ async function testProviderList(): Promise<void> {
 async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations(): Promise<void> {
   const handlers: HandlerMap = new Map()
   const providerRegistry = createBuiltInAutomationProviderRegistry({
-    switchboard: {
+    repoTasks: {
       readAllTasks: async () => {
-        throw new Error('not used')
-      },
-      tickRunner: async () => {
-        throw new Error('not used')
-      },
-      startWatchtowerReview: async () => {
         throw new Error('not used')
       },
     },
@@ -328,7 +317,7 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       },
       triggerProviders: providerRegistry.listTriggerProviders(),
       actionProviders: providerRegistry.listActionProviders(),
-      isIntegrationAvailable: (id) => id !== WATCHTOWER_AUTOMATION_INTEGRATION_ID,
+      isIntegrationAvailable: (id) => id !== REPO_TASK_SOURCE_INTEGRATION_ID,
       now: () => currentNow,
     }
   )
@@ -337,19 +326,12 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   assert.equal(providers.ok, true)
   if (!providers.ok) return
 
+  // The repo task source is not connected here, so the repo-event trigger is
+  // listed with its integration reported missing rather than hidden.
   const repoEvent = providers.value.triggers.find((provider) => provider.kind === REPO_EVENT_TRIGGER_KIND)
-  assert.deepEqual(repoEvent?.requiredIntegrations, [SWITCHBOARD_AUTOMATION_INTEGRATION_ID])
-  assert.deepEqual(repoEvent?.missingIntegrations, [])
+  assert.deepEqual(repoEvent?.requiredIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
+  assert.deepEqual(repoEvent?.missingIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
   assert.deepEqual((repoEvent?.configSchema as { required?: unknown }).required, ['kind'])
-
-  const switchboard = providers.value.actions.find((provider) => provider.kind === SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
-  assert.deepEqual(switchboard?.requiredIntegrations, ['module:switchboard'])
-  assert.deepEqual(switchboard?.missingIntegrations, [])
-
-  const watchtower = providers.value.actions.find((provider) => provider.kind === WATCHTOWER_REVIEW_ACTION_KIND)
-  assert.deepEqual(watchtower?.requiredIntegrations, ['module:watchtower'])
-  assert.deepEqual(watchtower?.missingIntegrations, ['module:watchtower'])
-  assert.deepEqual((watchtower?.configSchema as { required?: unknown }).required, ['preset'])
 
   const sprintEngine = providers.value.actions.find((provider) => provider.kind === SPRINT_ENGINE_RUN_ACTION_KIND)
   assert.deepEqual(sprintEngine?.requiredIntegrations, ['module:sprint-engine'])

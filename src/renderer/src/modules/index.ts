@@ -14,7 +14,6 @@ import { memoryRendererModule } from './memory-module'
 import { mobileRelayRendererModule } from './mobile-relay-module'
 import { reviewRendererModule } from './review-module'
 import { sprintEngineRendererModule } from './sprint-engine-module'
-import { switchboardRendererModule } from './switchboard-module'
 import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
@@ -28,7 +27,6 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   devToolsRendererModule,
   memoryRendererModule,
   gitRendererModule,
-  switchboardRendererModule,
   sprintEngineRendererModule,
   designWizardRendererModule,
   reviewRendererModule,
@@ -55,7 +53,7 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true
 
 // Active renderer modules for this build channel. Dev-only modules (Voice,
-// Switchboard/Watchtower, Mobile Relay, and the not-yet-production-
+// Mobile Relay, and the not-yet-production-
 // ready Roadmap and Review) are dropped from a packaged (production) renderer
 // bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev

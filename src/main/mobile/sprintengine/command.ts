@@ -211,7 +211,7 @@ function mobileAutomationError(code: string): { code: MobileControlError['code']
     // on this desktop. None of them is a fault the user can retry away, and none is
     // an internal error — reporting them as one would say "something broke" when the
     // truth is "this desktop cannot do that with this automation". The provider's own
-    // reason ("Requires the Watchtower module") rides along in the message.
+    // reason ("Requires the <name> module") rides along in the message.
     case 'provider_blocked':
     case 'unknown_trigger':
     case 'unknown_action':

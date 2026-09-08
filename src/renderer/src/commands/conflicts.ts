@@ -21,7 +21,7 @@ export type KeybindingConflictCandidate = {
 // `panel:*` scopes form one open family that is USUALLY exclusive (module
 // panel scopes derive from the single active workspace's mode), so same-key
 // bindings across two panel scopes warn rather than block. They are not
-// strictly exclusive — switchboard mode activates panel:watchtower too, and
+// strictly exclusive — a module can push more than one panel scope, and
 // feature contexts can ride foreign modes — in which co-active cases the
 // dispatcher resolves the tie by registration order (shell first).
 // Editor/terminal keep their fixed exclusive pair.

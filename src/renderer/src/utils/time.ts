@@ -1,5 +1,5 @@
 // Shared time formatters. ISO-string inputs from agent-managed state files
-// (Sprint Engine, Switchboard, Watchtower) get rendered as either relative
+// (Sprint Engine, automations, reviews) get rendered as either relative
 // (`5m ago`) or absolute (`MM/DD/YYYY, HH:MM:SS`) text. Lower-level
 // numeric-only helpers live in `relativeTime.ts`.
 

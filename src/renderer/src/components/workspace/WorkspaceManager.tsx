@@ -205,8 +205,8 @@ import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 // five-tab creation modal whose Workspace tab minted the old Editor-plus-one-
 // agent layout — is gone: New chat searches the projects, browses the disk,
 // imports from Git and picks the engine, which is everything the wizard asked
-// for. Sprints are created from the Sprints door; Design Wizard and
-// Switchboard get a door when they ship, not a creation entry before.
+// for. Sprints are created from the Sprints door; Design Wizard gets a door
+// when it ships, not a creation entry before.
 //
 // One surface, two destinations (MC-2147): pressing "+" retypes a tab into the
 // agent's terminal; New chat creates a solo workspace in the picked project.
@@ -820,7 +820,7 @@ export default function WorkspaceManager() {
       .filter(([, isDisabled]) => isDisabled === true)
       .map(([commandId]) => commandId))
     // Persisted disables keyed by a command's legacy id keep suppressing its
-    // migrated id (Watchtower's module-path re-namespacing).
+    // migrated id (see LEGACY_COMMAND_ID_ALIASES).
     for (const [currentId, legacyId] of Object.entries(LEGACY_COMMAND_ID_ALIASES)) {
       if (disabled.has(legacyId)) disabled.add(currentId)
     }
@@ -842,19 +842,13 @@ export default function WorkspaceManager() {
     // Generic module panel scope: the active mode's owning module (via the
     // workspace-type registry) gets `panel:<moduleId>` — this is how module
     // commands gate on "my workspace is active" without a shell enum arm per
-    // module. Covers switchboard the mode-specific arm used to. Sprint Engine
-    // is excluded: its commands ride the legacy 'panel:sprintengine' literal
+    // module. Sprint Engine is excluded: its commands ride the legacy 'panel:sprintengine' literal
     // pushed by the dedicated arm above, and its module id ('sprint-engine')
     // differs from the mode id — deriving here would activate a second,
     // phantom scope name for the same surface.
     const owningModule = getRendererHost().getWorkspaceTypeModule(activeWorkspace.mode)
     if (owningModule && owningModule !== 'sprint-engine') {
       scopes.push(`panel:${owningModule}`)
-    }
-    // Feature-specific extra the registry can't express: Watchtower is a
-    // second surface of the switchboard module with its own shell-pushed scope.
-    if (activeWorkspace.mode === 'switchboard') {
-      scopes.push('panel:watchtower')
     }
     return scopes
     // moduleRegistryGeneration: a late third-party load re-derives the
@@ -4029,8 +4023,7 @@ export default function WorkspaceManager() {
     // Registry-backed panel-event commands: the registry names the event, so
     // the palette and a keybinding reach the same panel listener (Sprint
     // Engine's ids and the chat view's model-picker toggle alike);
-    // switchboard/watchtower ids are module commands now and were handled
-    // above.
+    // module-contributed ids were handled above.
     if (getCommandDefinition(commandId)?.handlerPath.kind === 'panel-event' || commandId.startsWith('sprintengine.')) {
       dispatchPanelCommand(commandId)
       return true

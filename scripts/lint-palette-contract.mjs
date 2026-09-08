@@ -18,25 +18,19 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// Switchboard/Watchtower palette rows are registered through the module path
-// since MC-1533 (switchboard-module.ts), so their dispatch ids live there;
-// the shell palette carries the Sprint Engine rows.
+// The shell palette carries the Sprint Engine rows; a capability module that
+// registers its own palette rows through the module path (MC-1533) owns its
+// own dispatch and is not covered here.
 const PALETTE_FILES = [
-  // Moved into the kit by MC-2117; this path was left behind and the lint has
-  // been crashing on ENOENT ever since, taking the whole `npm run lint` gate
-  // with it.
   'src/renderer/src/components/ui/CommandPalette.tsx',
-  'src/renderer/src/modules/switchboard-module.ts',
 ]
 const PANEL_FILES = [
-  'src/renderer/src/components/panels/SwitchboardBoardPanel.tsx',
-  'src/renderer/src/components/panels/WatchtowerPanel.tsx',
   'src/renderer/src/components/panels/SprintEngineBoardPanel.tsx',
 ]
 
 // Command ids match `<panel>.<verb>.<noun>` with lowercase letters, dots and
 // hyphens. Anchored on the surrounding quote to avoid false matches in prose.
-const COMMAND_ID_RE = /'(switchboard|watchtower|sprintengine)\.[a-z0-9.\-]+'/g
+const COMMAND_ID_RE = /'sprintengine\.[a-z0-9.\-]+'/g
 
 function extractIds(source) {
   const ids = new Set()

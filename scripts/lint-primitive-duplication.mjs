@@ -91,7 +91,7 @@ const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas
 //   COMPANION-PLAN-OWNED: target panels handled outside this run by a
 //     companion follow-up. This audit's panel migrations stop short of these
 //     surfaces by design.
-// Migration complete: SwitchboardBoardPanel and WatchtowerPanel native
+// Migration complete: the board panels' native
 // <select> sites are now routed through ui/Select (see T8 of the Linear App
 // UI Upgrade — Phase 4 plan). SettingsPanel remains companion-plan-owned; keep
 // this allow-list scoped to that existing settings control until the Settings

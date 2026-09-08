@@ -1551,12 +1551,11 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
   }
 }
 
-// T1 decoupled the core runtime from Switchboard: the runtime now fires its
-// agent-session-exit listener for ANY system (filtering moved into the
-// switchboard module) and reports live executions as system-tagged entries.
-// This locks in that generic behavior — the runtime must not special-case
-// switchboard/watchtower, and the exit payload must carry system +
-// workspace identity for every agent session.
+// T1 decoupled the core runtime from any one feature: the runtime fires its
+// agent-session-exit listener for ANY system (filtering is the caller's job)
+// and reports live executions as system-tagged entries. This locks in that
+// generic behavior — the runtime must not special-case a system, and the exit
+// payload must carry system + workspace identity for every agent session.
 async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   runtimeModule: RuntimeModule
 ): Promise<void> {
@@ -1600,13 +1599,13 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   }
 
   try {
-    // A switchboard session and a sprintengine session prove the runtime is
+    // A manual session and a sprintengine session prove the runtime is
     // system-agnostic: both must surface in the inventory and both must fire
-    // the exit listener. The runtime no longer knows what switchboard is.
-    const switchboardPty = await spawnAgent({
-      executionId: 'exec-switchboard',
-      system: 'switchboard',
-      workspaceId: 'ws-switchboard',
+    // the exit listener. The runtime knows nothing about either system.
+    const manualPty = await spawnAgent({
+      executionId: 'exec-manual',
+      system: 'manual',
+      workspaceId: 'ws-manual',
     })
     const sprintEnginePty = await spawnAgent({
       executionId: 'exec-sprintengine',
@@ -1620,30 +1619,30 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
     assert.deepEqual(
       liveById,
       new Map([
-        ['exec-switchboard', 'switchboard'],
+        ['exec-manual', 'manual'],
         ['exec-sprintengine', 'sprintengine'],
       ]),
-      'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a switchboard-only id list'
+      'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a single-system id list'
     )
 
-    switchboardPty.emitExit({ exitCode: 7 })
+    manualPty.emitExit({ exitCode: 7 })
     sprintEnginePty.emitExit({ exitCode: 0 })
     await delay(20)
 
     const byExecution = new Map(events.map((event) => [event.executionId, event]))
     assert.deepEqual(
-      byExecution.get('exec-switchboard'),
+      byExecution.get('exec-manual'),
       {
-        system: 'switchboard',
+        system: 'manual',
         workspaceRoot,
-        workspaceId: 'ws-switchboard',
+        workspaceId: 'ws-manual',
         // Descriptor spawns key the terminal's agentId off the executionId; the
         // pair is what an automation correlates on once the execution is gone.
-        agentId: 'exec-switchboard',
-        executionId: 'exec-switchboard',
+        agentId: 'exec-manual',
+        executionId: 'exec-manual',
         exitCode: 7,
       },
-      'switchboard session exit must fire the generic listener with the full system-tagged payload'
+      'a manual session exit must fire the generic listener with the full system-tagged payload'
     )
     assert.deepEqual(
       byExecution.get('exec-sprintengine'),
@@ -1655,15 +1654,15 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         executionId: 'exec-sprintengine',
         exitCode: 0,
       },
-      'a non-switchboard session must also fire the listener: filtering is the module’s job, not the runtime’s'
+      'a second system must also fire the listener: filtering is the caller’s job, not the runtime’s'
     )
 
     // Unregister stops delivery — the registration seam is a real subscription.
     unregister()
     const afterUnregister = await spawnAgent({
       executionId: 'exec-after-unregister',
-      system: 'switchboard',
-      workspaceId: 'ws-switchboard',
+      system: 'manual',
+      workspaceId: 'ws-manual',
     })
     afterUnregister.emitExit({ exitCode: 1 })
     await delay(20)
@@ -3666,7 +3665,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
   }
 }
 
-// The descriptor (SprintEngine/switchboard) launch path must also expose the
+// The descriptor (SprintEngine) launch path must also expose the
 // agent's identity so the agent-state reporter can map hook frames to the
 // session: MULTICODE_AGENT_ID is set to the executionId (=== session.agentId),
 // and any stale id inherited by the app process is overridden.

@@ -1413,7 +1413,6 @@ async function main(): Promise<void> {
   // was called in to end.
   const MENU_SWEPT = [
     'components/backlog',
-    'components/panels/WatchtowerPanel',
     'components/ui',
     'components/workspace/AppTitleBar.tsx',
     'components/workspace/SidebarAccountBar.tsx',
@@ -1582,7 +1581,7 @@ async function main(): Promise<void> {
   // The product carried EIGHT hand-rolled field vocabularies plus a ninth found
   // during the sweep, and two different components both exported as `Field`
   // through the same barrel — one of them with no `htmlFor` and no ARIA at all,
-  // which is the one Watchtower's dialogs happened to import. Heights landed on
+  // which is the one several panel dialogs happened to import. Heights landed on
   // 32 / 34 / h-7 / h-8 / h-9 / h-10 / h-11, mostly off the 26/30/34 ramp.
   //
   // Three of the four rules below are source-read, for the reason the z and
@@ -1603,9 +1602,6 @@ async function main(): Promise<void> {
     'components/panels/ContentSearchPanel.tsx',
     'components/panels/FileExplorer.tsx',
     'components/panels/SprintEngineInspectorPanel.tsx',
-    'components/panels/SwitchboardBoardPanel.tsx',
-    'components/panels/WatchtowerPanel/CreateInboxDialog.tsx',
-    'components/panels/WatchtowerPanel/DetailPane.tsx',
     'components/settings/MobileSettingsTab.tsx',
     'components/settings/ProjectKnowledgeList.tsx',
     'components/settings/ProviderSettingsTab.tsx',

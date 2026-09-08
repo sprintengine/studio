@@ -112,10 +112,8 @@ export function isScheduleConfig(config: unknown): config is ScheduleTriggerConf
 export const ACTION_LABEL: Record<string, string> = {
   'spawn-agent': 'Spawn an agent',
   'run-skill-loop': 'Run a skill loop',
-  'watchtower-review': 'Run a code review',
   'sprint-engine-run': 'Run a sprint',
   'sprint-engine-start': 'Start the next sprint',
-  'switchboard-runner-tick': 'Advance the Switchboard queue',
 }
 
 // Sentence-case action label for a kind, falling back to the raw kind for
@@ -540,7 +538,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 // Whether a freshly built trigger matches the loaded one (key-order-insensitive).
 // Used to omit an unchanged trigger from an update patch — required so a webhook's
 // stored secret survives a name/action edit, and so an existing repo-event whose
-// provider is no longer registered (Switchboard disabled) can still be renamed.
+// provider is no longer registered can still be renamed.
 export function triggersEquivalent(
   built: { kind: TriggerKind; config: unknown },
   loaded: { kind: TriggerKind; config: unknown } | null | undefined,

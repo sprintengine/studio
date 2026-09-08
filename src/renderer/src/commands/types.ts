@@ -21,17 +21,13 @@ export type CommandScope =
   | 'terminal'
   | 'panel'
   | 'panel:sprintengine'
-  | 'panel:watchtower'
   // Open scope family (MC-1533): `panel:<moduleId>` scopes are derived from
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
-  // per module. `panel:switchboard` is a member of this family;
-  // `panel:watchtower` stays a named literal because Watchtower is a surface
-  // of the switchboard module, not a workspace mode of its own, and
-  // `panel:sprintengine` stays named because its module id ('sprint-engine')
-  // differs from its mode id. `(string & {})` keeps the named literals in
-  // completions while accepting the derived family.
+  // per module. `panel:sprintengine` stays a named literal because its module
+  // id ('sprint-engine') differs from its mode id. `(string & {})` keeps the
+  // named literals in completions while accepting the derived family.
   | (string & {})
 
 export type CommandAvailability =

@@ -399,24 +399,24 @@ result = predicateDispatcher.resolve(
 assert.equal(result.kind, 'unmatched', 'no module context wired fails closed')
 
 // Persisted overrides keyed by a migrated command's LEGACY id keep firing the
-// re-namespaced id (Watchtower's module-path migration).
+// re-namespaced id (the module-path migration).
 const migratedCommand: CommandContribution = {
-  id: 'switchboard.watchtower.run.review',
-  title: 'Run review',
-  category: 'Watchtower',
-  scopes: ['panel:watchtower'],
+  id: 'voice-dictation.toggle',
+  title: 'Toggle Voice Transcription',
+  category: 'voice',
+  scopes: ['global'],
 }
 result = predicateDispatcher.resolve(
   key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }),
   {
-    activeScopes: ['global', 'workspace', 'panel:watchtower'],
+    activeScopes: ['global', 'workspace'],
     platform: 'linux',
     commands: [migratedCommand],
-    keybindingOverrides: { 'watchtower.run.review': ['Primary+Shift+R'] },
+    keybindingOverrides: { 'voice.toggle': ['Primary+Shift+R'] },
     now: 6300,
   },
 )
 assert.equal(result.kind, 'matched', 'legacy-id override still binds')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'switchboard.watchtower.run.review')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
 console.log('command dispatcher module command tests passed')

@@ -1294,7 +1294,6 @@ export type CommandScope =
   | 'terminal'
   | 'panel'
   | 'panel:sprintengine'
-  | 'panel:watchtower'
   // Open scope family: `panel:<moduleId>` is active while a workspace whose
   // mode belongs to that module is active — the shell derives it from the
   // workspace-type registry, so your module's commands can gate on "my

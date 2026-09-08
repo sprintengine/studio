@@ -6,10 +6,10 @@ import { FOCUS_RING_CLASS } from './tokens'
 // MC-2114. In its place the product grew NINE hand-rolled ones — the automation
 // editor's `CONTROL_BASE` (duplicated verbatim in `TriggerFields` under comments
 // in both files admitting the two were hand-synced), five separate inline
-// strings inside one Watchtower file, two different module constants both named
+// strings inside one panel file, two different module constants both named
 // `INPUT_CLASS`, two different ones both named `ROW_INPUT_CLASS` (so "the" row
 // input was a coin flip between a `--bg-surface` field and a `--bg-app` well),
-// and the Switchboard runner settings' box, which declared no focus indicator at
+// and a runner settings box, which declared no focus indicator at
 // all. Heights landed on 26/28/32/34/36/40/44px, mostly off the 26/30/34 ramp.
 //
 // Chrome is deliberately matched to the `Select` trigger (same height, radius,

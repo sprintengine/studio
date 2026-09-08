@@ -326,7 +326,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       agentSession: {
         executionId: sessionId,
         // 'manual' is what a general/specialist agent has always been here —
-        // sprintengine and watchtower sessions come from their own spawn paths,
+        // sprintengine sessions come from their own spawn paths,
         // never from this service.
         system: 'manual',
         workspaceId: workspace.id,

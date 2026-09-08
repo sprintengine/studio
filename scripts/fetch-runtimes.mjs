@@ -134,8 +134,8 @@ function installPythonDeps(pythonExe, opts) {
 }
 
 // Stdlib subtrees we never import from the headless Python sidecars (verified:
-// nothing under souls/sprintengine_*/switchboard_core imports
-// them). Dropping them trims the shipped runtime with no runtime behavior change.
+// nothing under souls/sprintengine_* imports them). Dropping them trims the
+// shipped runtime with no runtime behavior change.
 // `test` is the CPython stdlib test suite (the largest single win); the rest are
 // GUI/legacy tooling. Pruned by directory basename within the stdlib dir only, so
 // third-party packages under site-packages are untouched. `ensurepip`/`pip` are

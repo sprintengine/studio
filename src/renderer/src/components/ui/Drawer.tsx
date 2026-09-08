@@ -8,7 +8,7 @@
 //     <Drawer.Body>...</Drawer.Body>
 //   </Drawer>
 //
-// Consumer migration (Switchboard runner, Watchtower active review, Sprint
+// Consumer migration (Sprint
 // Engine inspector) is T11, not this task.
 
 import React, { useEffect, useId, useRef, useState } from 'react'

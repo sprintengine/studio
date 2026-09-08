@@ -5,14 +5,13 @@ import type { LayoutTemplate, Workspace } from '../../types/workspace'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
 import {
-  consolidateSwitchboardWorkspaceLayout,
   createLayoutSlice,
   healRetiredRailLayout,
+  stripRetiredModuleTabsFromLayout,
   hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
   isLegacySprintEngineLayout,
-  markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   modelContainsComponent,
   sprintEngineTabsLayoutModel,
@@ -21,7 +20,6 @@ import {
   stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
 import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
-import { createSwitchboardTemplate } from '../../modules/switchboard-workspace-types'
 import { guidedBriefLayoutModel } from './guidedBriefSlice'
 
 const standardTemplate: LayoutTemplate = {
@@ -164,7 +162,10 @@ const canonicalSeTabset = findTabset(canonicalSprintLayout, (record) => {
 })!
 assert.equal(canonicalSeTabset.enableTabStrip, false)
 
-const switchboardLegacyLayout: IJsonModel = {
+// Layout tabs whose owning module was retired are stripped on hydration, the
+// same way the rail-to-pane move strips its tabs: the model registry no longer
+// resolves the component, so a surviving tab would render an empty surface.
+const retiredModuleLayout: IJsonModel = {
   global: {},
   borders: [],
   layout: {
@@ -173,15 +174,13 @@ const switchboardLegacyLayout: IJsonModel = {
       {
         type: 'tabset',
         children: [
-          { type: 'tab', name: 'Watchtower', component: 'watchtower-panel' },
-          { type: 'tab', name: 'Switchboard', component: 'switchboard-board' },
+          { type: 'tab', name: 'Board', component: 'switchboard-workspace' },
           { type: 'tab', name: 'Notes', component: 'editor' },
         ],
       },
     ],
   },
 }
-const stickySwitchboardLayout = markSwitchboardAnchorTabsSticky(switchboardLegacyLayout)
 function findTab(model: IJsonModel, component: string): Record<string, unknown> | null {
   let found: Record<string, unknown> | null = null
   const walk = (node: unknown) => {
@@ -196,59 +195,15 @@ function findTab(model: IJsonModel, component: string): Record<string, unknown> 
   walk(model.layout)
   return found
 }
-const stickyWatchtower = findTab(stickySwitchboardLayout!, 'watchtower-panel')!
-const stickyBoard = findTab(stickySwitchboardLayout!, 'switchboard-board')!
-const untouchedEditor = findTab(stickySwitchboardLayout!, 'editor')!
-assert.equal(stickyWatchtower.enableClose, false)
-assert.equal(stickyWatchtower.enableDrag, false)
-assert.equal(stickyBoard.enableClose, false)
-assert.equal(stickyBoard.enableDrag, false)
-assert.equal(untouchedEditor.enableClose, undefined)
-assert.equal(untouchedEditor.enableDrag, undefined)
-
-// Existing Switchboard layouts that still ship the two separate tabs migrate
-// to a single 'switchboard-workspace' wrapper inside a strip-less tabset.
-const legacySwitchboardLayout: IJsonModel = {
-  global: {},
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        children: [
-          { type: 'tab', name: 'Watchtower', component: 'watchtower-panel', enableClose: false },
-          { type: 'tab', name: 'Switchboard', component: 'switchboard-board', enableClose: false },
-        ],
-      },
-    ],
-  },
-}
-const wrappedSwitchboardLayout = consolidateSwitchboardWorkspaceLayout(legacySwitchboardLayout) as IJsonModel
-assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'switchboard-workspace'), true)
-assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'watchtower-panel'), false)
-assert.equal(modelContainsComponent(wrappedSwitchboardLayout, 'switchboard-board'), false)
-const wrapperTabset = findTabset(wrappedSwitchboardLayout, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'switchboard-workspace')
-})!
-assert.equal(wrapperTabset.enableTabStrip, false)
-
-// Non-Switchboard layouts pass through untouched.
-const sprintLayoutPassthrough = consolidateSwitchboardWorkspaceLayout(canonicalLayout)
-assert.equal(sprintLayoutPassthrough, canonicalLayout)
-
-// Canonical Switchboard template ships with the wrapper + hidden tab strip.
-const switchboardTemplate = createSwitchboardTemplate()
-assert.equal(modelContainsComponent(switchboardTemplate.layout, 'switchboard-workspace'), true)
-const templateWrapperTabset = findTabset(switchboardTemplate.layout, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'switchboard-workspace')
-})!
-assert.equal(templateWrapperTabset.enableTabStrip, false)
+const strippedRetired = stripRetiredModuleTabsFromLayout(retiredModuleLayout) as IJsonModel
+assert.equal(modelContainsComponent(strippedRetired, 'switchboard-workspace'), false)
+assert.equal(modelContainsComponent(strippedRetired, 'watchtower-panel'), false)
+assert.ok(findTab(strippedRetired, 'editor'), 'the rest of the layout survives the strip')
+// Nothing to strip is a no-op by reference, so it is safe on every hydration.
+assert.equal(stripRetiredModuleTabsFromLayout(canonicalLayout), canonicalLayout)
 
 // Existing guided-brief layouts migrate to enableTabStrip: false on the tabset
-// that wraps the panel, matching Sprint Engine / Switchboard. Other tabsets
+// that wraps the panel, matching Sprint Engine. Other tabsets
 // the user may have rearranged are left alone.
 const guidedBriefLayoutForStripMigration: IJsonModel = {
   global: { tabEnableClose: false },

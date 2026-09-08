@@ -95,8 +95,6 @@ test('each host mode mints its own single-surface layout headlessly', () => {
       true,
       'a host minted with no window still gets its control centre, never a bare standard layout',
     )
-    const board = create(h, { folderPath: '/repo', mode: 'switchboard' })
-    assert.equal(board.workspace.templateId, 'switchboard-mode')
     const reviews = create(h, { folderPath: '/repo', mode: REVIEWS_HOST_WORKSPACE_MODE })
     assert.equal(reviews.workspace.templateId, 'reviews-host-mode')
     // The mode wins over a caller-named template: a host built on 'solo' would

@@ -32,7 +32,7 @@ import {
   AutomationsProviderRegistryToken,
   SprintCreateServiceToken,
   SprintEngineAutomationFrontDoorsToken,
-  SwitchboardAutomationFrontDoorsToken,
+  RepoTaskSourceFrontDoorsToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
@@ -42,7 +42,6 @@ import {
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
 import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND } from '../automations/actions/sprint-engine'
-import { SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND } from '../automations/actions/switchboard'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../automations/triggers/sprint-engine-run-landed'
 import {
@@ -167,51 +166,21 @@ function fakeAgentRuntimeModule(options: {
   }
 }
 
-function fakeSwitchboardAutomationFrontDoorModule(): CapabilityModule {
+function fakeRepoTaskSourceModule(): CapabilityModule {
   return {
     manifest: {
-      id: 'switchboard',
-      displayName: 'Switchboard',
+      id: 'repo-tasks',
+      displayName: 'Repo tasks',
       version: 1,
       defaultEnabled: true,
       dependsOn: ['agent-runtime'],
     },
     registerMain(host) {
-      host.provideService(SwitchboardAutomationFrontDoorsToken, () => ({
+      host.provideService(RepoTaskSourceFrontDoorsToken, () => ({
         readAllTasks: async (input) => ({
           ok: true,
           workspaceRoot: input.workspaceRoot,
-          switchboardRoot: '',
           tasks: [],
-          problems: [],
-        }),
-        tickRunner: async (input) => ({
-          ok: true,
-          workspaceRoot: input.workspaceRoot,
-          enabled: true,
-          running: true,
-          paused: false,
-          provider: 'electron-session',
-          cli: 'codex',
-          maxConcurrency: 1,
-          queues: ['ready'],
-          activeExecutions: [],
-          lastError: null,
-          updatedAt: null,
-        }),
-        startWatchtowerReview: async (input) => ({
-          ok: true,
-          run: {
-            schemaVersion: 1,
-            runId: 'watchtower-run-1',
-            status: 'running',
-            createdAt: '2026-06-18T00:00:00.000Z',
-            completedAt: null,
-            workspaceRoot: input.workspaceRoot,
-            preset: input.preset,
-            agents: [],
-            counts: { valid: 0, invalid: 0, ingested: 0 },
-          },
         }),
       }))
     },
@@ -803,7 +772,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
     ipcMain,
     modules: [
       fakeAgentRuntimeModule(),
-      fakeSwitchboardAutomationFrontDoorModule(),
+      fakeRepoTaskSourceModule(),
       fakeSprintEngineAutomationFrontDoorModule(),
       createAutomationsModule(),
     ],
@@ -835,7 +804,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   )
   assert.deepEqual(
     providers.value.actions.map((provider) => provider.kind),
-    ['spawn-agent', 'run-skill-loop', SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND, SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND]
+    ['spawn-agent', 'run-skill-loop', SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND]
   )
   assert.deepEqual(
     providers.value.actions.flatMap((provider) => provider.missingIntegrations),

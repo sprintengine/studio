@@ -12,12 +12,6 @@ import type { WorkspaceCreateRequest } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, SPRINT_ENGINE_RUN_ACTION_KIND } from './actions/sprint-engine'
 import {
-  SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
-  SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
-  WATCHTOWER_AUTOMATION_INTEGRATION_ID,
-  WATCHTOWER_REVIEW_ACTION_KIND,
-} from './actions/switchboard'
-import {
   RunWorktreeUnavailableError,
   createBuiltInAutomationActionProviders,
   createLocalAutomationExecutor,
@@ -118,16 +112,6 @@ function run(overrides: Partial<AutomationRun> = {}): AutomationRun {
     ...overrides,
   }
 }
-
-const LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS = [
-  'lean_code_review',
-  'ui_brand_alignment_review',
-  'performance_focused_review',
-  'security_deep_review',
-  'full_product_review',
-] as const
-
-const launchableWatchtowerReviewPresets = new Set<string>(LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS)
 
 // What the harness records, across BOTH outbound ports, each tagged with the
 // kind the retired renderer-delegate request used to carry so ordering
@@ -249,46 +233,6 @@ function executorHarness(
 
 function firstPartyActionProviders(calls: string[] = []): AutomationActionProvider[] {
   return createBuiltInAutomationActionProviders({
-    switchboard: {
-      readAllTasks: async (input) => ({ ok: true, workspaceRoot: input.workspaceRoot, switchboardRoot: '', tasks: [], problems: [] }),
-      tickRunner: async (input) => {
-        calls.push(`switchboard:${input.workspaceRoot}`)
-        return {
-          ok: true,
-          workspaceRoot: input.workspaceRoot,
-          enabled: true,
-          running: true,
-          paused: false,
-          provider: 'electron-session',
-          cli: 'codex',
-          maxConcurrency: 1,
-          queues: ['ready'],
-          activeExecutions: [],
-          lastError: null,
-          updatedAt: null,
-        }
-      },
-      startWatchtowerReview: async (input) => {
-        calls.push(`watchtower:${input.workspaceRoot}:${input.preset}`)
-        if (!launchableWatchtowerReviewPresets.has(input.preset)) {
-          return { ok: false, message: 'Watchtower preset has no review agents.' }
-        }
-        return {
-          ok: true,
-          run: {
-            schemaVersion: 1,
-            runId: 'watchtower-run-1',
-            status: 'running',
-            createdAt: '2026-06-18T00:00:00.000Z',
-            completedAt: null,
-            workspaceRoot: input.workspaceRoot,
-            preset: input.preset,
-            agents: [],
-            counts: { valid: 0, invalid: 0, ingested: 0 },
-          },
-        }
-      },
-    },
     sprintEngine: {
       setRunnerMode: async (input) => {
         calls.push(`sprint-mode:${input.statePath}:${input.cliWatchPolling}`)
@@ -873,32 +817,12 @@ async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
       'run-skill-loop',
       'spawn-agent',
       SPRINT_ENGINE_RUN_ACTION_KIND,
-      SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
-      WATCHTOWER_REVIEW_ACTION_KIND,
     ].sort()
   )
   const harness = executorHarness([workspace('ws-front-door', '/repo/a')], {
     actionProviders: providers,
     isIntegrationAvailable: () => true,
   })
-
-  const switchboard = await harness.executor({
-    workspaceRoot: '/repo/a',
-    definition: definition({ action: { kind: SWITCHBOARD_RUNNER_TICK_ACTION_KIND, config: {} } }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-  assert.equal(switchboard.status, 'completed')
-  assert.match(switchboard.summary ?? '', /Switchboard runner tick completed/)
-
-  const watchtower = await harness.executor({
-    workspaceRoot: '/repo/a',
-    definition: definition({ action: { kind: WATCHTOWER_REVIEW_ACTION_KIND, config: { preset: 'lean_code_review' } } }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-  assert.equal(watchtower.status, 'completed')
-  assert.equal(watchtower.summary, 'Started Watchtower review watchtower-run-1.')
 
   const sprintEngine = await harness.executor({
     workspaceRoot: '/repo/a',
@@ -912,58 +836,12 @@ async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
   assert.match(sprintEngine.summary ?? '', /ship-squad/)
 
   assert.deepEqual(calls, [
-    'switchboard:/repo/a',
-    'watchtower:/repo/a:lean_code_review',
     'sprint-mode:/repo/a/.multi-code/sprintengine/ship-squad/run.yaml:enabled',
   ])
 }
 
-function watchtowerPresetEnum(provider: AutomationActionProvider): string[] {
-  const properties = (provider.configSchema as { properties?: Record<string, unknown> }).properties
-  const preset = properties?.preset as { enum?: unknown } | undefined
-  assert.ok(Array.isArray(preset?.enum), 'watchtower-review schema should enumerate presets')
-  assert.ok(preset.enum.every((value) => typeof value === 'string'), 'watchtower-review preset enum should contain strings')
-  return preset.enum
-}
-
-async function assertWatchtowerSchemaOnlyAcceptsLaunchablePresets(): Promise<void> {
-  const calls: string[] = []
-  const actionProviders = firstPartyActionProviders(calls)
-  const provider = actionProviders.find((candidate) => candidate.kind === WATCHTOWER_REVIEW_ACTION_KIND)
-  assert.ok(provider, 'watchtower-review action provider should be registered')
-
-  const acceptedPresets = watchtowerPresetEnum(provider)
-  assert.deepEqual(acceptedPresets, LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS)
-  assert.equal(acceptedPresets.includes('custom'), false)
-
-  const harness = executorHarness([workspace('ws-front-door', '/repo/a')], {
-    actionProviders,
-    isIntegrationAvailable: () => true,
-  })
-  for (const preset of acceptedPresets) {
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition({ action: { kind: WATCHTOWER_REVIEW_ACTION_KIND, config: { preset } } }),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-    assert.equal(result.status, 'completed', `accepted Watchtower preset should start: ${preset}`)
-  }
-  assert.deepEqual(calls, acceptedPresets.map((preset) => `watchtower:/repo/a:${preset}`))
-}
-
 async function assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor(): Promise<void> {
   const cases = [
-    {
-      kind: SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
-      config: {},
-      integration: SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
-    },
-    {
-      kind: WATCHTOWER_REVIEW_ACTION_KIND,
-      config: { preset: 'lean_code_review' },
-      integration: WATCHTOWER_AUTOMATION_INTEGRATION_ID,
-    },
     {
       kind: SPRINT_ENGINE_RUN_ACTION_KIND,
       config: { team: 'ship-squad' },
@@ -993,14 +871,8 @@ async function assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor(): Promis
 
 function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): void {
   const builtIns = createBuiltInAutomationProviderRegistry({
-    switchboard: {
+    repoTasks: {
       readAllTasks: async () => {
-        throw new Error('not used')
-      },
-      tickRunner: async () => {
-        throw new Error('not used')
-      },
-      startWatchtowerReview: async () => {
         throw new Error('not used')
       },
     },
@@ -1022,7 +894,7 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
   assert.equal(builtIns.getTriggerProvider(`automations.${WEBHOOK_TRIGGER_KIND}`)?.kind, WEBHOOK_TRIGGER_KIND)
-  assert.equal(builtIns.getTriggerProvider(`switchboard.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
+  assert.equal(builtIns.getTriggerProvider(`automations.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
   assert.equal(
     builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND}`)?.kind,
     SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
@@ -1037,8 +909,6 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   )
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
-  assert.equal(builtIns.getActionProvider(`switchboard.${SWITCHBOARD_RUNNER_TICK_ACTION_KIND}`)?.kind, SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
-  assert.equal(builtIns.getActionProvider(`switchboard.${WATCHTOWER_REVIEW_ACTION_KIND}`)?.kind, WATCHTOWER_REVIEW_ACTION_KIND)
   assert.equal(builtIns.getActionProvider(`sprint-engine.${SPRINT_ENGINE_RUN_ACTION_KIND}`)?.kind, SPRINT_ENGINE_RUN_ACTION_KIND)
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
   assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), [
@@ -1052,11 +922,8 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
     'run-skill-loop',
-    SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
-    WATCHTOWER_REVIEW_ACTION_KIND,
     SPRINT_ENGINE_RUN_ACTION_KIND,
   ], 'sprint-engine-start is creator-gated: absent without a createSprint backend')
-  assert.equal(WATCHTOWER_AUTOMATION_INTEGRATION_ID, 'module:watchtower')
   assert.equal(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, 'module:sprint-engine')
 
   const duplicateRegistry = createAutomationProviderRegistry()
@@ -1166,7 +1033,6 @@ async function main(): Promise<void> {
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
   await assertFirstPartyActionsInvokeFrontDoors()
-  await assertWatchtowerSchemaOnlyAcceptsLaunchablePresets()
   await assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor()
   await assertMcpConfigExcludedInRealWorktree()
 }

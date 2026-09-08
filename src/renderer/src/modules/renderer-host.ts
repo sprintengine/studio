@@ -1193,15 +1193,11 @@ export function createRendererHost(): RendererKernel {
             throw new Error(`Module command "${commandId}" must declare at least one scope.`)
           }
           // The shell only ever activates `panel:<moduleId>` for a module's
-          // workspaces (plus specific shell-pushed literals) — a typo'd panel
-          // scope would register cleanly and then be permanently dead, so it
-          // fails loudly here instead. In-tree scar: Watchtower is a second
-          // surface of the switchboard module with its own shell-pushed scope.
+          // workspaces — a typo'd panel scope would register cleanly and then
+          // be permanently dead, so it fails loudly here instead.
           for (const scope of definition.scopes) {
             if (!scope.startsWith('panel:')) continue
-            const allowed = scope === `panel:${moduleId}`
-              || (moduleId === 'switchboard' && scope === 'panel:watchtower')
-            if (!allowed) {
+            if (scope !== `panel:${moduleId}`) {
               throw new Error(
                 `Module command "${commandId}" declares scope "${scope}", but the shell only activates "panel:${moduleId}" for module "${moduleId}" — the command would never be offered.`
               )

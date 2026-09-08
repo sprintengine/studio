@@ -1216,7 +1216,7 @@ export function createWorkspacesSlice(
 
     addWorkspace: (template, options) => {
       let id = nanoid()
-      // Captured for a genuinely new workspace (not the Switchboard-reuse early
+      // Captured for a genuinely new workspace (not the host-reuse early
       // return) so creation is broadcast through main as a workspace.created
       // event — and for an Automations-host reuse, where the offer heals a main
       // process whose routing snapshot forgot the host. Local creation stays the
@@ -1230,8 +1230,7 @@ export function createWorkspacesSlice(
         const folderPath = options?.folderPath ?? null
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
-        const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
-        const isSprintEngine = !isSwitchboard && (template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState))
+        const isSprintEngine = template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState)
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
@@ -1240,41 +1239,8 @@ export function createWorkspacesSlice(
           options?.windowId
           ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
           ?? state.primaryWorkspaceWindowId
-        const switchboardFolderKey = isSwitchboard ? workspaceFolderKey(folderPath) : null
-        const existingSwitchboard = switchboardFolderKey
-          ? state.workspaces.find((workspace) =>
-            workspace.mode === 'switchboard'
-            && workspaceFolderKey(workspace.folderPath) === switchboardFolderKey
-          )
-          : null
-        if (existingSwitchboard) {
-          if (folderPath) {
-            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-              [folderPath],
-              state.appSettings.recentWorkspaceFolders
-            )
-          }
-          id = existingSwitchboard.id
-          existingSwitchboard.folderMissing = false
-          state.activeWorkspaceId = existingSwitchboard.id
-          // Activation always dismisses a door-routed surface (epic 1704) —
-          // otherwise the workspace opens behind the door's opaque layer — and
-          // an open modal, so the workspace lands unobscured. A background
-          // create (automation executor) leaves both alone.
-          if (!options?.background) clearRoutedSurfaces(state)
-          const targetWindow = ensureWorkspaceWindow(
-            state,
-            options?.windowId ?? findWorkspaceWindow(state, existingSwitchboard.id)?.id ?? targetWindowId,
-          )
-          if (!targetWindow.workspaceIds.includes(existingSwitchboard.id)) {
-            targetWindow.workspaceIds.push(existingSwitchboard.id)
-          }
-          targetWindow.activeWorkspaceId = existingSwitchboard.id
-          normalizeWindowAssignments(state)
-          return
-        }
         // A background host — Automations (item 1707) or Reviews (MC-1911) — is
-        // strictly one-per-project, the same contract as Switchboard. Every
+        // strictly one-per-project. Every
         // creation path funnels here, so reusing the folder's existing host at
         // this boundary is what guarantees a duplicate can never be minted,
         // whatever the caller believed. Both are created by code rather than by a
@@ -1442,22 +1408,20 @@ export function createWorkspacesSlice(
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
-          mode: isSwitchboard
-            ? 'switchboard'
-            : isGuidedBrief
-              ? 'guided-brief'
-              : isAutomationsHost
-                ? AUTOMATIONS_HOST_WORKSPACE_MODE
-                : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
-                  ? REVIEWS_HOST_WORKSPACE_MODE
-                  : isReview
-                    ? REVIEW_WORKSPACE_MODE
-                    // Module-contributed workspace types: the explicit mode
-                    // from buildModuleTypeCreation IS the identity every
-                    // mode-derived surface (panel scopes, run glyphs, the
-                    // not-installed state, creation re-resolution) keys on —
-                    // dropping it to 'standard' silently strips all of them.
-                    : explicitMode ?? 'standard',
+          mode: isGuidedBrief
+            ? 'guided-brief'
+            : isAutomationsHost
+              ? AUTOMATIONS_HOST_WORKSPACE_MODE
+              : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
+                ? REVIEWS_HOST_WORKSPACE_MODE
+                : isReview
+                  ? REVIEW_WORKSPACE_MODE
+                  // Module-contributed workspace types: the explicit mode
+                  // from buildModuleTypeCreation IS the identity every
+                  // mode-derived surface (panel scopes, run glyphs, the
+                  // not-installed state, creation re-resolution) keys on —
+                  // dropping it to 'standard' silently strips all of them.
+                  : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),

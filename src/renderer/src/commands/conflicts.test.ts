@@ -20,16 +20,16 @@ const sprintSettings = getCommandDefinition('sprintengine.open.settings')
 assert.ok(sprintSettings)
 // A same-keybinding command in a mutually exclusive panel scope is a warning,
 // not a blocking conflict — the two panels can never be active together.
-const switchboardSettingsLike: KeybindingConflictCandidate = {
-  commandId: 'custom.switchboard.settings',
-  commandTitle: 'Switchboard: Settings',
+const notebookSettingsLike: KeybindingConflictCandidate = {
+  commandId: 'custom.notebook.settings',
+  commandTitle: 'Notebook: Settings',
   keybindings: ['Primary+,'],
-  scopes: ['panel:switchboard'],
+  scopes: ['panel:notebook'],
 }
-const panelConflict = findKeybindingConflicts(sprintSettings, [switchboardSettingsLike])
+const panelConflict = findKeybindingConflicts(sprintSettings, [notebookSettingsLike])
 assert.equal(panelConflict.length, 1)
 assert.equal(panelConflict[0].severity, 'warning')
-assert.equal(panelConflict[0].conflictingCommandTitle, 'Switchboard: Settings')
+assert.equal(panelConflict[0].conflictingCommandTitle, 'Notebook: Settings')
 assert.equal(hasBlockingKeybindingConflict(panelConflict), false)
 
 // Any two panel:* scopes are one open exclusivity family, so the same keys in

@@ -4,7 +4,6 @@ import {
   GUIDED_BRIEF_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
-  SWITCHBOARD_WORKSPACE_MODE,
   REVIEW_WORKSPACE_MODE,
   REVIEWS_HOST_WORKSPACE_MODE,
   type BundledWorkspaceMode,
@@ -32,7 +31,6 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // lists every run from disk. Their workspaces stay as the residency for the
   // run's agent terminals, but never as a Projects-list row.
   [SPRINT_ENGINE_WORKSPACE_MODE]: true,
-  [SWITCHBOARD_WORKSPACE_MODE]: false,
   [GUIDED_BRIEF_WORKSPACE_MODE]: false,
   // Automations moved to an instance-level surface (the sidebar door), so their
   // host workspaces are rail-hidden background runtime containers — never a

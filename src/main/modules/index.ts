@@ -3,7 +3,6 @@ import { automationsModule, createAutomationsModule, type AutomationsModuleOptio
 import { mobileRelayModule } from './mobile-relay-module'
 import { reviewModule } from './review-module'
 import { sprintEngineModule } from './sprint-engine-module'
-import { switchboardModule } from './switchboard-module'
 
 export type BundledMainModuleOptions = {
   automations?: AutomationsModuleOptions
@@ -11,7 +10,6 @@ export type BundledMainModuleOptions = {
 
 export function createBundledMainModules(options: BundledMainModuleOptions = {}): CapabilityModule[] {
   return [
-    switchboardModule,
     sprintEngineModule,
     reviewModule,
     options.automations ? createAutomationsModule(options.automations) : automationsModule,

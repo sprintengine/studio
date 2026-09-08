@@ -216,9 +216,6 @@ async function assertUnchangedResultCollapsesIdleReadTraffic(): Promise<void> {
 function emptyDesktopService(): MobileSprintEngineSnapshotService {
   return new MobileSprintEngineSnapshotService({
     stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
       readRoleCatalog: async () => [],
     },
   })

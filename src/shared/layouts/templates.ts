@@ -229,7 +229,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
 // ---------------------------------------------------------------------------
 
 // The single-surface host layouts, as plain data. Their renderer registrations
-// (`switchboard-workspace-types.ts`, `automations-workspace-types.ts`,
+// (`automations-workspace-types.ts`,
 // `review/door/reviewsHostWorkspace.ts`) own the picker entry, icon, and
 // creation steps; the LAYOUT is duplicated nowhere — those modules import from
 // here so a host minted headlessly and a host minted from a window get the same
@@ -243,19 +243,6 @@ const singleSurfaceLayout = (tab: Record<string, unknown>): LayoutTemplate['layo
     children: [{ type: 'tabset', weight: 100, enableTabStrip: false, children: [tab] }],
   },
 })
-
-export const SWITCHBOARD_TEMPLATE: LayoutTemplate = {
-  id: 'switchboard-mode',
-  name: 'Switchboard Mode',
-  description: 'Watchtower triage inbox and the durable Switchboard task board.',
-  previewSlots: [editor('Switchboard', 4, 4, 292, 102)],
-  layout: singleSurfaceLayout({
-    type: 'tab',
-    name: 'Switchboard',
-    component: 'switchboard-workspace',
-    enableClose: false,
-  }),
-}
 
 export const AUTOMATIONS_HOST_TEMPLATE: LayoutTemplate = {
   id: 'automations-mode',
@@ -287,8 +274,6 @@ export const REVIEWS_HOST_TEMPLATE: LayoutTemplate = {
 /** The template a workspace of this mode is minted from when none is named. */
 export function defaultTemplateForWorkspaceMode(mode: WorkspaceMode | undefined): LayoutTemplate | null {
   switch (mode) {
-    case 'switchboard':
-      return SWITCHBOARD_TEMPLATE
     case AUTOMATIONS_HOST_WORKSPACE_MODE:
       return AUTOMATIONS_HOST_TEMPLATE
     case REVIEWS_HOST_WORKSPACE_MODE:
@@ -317,7 +302,7 @@ export function resolveHeadlessLayoutTemplate(input: {
   if (byMode) return byMode
   const templateId = input.templateId?.trim()
   if (templateId) {
-    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, SWITCHBOARD_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE, REVIEWS_HOST_TEMPLATE]
+    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE, REVIEWS_HOST_TEMPLATE]
       .find((template) => template.id === templateId)
     if (named) return named
   }

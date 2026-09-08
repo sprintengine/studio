@@ -96,7 +96,6 @@ Python 3.12 is what CI uses, matching the CPython the app bundles. Plain
 | `packages/module-sdk` | The published SDK for building capability modules and BYO-CLI plugins: manifest and permission types, host contribution points, and bundle signing. MIT licensed. |
 | `sprintengine_core` | The Python sprint runtime — the local execution authority for task claiming, status changes, evidence and artifacts. |
 | `sprintengine_mcp` | A Python MCP server over that runtime, so an agent can drive a sprint the same way a person can. |
-| `switchboard_core` | The Python backend for live-attachable agent processes. |
 | `resources/` | Everything bundled with the app rather than compiled into it: the agent CLI plugin manifests, the marketplace registry, MCP definitions, hooks, layouts, the studio plugin, and the app icons. |
 | `design-system/` | A self-contained, framework-neutral design system — tokens, components, patterns and a catalog — with its own lint that the app's build gates enforce. |
 | `souls/` | Reusable role prompts that give agents their identity and quality standards. |

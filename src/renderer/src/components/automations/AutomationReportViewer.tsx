@@ -17,7 +17,7 @@ import { basename, joinFilePath } from '../../utils/paths'
 // link (T4 threads `onViewReport(run)`); this side pane reads and renders it.
 //
 // Renders as the body of a right-hand SidePane (the caller owns the SidePane
-// chrome), matching how Sprint Engine, Switchboard, and the Backlog open a
+// chrome), matching how Sprint Engine and the Backlog open a
 // selected item beside the list rather than over it — not a full-window overlay.
 //
 // Reports are markdown or html files committed under `reports/`. The paths are

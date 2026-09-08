@@ -1,4 +1,3 @@
-import type { SwitchboardImportProvider } from '../switchboard'
 // Type-only, so the cycle back to this module (builtin.ts imports the kinds and
 // the schedule type from here) is erased at build time.
 import type { BuiltinAutomation } from './builtin'
@@ -121,12 +120,15 @@ export type ScheduleTriggerConfig = {
 
 export type RepoEventType = 'created' | 'updated'
 
-// Repo-event trigger wire config (Switchboard GitHub/Jira import events). Shared
-// so producer (src/main/automations/triggers/repo-event.ts) and the renderer
+/** The trackers a repo task can be imported from. */
+export type RepoEventTrackerProvider = 'github' | 'jira'
+
+// Repo-event trigger wire config (GitHub/Jira issue import events). Shared so
+// producer (src/main/automations/triggers/repo-event.ts) and the renderer
 // editor build/parse it typed, instead of as Record<string, unknown>.
 export type RepoEventTriggerConfig = {
   kind: typeof REPO_EVENT_TRIGGER_KIND
-  provider?: SwitchboardImportProvider | 'any'
+  provider?: RepoEventTrackerProvider | 'any'
   eventTypes?: RepoEventType[]
   externalKey?: string
   label?: string

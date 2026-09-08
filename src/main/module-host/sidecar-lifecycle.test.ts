@@ -133,14 +133,14 @@ async function testSpawnFailure(): Promise<void> {
 // start them and shutdown ignores them.
 async function testDeclarativeSidecar(): Promise<void> {
   const kernel = createMainKernel(createFakeIpcMain())
-  const handle = kernel.hostFor('switchboard').registerSidecar({ id: 'switchboard-core', kind: 'python-on-demand' })
+  const handle = kernel.hostFor('sprint-engine').registerSidecar({ id: 'sprint-engine-core', kind: 'python-on-demand' })
 
   await kernel.runStartup()
   assert.equal(handle.status().state, 'declared')
   await assert.rejects(() => handle.start(), /without a lifecycle/)
   await kernel.runShutdown()
   assert.equal(handle.status().state, 'declared')
-  assert.deepEqual(kernel.sidecars().map((spec) => spec.id), ['switchboard-core'])
+  assert.deepEqual(kernel.sidecars().map((spec) => spec.id), ['sprint-engine-core'])
 }
 
 // Status delegation: an externally-triggered daemon's own state is the truth

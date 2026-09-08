@@ -158,7 +158,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/workspace': 37,
     // 35 → 34, 2026-09-06: `roadmapBoard/HorizonPlanColumn.tsx` was deleted
     // when Horizon retired (a70ba0931).
-    'components/panels': 34,
+    // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
+    // the eight WatchtowerPanel files left the tree with their feature. Banked
+    // rather than left as headroom — that is where the next regression hides.
+    'components/panels': 26,
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
     // aside could draw the same mark as the Extensions door. Its one
@@ -227,8 +230,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // ramp (14px falls between icon-xs 13 and icon-sm 16) and still owed; it is
     // now owed in one place instead of six. FileExplorer's tree glyphs account
     // for panels 24 → 23 (2158cff0a).
+    // 23 → 12, 2026-09-08: the Switchboard and Watchtower panels were deleted
+    // with their feature; banked here rather than left as headroom.
     'components/workspace': 21,
-    'components/panels': 23,
+    'components/panels': 12,
     'components/ui': 16,
     'components/backlog': 3,
     'components/settings': 1,

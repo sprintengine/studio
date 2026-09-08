@@ -6,7 +6,7 @@ import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
 
 // The automations control center owns one non-closeable tab whose tabset hides
 // the FlexLayout tab strip, so AutomationsPanel renders the only visible control
-// chrome (mirrors the Switchboard single-surface pattern). Agent run terminals
+// chrome (the single-surface host pattern). Agent run terminals
 // never stack into this tabset — `addAgentTabTiled` recognises the
 // `automations-control-center` component and docks runs into a right-hand
 // terminals tabset, so the control panel keeps its real estate and the live
@@ -34,7 +34,7 @@ export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
     searchTerms: ['automations', 'schedule', 'cron', 'trigger', 'agent', 'recurring', 'runs'],
     createTemplate: createAutomationsTemplate,
     // Fixed single-surface layout, so the new-workspace wizard skips the
-    // layout-picker step (same zero-config flow shape as Switchboard).
+    // layout-picker step (a zero-config creation flow).
     creationStepsId: 'automations',
     // Not user-creatable: the door creates automations, not the workspace picker.
     // `hiddenFromPicker` withholds it from the creation picker; `pickerOrder`

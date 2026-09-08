@@ -1,7 +1,7 @@
 // Single source of truth for resolving the runtimes Multicode's own features
 // run on:
 //
-//   * Python  — used by Sprint Engine, Switchboard and souls. We
+//   * Python  — used by Sprint Engine and souls. We
 //     ship a self-contained CPython (python-build-standalone) under
 //     `resources/runtime/python` so these features work with no user Python.
 //   * Node    — used to run our own JS tooling and to install agent CLIs
@@ -133,7 +133,7 @@ export type RuntimeLogger = { log: (msg: string) => void; warn: (msg: string) =>
  * `override`). A `venv`/`system` result there means `runtimes:fetch` never ran
  * or the payload is missing from the build, so the app is silently leaning on a
  * user's system `python3` — possibly the wrong version, possibly absent. That
- * degrades Sprint Engine / Switchboard / souls at runtime instead of
+ * degrades Sprint Engine / souls at runtime instead of
  * failing the build, so we surface it in the logs rather than let it pass quietly.
  */
 export function reportManagedPythonResolution(
