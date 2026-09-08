@@ -2,9 +2,9 @@ import { readdir, readFile, stat } from 'fs/promises'
 import { extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { MAX_IMAGE_DATA_URL_BYTES } from './filesystem-read-limits'
 
-export type MemoryGraphNodeKind = 'markdown' | 'image' | 'text' | 'asset'
+type MemoryGraphNodeKind = 'markdown' | 'image' | 'text' | 'asset'
 
-export type MemoryGraphNode = {
+type MemoryGraphNode = {
   id: string
   path: string
   relativePath: string
@@ -25,7 +25,7 @@ export type MemoryGraphNode = {
   related?: string[]
 }
 
-export type MemoryGraphEdge = {
+type MemoryGraphEdge = {
   id: string
   source: string
   target: string
@@ -33,7 +33,7 @@ export type MemoryGraphEdge = {
   targetPath: string
 }
 
-export type MemoryUnresolvedLink = {
+type MemoryUnresolvedLink = {
   sourcePath: string
   href: string
   resolvedRelativePath: string | null
@@ -102,7 +102,7 @@ type FileEntry = {
   sizeBytes: number
 }
 
-export function normalizeMemoryRelativeRoot(value: string | null | undefined): string | null {
+function normalizeMemoryRelativeRoot(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '')
   if (!normalized || normalized === '.' || isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized)) return null

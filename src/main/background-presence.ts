@@ -63,8 +63,6 @@ export type BackgroundPresenceDeps = {
  */
 const TRAY_REFRESH_MS = 10_000
 
-export type BackgroundPresence = ReturnType<typeof createBackgroundPresence>
-
 export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
   const timers = deps.timers ?? {
     setInterval: (handler: () => void, ms: number) => setInterval(handler, ms),

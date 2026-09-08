@@ -17,7 +17,7 @@ export type MarketplaceComponentDigestOptions = {
   blockedFileMessage?: (path: string) => string
 }
 
-export type MarketplaceComponentDigestResult =
+type MarketplaceComponentDigestResult =
   | { ok: true; files: MarketplaceComponentFileDigest[] }
   | { ok: false; files: MarketplaceComponentFileDigest[]; issues: MarketplaceManifestIssue[] }
 
@@ -31,7 +31,7 @@ export function marketplaceComponentDigestPaths(manifest: Pick<MarketplacePlugin
   ))).sort()
 }
 
-export function computeMarketplaceComponentFileDigestsSync(
+function computeMarketplaceComponentFileDigestsSync(
   bundleRoot: string,
   componentPath: string,
   issuePath: string,

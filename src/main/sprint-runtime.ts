@@ -1304,4 +1304,4 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   }
 }
 
-export type { SprintRuntimeRunRegistration, SprintRuntimeStopReasonPush, SprintRuntimeOp }
+export type { SprintRuntimeRunRegistration, SprintRuntimeStopReasonPush }

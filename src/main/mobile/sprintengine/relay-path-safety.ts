@@ -10,7 +10,7 @@ const localPathPatterns = [
   /\\\\[^\\\s"'=:()]+\\[^\s"'=:()]*/gu,
 ]
 
-export function redactLocalPaths(value: string): string {
+function redactLocalPaths(value: string): string {
   return localPathPatterns.reduce((acc, pattern) => acc.replace(pattern, '[redacted-path]'), value)
 }
 

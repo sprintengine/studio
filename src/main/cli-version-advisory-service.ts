@@ -16,21 +16,16 @@ import { detectAgentCliAvailability } from './cli-availability'
 import { outdatedClis, resolveCliVersionAdvisories } from './cli-version-advisory'
 import { getPluginManifest } from './plugin-registry-instance'
 
-export const CLI_VERSION_ADVISORIES_CHANGED_CHANNEL = 'cli-version:advisories-changed'
+const CLI_VERSION_ADVISORIES_CHANGED_CHANNEL = 'cli-version:advisories-changed'
 
 let enabled = true
 let lastAdvisories: CliVersionAdvisoryMap | null = null
 
 // The (cli, latestVersion) pairs this install has already announced with a
 // toast, on disk so a restart does not repeat them. Test seam: the path.
-export const CLI_UPDATE_NOTICES_FILENAME = 'cli-update-notices.json'
+const CLI_UPDATE_NOTICES_FILENAME = 'cli-update-notices.json'
 let noticesPath: string | null = null
 let announced: Set<string> | null = null
-
-export function setCliUpdateNoticesPathForTests(path: string | null): void {
-  noticesPath = path
-  announced = null
-}
 
 function resolveNoticesPath(): string {
   if (noticesPath) return noticesPath
@@ -62,7 +57,7 @@ async function saveAnnounced(set: Set<string>): Promise<void> {
 const pairKey = (advisory: CliVersionAdvisory): string => `${advisory.cli}@${advisory.latestVersion ?? ''}`
 
 // Outdated CLIs not yet announced at this version; records them as announced.
-export async function takeNewlyOutdated(advisories: CliVersionAdvisoryMap): Promise<CliVersionAdvisory[]> {
+async function takeNewlyOutdated(advisories: CliVersionAdvisoryMap): Promise<CliVersionAdvisory[]> {
   const seen = await loadAnnounced()
   const fresh = outdatedClis(advisories).filter((advisory) => !seen.has(pairKey(advisory)))
   if (fresh.length > 0) {
@@ -75,16 +70,6 @@ export async function takeNewlyOutdated(advisories: CliVersionAdvisoryMap): Prom
 export function setCliVersionChecksEnabled(next: boolean): boolean {
   enabled = next
   return enabled
-}
-
-export function cliVersionChecksEnabled(): boolean {
-  return enabled
-}
-
-export function resetCliVersionAdvisoryServiceForTests(): void {
-  enabled = true
-  lastAdvisories = null
-  announced = null
 }
 
 export type CliVersionAdvisoryBroadcast = (result: CliVersionAdvisoriesResult) => void

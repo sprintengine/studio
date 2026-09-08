@@ -18,7 +18,7 @@
 // copyable URL and say why the square is absent.
 
 /** Error-correction level this encoder emits. Fixed at M by design (see above). */
-export const QR_ECC_LEVEL_M = 0
+const QR_ECC_LEVEL_M = 0
 
 /** The largest version (177×177) the format defines. */
 const MAX_VERSION = 40

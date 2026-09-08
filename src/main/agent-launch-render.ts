@@ -94,7 +94,7 @@ export type RenderedAgentLaunch = {
   env: Record<string, string>
 }
 
-export class AgentLaunchRenderError extends Error {}
+class AgentLaunchRenderError extends Error {}
 
 export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAgentLaunch {
   const pluginId = pluginIdForCli(input.cli)
@@ -188,7 +188,7 @@ export function quotePosixToken(value: string): string {
   return SAFE_POSIX_TOKEN.test(value) ? value : quotePosixForced(value)
 }
 
-export function quotePosixForced(value: string): string {
+function quotePosixForced(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 

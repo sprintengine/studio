@@ -309,13 +309,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
  * project already had this catalogue entry) and the project it lives in, so the
  * caller can name the target it used rather than leaving the user to guess.
  */
-export type AutomationsCatalogueInstall = {
+type AutomationsCatalogueInstall = {
   definition: AutomationDefinition
   alreadyAdded: boolean
   workspaceRoot: string
 }
 
-export type AutomationsCatalogueInstallResult = AutomationsResult<AutomationsCatalogueInstall>
+type AutomationsCatalogueInstallResult = AutomationsResult<AutomationsCatalogueInstall>
 
 // App-level front door over the exact IPC pipeline (parse, workspace-root
 // trust, write core, engine). The automations module provides it as a kernel

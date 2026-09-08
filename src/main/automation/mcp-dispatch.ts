@@ -30,7 +30,7 @@ import type {
 
 export const JSONRPC_PARSE_ERROR = -32700
 export const JSONRPC_INVALID_REQUEST = -32600
-export const JSONRPC_METHOD_NOT_FOUND = -32601
+const JSONRPC_METHOD_NOT_FOUND = -32601
 export const JSONRPC_INVALID_PARAMS = -32602
 export const JSONRPC_INTERNAL_ERROR = -32603
 
@@ -41,9 +41,9 @@ export const JSONRPC_INTERNAL_ERROR = -32603
 // a client that ignores notifications, not the mechanism. `cacheScope` is
 // deliberately absent: the gateway serves one client scope, so there is
 // nothing for a client to key a cache by.
-export const TOOLS_LIST_TTL_MS = 300_000
+const TOOLS_LIST_TTL_MS = 300_000
 
-export type McpDispatchOutcome =
+type McpDispatchOutcome =
   | { kind: 'result'; value: Record<string, unknown> }
   | { kind: 'error'; code: number; errorMessage: string }
   | { kind: 'no_response' }
@@ -165,7 +165,7 @@ export function createMcpDispatcher(options: {
  * remote caller could dress itself up as a trusted local Studio agent in the
  * audit log by sending one notification.
  */
-export function applyDeclaredConnectionMetadata(
+function applyDeclaredConnectionMetadata(
   established: McpConnectionMetadata,
   params: Record<string, unknown>
 ): McpConnectionMetadata {

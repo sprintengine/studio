@@ -28,7 +28,7 @@ export function requestHashFor(command: MobileControlCommand): string {
   return createHash('sha256').update(hashInput).digest('hex')
 }
 
-export function cloneCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
+function cloneCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
   return JSON.parse(JSON.stringify(result)) as MobileSprintEngineCommandResult
 }
 

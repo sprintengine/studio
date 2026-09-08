@@ -13,7 +13,7 @@
 // the main process's origin here. Both processes read the same wall clock, so
 // the offsets compose; nothing depends on the two `now()` origins agreeing.
 
-export type StartupMarkSource = 'main' | 'renderer'
+type StartupMarkSource = 'main' | 'renderer'
 
 export type StartupMarkId =
   | 'main.process-start'
@@ -30,7 +30,7 @@ export type StartupMarkId =
   | 'renderer.root-rendered'
   | 'renderer.first-paint'
 
-export type StartupMarkSpec = {
+type StartupMarkSpec = {
   id: StartupMarkId
   label: string
   source: StartupMarkSource
@@ -39,7 +39,7 @@ export type StartupMarkSpec = {
 // Declaration order is the order these are EXPECTED to happen and the order the
 // read-out falls back to for equal offsets; the report itself sorts by measured
 // offset, so a phase that lands out of order shows up as exactly that.
-export const STARTUP_MARKS: readonly StartupMarkSpec[] = [
+const STARTUP_MARKS: readonly StartupMarkSpec[] = [
   { id: 'main.process-start', label: 'main process start', source: 'main' },
   { id: 'main.module-evaluated', label: 'main entry evaluated (modules registered)', source: 'main' },
   { id: 'main.app-ready', label: 'app ready', source: 'main' },
@@ -58,13 +58,13 @@ export const STARTUP_MARKS: readonly StartupMarkSpec[] = [
 const MARK_BY_ID = new Map(STARTUP_MARKS.map((mark) => [mark.id, mark]))
 const MARK_ORDER = new Map(STARTUP_MARKS.map((mark, index) => [mark.id, index]))
 
-export function isStartupMarkId(value: unknown): value is StartupMarkId {
+function isStartupMarkId(value: unknown): value is StartupMarkId {
   return typeof value === 'string' && MARK_BY_ID.has(value as StartupMarkId)
 }
 
 // Derived spans worth naming: the numbers the bundle-ceiling argument turns on.
 // Each is only reported when both of its marks arrived.
-export const STARTUP_SPANS: readonly {
+const STARTUP_SPANS: readonly {
   id: string
   label: string
   fromId: StartupMarkId
@@ -135,7 +135,7 @@ export const STARTUP_SPANS: readonly {
   },
 ]
 
-export type StartupTimelineRow = {
+type StartupTimelineRow = {
   id: StartupMarkId
   label: string
   source: StartupMarkSource
@@ -144,7 +144,7 @@ export type StartupTimelineRow = {
   sincePreviousMs: number
 }
 
-export type StartupTimelineSpan = {
+type StartupTimelineSpan = {
   id: string
   label: string
   ms: number
@@ -163,7 +163,7 @@ export type StartupTimelineReport = {
   lastMarkMs: number
 }
 
-export type StartupTimelineTimers = {
+type StartupTimelineTimers = {
   setTimer: (handler: () => void, ms: number) => unknown
   clearTimer: (handle: unknown) => void
 }
@@ -189,7 +189,7 @@ export type StartupTimeline = {
   readonly finalized: boolean
 }
 
-export const STARTUP_TIMELINE_TIMEOUT_MS = 20_000
+const STARTUP_TIMELINE_TIMEOUT_MS = 20_000
 
 const defaultTimers: StartupTimelineTimers = {
   setTimer: (handler, ms) => setTimeout(handler, ms),

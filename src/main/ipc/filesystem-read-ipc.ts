@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron'
 import type { FileSystemStat, ProjectLogo, WorkspaceFolderCheckResult } from '../../shared/electron-api'
 
-export type FileSystemDirectoryEntry = {
+type FileSystemDirectoryEntry = {
   name: string
   isDir: boolean
 }

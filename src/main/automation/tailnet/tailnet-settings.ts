@@ -9,7 +9,7 @@ import { join } from 'path'
 // person turns it on, and an unreadable or malformed settings file leaves it
 // off rather than guessing an enabled state.
 
-export const TAILNET_SETTINGS_FILENAME = 'tailnet-remote-settings.json'
+const TAILNET_SETTINGS_FILENAME = 'tailnet-remote-settings.json'
 
 /**
  * Fixed default so peer discovery can probe a known port (MC-2163) instead of
@@ -78,7 +78,7 @@ export function writeTailnetSettings(userDataDir: string, settings: TailnetSetti
 }
 
 /** Port 0 is excluded: an ephemeral port cannot be discovered or written down. */
-export function isUsablePort(value: unknown): value is number {
+function isUsablePort(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535
 }
 

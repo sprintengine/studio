@@ -28,7 +28,6 @@ import {
   normalizeMcpServerConfig,
   normalizeServer,
   normalizeStringRecord,
-  type McpServerNormalizationOptions,
 } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
 import { commandOnPath } from './command-on-path'
@@ -36,7 +35,6 @@ import { getPluginById } from './plugin-registry-instance'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 
 export { normalizeMcpClients, normalizeMcpServerConfig }
-export type { McpServerNormalizationOptions }
 
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
@@ -72,7 +70,7 @@ export function createMcpConfigService(options: McpConfigServiceOptions = {}): M
   }
 }
 
-export type McpManagedSprintEngineRemoveInput = {
+type McpManagedSprintEngineRemoveInput = {
   workspaceRoot: string
   clients?: McpClientTarget[]
 }
@@ -414,7 +412,6 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
   }
   return issues
 }
-
 
 /**
  * The absolute path a plugin's declared MCP config template resolves to, or

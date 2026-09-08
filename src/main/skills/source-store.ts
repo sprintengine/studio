@@ -41,7 +41,7 @@ const FILE_NAME = 'skill-sources.json'
  * bundled is a SEED of it (see `studioMarketplaceSeedRoot` in index.ts), so the
  * tab lists offline and the remote copy wins whenever it can be reached.
  */
-export const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
+const ALWAYS_PRESENT_SKILL_SOURCES: readonly SkillSource[] = [
   {
     id: STUDIO_SKILL_SOURCE_ID,
     kind: 'github',

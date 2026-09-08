@@ -16,14 +16,14 @@
 // model keeps roadmap an OKF-tolerated leaf (`rawType`), and the main-process
 // listing tags it with an `isRoadmap` flag rather than the closed type field
 // (src/main/backlog-service.ts). Roadmaps live only under `ROADMAPS_DIR_PREFIX`.
-export const ROADMAP_TYPE = 'roadmap'
-export const ROADMAPS_DIR_PREFIX = 'backlog/roadmaps/'
+const ROADMAP_TYPE = 'roadmap'
+const ROADMAPS_DIR_PREFIX = 'backlog/roadmaps/'
 
 function normalizeRef(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/').trim()
 }
 
-export function isRoadmapRelativePath(pathValue: string): boolean {
+function isRoadmapRelativePath(pathValue: string): boolean {
   return normalizeRef(pathValue).startsWith(ROADMAPS_DIR_PREFIX)
 }
 

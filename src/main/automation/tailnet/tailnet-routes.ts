@@ -1,7 +1,7 @@
 // The tailnet listener's route table, in its own module so both the gateway
 // server and the terminal stream can name a path without importing each other.
 
-export const TAILNET_ROUTE_PREFIX = '/tailnet/v1'
+const TAILNET_ROUTE_PREFIX = '/tailnet/v1'
 export const TAILNET_HEALTH_PATH = `${TAILNET_ROUTE_PREFIX}/health`
 export const TAILNET_PAIR_PATH = `${TAILNET_ROUTE_PREFIX}/pair`
 /**
@@ -63,5 +63,3 @@ export const TAILNET_TRANSPORT_VERSION = 2
  * one failure a 25MB upload must not have.
  */
 export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload'] as const
-
-export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

@@ -18,14 +18,14 @@ import { createHash, randomBytes } from 'crypto'
 // - binary frames are refused (the payload here is JSON-RPC text).
 // Each refusal closes the connection with a protocol-error close code.
 
-export const WEBSOCKET_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+const WEBSOCKET_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 /** Close codes this server sends (RFC 6455 §7.4.1 plus the 4xxx private range). */
 export const WEBSOCKET_CLOSE_NORMAL = 1000
 export const WEBSOCKET_CLOSE_GOING_AWAY = 1001
-export const WEBSOCKET_CLOSE_PROTOCOL_ERROR = 1002
-export const WEBSOCKET_CLOSE_UNSUPPORTED_DATA = 1003
-export const WEBSOCKET_CLOSE_MESSAGE_TOO_BIG = 1009
+const WEBSOCKET_CLOSE_PROTOCOL_ERROR = 1002
+const WEBSOCKET_CLOSE_UNSUPPORTED_DATA = 1003
+const WEBSOCKET_CLOSE_MESSAGE_TOO_BIG = 1009
 /** Private-range code for a device whose access was revoked mid-stream. */
 export const WEBSOCKET_CLOSE_REVOKED = 4401
 
@@ -36,14 +36,14 @@ export function computeWebSocketAcceptKey(clientKey: string): string {
   return createHash('sha1').update(`${clientKey}${WEBSOCKET_GUID}`).digest('base64')
 }
 
-export type WebSocketFrame =
+type WebSocketFrame =
   | { kind: 'text'; text: string }
   | { kind: 'ping'; payload: Buffer }
   | { kind: 'pong' }
   /** Code/reason are carried for a client that must report WHY the peer hung up (4401 revoked, say). */
   | { kind: 'close'; code: number; reason: string }
 
-export type WebSocketDecodeResult =
+type WebSocketDecodeResult =
   | { kind: 'frames'; frames: WebSocketFrame[] }
   | { kind: 'error'; code: number; reason: string }
 

@@ -87,7 +87,3 @@ export function closeSplashWindow(): void {
   if (!win || win.isDestroyed()) return
   win.destroy()
 }
-
-export function isSplashOpen(): boolean {
-  return splashWindow !== null && !splashWindow.isDestroyed()
-}

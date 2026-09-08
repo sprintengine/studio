@@ -127,12 +127,12 @@ type MutableRef<T> = { current: T }
 // ---------------------------------------------------------------------------
 
 /** The subset of app settings the spawn path reads live from the host's settings store. */
-export type SprintEngineAutoRunSpawnSettings = {
+type SprintEngineAutoRunSpawnSettings = {
   projectKnowledgeRoots?: Record<string, string | null> | null
 }
 
 /** Mirror of the renderer sync client's terminal launch-state payload (minus ids). */
-export type SprintEngineAutoRunTerminalLaunchStateUpdate = {
+type SprintEngineAutoRunTerminalLaunchStateUpdate = {
   cliSessionId?: string | null
   cliStartRequested?: boolean
   cliHasLaunched?: boolean
@@ -275,8 +275,8 @@ export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleS
 
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
-export const BACKGROUND_TERMINAL_COLS = 100
-export const BACKGROUND_TERMINAL_ROWS = 30
+const BACKGROUND_TERMINAL_COLS = 100
+const BACKGROUND_TERMINAL_ROWS = 30
 
 type RoleContinuationMessage = SprintEngineDispatchAttempt
 
@@ -285,7 +285,7 @@ export type ArchitectTriageMessage = {
   attempts?: number
 }
 
-export const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
+const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
   desiredMode: 'manual',
   runtimeState: 'idle',
   cliPermissionPreset: 'manual',
@@ -317,7 +317,7 @@ function deriveAutomationMode(
   return deriveSprintEngineAutomationDesiredMode(autoState)
 }
 
-export function publishTerminalListIpcFailureNotice(
+function publishTerminalListIpcFailureNotice(
   ports: SprintEngineAutoRunCyclePorts,
   cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
@@ -429,7 +429,7 @@ function sessionBelongsToWorkspaceRun(session: TerminalSessionSnapshot, workspac
   return session.workspaceId === workspace.id
 }
 
-export function isMatchingWorkspaceAgentSession(
+function isMatchingWorkspaceAgentSession(
   session: TerminalSessionSnapshot,
   workspace: Workspace,
   agentId: string
@@ -459,7 +459,7 @@ export function isMatchingWorkspaceAgentSession(
   return sessionExecution.executionMode !== 'worktree'
 }
 
-export async function refreshAutoWorkspaceState(
+async function refreshAutoWorkspaceState(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   projectionTokensByWorkspace: MutableRef<Map<string, string>>,
@@ -562,7 +562,7 @@ async function publishAutoApprovalDiagnostic(
   })
 }
 
-export async function findRunningAgentSession(
+async function findRunningAgentSession(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   agentId: string,
@@ -772,7 +772,6 @@ export async function sendApprovalToNextEligibleArtifactProducer(
   }
 }
 
-
 function sessionBelongsToWorkspaceSprintEngine(
   session: TerminalSessionSnapshot,
   workspace: Workspace
@@ -784,7 +783,7 @@ function sessionBelongsToWorkspaceSprintEngine(
   )
 }
 
-export async function getRunningAutoRunAgentIds(
+async function getRunningAutoRunAgentIds(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
@@ -832,7 +831,7 @@ export async function getRunningAutoRunAgentIds(
  * ready unowned work is covered by the desired-pool pass minting fresh
  * sessions, never by reserving slots against idle terminals.
  */
-export async function getIdleAutoRunAgentIds(
+async function getIdleAutoRunAgentIds(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,

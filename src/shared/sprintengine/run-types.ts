@@ -78,7 +78,6 @@ export type SprintEngineRoleRegistry = {
   warnings: SprintEngineRoleRegistryWarning[]
 }
 
-export type SprintEngineSkillMap = Record<SprintEngineRole, string[]>
 export type SprintEngineRoleCounts = Record<SprintEngineRoleId, number>
 
 /**
@@ -111,7 +110,7 @@ export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 're
  */
 export type SprintEngineTaskPhase = 'review'
 
-export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
+type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 
 export type SprintEngineRunnerPolicy = {
   // The CLI watch loop these fields configured was retired with the CLI-runner
@@ -253,7 +252,7 @@ export type SprintEngineTaskDiffLine = {
   content: string
 }
 
-export type SprintEngineTaskDiffHunk = {
+type SprintEngineTaskDiffHunk = {
   oldStart: number
   oldLines: number
   newStart: number
@@ -405,18 +404,18 @@ export type SprintEngineTaskFeedback = {
  *  MCP tool (see sprintengine_core/analysis.py `aggregateByAgent`). Self-reported
  *  scores are the worker's own end-of-task scores; measured signals are attributed
  *  to the implementer being reviewed, not the reviewer who logged them. */
-export type SprintEngineFeedbackScoreStat = {
+type SprintEngineFeedbackScoreStat = {
   label: string
   averagePct: number
   sampleCount: number
 }
 
-export type SprintEngineAgentTaskCounts = {
+type SprintEngineAgentTaskCounts = {
   reviewSampleCount: number
   counts: Record<string, number>
 }
 
-export type SprintEngineAgentMeasuredMetrics = {
+type SprintEngineAgentMeasuredMetrics = {
   reviewSampleCount: number
   scores: Record<string, SprintEngineFeedbackScoreStat>
   counts: Record<string, number>
@@ -433,7 +432,7 @@ export type SprintEngineAgentMeasuredMetrics = {
  * the `--review-target-*` trio. A reviewer fixes what it finds rather than
  * sending work back.
  */
-export type SprintEngineAgentPeerReviewMetrics = {
+type SprintEngineAgentPeerReviewMetrics = {
   tasksAudited: number
   assessmentsRecorded: number
   passed: number
@@ -444,7 +443,7 @@ export type SprintEngineAgentPeerReviewMetrics = {
 /** What an agent found (and fixed) reviewing its OWN diff, per `task.advance`.
  *  Carries the self-attributed defect counts and findings — honest but not
  *  independent, so surfaces label them as self-reported, never as measured. */
-export type SprintEngineAgentSelfReviewMetrics = {
+type SprintEngineAgentSelfReviewMetrics = {
   phasesClosed: number
   passed: number
   fixedForward: number
@@ -478,7 +477,7 @@ export type SprintEngineArchitectDifficulty = {
 
 /** The `summary` block of the feedback analysis. Only the fields the run summary
  *  consumes are typed; the analysis emits more (aggregateScoresByRole, etc.). */
-export type SprintEngineFeedbackAnalysisSummary = {
+type SprintEngineFeedbackAnalysisSummary = {
   feedbackRecordCount: number
   aggregateByAgent: Record<string, SprintEngineAgentMetrics>
   difficultyAnalytics?: { architect?: SprintEngineArchitectDifficulty }
@@ -640,7 +639,7 @@ export type SprintEngineProjectionCreation = {
   updatedAt?: string
 }
 
-export type SprintEngineProjectionStatus = {
+type SprintEngineProjectionStatus = {
   source: SprintEngineProjectionSource
   updatedAt: string | null
   generatedAt: string | null
@@ -695,7 +694,7 @@ export type SprintEngineSourcePlanKind =
   // `selectedItem`/`epicChild`. A selection of exactly one epic stays `epic`.
   | 'selection'
 
-export type SprintEngineSourceBundleKind =
+type SprintEngineSourceBundleKind =
   | SprintEngineSourcePlanKind
   | 'html_mockup'
   | 'design_notes'
@@ -954,7 +953,7 @@ export type SprintEngineState = {
  * reaches every spawn of that role. Absent/null means the CLI's own default
  * effort — no flag, exactly like an absent `model` means no `--model`.
  */
-export type SprintEngineRoleRuntime = {
+type SprintEngineRoleRuntime = {
   model?: string | null
   cli?: string | null
   reasoning?: string | null

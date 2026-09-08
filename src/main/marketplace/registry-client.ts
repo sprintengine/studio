@@ -15,9 +15,9 @@ import {
 import { findMarketplaceResourcePath } from './resources'
 
 export const DEFAULT_MARKETPLACE_REGISTRY_URL = `https://raw.githubusercontent.com/${MARKETPLACE_CANONICAL_SOURCE.owner}/${MARKETPLACE_CANONICAL_SOURCE.repo}/${MARKETPLACE_CANONICAL_SOURCE.ref}/marketplace.json`
-export const MARKETPLACE_REGISTRY_CACHE_FILENAME = 'marketplace-registry-cache.json'
-export const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
-export const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
+const MARKETPLACE_REGISTRY_CACHE_FILENAME = 'marketplace-registry-cache.json'
+const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
+const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
 
 // MULTICODE_MARKETPLACE_REGISTRY_URL points the registry read at an alternate
 // index endpoint (e.g. the HotStack catalogue GET /v1/registry). GitHub-raw

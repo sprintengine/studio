@@ -40,7 +40,7 @@ export type TerminalAttachTransport = {
   queuedBytes(): number
 }
 
-export type TerminalRemoteOutcome = { ok: true } | { ok: false; code: string; message: string }
+type TerminalRemoteOutcome = { ok: true } | { ok: false; code: string; message: string }
 
 export type TerminalAttachment = {
   sessionId: string

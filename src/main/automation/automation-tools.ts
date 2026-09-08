@@ -318,7 +318,7 @@ export type AutomationBackends = {
   sleep?: (ms: number) => Promise<void>
 }
 
-export type BacklogWriteBackends = {
+type BacklogWriteBackends = {
   updateStatus(input: BacklogStatusInput): Promise<BacklogMutationResult>
   updateType(input: BacklogTypeInput): Promise<BacklogMutationResult>
   updateTriage(input: BacklogTriageInput): Promise<BacklogMutationResult>

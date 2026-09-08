@@ -70,7 +70,7 @@ export function getTerminalEnv(): Record<string, string> {
 // rewrites it and every other instance's agents then report phases to a dead
 // socket — the 2026-07-07 parked-agents incident). Env is per-process, so an
 // agent always reports to the instance that launched it.
-export function agentIdentityEnv(input: {
+function agentIdentityEnv(input: {
   workspaceId?: string
   agentId?: string
   agentName?: string

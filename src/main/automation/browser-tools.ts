@@ -122,7 +122,7 @@ const TARGET_PROPERTIES = {
 } as const
 
 /** What a tool result says about a tab: the fields an agent acts on, nothing internal. */
-export function describeTab(tab: BrowserTabState, active: boolean, lastAction: ActionEntry | null = null): Record<string, unknown> {
+function describeTab(tab: BrowserTabState, active: boolean, lastAction: ActionEntry | null = null): Record<string, unknown> {
   return {
     tabId: tab.tabId,
     url: tab.url,

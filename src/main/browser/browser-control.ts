@@ -14,17 +14,17 @@ import type { WebContents } from 'electron'
 //   buffered console and network entries, image dimensions — the gateway
 //   socket carries one JSON line per result.
 
-export const SNAPSHOT_MAX_NODES = 400
-export const SNAPSHOT_MAX_CHARS = 24_000
-export const SNAPSHOT_MAX_NAME_CHARS = 80
-export const ACTION_HISTORY_MAX = 50
+const SNAPSHOT_MAX_NODES = 400
+const SNAPSHOT_MAX_CHARS = 24_000
+const SNAPSHOT_MAX_NAME_CHARS = 80
+const ACTION_HISTORY_MAX = 50
 // Consecutive human inputs closer than this are one takeover entry, not one per keystroke.
 const HUMAN_ACTION_COALESCE_MS = 2_000
 export const CONSOLE_BUFFER_MAX = 200
-export const NETWORK_BUFFER_MAX = 200
-export const EVALUATE_MAX_CHARS = 16_000
-export const SCREENSHOT_MAX_EDGE = 1024
-export const SCREENSHOT_JPEG_QUALITY = 80
+const NETWORK_BUFFER_MAX = 200
+const EVALUATE_MAX_CHARS = 16_000
+const SCREENSHOT_MAX_EDGE = 1024
+const SCREENSHOT_JPEG_QUALITY = 80
 const DEFAULT_WAIT_MS = 5_000
 const MAX_WAIT_MS = 30_000
 // An expression the page never settles must not hold the gateway call open.

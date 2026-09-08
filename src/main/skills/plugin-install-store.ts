@@ -80,7 +80,7 @@ export function createPluginInstallStore(userDataDir: string): PluginInstallStor
   }
 }
 
-export function parsePluginInstallState(raw: string): PersistedState {
+function parsePluginInstallState(raw: string): PersistedState {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

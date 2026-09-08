@@ -66,7 +66,7 @@ export const EMPTY_MODULE_SURFACES: ModuleContributedSurfaces = {
  * a resolution failure carrying the resolver's own code — a dependency that is
  * missing or off, a conflict, a cycle, or third-party trust.
  */
-export type ModuleAbsence = {
+type ModuleAbsence = {
   reason: 'disabled' | ModuleResolutionErrorCode
   message: string
 }
@@ -167,4 +167,3 @@ function normalizeSurfaces(value: unknown): ModuleContributedSurfaces {
     workspaceAsides: read('workspaceAsides'),
   }
 }
-

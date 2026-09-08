@@ -49,9 +49,6 @@ export type {
   MobileSprintEngineSnapshot,
   MobileSprintEngineTaskSnapshot,
   MobileSprintEngineArtifactSnapshot,
-  MobileWorkspaceSnapshot,
-  MobileSprintEngineCommentSummary,
-  MobileSprintEngineRecordedArtifactSummary,
 }
 
 const defaultPublishThrottleMs = 1000

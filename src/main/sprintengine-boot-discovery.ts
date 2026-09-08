@@ -29,7 +29,7 @@ import { discoverSprintEngineRunStatePaths, readSprintRunSummary } from './sprin
 import { uniqueResolvedRoots } from './workspace-roots'
 
 /** Why a discovered run was not registered as active. */
-export type SprintBootDiscoverySkip =
+type SprintBootDiscoverySkip =
   /** No `automation.json` yet: the run predates the intent sidecar or was never started. */
   | 'no_intent'
   /** The user left it in manual mode — discovered, deliberately not scheduled. */
@@ -146,7 +146,7 @@ export async function discoverSprintRunsAtBoot(
  * resolves the project's knowledge root first anyway
  * (`shared/project-knowledge.ts`), and it survives a restart.
  */
-export function buildBootRunRegistration(
+function buildBootRunRegistration(
   summary: SprintRunSummary,
   record: SprintEngineAutomationIntentRecord,
 ): SprintRuntimeRunRegistration {
@@ -172,7 +172,7 @@ export function buildBootRunRegistration(
 }
 
 /** The placeholder workspace id a boot-discovered run holds until a window claims it. */
-export function bootDiscoveredWorkspaceId(statePath: string): string {
+function bootDiscoveredWorkspaceId(statePath: string): string {
   return `sprint-run:${statePath}`
 }
 

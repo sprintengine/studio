@@ -7,7 +7,7 @@ import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment
 import { isLoadEligible } from './module-signature'
 import type { InstalledModule, ModuleRejection } from './user-module-registry'
 
-export type ThirdPartyMainLoadDiagnostics = {
+type ThirdPartyMainLoadDiagnostics = {
   rejected: ModuleRejection[]
 }
 

@@ -28,7 +28,7 @@ export const BUILD_SKEW_LOG_PREFIX = '[build-skew]'
 /** Stable code on the machine-readable line, for the same reason. */
 export const BUILD_SKEW_CODE = 'build_skew_detected'
 
-export type BuildStampSource = 'git' | 'unavailable'
+type BuildStampSource = 'git' | 'unavailable'
 
 export type BuildStamp = {
   /** Full commit sha the bundle was built from; null when git could not answer. */

@@ -67,7 +67,7 @@ export function claudePluginKey(pluginId: string, marketplaceName: string): stri
   return `${pluginId}@${marketplaceName}`
 }
 
-export type PluginInstallHarnessOutcome = {
+type PluginInstallHarnessOutcome = {
   harness: SkillHarness
   /** `skills` — skill directories copied; `nothing` — the plugin has nothing this harness reads. */
   mode: 'skills' | 'nothing'
@@ -446,7 +446,7 @@ type ClaudeSettings = Record<string, unknown> & {
  * permissions and other marketplaces survive byte-for-byte in meaning, and an
  * existing marketplace entry of the same name is left as they wrote it.
  */
-export async function enableClaudePlugin(input: {
+async function enableClaudePlugin(input: {
   workspaceRoot: string
   marketplaceName: string
   marketplaceRepo: string
@@ -467,7 +467,7 @@ export async function enableClaudePlugin(input: {
   return writeClaudeSettings(path, settings)
 }
 
-export async function disableClaudePlugin(input: {
+async function disableClaudePlugin(input: {
   workspaceRoot: string
   pluginKey: string
 }): Promise<{ ok: true; removed: boolean } | { ok: false; message: string }> {

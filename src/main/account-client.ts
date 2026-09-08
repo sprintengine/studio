@@ -84,7 +84,7 @@ export type AccountClientOptions = {
 // A Clerk token carries no Multicode organisation; the account service reads
 // the selected one from this header (MC-2185). Ignored for Multiauth tokens.
 export const ORGANIZATION_HEADER = 'x-multiauth-organization'
-export const IDENTITY_DISCOVERY_PATH = '/api/auth/identity'
+const IDENTITY_DISCOVERY_PATH = '/api/auth/identity'
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 3000
 const ACCESS_TOKEN_REFRESH_MARGIN_MS = 60_000
 

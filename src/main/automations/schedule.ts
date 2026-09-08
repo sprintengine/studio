@@ -1,7 +1,7 @@
 import type { AutomationTriggerProvider, ScheduleTriggerConfig } from '../../shared/automations/contracts'
 import { isRecord } from '../../shared/records'
 
-export const MIN_INTERVAL_MINUTES = 5
+const MIN_INTERVAL_MINUTES = 5
 
 export type ScheduleValidationResult =
   | { ok: true; value: ScheduleTriggerConfig }

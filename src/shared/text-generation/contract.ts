@@ -23,7 +23,7 @@ export type TextGenerationEngine = {
  * the caller already had, never a reason to show an error: a title that does
  * not arrive is the heuristic title, silently (MC-2484 rule of record).
  */
-export type TextGenerationFailureCode =
+type TextGenerationFailureCode =
   | 'unsupported' // no backend for this CLI
   | 'unavailable' // the CLI is not installed, or could not be probed
   | 'timeout'
@@ -69,7 +69,7 @@ export const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 90_000
  * `claude 2.1.263`, and `gpt-5.6-luna` through `codex-cli 0.153.3` on a
  * ChatGPT account (`gpt-5.1-codex-mini` is refused there).
  */
-export const TEXT_GENERATION_BACKENDS: Readonly<
+const TEXT_GENERATION_BACKENDS: Readonly<
   Record<string, { readonly defaultModel: string; readonly defaultReasoning: string }>
 > = {
   'claude-code': { defaultModel: 'claude-haiku-4-5', defaultReasoning: 'low' },

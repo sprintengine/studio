@@ -24,23 +24,23 @@ import {
 
 export const BRIEF_SCHEMA_VERSION = 1
 
-export const OVERVIEW_COMPLEXITIES = ['low', 'medium', 'high'] as const
-export type OverviewComplexity = (typeof OVERVIEW_COMPLEXITIES)[number]
+const OVERVIEW_COMPLEXITIES = ['low', 'medium', 'high'] as const
+type OverviewComplexity = (typeof OVERVIEW_COMPLEXITIES)[number]
 
-export const READING_NOTES = ['read-closely', 'mechanical-skim'] as const
-export type ReadingNote = (typeof READING_NOTES)[number]
+const READING_NOTES = ['read-closely', 'mechanical-skim'] as const
+type ReadingNote = (typeof READING_NOTES)[number]
 
 // Explanation kinds only — no issue/severity kinds. An `explain`/`context`/
 // `knowledge` annotation narrates; it never flags.
-export const ANNOTATION_KINDS = ['explain', 'context', 'knowledge'] as const
-export type AnnotationKind = (typeof ANNOTATION_KINDS)[number]
+const ANNOTATION_KINDS = ['explain', 'context', 'knowledge'] as const
+type AnnotationKind = (typeof ANNOTATION_KINDS)[number]
 
-export const CHANGE_MAP_NODE_KINDS = ['data', 'api', 'ui', 'job', 'test', 'config', 'other'] as const
+const CHANGE_MAP_NODE_KINDS = ['data', 'api', 'ui', 'job', 'test', 'config', 'other'] as const
 export type ChangeMapNodeKind = (typeof CHANGE_MAP_NODE_KINDS)[number]
 
 // Readability backstops for the Overview change map (MC-1685).
-export const CHANGE_MAP_MAX_NODES = 14
-export const CHANGE_MAP_MAX_EDGES = 20
+const CHANGE_MAP_MAX_NODES = 14
+const CHANGE_MAP_MAX_EDGES = 20
 const NODE_LABEL_MAX = 40
 const NODE_SUBLABEL_MAX = 48
 const EDGE_LABEL_MAX = 16
@@ -81,7 +81,7 @@ export interface ChangeMapNode {
   kind: ChangeMapNodeKind
 }
 
-export interface ChangeMapEdge {
+interface ChangeMapEdge {
   from: string
   to: string
   label?: string // <= 16 chars

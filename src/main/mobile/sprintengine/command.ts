@@ -112,7 +112,7 @@ export type MobileSprintEngineFollowUpResult = {
   acceptedAt: string
 }
 
-export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
+type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
 
 export type MobileSprintEngineSetAutomationModeRequest = {
   sprintEngineId: string
@@ -135,7 +135,7 @@ export type MobileSprintEngineSetAutomationModeResult = {
 // reach a command result, which the relay rejects outright if it contains a local
 // path (multiauth result-summary.ts). So the adapter hands back only what the
 // phone asked about.
-export type MobileAutomationControlRequest = {
+type MobileAutomationControlRequest = {
   workspaceRoot: string
   automationId: string
   deviceId: string
@@ -149,7 +149,7 @@ export type MobileAutomationControlResult =
   // pre-judge it: the engine is the authority on what it will refuse.
   | { ok: false; error: { code: string; message: string } }
 
-export type MobileAutomationControlAccepted = {
+type MobileAutomationControlAccepted = {
   automationId: string
   status: 'enabled' | 'paused' | 'blocked'
   runId?: string
@@ -384,7 +384,7 @@ function trimmedString(value: unknown): string | null {
 }
 
 // One project's pull request, as `vcs pr` reported it.
-export type MobileSprintEnginePullRequest = {
+type MobileSprintEnginePullRequest = {
   repo: string
   url: string
   /** The project's name as a person says it; absent on a single-project run. */
@@ -404,7 +404,7 @@ export type MobileSprintEnginePullRequest = {
  * repo's entry and never pairs it with a url). The phone reads why from the run
  * snapshot's per-repo state, which is where that already lives.
  */
-export function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequest[] {
+function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequest[] {
   if (typeof data !== 'object' || data === null) return []
   const repos = (data as { repos?: unknown }).repos
   if (!Array.isArray(repos)) {

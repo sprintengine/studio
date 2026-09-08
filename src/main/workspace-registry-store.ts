@@ -27,7 +27,7 @@ import {
 export const WORKSPACE_REGISTRY_FILE_NAME = 'workspace-registry.json'
 const DEFAULT_PERSIST_DEBOUNCE_MS = 250
 
-export type WorkspaceRegistryStoreDiagnostic = {
+type WorkspaceRegistryStoreDiagnostic = {
   level: 'warning'
   title: string
   message: string

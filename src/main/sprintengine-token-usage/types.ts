@@ -21,7 +21,7 @@ export type SessionTokenUsage = {
 // Minimal structural shape of the global `fetch` used by the OpenCode adapter,
 // so tests can inject a stub without pulling in DOM lib types. The real
 // `globalThis.fetch` is assignable to it.
-export type FetchResponseLike = {
+type FetchResponseLike = {
   ok: boolean
   status: number
   json(): Promise<unknown>
@@ -69,7 +69,7 @@ export function tokenCount(value: unknown): number {
 // and they are billed, at a fraction of the input price) — they are just not
 // what "tokens this run used" means. `total` is each token counted once: new
 // input, tokens written to the cache, and output.
-export function totalFromComponents(row: ModelTokenUsage): number {
+function totalFromComponents(row: ModelTokenUsage): number {
   return row.input + row.output + row.cacheCreation
 }
 

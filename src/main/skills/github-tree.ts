@@ -19,7 +19,7 @@ import type { SkillTreeEntry } from './scan'
 
 export type SkillFetch = (url: string, init: RequestInit) => Promise<Response>
 
-export const DEFAULT_SKILL_FETCH_TIMEOUT_MS = 30_000
+const DEFAULT_SKILL_FETCH_TIMEOUT_MS = 30_000
 export const DEFAULT_SKILL_MAX_FILE_BYTES = 2 * 1024 * 1024
 // The listing is one JSON document covering the whole repository, so it is
 // routinely far larger than any single file it describes: pbakaus/impeccable
@@ -116,7 +116,7 @@ export class SkillFetchError extends Error {
 }
 
 /** The rate-limit headers of a refusal, read once so nothing downstream guesses. */
-export function readRateLimitHint(response: Pick<Response, 'status' | 'headers'>): SkillRateLimitHint {
+function readRateLimitHint(response: Pick<Response, 'status' | 'headers'>): SkillRateLimitHint {
   // `fetcher` is injectable, and a double is not obliged to carry headers.
   const header = (name: string): string | null => response.headers?.get(name) ?? null
   const retryAfter = Number.parseInt(header('retry-after') ?? '', 10)

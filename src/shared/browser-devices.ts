@@ -36,15 +36,15 @@ export const BROWSER_DEVICE_PRESETS: readonly BrowserDevicePreset[] = [
 // designed against, so the first look is the one that matters most.
 export const DEFAULT_BROWSER_DEVICE_PRESET_ID = 'iphone-12-pro'
 
-export const BROWSER_VIEWPORT_MIN = 240
-export const BROWSER_VIEWPORT_MAX = 3840
+const BROWSER_VIEWPORT_MIN = 240
+const BROWSER_VIEWPORT_MAX = 3840
 
 export type BrowserViewport =
   | { mode: 'fill' }
   | { mode: 'preset'; presetId: string; width: number; height: number }
   | { mode: 'freeform'; width: number; height: number }
 
-export function browserDevicePreset(id: string): BrowserDevicePreset | undefined {
+function browserDevicePreset(id: string): BrowserDevicePreset | undefined {
   return BROWSER_DEVICE_PRESETS.find((preset) => preset.id === id)
 }
 

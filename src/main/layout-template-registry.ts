@@ -1,5 +1,4 @@
 import { cp, mkdir, readdir, readFile } from 'fs/promises'
-import { homedir } from 'os'
 import { join } from 'path'
 
 import {
@@ -12,12 +11,6 @@ import {
 // installs once. Each template is a single <root>/<id>.json file (a FlexLayout
 // model + display metadata). This module owns validation and install (Tier 1:
 // reject malformed manifests, copy nothing executable).
-
-export type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from '../shared/layouts/template-manifest'
-
-export function defaultUserLayoutTemplateRoot(): string {
-  return join(homedir(), '.multicode', 'layout-templates')
-}
 
 async function readDirSafe(dir: string): Promise<import('fs').Dirent[]> {
   try {
@@ -32,7 +25,7 @@ function isJsonFile(name: string): boolean {
 }
 
 // Top-level *.json files in the selected folder are candidate templates.
-export async function resolveTemplateFiles(srcDir: string): Promise<string[]> {
+async function resolveTemplateFiles(srcDir: string): Promise<string[]> {
   return (await readDirSafe(srcDir))
     .filter((entry) => !entry.isDirectory() && isJsonFile(entry.name))
     .map((entry) => join(srcDir, entry.name))

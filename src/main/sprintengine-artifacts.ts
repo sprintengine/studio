@@ -826,11 +826,6 @@ export function sprintEngineSessionBindingForLaunchCwd(
   return unbound
 }
 
-/** The repo half of {@link sprintEngineSessionBindingForLaunchCwd}. */
-export function sprintEngineRepoIdForLaunchCwd(statePath: string, launchCwd: string): string | null {
-  return sprintEngineSessionBindingForLaunchCwd(statePath, launchCwd).repo
-}
-
 function runSprintEngineMcpToolProcess(
   context: SprintEngineMcpRunnerContext,
   tool: string,

@@ -1,6 +1,5 @@
 import { joinFilePath as joinPath } from '../paths'
 import {
-  getExistingRunStateFilePath,
   getRunDirectoryPath,
   getRunRootDirectoryPath,
   getRunStateFilePath,
@@ -17,10 +16,6 @@ export function getSprintEngineRootDirectoryPath(folderPath: string): string {
 
 export function getSprintEngineDirectoryPath(folderPath: string, sprintEngineName?: string): string {
   return getRunDirectoryPath(folderPath, 'sprintengine', sprintEngineName)
-}
-
-export function getExistingSprintEngineStateFilePath(folderPath: string, sprintEngineDirectoryName: string): string {
-  return getExistingRunStateFilePath(folderPath, 'sprintengine', sprintEngineDirectoryName)
 }
 
 export function getSprintEngineStateFilePath(folderPath: string, sprintEngineName?: string): string {

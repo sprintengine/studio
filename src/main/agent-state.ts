@@ -287,7 +287,7 @@ export function evaluateAgentStall(input: {
 // ScheduleWakeup tool; Codex shares the hook payload schema, and the OpenCode
 // adapter can emit the same field if that CLI grows an equivalent). `stop`
 // tears the loop down; `delaySeconds` arms a timer inside the CLI process.
-export type AgentStateFrameWakeup = { stop: true } | { delaySeconds: number }
+type AgentStateFrameWakeup = { stop: true } | { delaySeconds: number }
 
 // ScheduleWakeup's runtime clamps delaySeconds to [60, 3600]. Anything past
 // clamp+slack is a reporter/clock anomaly — cap it so one bad frame cannot
@@ -303,7 +303,7 @@ export const MAX_TRANSCRIPT_PATH_LENGTH = 4096
 // broadcast to every renderer, and an unbounded string would ride into both.
 // Sized well above a title (~42 chars) because the same field feeds the tab
 // hover preview, which shows several lines.
-export const MAX_AGENT_PROMPT_LENGTH = 2000
+const MAX_AGENT_PROMPT_LENGTH = 2000
 
 export type AgentStateFrame = {
   type: 'agent_state'
@@ -364,7 +364,7 @@ function optionalString(value: unknown): string | null {
 // Cap on the forwarded discriminator value: documented notification types are
 // short tokens; anything longer is a payload anomaly, and the value is compared
 // against manifest allow-lists so an oversized string is dropped, not truncated.
-export const MAX_NOTIFICATION_TYPE_LENGTH = 128
+const MAX_NOTIFICATION_TYPE_LENGTH = 128
 
 export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame | null {
   if (!isRecord(raw)) return null
@@ -421,7 +421,7 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
 // reporter's own process cwd) and bounded; anything else drops the field.
 // Trailing whitespace is trimmed — a `\n`-terminated value from a reporter that
 // piped a command's output is still the same directory.
-export function parseFrameCwd(raw: unknown): string | null {
+function parseFrameCwd(raw: unknown): string | null {
   const value = optionalString(raw)?.trim()
   if (!value) return null
   if (value.length > MAX_OBSERVED_CWD_LENGTH) return null
@@ -603,7 +603,7 @@ export async function mergeAgentStateHooks(
   await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
 }
 
-export async function unmergeAgentStateHooks(settingsPath: string): Promise<void> {
+async function unmergeAgentStateHooks(settingsPath: string): Promise<void> {
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing?.hooks || typeof existing.hooks !== 'object') return
 
@@ -654,7 +654,7 @@ function stripFlatAgentStateEntries(hooks: Record<string, FlatHooksEntry[]>): vo
   }
 }
 
-export async function mergeFlatAgentStateHooks(
+async function mergeFlatAgentStateHooks(
   hooksPath: string,
   command: string,
   events: ReadonlyArray<{ event: string; matcher?: string }>
@@ -680,7 +680,7 @@ export async function mergeFlatAgentStateHooks(
   await writeFile(hooksPath, JSON.stringify(file, null, 2) + '\n', 'utf8')
 }
 
-export async function unmergeFlatAgentStateHooks(hooksPath: string): Promise<void> {
+async function unmergeFlatAgentStateHooks(hooksPath: string): Promise<void> {
   const existing = await readJsonIfExists<FlatHooksFile>(hooksPath)
   if (!existing?.hooks || typeof existing.hooks !== 'object' || Array.isArray(existing.hooks)) return
   stripFlatAgentStateEntries(existing.hooks)

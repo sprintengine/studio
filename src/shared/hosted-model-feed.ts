@@ -14,14 +14,14 @@
 
 import { isRecord } from './records'
 
-export const HOSTED_MODEL_FEED_SCHEMA_VERSION = 1 as const
+const HOSTED_MODEL_FEED_SCHEMA_VERSION = 1 as const
 
 export const HOSTED_MODEL_FEED_URL =
   'https://raw.githubusercontent.com/sprintengine/studio-releases/main/model-feed.json'
 
 // "New" is one rule everywhere: the picker chip and the website badge both
 // read `releasedAt` against this window. No per-machine state.
-export const HOSTED_MODEL_NEW_FOR_DAYS = 30
+const HOSTED_MODEL_NEW_FOR_DAYS = 30
 
 export type HostedModel = {
   // The exact string passed to the CLI's `--model` (or its equivalent).

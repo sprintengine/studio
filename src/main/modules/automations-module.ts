@@ -74,7 +74,7 @@ export function broadcastAutomationsRunEvent(
   }
 }
 
-export function broadcastAutomationsDefinitionsChanged(
+function broadcastAutomationsDefinitionsChanged(
   event: AutomationsDefinitionsChangedEvent,
   windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows()
 ): void {

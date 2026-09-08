@@ -21,7 +21,7 @@ import { scanPluginTree } from './scan-plugins'
 const MAX_LOCAL_DEPTH = 12
 const MAX_LOCAL_ENTRIES = 20_000
 
-export class LocalSourceTooLargeError extends Error {
+class LocalSourceTooLargeError extends Error {
   constructor(root: string) {
     super(
       `${root} holds more than ${MAX_LOCAL_ENTRIES.toLocaleString('en-US')} files. Pick the folder that holds the skills rather than the tree that contains it.`,

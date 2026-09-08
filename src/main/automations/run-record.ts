@@ -38,6 +38,6 @@ export function completeAutomationRun(
   }
 }
 
-export function isTerminalRunStatus(status: AutomationRunStatus): boolean {
+function isTerminalRunStatus(status: AutomationRunStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'blocked' || status === 'skipped'
 }

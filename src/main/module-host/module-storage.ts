@@ -21,7 +21,7 @@ export type ModuleStorageResult<T> =
   | ({ ok: true } & T)
   | { ok: false; code: ModuleStorageErrorCode; message: string }
 
-export type ModuleStorageScope = {
+type ModuleStorageScope = {
   /**
    * Absolute workspace folder for workspace-scoped keys; omit for the
    * module's global (per-user) store.

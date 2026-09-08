@@ -71,7 +71,7 @@ export function sprintEngineAutoRunPerfLog(
   autoRunPerfLogger(scope, event, payload)
 }
 
-export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status']>([
+const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status']>([
   'ready_for_review',
   'changes_requested',
 ])
@@ -100,7 +100,7 @@ export type SprintEngineSessionCwd = {
  * repo. A single-repo run's every task reads this, so its keys and cwds are
  * exactly what they were before repo joined the key (MC-1610).
  */
-export function sprintEngineSessionRepoId(repo: string | null | undefined): string {
+function sprintEngineSessionRepoId(repo: string | null | undefined): string {
   return repo?.trim() || DEFAULT_SPRINTENGINE_TASK_REPO
 }
 
@@ -328,7 +328,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   })
 }
 
-export type SprintEngineClaimToolName = Extract<
+type SprintEngineClaimToolName = Extract<
   SprintEngineToolName,
   'sprintengine.task.next' | 'sprintengine.triage.needs_input'
 >
@@ -341,7 +341,7 @@ export type SprintEngineClaimToolName = Extract<
  * retirement/authorization itself. There is no directive hop for the agent
  * to interpret.
  */
-export function buildSprintEngineClaimInstructionBlock(
+function buildSprintEngineClaimInstructionBlock(
   tool: SprintEngineClaimToolName,
   // Absent on a roleless run: the claim payload then carries only the agent id,
   // because `role` is not a field the engine can be given an honest value for.
@@ -687,7 +687,7 @@ export function findSprintEngineWakeCandidateTaskForAgent(
 }
 
 export const AUTO_RUN_ROLE_CONTINUATION_RETRY_MS = 60_000
-export const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
+const AUTO_RUN_DISPATCH_PROMPT_RETRY_MS = 5 * 60_000
 export const AUTO_RUN_ACTIVE_ASSIGNMENT_INACTIVITY_MS = 60 * 60_000
 export const AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS = 2
 export const AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT = 'Continue.'
@@ -730,7 +730,7 @@ export const AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS = 60_000
  * allowance it is reaped; within it, it is left alone and merely occupies a
  * concurrency slot.
  */
-export const AUTO_RUN_GHOST_SESSION_BOOT_ALLOWANCE_MS = 5 * 60_000
+const AUTO_RUN_GHOST_SESSION_BOOT_ALLOWANCE_MS = 5 * 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
@@ -752,7 +752,7 @@ export function recordPromptRetry<T extends SprintEngineDispatchAttempt>(
   attempts.set(key, { sentAt, attempts: (previous?.attempts ?? 0) + 1 } as T)
 }
 
-export function runtimeAgentAlreadyOwnsDispatchTarget(
+function runtimeAgentAlreadyOwnsDispatchTarget(
   runtimeAgent: SprintEngineState['sprintEngineAgents'][string],
   dispatch: NonNullable<SprintEngineState['sprintEngineAgents'][string]['currentDispatch']>
 ): boolean {
@@ -777,12 +777,12 @@ export type SprintEngineDispatchPath =
  * Notification kinds that may spawn a terminal for a target with no live
  * session. Everything else stays pending until the target has a terminal.
  */
-export const SPAWNABLE_NOTIFICATION_KINDS = new Set([
+const SPAWNABLE_NOTIFICATION_KINDS = new Set([
   'task_resume_requested',
   'task_changes_requested_after_artifact_review',
 ])
 
-export type SprintEngineDispatchPasteAction = {
+type SprintEngineDispatchPasteAction = {
   agentId: string
   prompt: string
   ledger: 'continuation' | 'dispatch'
@@ -791,7 +791,7 @@ export type SprintEngineDispatchPasteAction = {
   data: Record<string, unknown>
 }
 
-export type SprintEngineDispatchRestartAction = {
+type SprintEngineDispatchRestartAction = {
   agentId: string
   key: string
   data: Record<string, unknown>
@@ -806,7 +806,7 @@ export type SprintEngineDispatchRestartAction = {
  * tool resumes its own claim, or triggers expiry and re-arbitration, either of
  * which recovers the run.
  */
-export type SprintEngineDispatchRespawnAction = {
+type SprintEngineDispatchRespawnAction = {
   agentId: string
   label: string
   role?: SprintEngineRoleId
@@ -822,7 +822,7 @@ export type SprintEngineDispatchRespawnAction = {
  * startup prompt (spawnable kinds only). Resolutions mark an event delivered
  * without any terminal action (e.g. retired targets).
  */
-export type SprintEngineDispatchNotificationDelivery = {
+type SprintEngineDispatchNotificationDelivery = {
   kind: 'paste' | 'spawn'
   deliveryKey: string
   agentId: string
@@ -834,7 +834,7 @@ export type SprintEngineDispatchNotificationDelivery = {
   data: Record<string, unknown>
 }
 
-export type SprintEngineDispatchRetirementAction = {
+type SprintEngineDispatchRetirementAction = {
   agentId: string
   /**
    * Window disposal (MC-1444 Phase 2): the agent still holds its own task
@@ -863,7 +863,7 @@ export type SprintEngineDispatchRetirementAction = {
   diagnostic: { title: string; message: string; details: string }
 }
 
-export type SprintEngineDispatchDiagnosticAction = {
+type SprintEngineDispatchDiagnosticAction = {
   agentId?: string
   ledger?: 'continuation' | 'dispatch'
   key?: string
@@ -922,7 +922,7 @@ function isUnclaimedIdleRuntimeAgent(
   )
 }
 
-export function getSprintEngineAssignedAgentIds(sprintEngineState: SprintEngineState): Set<string> {
+function getSprintEngineAssignedAgentIds(sprintEngineState: SprintEngineState): Set<string> {
   const assigned = new Set<string>()
   const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
   for (const task of sprintEngineState.tasks) {
@@ -951,7 +951,7 @@ export function getSprintEngineAssignedAgentIds(sprintEngineState: SprintEngineS
   return assigned
 }
 
-export function isSprintEngineAgentAvailableForWake(
+function isSprintEngineAgentAvailableForWake(
   sprintEngineState: SprintEngineState,
   agentId: string,
   assignedAgentIds: ReadonlySet<string> = getSprintEngineAssignedAgentIds(sprintEngineState)
@@ -2067,7 +2067,7 @@ export function planSprintEngineDispatch(input: {
   return plan
 }
 
-export function getSprintEngineContinuationMessageWorkKey(workspace: SprintEngineWorkspaceView, key: string): string | null {
+function getSprintEngineContinuationMessageWorkKey(workspace: SprintEngineWorkspaceView, key: string): string | null {
   const prefix = `${workspace.id}:${workspace.sprintEngineContext?.statePath ?? ''}:`
   if (!key.startsWith(prefix)) return null
   const agentSeparatorIndex = key.lastIndexOf(':')
@@ -2212,14 +2212,14 @@ export function buildSprintEngineContinuationPrompt(
   ].join('\n')
 }
 
-export const AGENT_COMPLETION_NOTIFICATION_KINDS = new Set<string>([
+const AGENT_COMPLETION_NOTIFICATION_KINDS = new Set<string>([
   'task_completed_after_artifact_approval',
   'task_completed_after_input_resolution',
 ])
 
 const MAX_AGENT_NOTIFICATION_MESSAGE_CHARS = 320
 
-export function isAgentNotificationCompletionEvent(event: SprintEngineEvent): boolean {
+function isAgentNotificationCompletionEvent(event: SprintEngineEvent): boolean {
   return AGENT_COMPLETION_NOTIFICATION_KINDS.has(event.notificationKind ?? '')
 }
 

@@ -9,9 +9,9 @@
 
 import type { ModuleSignature, ModuleTrustStatus } from './modules/manifest'
 
-export type PluginVariableType = 'string' | 'enum' | 'boolean' | 'number'
+type PluginVariableType = 'string' | 'enum' | 'boolean' | 'number'
 
-export type PluginVariableDecl = {
+type PluginVariableDecl = {
   type: PluginVariableType
   label: string
   description?: string
@@ -31,30 +31,30 @@ export type PluginArgvToken =
   | { spreadIf: string }
   | { valueIf: string; value: string }
 
-export type PluginLaunchSpec = {
+type PluginLaunchSpec = {
   argv: PluginArgvToken[]
   cwd?: string
   env?: Record<string, string>
 }
 
-export type PluginResumeSpec = {
+type PluginResumeSpec = {
   supported: boolean
   argv?: PluginArgvToken[]
 }
 
-export type PluginPromptInjectionMode =
+type PluginPromptInjectionMode =
   | 'positional-arg'
   | 'stdin-pipe'
   | 'send-after-ready'
   | 'file'
 
-export type PluginReadinessSignal = {
+type PluginReadinessSignal = {
   type: 'output-match'
   pattern: string
   timeoutMs: number
 }
 
-export type PluginPromptInjection = {
+type PluginPromptInjection = {
   mode: PluginPromptInjectionMode
   readiness?: PluginReadinessSignal
 }
@@ -82,19 +82,19 @@ export type PluginPromptInjection = {
 // to say, so an ordinary repo's launch is unchanged.
 export type PluginContextInjectionMode = 'argv' | 'env' | 'prompt'
 
-export type PluginContextInjection = {
+type PluginContextInjection = {
   mode: PluginContextInjectionMode
   args?: string[]
   env?: Record<string, string>
 }
 
-export type PluginCompletionMode =
+type PluginCompletionMode =
   | 'process-exit'
   | 'output-sentinel'
   | 'mcp-signal'
   | 'idle-at-prompt'
 
-export type PluginCompletionSpec = {
+type PluginCompletionSpec = {
   mode: PluginCompletionMode
   sentinel?: string
   signalTool?: string
@@ -112,7 +112,7 @@ export type PluginMcpConfigSpec = {
 }
 
 export type PluginSkillSupport = 'native' | 'prompt-shim' | 'unsupported'
-export type PluginSkillInstallScope = 'workspace' | 'user'
+type PluginSkillInstallScope = 'workspace' | 'user'
 export type PluginSkillFormat =
   | 'agent-skills-v1'
   | 'claude-code'
@@ -155,7 +155,7 @@ export type PluginSkillInvocation = {
   mentionTemplate?: string
 }
 
-export type PluginSkillIntegration = {
+type PluginSkillIntegration = {
   support: PluginSkillSupport
   harnessId: string
   installTargets?: PluginSkillInstallTarget[]
@@ -171,7 +171,7 @@ export type PluginCapabilities = {
   chatHistoryFile?: string
 }
 
-export type PluginSoulsSpec = {
+type PluginSoulsSpec = {
   directory: string
 }
 
@@ -188,7 +188,7 @@ export type PluginModelOption = {
 // — terminal CLIs expose no live model catalog, so users can extend it from
 // Settings. Named `modelSelection` (not `models`) because `models` is the
 // provider-manifest model array with a different shape.
-export type PluginModelSelectionSpec = {
+type PluginModelSelectionSpec = {
   args: string[]
   options?: PluginModelOption[]
   allowCustomId?: boolean
@@ -207,7 +207,7 @@ export type PluginReasoningOption = {
   label?: string
 }
 
-export type PluginReasoningSelectionSpec = {
+type PluginReasoningSelectionSpec = {
   args: string[]
   levels: PluginReasoningOption[]
   default?: string
@@ -228,7 +228,7 @@ export type PluginReasoningSelectionSpec = {
 // { light: "catppuccin-latte", dark: "catppuccin-mocha" } — Codex's adaptive
 // default light/dark syntax themes). A scheme missing from the map renders no
 // theme args, so the CLI falls back to its own detection.
-export type PluginThemeSelectionSpec = {
+type PluginThemeSelectionSpec = {
   args: string[]
   schemes?: { light: string; dark: string }
 }
@@ -247,7 +247,7 @@ export type PluginThemeSelectionSpec = {
 // exit, stall watchdog) and never event-declared; `exited` is allowed for
 // SessionEnd-style events but a real process exit is still owned by the pty
 // exit listener.
-export type PluginAgentStatePhase =
+type PluginAgentStatePhase =
   | 'starting'
   | 'thinking'
   | 'tool_use'
@@ -258,9 +258,9 @@ export type PluginAgentStatePhase =
 // Payload fields the reporter forwards for manifest discriminators to consult:
 // Claude's `notification_type`, and a turn-outcome `status` (Cursor's stop
 // payload). Adding a field here means teaching the reporter to forward it.
-export type PluginAgentStateDiscriminatorField = 'notificationType' | 'status'
+type PluginAgentStateDiscriminatorField = 'notificationType' | 'status'
 
-export type PluginAgentStateEventSpec = {
+type PluginAgentStateEventSpec = {
   // Native event name exactly as the CLI's hook payload / reporter frame names
   // it (`Stop`, `session.idle`, …).
   event: string
@@ -310,11 +310,11 @@ export type PluginAgentStateEventSpec = {
 // every session of that CLI on the machine; the reporter exits silently when
 // the MULTICODE_* launch env is absent, so outside-app sessions cost one
 // short-lived no-op process per event and report nothing.
-export type PluginAgentStateRegistrationScope = 'workspace' | 'user'
+type PluginAgentStateRegistrationScope = 'workspace' | 'user'
 
 // Where and how the reporter is registered. Paths are scope-relative,
 // forward-slashed.
-export type PluginAgentStateRegistrationSpec = (
+type PluginAgentStateRegistrationSpec = (
   // Merge tagged entries into a Claude-style shared settings JSON
   // (hooks.<Event>[].hooks[]), preserving everything else in the file.
   | { kind: 'settings-json'; path: string }
@@ -388,7 +388,7 @@ export type PluginManifest = {
   package?: PluginPackageSpec
 }
 
-export type PluginPackageSpec = {
+type PluginPackageSpec = {
   npm?: string
   brew?: string
 }
@@ -400,7 +400,7 @@ export type PluginInstallPlatform = 'darwin' | 'linux' | 'win32' | 'wsl'
 
 // How to confirm a CLI is installed and read its version. `versionArgs`
 // defaults to `['--version']` when omitted.
-export type PluginDetectSpec = {
+type PluginDetectSpec = {
   versionArgs?: string[]
 }
 
@@ -410,7 +410,7 @@ export type PluginDetectSpec = {
 // idempotent for npm installs. There is deliberately NO staleness detection
 // for CLIs (MC-1873): a CLI's "latest" belongs to the vendor's channel, not
 // the marketplace registry.
-export type PluginUpdateSpec = {
+type PluginUpdateSpec = {
   args: string[]
 }
 
@@ -426,8 +426,7 @@ export type PluginInstallMethod = {
   requires?: string
 }
 
-export type PluginInstallSpec = Partial<Record<PluginInstallPlatform, PluginInstallMethod[]>>
-
+type PluginInstallSpec = Partial<Record<PluginInstallPlatform, PluginInstallMethod[]>>
 
 export type ConversationProviderType = 'model-provider' | 'agent-harness'
 
@@ -452,15 +451,15 @@ export type ManifestAuth = {
 }
 
 // Back-compat alias: conversation provider manifests referenced this name.
-export type ConversationProviderAuth = ManifestAuth
+type ConversationProviderAuth = ManifestAuth
 
 export type ConversationProviderAdapterKind = 'declarative' | 'trusted-executable'
 
-export type ConversationProviderAdapterSpec =
+type ConversationProviderAdapterSpec =
   | { kind: 'declarative' }
   | { kind: 'trusted-executable'; entry: string; sha256: string }
 
-export type OpenAiCompatibleProviderConfig = {
+type OpenAiCompatibleProviderConfig = {
   baseUrl: string
   chatCompletionsPath?: string
   // Absolute path to an OpenAI-shaped models endpoint (`{ data: [{ id, name? }] }`).
@@ -470,9 +469,9 @@ export type OpenAiCompatibleProviderConfig = {
   modelsPath?: string
 }
 
-export type ConversationProviderAdapterExecution = 'declarative' | 'executable' | 'blocked'
+type ConversationProviderAdapterExecution = 'declarative' | 'executable' | 'blocked'
 
-export type ConversationProviderAdapterTrustStatus = ModuleTrustStatus | 'not_required'
+type ConversationProviderAdapterTrustStatus = ModuleTrustStatus | 'not_required'
 
 export type ConversationProviderAdapterClassification = {
   kind: ConversationProviderAdapterKind
@@ -576,7 +575,7 @@ export type PluginReasoningCatalog = {
 // declaration of where a harness keeps its skills — `buildHarnessMap`
 // (src/shared/harness-map.ts) parses it, and nothing anywhere writes a harness
 // directory as a string literal.
-export type PluginSkillCatalogTarget = {
+type PluginSkillCatalogTarget = {
   scope: PluginSkillInstallScope
   path: string
   format: PluginSkillFormat

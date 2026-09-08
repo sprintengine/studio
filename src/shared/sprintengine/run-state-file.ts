@@ -20,10 +20,6 @@ export function slugifyRunName(kind: RunKind, name: string | null | undefined): 
   return slugify(name) || RUN_KIND_CONFIG[kind].slugFallback
 }
 
-export function getRunStateFileName(kind: RunKind): string {
-  return RUN_KIND_CONFIG[kind].stateFileName
-}
-
 export function getRunRootDirectoryPath(folderPath: string, kind: RunKind): string {
   return RUN_KIND_CONFIG[kind].rootSegments.reduce(
     (accumulator, segment) => joinPath(accumulator, segment),
@@ -35,16 +31,6 @@ export function getRunDirectoryPath(folderPath: string, kind: RunKind, runName?:
   return joinPath(getRunRootDirectoryPath(folderPath, kind), slugifyRunName(kind, runName))
 }
 
-export function getExistingRunStateFilePath(
-  folderPath: string,
-  kind: RunKind,
-  runDirectoryName: string
-): string {
-  return joinPath(
-    joinPath(getRunRootDirectoryPath(folderPath, kind), runDirectoryName),
-    RUN_KIND_CONFIG[kind].stateFileName
-  )
-}
 
 export function getRunStateFilePath(folderPath: string, kind: RunKind, runName?: string): string {
   return joinPath(getRunDirectoryPath(folderPath, kind, runName), RUN_KIND_CONFIG[kind].stateFileName)

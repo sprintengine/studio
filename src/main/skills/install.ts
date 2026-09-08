@@ -27,7 +27,7 @@ import { listLocalTree } from './local-source'
 import { isPathStrictlyInside } from '../path-containment'
 
 /** Reads one file's bytes from whichever source the skill came from. */
-export type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
+type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
 
 export const DEFAULT_SKILL_INSTALL_MAX_FILES = 1_000
 export const DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES = 50 * 1024 * 1024
@@ -85,9 +85,9 @@ export async function readSkillProvenance(skillDir: string): Promise<SkillInstal
   }
 }
 
-export type SkillInstallTarget = { harness: SkillHarness; path: string }
+type SkillInstallTarget = { harness: SkillHarness; path: string }
 
-export type SkillInstallPlan = {
+type SkillInstallPlan = {
   dirName: string
   targets: SkillInstallTarget[]
   files: SkillFileRef[]
@@ -353,13 +353,4 @@ export async function uninstallSkill(options: {
     }
   }
   return { ok: true, dirName, removedPaths }
-}
-
-/** Absolute path a skill occupies for one harness, for status and removal. */
-export function skillInstallPath(
-  workspaceRoot: string,
-  harness: SkillHarness,
-  dirName: string
-): string {
-  return join(resolve(workspaceRoot), SKILL_HARNESS_DIR[harness], 'skills', dirName)
 }

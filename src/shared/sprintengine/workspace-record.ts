@@ -38,7 +38,7 @@ import {
 export const SPRINT_ENGINE_WORKSPACE_MODULE_ID = 'sprintengine'
 
 /** The template id every sprint workspace records, and the picker entry's id. */
-export const SPRINT_ENGINE_TEMPLATE_ID = 'sprintengine-mode'
+const SPRINT_ENGINE_TEMPLATE_ID = 'sprintengine-mode'
 
 const sprintEngineBoardTab = (): Record<string, unknown> => ({
   type: 'tab',
@@ -119,7 +119,7 @@ export function createSprintEngineLayoutTemplate(): LayoutTemplate {
   }
 }
 
-export type SprintEngineWorkspaceAgentsInput = {
+type SprintEngineWorkspaceAgentsInput = {
   sprintEngineState: SprintEngineState
   /** Normalized role -> CLI map; every seat resolves through it. */
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -132,7 +132,7 @@ export type SprintEngineWorkspaceAgentsInput = {
   pickAgentName: (agents: Workspace['agents']) => string
 }
 
-export type SprintEngineWorkspaceAgents = {
+type SprintEngineWorkspaceAgents = {
   agents: Workspace['agents']
   initialSpawnAgentIds: string[]
 }
@@ -144,7 +144,7 @@ export type SprintEngineWorkspaceAgents = {
  * from THIS record before any projection arrives, so a value left out here
  * silently launches the run's first agent on the CLI's own defaults (MC-1450).
  */
-export function buildSprintEngineWorkspaceAgents(
+function buildSprintEngineWorkspaceAgents(
   input: SprintEngineWorkspaceAgentsInput,
 ): SprintEngineWorkspaceAgents {
   const agents: Workspace['agents'] = {}

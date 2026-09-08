@@ -149,6 +149,4 @@ export function describeCapabilityPermission(permission: string): string {
 // app code.
 export {
   validateCapabilityPermissions,
-  type PermissionValidationIssue,
-  type PermissionValidationResult,
 } from '../../../packages/module-sdk/src/manifest-validate'

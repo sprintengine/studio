@@ -55,8 +55,8 @@ export const DEFAULT_SUSPEND_IDLE_AFTER_MS = 15 * 60 * 1000
 // Clamp bounds for the user-configurable idle-suspend threshold. 1 minute floor
 // keeps the reaper from thrashing live agents; 24h ceiling is effectively "never
 // for a working day". Shared by the renderer setting normalizer and the main IPC.
-export const MIN_SUSPEND_IDLE_AFTER_MS = 60 * 1000
-export const MAX_SUSPEND_IDLE_AFTER_MS = 24 * 60 * 60 * 1000
+const MIN_SUSPEND_IDLE_AFTER_MS = 60 * 1000
+const MAX_SUSPEND_IDLE_AFTER_MS = 24 * 60 * 60 * 1000
 
 // Coerce an arbitrary value to a valid idle-suspend threshold in ms, or return
 // the default when it isn't a usable finite number. Pure; reused on both sides.
@@ -72,8 +72,8 @@ export function clampSuspendIdleAfterMs(value: unknown): number {
 // per-session gates above still apply; the floor only bounds how MANY of the
 // reapable set are acted on (oldest-rested first).
 export const DEFAULT_KEEP_RECENT_TERMINALS_ALIVE = 3
-export const MIN_KEEP_RECENT_TERMINALS_ALIVE = 0
-export const MAX_KEEP_RECENT_TERMINALS_ALIVE = 20
+const MIN_KEEP_RECENT_TERMINALS_ALIVE = 0
+const MAX_KEEP_RECENT_TERMINALS_ALIVE = 20
 
 // Coerce an arbitrary value to a valid keep-alive count, or return the default
 // when it isn't a usable finite number. Pure; reused on both sides.
@@ -159,7 +159,7 @@ export type ReapDecision = {
 // ("would have been reaped but for X") — the 2026-07-07 parked-agents incident
 // was diagnosable only by timer-alignment forensics because skips left no
 // record of the holding gate.
-export type ReapHold =
+type ReapHold =
   | 'dead_process'
   | 'not_agent'
   | 'no_workspace'

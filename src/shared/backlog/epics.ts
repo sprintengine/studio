@@ -18,10 +18,10 @@ import {
   nextArchiveRelativePath,
 } from './scan'
 
-export const NO_EPIC_TITLE = 'No epic'
-export const UNKNOWN_EPIC_TITLE = 'Unknown epic'
+const NO_EPIC_TITLE = 'No epic'
+const UNKNOWN_EPIC_TITLE = 'Unknown epic'
 
-export type BacklogEpicGroupKind = 'epic' | 'unknown' | 'none'
+type BacklogEpicGroupKind = 'epic' | 'unknown' | 'none'
 
 export type BacklogEpicGroup = {
   // 'epic' = a real epic concept file; 'unknown' = a dangling `epic:` slug with no
@@ -201,7 +201,7 @@ export function isBacklogEpicPath(relativePath: string): boolean {
 }
 
 // One planned file move in an archive-epic rollup.
-export type EpicArchiveMove = {
+type EpicArchiveMove = {
   item: BacklogItem
   // Collision-safe `backlog/archived/<name>.md` target for this item.
   archivedRel: string

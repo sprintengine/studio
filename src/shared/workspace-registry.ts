@@ -67,7 +67,7 @@ export type WorkspaceRegistryFieldStamps = {
   settledOverride: number
 }
 
-export const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
+const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
   'name',
   'layoutModel',
   'folderPath',
@@ -128,7 +128,7 @@ export type WorkspaceRegistryFile = {
 export const WORKSPACE_REGISTRY_TOMBSTONE_LIMIT = 200
 export const WORKSPACE_REGISTRY_TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000
 
-export const DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+const DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 
 export function emptyWorkspaceRegistryFieldStamps(): WorkspaceRegistryFieldStamps {
   return { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0 }
@@ -174,7 +174,7 @@ export function emptyWorkspaceRegistryFile(now = 0): WorkspaceRegistryFile {
  * `codex resume` read after a restart. Only transient output and one-shot
  * restart state are dropped.
  */
-export function normalizeWorkspaceRegistryAgent(agent: AgentState): AgentState {
+function normalizeWorkspaceRegistryAgent(agent: AgentState): AgentState {
   const keepStartupPrompt =
     !agent.cliOnboardingPromptSent
     && (
@@ -384,7 +384,7 @@ export function parseWorkspaceRegistryRecord(raw: unknown): RecordParse {
   return { record }
 }
 
-export function normalizeFieldStamps(raw: unknown): WorkspaceRegistryFieldStamps {
+function normalizeFieldStamps(raw: unknown): WorkspaceRegistryFieldStamps {
   const stamps = emptyWorkspaceRegistryFieldStamps()
   if (!isRecord(raw)) return stamps
   for (const field of WORKSPACE_REGISTRY_STAMPED_FIELDS) {
@@ -462,11 +462,11 @@ export function workspaceRegistryFolderKey(value: string | null | undefined): st
 }
 
 /** The modes that are strictly one-per-project and reuse an existing record. */
-export const WORKSPACE_REUSE_MODES = ['automations-host', 'reviews-host'] as const
+const WORKSPACE_REUSE_MODES = ['automations-host', 'reviews-host'] as const
 
-export type WorkspaceReuseMode = (typeof WORKSPACE_REUSE_MODES)[number]
+type WorkspaceReuseMode = (typeof WORKSPACE_REUSE_MODES)[number]
 
-export function isWorkspaceReuseMode(mode: string | undefined | null): mode is WorkspaceReuseMode {
+function isWorkspaceReuseMode(mode: string | undefined | null): mode is WorkspaceReuseMode {
   return WORKSPACE_REUSE_MODES.includes(mode as WorkspaceReuseMode)
 }
 

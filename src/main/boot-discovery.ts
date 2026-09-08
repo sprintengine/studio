@@ -12,7 +12,7 @@ import { listFolderOpenTargetAvailability, resolveFolderOpenLauncherHere } from 
 // spawning a second login shell per registered CLI. A CLI carrying a custom
 // command override keys differently and does re-probe — correct, since a
 // different command has to actually be probed.
-export type BootDiscoveryLegId = 'cli' | 'editors' | 'updates'
+type BootDiscoveryLegId = 'cli' | 'editors' | 'updates'
 
 type Leg = {
   id: BootDiscoveryLegId

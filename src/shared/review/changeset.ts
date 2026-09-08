@@ -12,20 +12,20 @@ import {
   isPlainObject,
 } from './guards'
 
-export const CHANGESET_SCHEMA_VERSION = 1
+const CHANGESET_SCHEMA_VERSION = 1
 
-export const REVIEW_SOURCE_KINDS = ['pull-request', 'branch', 'patch'] as const
+const REVIEW_SOURCE_KINDS = ['pull-request', 'branch', 'patch'] as const
 export type ReviewSourceKind = (typeof REVIEW_SOURCE_KINDS)[number]
 
 // 'bitbucket' joins this union later; the validator rejects unknown providers
 // explicitly rather than silently passing them.
-export const PULL_REQUEST_PROVIDERS = ['github', 'github-enterprise'] as const
+const PULL_REQUEST_PROVIDERS = ['github', 'github-enterprise'] as const
 export type PullRequestProvider = (typeof PULL_REQUEST_PROVIDERS)[number]
 
-export const CHANGE_FILE_STATUSES = ['added', 'modified', 'deleted', 'renamed'] as const
+const CHANGE_FILE_STATUSES = ['added', 'modified', 'deleted', 'renamed'] as const
 export type ChangeFileStatus = (typeof CHANGE_FILE_STATUSES)[number]
 
-export const HUNK_LINE_KINDS = ['context', 'add', 'del'] as const
+const HUNK_LINE_KINDS = ['context', 'add', 'del'] as const
 export type HunkLineKind = (typeof HUNK_LINE_KINDS)[number]
 
 export type ReviewSource =

@@ -7,7 +7,7 @@ type AppearanceIpcRenderer = {
   invoke(channel: 'app:set-background-mode', enabled: boolean): Promise<void>
 }
 
-export function createAppearanceApi(renderer: AppearanceIpcRenderer) {
+function createAppearanceApi(renderer: AppearanceIpcRenderer) {
   return {
     setColorScheme: (scheme: ColorScheme): Promise<void> =>
       renderer.invoke('appearance:set-color-scheme', scheme),

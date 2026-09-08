@@ -20,9 +20,9 @@ import type { StudioPluginStatus } from './electron-api'
  */
 export const STUDIO_PLUGIN_ID = 'sprintengine-studio'
 
-export const STUDIO_PLUGIN_ROW_NAME = 'SprintEngine Studio'
+const STUDIO_PLUGIN_ROW_NAME = 'SprintEngine Studio'
 
-export const STUDIO_PLUGIN_ROW_DESCRIPTION =
+const STUDIO_PLUGIN_ROW_DESCRIPTION =
   'Sprints, backlog, automations, workspaces and terminals, review — the bridge to this app and the skills that teach it.'
 
 export type StudioPluginRow = {

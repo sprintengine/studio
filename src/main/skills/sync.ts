@@ -83,7 +83,7 @@ export async function installedSkillCopies(
   return byDirName
 }
 
-export type SkillSyncCopyFailure = { skillId: string; message: string }
+type SkillSyncCopyFailure = { skillId: string; message: string }
 export type SkillSyncCopyResult = { refreshed: string[]; failures: SkillSyncCopyFailure[] }
 
 /**

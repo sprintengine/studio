@@ -19,7 +19,6 @@ import {
 } from '../actions/sprint-engine'
 
 export { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND }
-export type { SprintEngineRunLandedTriggerConfig }
 
 // Sprint chaining fires on LANDED (MC-1438, decided): a worktree-backed run has
 // landed when every declared project's pull request is merged; a non-worktree

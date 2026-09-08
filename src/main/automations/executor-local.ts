@@ -70,7 +70,7 @@ export type RunWorktree = {
   branch: string
 }
 
-export class AutomationActionBlockedError extends Error {
+class AutomationActionBlockedError extends Error {
   constructor(readonly blockedReason: string) {
     super(blockedReason)
     this.name = 'AutomationActionBlockedError'
@@ -124,7 +124,7 @@ export function createBuiltInAutomationActionProviders(
   return createBuiltInAutomationProviderRegistry(options).listActionProviders()
 }
 
-export async function runLocalAutomationAction(
+async function runLocalAutomationAction(
   input: AutomationRunExecutionInput,
   providers: AutomationActionProvider[],
   options: LocalAutomationExecutorOptions,
@@ -210,7 +210,7 @@ export async function runLocalAutomationAction(
   }
 }
 
-export function createActionContext(
+function createActionContext(
   input: AutomationRunExecutionInput,
   options: LocalAutomationExecutorOptions,
   reportProgress: (patch: Partial<AutomationRun>) => void

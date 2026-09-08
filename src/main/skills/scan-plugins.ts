@@ -708,7 +708,7 @@ async function realisePlan(
 
 // ── Components ──────────────────────────────────────────────────────────────
 
-export type PluginManifest = {
+type PluginManifest = {
   name: string
   description: string
   version: string

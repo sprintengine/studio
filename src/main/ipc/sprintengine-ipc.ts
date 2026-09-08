@@ -43,7 +43,7 @@ export type SprintEngineVcsMergePayload = {
   repo?: string
 }
 
-export type SprintEngineRunsListPayload = {
+type SprintEngineRunsListPayload = {
   // Known project roots (main derives distinct roots to scan). The renderer sends
   // the roots of the workspaces it knows about; main dedupes and scans each.
   roots: string[]

@@ -29,7 +29,7 @@ export function findMarketplaceResourcePath(
   return marketplaceResourceCandidates(relativePath, options).find((candidate) => exists(candidate)) ?? null
 }
 
-export function marketplaceResourceCandidates(
+function marketplaceResourceCandidates(
   relativePath: string,
   options: MarketplaceResourceResolutionOptions = {}
 ): string[] {

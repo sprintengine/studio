@@ -8,7 +8,7 @@ import {
 } from '../marketplace/registry-client'
 import { isRecord } from '../../shared/records'
 
-export type MarketplaceRegistryReader = {
+type MarketplaceRegistryReader = {
   read(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
 }
 
@@ -16,7 +16,7 @@ export type MarketplaceRegistryIpcHandlers = {
   read(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
 }
 
-export function createMarketplaceRegistryIpcHandlers(
+function createMarketplaceRegistryIpcHandlers(
   reader: MarketplaceRegistryReader = createDefaultMarketplaceRegistryClient()
 ): MarketplaceRegistryIpcHandlers {
   return {

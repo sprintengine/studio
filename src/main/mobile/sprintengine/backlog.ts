@@ -194,7 +194,7 @@ async function readActiveBacklogItems(
   return { items, present }
 }
 
-export interface BacklogStartChild {
+interface BacklogStartChild {
   relativePath: string
   absolutePath: string
   status: MobileControlBacklogItemSnapshot['status']
@@ -367,7 +367,6 @@ function emptyBacklogWorkspaceSnapshot(root: string, generatedAt: string): Mobil
     items: [],
   }
 }
-
 
 function extractExcerpt(body: string): string {
   const lines = body.split(/\r?\n/)

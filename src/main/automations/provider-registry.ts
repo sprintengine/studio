@@ -18,8 +18,8 @@ import {
 import { createSprintEngineRunLandedTriggerProvider } from './triggers/sprint-engine-run-landed'
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
-export const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
-export const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
+const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
+const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
 
 export type BuiltInAutomationProviderRegistryOptions = {
   /**

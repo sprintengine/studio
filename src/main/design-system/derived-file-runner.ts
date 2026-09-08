@@ -23,7 +23,7 @@ import type {
 // session that authored them — never in the main process itself. Tests inject
 // a plain child_process-backed fork.
 
-export type { BundleRegenResult, DerivedScriptRun, DesignSystemRegenResult }
+export type { BundleRegenResult, DesignSystemRegenResult }
 
 export interface BundleScriptExit {
   /** Null when the process could not be spawned or was killed on timeout. */

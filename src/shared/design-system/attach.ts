@@ -21,7 +21,7 @@ export type DesignSystemAttachSource =
  * failure: `source` is an unreadable/invalid bundle, `target` a missing
  * workspace root, `conflict` an existing design-system/ in the workspace.
  */
-export type DesignSystemAttachFailureStage =
+type DesignSystemAttachFailureStage =
   | 'request'
   | 'source'
   | 'target'

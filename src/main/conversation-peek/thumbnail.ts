@@ -22,7 +22,7 @@ import type { PeekImagePayload } from './transcript'
  * is roughly 2× for a retina panel and no more — a bigger source buys nothing
  * on screen and costs the IPC payload.
  */
-export const PEEK_THUMBNAIL_MAX_PX = 128
+const PEEK_THUMBNAIL_MAX_PX = 128
 
 /**
  * Thumbnails kept in memory. Each is a few KB of PNG, so the ceiling is tens of

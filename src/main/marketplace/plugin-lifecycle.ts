@@ -31,7 +31,7 @@ import {
 import type { MarketplaceResourceResolver } from './resources'
 import { isRecord } from '../../shared/records'
 
-export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
+const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
 const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli', 'automation'])
 const MODULE_TRUST_STATUSES = new Set(['trusted', 'signed', 'unsigned', 'invalid'])
 
@@ -115,7 +115,7 @@ export async function readMarketplacePluginInstallReceipts(
   return { ok: true, receipts: Object.values(store.store.plugins) }
 }
 
-export async function installOrUpdateMarketplacePlugin(
+async function installOrUpdateMarketplacePlugin(
   input: MarketplacePluginRegistryInstallInput,
   services: MarketplacePluginLifecycleServices
 ): Promise<MarketplacePluginRegistryInstallResult> {
@@ -844,7 +844,7 @@ function mcpSyncIssuesToMarketplaceIssues(
   }))
 }
 
-export async function uninstallMarketplacePlugin(
+async function uninstallMarketplacePlugin(
   input: MarketplacePluginUninstallInput,
   services: MarketplacePluginLifecycleServices
 ): Promise<MarketplacePluginUninstallResult> {

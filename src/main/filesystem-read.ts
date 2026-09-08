@@ -116,7 +116,7 @@ export function createFilesystemReadHandlers() {
 // non-symlink leaf that still resolves outside `reports/`. realpath collapses
 // the whole chain, so a symlink at any depth is caught; contained symlinks
 // (file or directory) still resolve under the root and read normally.
-export async function assertReportSymlinkContained(filePath: string): Promise<void> {
+async function assertReportSymlinkContained(filePath: string): Promise<void> {
   const boundary = reportsBoundary(filePath)
   if (!boundary) return
   if (normalizeReportPath(boundary.relativePath) === null) {

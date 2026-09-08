@@ -192,7 +192,7 @@ const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 // Working/idle bolding for PLAIN terminals only: agent sessions' activity is
 // bridged from their hook-reported phases (ingestAgentStateFrame), never from
 // output timing — the agent idle-flip variant died with the status inference.
-export const DEFAULT_IDLE_POLICY = {
+const DEFAULT_IDLE_POLICY = {
   flipToIdleAfterMs: 3_000,
 } as const
 

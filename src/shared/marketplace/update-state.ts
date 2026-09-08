@@ -7,7 +7,7 @@
 // Detection is NOT gated on module enablement: an installed-but-disabled
 // module still needs an accurate update state.
 
-export const MODULE_UPDATE_STATES = ['current', 'update-available', 'ahead-of-registry'] as const
+const MODULE_UPDATE_STATES = ['current', 'update-available', 'ahead-of-registry'] as const
 
 export type ModuleUpdateState = (typeof MODULE_UPDATE_STATES)[number]
 
@@ -20,7 +20,7 @@ export function moduleUpdateState(installedVersion: number, registryLatest: numb
 // Why a check can not answer: the registry read failed outright, or it
 // succeeded but carries no entry for this id (delisted, or a purely local
 // install). Neither may ever read as "up to date".
-export type MarketplaceUpdateUnknownReason = 'registry-unreachable' | 'not-in-registry'
+type MarketplaceUpdateUnknownReason = 'registry-unreachable' | 'not-in-registry'
 
 export type MarketplaceUpdateAvailability =
   | { state: ModuleUpdateState; installedVersion: number; latestVersion: number }

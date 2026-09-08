@@ -5,7 +5,7 @@ import { join } from 'path'
 // The SprintEngine Studio MCP gateway is infrastructure and defaults on; the
 // service also treats a legacy false value as advisory and remains enabled.
 
-export const AUTOMATION_SETTINGS_FILENAME = 'automation-settings.json'
+const AUTOMATION_SETTINGS_FILENAME = 'automation-settings.json'
 
 export type AutomationSettings = { enabled: boolean }
 

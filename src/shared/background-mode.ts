@@ -14,7 +14,7 @@
  */
 
 /** One sprint run the main-process scheduler currently holds. */
-export type BackgroundRunSummary = {
+type BackgroundRunSummary = {
   name: string
   /** True while the run's automation mode has it actively auto-running. */
   autoRunning: boolean

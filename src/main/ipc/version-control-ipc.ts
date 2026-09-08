@@ -12,7 +12,7 @@ import {
 // The real probes: the same machinery agent-CLI detection uses for versions, and
 // the same gh runner the review paths use for auth (so a GUI-launched app finds a
 // Homebrew/nvm gh, and gh's own credential store is the single auth source).
-export function createVersionControlProbeDeps(): VersionControlProbeDeps {
+function createVersionControlProbeDeps(): VersionControlProbeDeps {
   const gh = createDefaultGhRunner()
   return {
     probeVersion: (binary) => probeBinaryVersion(binary),

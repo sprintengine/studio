@@ -23,7 +23,7 @@ export function defaultUserModuleRoot(): string {
   return join(homedir(), '.multicode', 'modules')
 }
 
-export type ModuleRejectionIssue = { path: string; message: string }
+type ModuleRejectionIssue = { path: string; message: string }
 export type ModuleRejection = { path: string; issues: ModuleRejectionIssue[] }
 
 export type InstalledModule = {

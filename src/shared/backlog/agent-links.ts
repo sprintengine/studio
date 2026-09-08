@@ -35,7 +35,7 @@ export function parseAgentLinkTargetId(
 
 const AGENT_LABEL_PREFIX = 'Agent: '
 
-export function agentLinkLabel(agentName: string): string {
+function agentLinkLabel(agentName: string): string {
   return `${AGENT_LABEL_PREFIX}${agentName}`
 }
 

@@ -8,7 +8,7 @@ import { open as fsOpen, type FileHandle } from 'fs/promises'
 // Types
 // =============================================================================
 
-export type ActivityEvent = {
+type ActivityEvent = {
   workspaceRoot: string
   sessionId: string
   nodeId: string
@@ -526,29 +526,4 @@ function broadcastSynapses(state: WorkspaceState): void {
     workspaceRoot: state.workspaceRoot,
     synapses: [...state.synapses.values()],
   })
-}
-
-export async function clearMemoryActivityHistory(workspaceRoot: string): Promise<void> {
-  const state = states.get(workspaceKey(workspaceRoot))
-  if (state) {
-    state.synapses.clear()
-    state.sessions.clear()
-    state.events = []
-  }
-  const traceDir = resolve(workspaceRoot, TRACE_DIR_REL)
-  if (!existsSync(traceDir)) return
-  try {
-    const entries = await readdir(traceDir)
-    await Promise.all(
-      entries
-        .filter((n) => n.endsWith('.jsonl'))
-        .map((n) => rm(resolve(traceDir, n), { force: true }))
-    )
-  } catch {
-    // best-effort
-  }
-  if (state) {
-    broadcastSynapses(state)
-    broadcastStatus(state)
-  }
 }

@@ -175,20 +175,6 @@ export type TailnetPairRequest = {
   expiresAt: string
 }
 
-/**
- * What a client sends to ask, and must present to collect.
- *
- * The request id alone is 12 random bytes and so unguessable — but unguessable
- * is not BOUND. Without this, anything that learned an id (a log, a proxy, a
- * shoulder) could collect the device token the approval minted. The asker mints
- * a secret, sends only its SHA-256, and presents the secret to collect, so the
- * token can only be taken by the connection that asked for it.
- */
-export type TailnetPairRequestCredential = {
-  /** Sent on the request. The plaintext never leaves the asking machine. */
-  collectHash: string
-}
-
 /** What a requesting client learns when it polls its own request. */
 export type TailnetPairRequestOutcome =
   | { status: 'pending'; comparisonCode: string; expiresAt: string }
@@ -254,7 +240,6 @@ export type TailnetReverseGrant = {
   scopes: TailnetScope[]
 }
 
-export const TAILNET_LIST_PAIR_REQUESTS_CHANNEL = 'tailnet:list-pair-requests'
 export const TAILNET_APPROVE_PAIR_REQUEST_CHANNEL = 'tailnet:approve-pair-request'
 export const TAILNET_DENY_PAIR_REQUEST_CHANNEL = 'tailnet:deny-pair-request'
 export const TAILNET_SET_NOTIFICATIONS_CHANNEL = 'tailnet:set-notifications'
@@ -318,7 +303,7 @@ export function isPairRequestTerminalPhase(phase: TailnetPairRequestPhase): bool
   return phase !== 'received'
 }
 
-export type TailnetLiveEvent =
+type TailnetLiveEvent =
   | { kind: 'listener'; running: true }
   /**
    * Down, with the reason when it was ASKED to be up: a port already taken

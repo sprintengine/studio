@@ -74,7 +74,7 @@ export type SprintEngineTaskTokenUsage = {
   ownerOwnsMultipleTasks?: boolean
 }
 
-export type SprintEngineRunTokenUsage = {
+type SprintEngineRunTokenUsage = {
   perModel: SprintEngineModelTokenUsage[]
   total: SprintEngineTokenTotals
   coverage: SprintEngineTokenCoverage
@@ -91,7 +91,7 @@ export function emptySprintEngineTokenTotals(): SprintEngineTokenTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0, split: true }
 }
 
-export function addModelUsageIntoTotals(
+function addModelUsageIntoTotals(
   totals: SprintEngineTokenTotals,
   usage: SprintEngineModelTokenUsage,
 ): void {

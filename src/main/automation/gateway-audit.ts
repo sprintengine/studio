@@ -78,7 +78,7 @@ export function createGatewayAuditStore(options: {
   }
 }
 
-export function safeIdentifiers(value: unknown): Record<string, string | number | boolean> {
+function safeIdentifiers(value: unknown): Record<string, string | number | boolean> {
   const result: Record<string, string | number | boolean> = {}
   collectSafeIdentifiers(value, result, 0)
   return result

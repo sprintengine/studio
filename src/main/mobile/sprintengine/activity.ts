@@ -4,7 +4,7 @@ import type { MobileControlSnapshot, MobileSprintEngineArtifactSnapshot, MobileS
 
 const mobileControlProtocolVersion = 2 as const
 
-export type MobileNotificationCategory =
+type MobileNotificationCategory =
   | 'artifact.ready'
   | 'task.needs_input'
   | 'command.failed'

@@ -83,7 +83,7 @@ type ServerEntry = {
 const DEFAULT_WEBHOOK_HOST = '127.0.0.1'
 const MAX_WEBHOOK_BODY_BYTES = 256 * 1024
 
-export class AutomationWebhookReceiverRefreshError extends Error {
+class AutomationWebhookReceiverRefreshError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'AutomationWebhookReceiverRefreshError'
@@ -518,4 +518,3 @@ function defaultDeliveryProblemLogger(problem: AutomationsEngineProblem): void {
     problem.message
   )
 }
-

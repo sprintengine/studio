@@ -55,7 +55,7 @@ const PYTHON_OVERRIDE_ENV = 'MULTICODE_PYTHON'
 // Where extraResources lands the vendored runtimes. Kept in one place so the
 // fetch script (scripts/fetch-runtimes.mjs) and electron-builder config stay in
 // sync with the resolver.
-export const RUNTIME_RESOURCE_DIR = 'runtime'
+const RUNTIME_RESOURCE_DIR = 'runtime'
 
 function pythonRelativePath(platform: NodeJS.Platform): string {
   return platform === 'win32'
@@ -252,7 +252,7 @@ export function managedPythonSpawnEnv<T extends NodeJS.ProcessEnv>(base: T, sour
 //      survives app updates.
 
 /** User-writable directory that npm global installs are redirected into. */
-export function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platform): string {
+function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platform): string {
   const override = process.env['MULTICODE_NODE_PREFIX']
   if (override && override.trim()) return override.trim()
   if (platform === 'win32') {
@@ -262,7 +262,7 @@ export function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platf
 }
 
 /** Directory holding the managed `node`/`npm` shims. */
-export function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform): string {
+function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32') {
     return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Multicode', 'runtime-bin')
   }

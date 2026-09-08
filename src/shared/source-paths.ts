@@ -1,12 +1,6 @@
 import type { SprintEngineSourcePlanKind } from '../renderer/src/types/workspace'
 import { basename } from './paths'
 
-export { basename }
-
-export function folderKey(path: string): string {
-  return path.trim().replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() || path
-}
-
 export function toTitleName(value: string): string {
   return value
     .replace(/[-_]+/g, ' ')
@@ -15,7 +9,7 @@ export function toTitleName(value: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
-export function pathSeparatorFor(path: string): string {
+function pathSeparatorFor(path: string): string {
   return path.includes('\\') && !path.includes('/') ? '\\' : '/'
 }
 
@@ -49,26 +43,6 @@ export function markdownTitle(content: string): string | null {
 
 export function shouldScanDirectory(name: string): boolean {
   return name !== 'node_modules' && name !== '.git' && name !== '.multicode-worktrees'
-}
-
-/**
- * A sibling project's folder name reduced to the handle a run can declare it under
- * (MC-1613). MIRRORS `SIBLING_REPO_ID_PATTERN` in sprintengine_core/tool/shell.py
- * (`^[a-z0-9][a-z0-9._-]*$`): the engine is the authority and rejects anything else
- * with a plain-language reason, so this only has to stop offering a project whose
- * name cannot produce a legal handle at all.
- *
- * Returns '' when nothing usable survives (e.g. a folder named `---`), which the
- * caller treats as "not offerable".
- */
-export function slugifySiblingProjectId(folderName: string): string {
-  return folderName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^[^a-z0-9]+/, '')
-    .replace(/[-.]+$/, '')
 }
 
 const PRODUCT_FILENAME = /(^|[-_/\s])(product|prd|requirements|spec|rfc|brief)([-_\s.]|$)/i

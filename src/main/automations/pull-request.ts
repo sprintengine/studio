@@ -123,7 +123,7 @@ async function runGhCommand(cwd: string, args: string[]): Promise<CommandResult>
   }
 }
 
-export const defaultPullRequestDeps: PullRequestDeps = {
+const defaultPullRequestDeps: PullRequestDeps = {
   runGit: (cwd, args) => runGitCommand(cwd, args).then((result) => ({
     ok: result.ok,
     stdout: result.stdout,

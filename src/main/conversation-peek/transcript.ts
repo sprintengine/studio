@@ -59,7 +59,7 @@ import {
  * exactly the chats with the most to show. This is an abuse guard — past it the
  * file is treated as not-a-transcript.
  */
-export const MAX_PEEK_TRANSCRIPT_BYTES = 256 * 1024 * 1024
+const MAX_PEEK_TRANSCRIPT_BYTES = 256 * 1024 * 1024
 
 /**
  * Transcripts whose parsed peek is kept. Small because each entry can retain a

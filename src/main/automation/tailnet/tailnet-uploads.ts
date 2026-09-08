@@ -9,7 +9,7 @@ import { isAbsolute, join, resolve, sep } from 'path'
 // directory or nowhere at all.
 
 /** The per-thread directory uploads land in, relative to the session's cwd. */
-export const UPLOAD_DIR_SEGMENTS = ['.multi-code', 'uploads'] as const
+const UPLOAD_DIR_SEGMENTS = ['.multi-code', 'uploads'] as const
 
 /**
  * The ceiling, enforced where the bytes land rather than where they are picked.

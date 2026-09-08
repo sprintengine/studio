@@ -89,7 +89,7 @@ export function normalizeSprintEngineAutomationRuntimeState(
   return desiredMode === 'manual' ? 'idle' : 'running'
 }
 
-export function normalizeSprintEngineAutomationStopReason(
+function normalizeSprintEngineAutomationStopReason(
   input: unknown,
 ): SprintEngineAutomationStopReason | undefined {
   return isStopReason(input) ? input : undefined

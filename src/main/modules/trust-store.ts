@@ -10,11 +10,11 @@ import { join } from 'path'
 
 const FILE_NAME = 'trusted-modules.json'
 
-export function trustedModulesPath(userDataDir: string): string {
+function trustedModulesPath(userDataDir: string): string {
   return join(userDataDir, FILE_NAME)
 }
 
-export function parseTrustedModules(raw: string): Map<string, string> {
+function parseTrustedModules(raw: string): Map<string, string> {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return new Map()

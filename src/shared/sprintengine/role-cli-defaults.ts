@@ -8,7 +8,7 @@
  */
 import type { SprintEngineRoleCliDefaults } from '../../renderer/src/types/workspace'
 
-export function defaultSprintEngineRoleCliDefaults(): Required<SprintEngineRoleCliDefaults> {
+function defaultSprintEngineRoleCliDefaults(): Required<SprintEngineRoleCliDefaults> {
   return {
     architect: 'claude-code',
     product: 'claude-code',

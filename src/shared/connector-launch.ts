@@ -28,7 +28,7 @@ import type {
   McpSettings,
 } from './electron-api'
 
-export type ResolvedConnectorLaunch = {
+type ResolvedConnectorLaunch = {
   /** Identity for naming the launched chat (workspace title, kickoff prompt). */
   server: { id: string; name: string }
   /**

@@ -30,7 +30,7 @@ import { INJECTED_FRAGMENT_PATTERNS } from '../../shared/workspace-title'
  * relative one against the cwd the transcript row recorded rather than against
  * whatever directory the app happens to be running in.
  */
-export type PeekPathToken = {
+type PeekPathToken = {
   /** Exactly as it appeared, minus a leading `@`. */
   raw: string
   /** Basename, which is what the chip shows. */

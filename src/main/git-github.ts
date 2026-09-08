@@ -11,7 +11,7 @@ export async function getGitHubRepoWebUrl(repoRoot: string): Promise<string | nu
   return repo?.webUrl ?? null
 }
 
-export async function getGitHubRepoRef(repoRoot: string): Promise<GitHubRepoRef | null> {
+async function getGitHubRepoRef(repoRoot: string): Promise<GitHubRepoRef | null> {
   try {
     const originUrl = await runGit(repoRoot, ['remote', 'get-url', 'origin'])
     const repo = githubRepoFromRemote(originUrl)

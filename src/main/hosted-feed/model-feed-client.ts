@@ -25,12 +25,12 @@ import {
   type HostedModelFeed,
 } from '../../shared/hosted-model-feed'
 
-export const MODEL_FEED_CACHE_FILENAME = 'model-feed-cache.json'
-export const MODEL_FEED_SEED_FILENAME = 'model-feed.json'
-export const DEFAULT_MODEL_FEED_TIMEOUT_MS = 10_000
+const MODEL_FEED_CACHE_FILENAME = 'model-feed-cache.json'
+const MODEL_FEED_SEED_FILENAME = 'model-feed.json'
+const DEFAULT_MODEL_FEED_TIMEOUT_MS = 10_000
 // One fetch an hour, and one retry every five minutes after a failure.
-export const MODEL_FEED_TTL_MS = 60 * 60 * 1_000
-export const MODEL_FEED_RETRY_MS = 5 * 60 * 1_000
+const MODEL_FEED_TTL_MS = 60 * 60 * 1_000
+const MODEL_FEED_RETRY_MS = 5 * 60 * 1_000
 
 // MULTICODE_MODEL_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other

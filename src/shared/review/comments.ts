@@ -12,12 +12,11 @@ import {
   isPlainObject,
 } from './guards'
 
-export const WORKSPACE_STATE_SCHEMA_VERSION = 1
+const WORKSPACE_STATE_SCHEMA_VERSION = 1
 
-export const COMMENT_SYNC_STATES = ['pending', 'posting', 'posted', 'failed'] as const
-export type CommentSyncState = (typeof COMMENT_SYNC_STATES)[number]
+const COMMENT_SYNC_STATES = ['pending', 'posting', 'posted', 'failed'] as const
 
-export const DIFF_VIEWS = ['side-by-side', 'inline'] as const
+const DIFF_VIEWS = ['side-by-side', 'inline'] as const
 export type DiffView = (typeof DIFF_VIEWS)[number]
 
 export type CommentSync =
@@ -30,8 +29,8 @@ export type CommentSync =
 // still points at live content. 'moved' means the anchored range vanished when
 // the head moved — the comment is kept (never silently dropped) and surfaced for
 // re-review, and the PR sync (MC-1683) refuses to post from this state.
-export const COMMENT_ANCHOR_STATUSES = ['moved'] as const
-export type CommentAnchorStatus = (typeof COMMENT_ANCHOR_STATUSES)[number]
+const COMMENT_ANCHOR_STATUSES = ['moved'] as const
+type CommentAnchorStatus = (typeof COMMENT_ANCHOR_STATUSES)[number]
 
 export interface ReviewComment {
   id: string

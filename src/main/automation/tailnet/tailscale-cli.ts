@@ -21,7 +21,7 @@ const MACOS_CLI_PATHS = [
   '/opt/homebrew/bin/tailscale',
 ]
 
-export function resolveTailscaleBinary(): string {
+function resolveTailscaleBinary(): string {
   for (const candidate of MACOS_CLI_PATHS) {
     if (existsSync(candidate)) return candidate
   }

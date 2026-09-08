@@ -28,9 +28,9 @@ export type IpcInvokeHandler = (
   ...args: unknown[]
 ) => unknown | Promise<unknown>
 
-export type StartupHook = () => void | Promise<void>
-export type ShutdownBeginHook = () => void | Promise<void>
-export type ShutdownHook = () => void | Promise<void>
+type StartupHook = () => void | Promise<void>
+type ShutdownBeginHook = () => void | Promise<void>
+type ShutdownHook = () => void | Promise<void>
 
 /**
  * Typed handle for a service one module provides and others require, without
@@ -95,7 +95,7 @@ export type McpToolContribution = {
 
 // Returned by registerSidecar so an owner can trigger a demand-spawned sidecar
 // through the kernel-tracked path (status + failure notification included).
-export type SidecarHandle = {
+type SidecarHandle = {
   start(): Promise<void>
   stop(): Promise<void>
   status(): SidecarRuntimeStatus

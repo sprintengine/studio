@@ -80,7 +80,7 @@ export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-nee
 export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
 
 export const SPAWN_AGENT_ACTION_KIND = 'spawn-agent'
-export const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
+const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
 
 /**
  * The built-in actions that launch a CLI agent. An agent-backed action whose
@@ -460,7 +460,7 @@ export type AutomationsProviders = {
 // renderer so the control center can show an engine indicator. Mirrors the
 // kernel's SidecarRunState (src/main/module-host/main-host.ts) plus
 // 'unavailable' for when the sidecar is absent (module disabled / not wired).
-export type AutomationsEngineSidecarState =
+type AutomationsEngineSidecarState =
   | 'declared'
   | 'stopped'
   | 'starting'

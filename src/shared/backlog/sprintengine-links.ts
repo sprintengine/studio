@@ -26,7 +26,7 @@ export const SPRINT_ENGINE_PR_TARGET_KIND = 'sprintengine.pullRequest'
 // sibling's id is suffixed with its repo id — see `sprintEnginePullRequestLinkId`.
 // The primary keeps the bare id it has always had, which is what makes a
 // single-repo run's one link identical to the one it wrote before this existed.
-export const SPRINT_ENGINE_PR_LINK_ID = 'sprint-engine:pull-request'
+const SPRINT_ENGINE_PR_LINK_ID = 'sprint-engine:pull-request'
 
 // The primary repo's declared id. Mirrors `DEFAULT_SPRINTENGINE_TASK_REPO`
 // (src/shared/sprintengine/run-types.ts), re-spelled here to keep this module
@@ -36,7 +36,7 @@ const PRIMARY_REPO_ID = 'primary'
 // One link id per project. The primary's is the bare, unchanged id (a single-repo
 // run must keep writing exactly the link it always wrote); each sibling gets its
 // own, so its pull request replaces only itself on a re-run.
-export function sprintEnginePullRequestLinkId(repoId?: string): string {
+function sprintEnginePullRequestLinkId(repoId?: string): string {
   const id = (repoId ?? '').trim()
   return !id || id === PRIMARY_REPO_ID ? SPRINT_ENGINE_PR_LINK_ID : `${SPRINT_ENGINE_PR_LINK_ID}:${id}`
 }
@@ -65,7 +65,7 @@ export type SprintEnginePullRequestBacklogLink = {
 
 // Per-run link id: one item can only be executing one run per team slug, and a
 // re-run of the same team replaces its link rather than stacking a duplicate.
-export function sprintEngineRunLinkId(teamSlug: string): string {
+function sprintEngineRunLinkId(teamSlug: string): string {
   return `${SPRINT_ENGINE_MODULE_ID}:${teamSlug}`
 }
 

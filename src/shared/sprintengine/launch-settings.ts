@@ -22,9 +22,9 @@ import type { McpSettings } from './agent-state'
 import type { SprintEngineCliPermissionPreset } from './automation-types'
 import type { SprintEngineRoleSettings, SprintEngineRoster } from './run-types'
 
-export const SPRINT_ENGINE_LAUNCH_SETTINGS_SCHEMA_VERSION = 1
+const SPRINT_ENGINE_LAUNCH_SETTINGS_SCHEMA_VERSION = 1
 
-export type SprintEngineLaunchCliRuntimeSettings = {
+type SprintEngineLaunchCliRuntimeSettings = {
   command: string
   useWsl: boolean
   models?: string[]

@@ -11,7 +11,7 @@
 import { parseBacklogCsvList } from './frontmatter'
 import type { BacklogItem } from './scan'
 
-export type BacklogMockupSource = 'attached' | 'detected'
+type BacklogMockupSource = 'attached' | 'detected'
 
 // One mockup shown in the section. `path` is project-root-relative (or, for a
 // legacy `backlog/`-relative ref, exactly as authored — the resolver below is

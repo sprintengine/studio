@@ -13,11 +13,11 @@ import {
 } from './model-feed-client'
 import { existsSync } from 'node:fs'
 
-export const HOSTED_MODEL_FEED_CHANGED_CHANNEL = 'hosted-model-feed:changed'
+const HOSTED_MODEL_FEED_CHANGED_CHANNEL = 'hosted-model-feed:changed'
 
 let client: HostedModelFeedClient | null = null
 
-export function getHostedModelFeedClient(): HostedModelFeedClient {
+function getHostedModelFeedClient(): HostedModelFeedClient {
   if (client) return client
   const candidates = modelFeedSeedCandidates({
     isPackaged: app.isPackaged,
@@ -31,11 +31,6 @@ export function getHostedModelFeedClient(): HostedModelFeedClient {
     packagedSeedPath: candidates.find((candidate) => existsSync(candidate)) ?? null,
   })
   return client
-}
-
-// Test seam: replace the client (and the broadcast) without Electron.
-export function setHostedModelFeedClientForTests(next: HostedModelFeedClient | null): void {
-  client = next
 }
 
 export type HostedModelFeedBroadcast = (result: HostedModelFeedReadResult) => void

@@ -55,7 +55,7 @@ export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
  * unredeemed offer lingers — hence "works once", the Settings cancel action, and
  * the fact that a wrong guess never burns the outstanding offer.
  */
-export const DEFAULT_PAIRING_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const DEFAULT_PAIRING_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
  * How long a pairing request waits for someone to answer it (MC-2233).
@@ -95,20 +95,18 @@ const MAX_PENDING_REQUESTS = 8
 /** How often a device's last-seen reaches disk. In memory it is always current. */
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000
 
-export type { TailnetDevice, TailnetPairingState }
-
-export type TailnetPairingOffer = {
+type TailnetPairingOffer = {
   /** The one-time token. Returned once at mint; never stored, never re-readable. */
   token: string
   scopes: TailnetScope[]
   expiresAt: string
 }
 
-export type TailnetPairingResult =
+type TailnetPairingResult =
   | { ok: true; device: TailnetDevice; deviceToken: string }
   | { ok: false; code: 'pairing_not_offered' | 'pairing_expired' | 'pairing_invalid' | 'invalid_device_name'; message: string }
 
-export type TailnetPairRequestResult =
+type TailnetPairRequestResult =
   | { ok: true; request: TailnetPairRequest }
   | {
       ok: false
@@ -116,7 +114,7 @@ export type TailnetPairRequestResult =
       message: string
     }
 
-export type TailnetPairApprovalResult =
+type TailnetPairApprovalResult =
   | { ok: true; device: TailnetDevice }
   | { ok: false; code: 'request_not_found' | 'code_required'; message: string }
   /**

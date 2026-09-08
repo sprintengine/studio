@@ -11,6 +11,4 @@ export {
   canonicalManifestPayload,
   parseThirdPartyModuleManifest,
   validateThirdPartyModuleManifest,
-  type ThirdPartyManifestIssue,
-  type ThirdPartyManifestResult,
 } from '../../../packages/module-sdk/src/manifest-validate'

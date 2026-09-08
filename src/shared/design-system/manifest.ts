@@ -3,7 +3,7 @@ import { isRecord } from '../records'
 export const DESIGN_SYSTEM_MANIFEST_FILENAME = 'design-system.json'
 export const DESIGN_SYSTEM_SCHEMA_VERSION = 1
 
-export interface DesignSystemContents extends Record<string, unknown> {
+interface DesignSystemContents extends Record<string, unknown> {
   foundations: string[]
   components: string[]
   patterns: string[]
@@ -34,7 +34,7 @@ export interface DesignSystemManifest extends Record<string, unknown> {
 // Exported for callers that compose filesystem paths from renderer-supplied
 // name/version strings (the library registry): both patterns exclude path
 // separators and dot-segments, so a validated pair is path-safe.
-export const DESIGN_SYSTEM_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
+const DESIGN_SYSTEM_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 export const DESIGN_SYSTEM_VERSION_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
 const NAME_PATTERN = DESIGN_SYSTEM_NAME_PATTERN

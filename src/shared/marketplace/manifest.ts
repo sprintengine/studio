@@ -26,13 +26,6 @@ import { isRecord } from '../records'
 
 export {
   canonicalManifestPayload,
-  parseThirdPartyModuleManifest,
-  validateCapabilityPermissions,
-  validateThirdPartyModuleManifest,
-  type PermissionValidationIssue,
-  type PermissionValidationResult,
-  type ThirdPartyManifestIssue,
-  type ThirdPartyManifestResult,
 } from '../../../packages/module-sdk/src/manifest-validate'
 
 export {
@@ -42,25 +35,21 @@ export {
   parseMarketplacePluginManifest,
   validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
-  type MarketplaceComponent,
-  type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
   type MarketplacePluginAuthoringManifest,
-  type MarketplacePluginAuthoringManifestResult,
   type MarketplacePluginComponents,
   type MarketplacePluginManifest,
-  type MarketplacePluginManifestResult,
 } from '../../../packages/module-sdk/src/plugin-manifest'
 
-export type MarketplacePublisher = {
+type MarketplacePublisher = {
   name: string
   verified: boolean
 }
 
 // Inline-MCP registry entries ship MCP server configs directly (modeled on
 // resources/mcps/catalog.json server entries) instead of a signed bundle.
-export type MarketplaceInlineMcp = {
+type MarketplaceInlineMcp = {
   servers: McpServerConfig[]
 }
 
@@ -70,7 +59,7 @@ export type MarketplaceInlineMcp = {
 // install action executes that plugin's `install` spec through the CLI runtime
 // installer — never the bundle download flow. Third-party CLI plugins keep
 // using signed bundle entries (`source` + components.cli).
-export type MarketplaceInlineCli = {
+type MarketplaceInlineCli = {
   // Plugin-registry id of the bundled plugin (the pluginRegistryIdForCli
   // mapping captured at generation time — not assumed equal to the entry id).
   pluginId: string
@@ -99,7 +88,7 @@ export type MarketplacePluginSkillFile = {
 // shipped the skill folder's content — the install verifies the
 // bundled bytes against them; without them the skill is display metadata only
 // and cannot be installed offline.
-export type MarketplacePluginSkill = {
+type MarketplacePluginSkill = {
   name: string
   description: string
   // Repo-relative path of the skill folder, e.g. `skills/hf-cli`.
@@ -143,7 +132,7 @@ export type MarketplaceIndex = {
 // (content in Claude's plugin format — `.claude-plugin/plugin.json` + skills
 // dirs — not a Multicode bundle). Both the storefront affordance and the
 // install pipeline branch on it, so the check lives here, once.
-export const CLAUDE_PLUGIN_TAG = 'claude-plugin'
+const CLAUDE_PLUGIN_TAG = 'claude-plugin'
 
 export function isClaudeCodePluginEntry(entry: Pick<MarketplacePluginEntry, 'tags'>): boolean {
   return entry.tags?.includes(CLAUDE_PLUGIN_TAG) ?? false

@@ -72,7 +72,7 @@ export type AgentSkillInstaller = {
 }
 
 /** What is at one harness's copy of a skill right now. */
-export type InstalledSkillCopy = {
+type InstalledSkillCopy = {
   exists: boolean
   /** Carries a Multicode provenance marker: ours to replace or delete. */
   managed: boolean
@@ -80,7 +80,7 @@ export type InstalledSkillCopy = {
   contentHash: string
 }
 
-export type SkillCopyMarker =
+type SkillCopyMarker =
   | { kind: 'builtin'; skill: Pick<BuiltinSkill, 'id' | 'version'>; sourceHash: string }
   | { kind: 'attached'; skillId: string; copiedFrom: string }
 

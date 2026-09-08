@@ -23,7 +23,7 @@ export const HOSTED_CARD_FEED_CHANGED_CHANNEL = 'hosted-card-feed:changed'
 
 let client: HostedCardFeedClient | null = null
 
-export function getHostedCardFeedClient(): HostedCardFeedClient {
+function getHostedCardFeedClient(): HostedCardFeedClient {
   if (client) return client
   const candidates = cardFeedSeedCandidates({
     isPackaged: app.isPackaged,

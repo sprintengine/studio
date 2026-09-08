@@ -14,7 +14,7 @@
 // way out but Force Quit.
 export const BOOT_REVEAL_TIMEOUT_MS = 10_000
 
-export type BootRevealTimers = {
+type BootRevealTimers = {
   setTimer: (handler: () => void, ms: number) => unknown
   clearTimer: (handle: unknown) => void
 }

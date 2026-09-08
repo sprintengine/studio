@@ -31,7 +31,7 @@ import { bracketedTerminalPaste } from '../shared/sprintengine/auto-run-executor
  * this service is a consolidation, not a behavior change.
  */
 
-export type ControlPlaneTransport = 'terminal' | 'conversation'
+type ControlPlaneTransport = 'terminal' | 'conversation'
 
 /**
  * A session as the control plane sees it: the identity fields every caller
@@ -76,7 +76,7 @@ export type ControlPlaneTarget =
   | { cwd: string }
   | { cli: string }
 
-export type ControlPlaneFailureReason =
+type ControlPlaneFailureReason =
   | 'invalid_target'
   | 'not_found'
   | 'ambiguous'
@@ -165,7 +165,7 @@ export type ControlPlaneWaitOptions = {
   pollIntervalMs?: number
 }
 
-export type ControlPlaneTerminalPort = {
+type ControlPlaneTerminalPort = {
   list(): TerminalSessionSnapshot[]
   write(sessionId: string, data: string): void
   /** Retained scrollback for a live session; undefined when there is no such session. */
@@ -848,7 +848,7 @@ function describeTarget(target: ParsedTarget): string {
   }
 }
 
-export function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPlaneSession {
+function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPlaneSession {
   return {
     sessionId: snapshot.sessionId,
     transport: 'terminal',
@@ -864,7 +864,7 @@ export function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPla
   }
 }
 
-export function toConversationSession(summary: ConversationSessionSummary): ControlPlaneSession {
+function toConversationSession(summary: ConversationSessionSummary): ControlPlaneSession {
   return {
     sessionId: summary.sessionId,
     transport: 'conversation',

@@ -23,7 +23,7 @@ export type DiscoveredCliModel = {
 
 // How a catalog was obtained. `argv-probe` is a subprocess enumeration command
 // (`codex debug models`); `agent-sdk` is the Claude Agent SDK's supportedModels().
-export type DiscoveredCliModelCatalogSource = 'argv-probe' | 'agent-sdk'
+type DiscoveredCliModelCatalogSource = 'argv-probe' | 'agent-sdk'
 
 // What one CLI last reported, persisted per plugin id. An entry with zero models
 // is meaningful — it records that the CLI answered and listed nothing — so it is

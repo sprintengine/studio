@@ -12,13 +12,13 @@
 import type { AgentCli, AgentId } from './run-types'
 import type { SprintEngineCliPermissionPreset } from './automation-types'
 
-export type AgentMessage = {
+type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
 }
 
-export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
+type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 
 export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
@@ -32,7 +32,7 @@ export type AgentExecutionMode = 'current_workspace' | 'worktree'
 export type SpecialistActionId = string
 
 export type McpClientTarget = AgentCli
-export type McpTransport = 'stdio' | 'http' | 'sse'
+type McpTransport = 'stdio' | 'http' | 'sse'
 export type McpScope = 'workspace' | 'user'
 // These MCP shapes are the twin of the ones in src/shared/electron-api.ts (the
 // renderer re-exports them from here, the IPC contract declares them there);
@@ -40,7 +40,7 @@ export type McpScope = 'workspace' | 'user'
 // 'source' — a server a source installed, owned by Sync — arrived with
 // backlog/2026-09-06-mcp-installs-carry-source-provenance.md.
 export type McpServerSource = 'bundled' | 'custom' | 'source'
-export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
+type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
 
 export type McpServerSourceRef = {
   sourceId: string
@@ -220,7 +220,7 @@ export type AgentState = {
   backlogItemRef?: AgentBacklogItemRef
 }
 
-export type AgentBacklogItemRef = {
+type AgentBacklogItemRef = {
   // Project-root-relative `backlog/...` path; the select key for reverse nav.
   relativePath: string
   // Item title, kept so the glyph's tooltip/accessible name needs no file read.

@@ -40,12 +40,12 @@ import {
   type HostedCardFeed,
 } from '../../shared/hosted-card-feed'
 
-export const CARD_FEED_CACHE_FILENAME = 'card-feed-cache.json'
-export const CARD_FEED_SEED_FILENAME = 'cards-feed.json'
-export const DEFAULT_CARD_FEED_TIMEOUT_MS = 10_000
+const CARD_FEED_CACHE_FILENAME = 'card-feed-cache.json'
+const CARD_FEED_SEED_FILENAME = 'cards-feed.json'
+const DEFAULT_CARD_FEED_TIMEOUT_MS = 10_000
 // One fetch an hour, and one retry every five minutes after a failure.
-export const CARD_FEED_TTL_MS = 60 * 60 * 1_000
-export const CARD_FEED_RETRY_MS = 5 * 60 * 1_000
+const CARD_FEED_TTL_MS = 60 * 60 * 1_000
+const CARD_FEED_RETRY_MS = 5 * 60 * 1_000
 
 // MULTICODE_CARD_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other

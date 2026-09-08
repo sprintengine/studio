@@ -13,9 +13,9 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 // can now create a workspace with no window open, which the delegated path used
 // to refuse outright.
 
-export type ModuleWorkspaceCreateInput = WorkspaceCreateRequest
+type ModuleWorkspaceCreateInput = WorkspaceCreateRequest
 
-export type ModuleWorkspaceCreateResult =
+type ModuleWorkspaceCreateResult =
   | { ok: true; workspaceId: string }
   | { ok: false; code: string; message: string }
 
@@ -44,8 +44,6 @@ export function createModuleWorkspaceService(
 // writes. Unknown ids resolve to null (not currently resolvable), never a throw.
 // Restart survivors resolve fully now — there is no placeholder record left
 // whose folder path has yet to re-hydrate.
-export type { ModuleWorkspaceView } from '../../shared/modules/workspace-view'
-
 export type ModuleWorkspaceContextService = {
   get(workspaceId: string): Promise<ModuleWorkspaceView | null>
 }

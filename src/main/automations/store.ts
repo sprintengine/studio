@@ -12,7 +12,7 @@ import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared
 import { isRecord } from '../../shared/records'
 
 export const AUTOMATIONS_STORE_DIRECTORY = '.multi-code/automations'
-export const AUTOMATION_RUN_HISTORY_LIMIT = 50
+const AUTOMATION_RUN_HISTORY_LIMIT = 50
 
 export type AutomationStoreProblemCode =
   | 'already_exists'
@@ -34,7 +34,7 @@ export type AutomationStoreListResult<T> = { ok: true; values: T[] } | { ok: fal
 export type AutomationStoreWriteResult<T> = { ok: true; value: T } | { ok: false; error: AutomationStoreProblem }
 export type AutomationStoreDeleteResult = { ok: true } | { ok: false; error: AutomationStoreProblem }
 
-export type AutomationStoreLock = {
+type AutomationStoreLock = {
   ownerId: string
   acquiredAt: string
   expiresAt: string

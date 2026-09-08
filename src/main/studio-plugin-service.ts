@@ -65,7 +65,7 @@ export type StudioPluginServiceOptions = {
   }) => void
 }
 
-export type StudioPluginInstallRecord = {
+type StudioPluginInstallRecord = {
   workspaceRoot: string
   version: string
   skillDirNames: string[]

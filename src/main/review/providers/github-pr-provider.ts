@@ -59,7 +59,7 @@ export type FetchLike = (
   init?: { headers?: Record<string, string>; signal?: AbortSignal }
 ) => Promise<FetchResponseLike>
 
-export interface GhResult {
+interface GhResult {
   found: boolean // false only when the gh binary itself is absent
   code: number
   stdout: string
@@ -597,5 +597,5 @@ function defaultDeps(): GithubPrProviderDeps {
   }
 }
 
-export const githubPrProvider = createGithubPrProvider(defaultDeps())
+const githubPrProvider = createGithubPrProvider(defaultDeps())
 registerReviewSourceProvider('pull-request', githubPrProvider)

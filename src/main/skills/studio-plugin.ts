@@ -76,7 +76,7 @@ export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
 export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
 
 /** The marketplace that lists it. One plugin today; child 5 publishes the rest. */
-export const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
+const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
 
 /**
  * The provenance `sourceId` every installed copy of a studio skill carries.
@@ -283,7 +283,7 @@ export async function listStudioPluginSkillDirs(template: StudioPluginTemplate):
  * holds a half-written plugin: an agent reading `skills/` mid-install would
  * otherwise find a skill whose SKILL.md is a zero-byte file.
  */
-export async function materialiseStudioPlugin(input: {
+async function materialiseStudioPlugin(input: {
   template: StudioPluginTemplate
   workspaceRoot: string
   tokens: StudioPluginTokens
@@ -545,7 +545,7 @@ export function studioClaudePluginKey(): string {
  *
  * Both files are merged, never replaced, and only these two keys are touched.
  */
-export async function enableStudioPluginInClaudeSettings(input: {
+async function enableStudioPluginInClaudeSettings(input: {
   workspaceRoot: string
   /** The materialised marketplace root on this machine. */
   marketplacePath: string

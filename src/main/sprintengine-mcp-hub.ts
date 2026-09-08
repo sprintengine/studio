@@ -10,7 +10,7 @@ import { STUDIO_PRODUCT_NAME } from '../shared/product-identity'
 const MCP_TOOL_CALL_METHOD = 'tools/call'
 const MCP_CLIENT_INFO = { name: 'multicode-main', version: '1' } as const
 
-export type SprintEngineMcpHubInfo = {
+type SprintEngineMcpHubInfo = {
   url: string
   adminToken: string
   pid?: number
@@ -25,7 +25,7 @@ export type SprintEngineMcpHubStatus = {
   lastError?: string
 }
 
-export type SprintEngineMcpRunRegistrationInput = {
+type SprintEngineMcpRunRegistrationInput = {
   workspaceRoot: string
   statePath: string
   allowedRoots: string[]
@@ -55,13 +55,13 @@ export type SprintEngineMcpRunRegistrationInput = {
   knowledgeRoot?: string
 }
 
-export type SprintEngineMcpRunRegistration = {
+type SprintEngineMcpRunRegistration = {
   runId: string
   runToken: string
   reused?: boolean
 }
 
-export type SprintEngineMcpToolCallInput = {
+type SprintEngineMcpToolCallInput = {
   runId: string
   toolName: string
   arguments?: Record<string, unknown>
@@ -407,7 +407,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   }
 }
 
-export type SprintEngineMcpSpawnObserver = {
+type SprintEngineMcpSpawnObserver = {
   onSpawnFailure(message: string): void
 }
 

@@ -29,13 +29,13 @@ export type MainModuleLoadReport = {
   sidecars: ReadonlyArray<SidecarSpec>
 }
 
-export type MainModuleLiveUpdateReport = {
+type MainModuleLiveUpdateReport = {
   loaded: string[]
   disabled: string[]
   errors: MainModuleLoadError[]
 }
 
-export type MainModuleLiveUpdateOptions = {
+type MainModuleLiveUpdateOptions = {
   /** Modules whose tracked main-process registrations can be changed without restart. */
   liveModuleIds: readonly string[]
 }

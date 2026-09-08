@@ -32,7 +32,6 @@ import {
   resolveWorkspaceReuseTarget,
   shouldApplyFieldEdit,
   toWorkspaceRegistryRecord,
-  workspaceRegistryFolderKey,
   WORKSPACE_REGISTRY_SCHEMA_VERSION,
   type PersistedStateClassification,
   type WorkspaceRegistryActor,
@@ -732,5 +731,3 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 function isEmptyIntentRecord(value: unknown): boolean {
   return isRecordValue(value) && value.reason === 'user_removed_all'
 }
-
-export { workspaceRegistryFolderKey }

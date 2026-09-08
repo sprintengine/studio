@@ -19,7 +19,7 @@ import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 
 export const RUNNER_LOG_MAX_BYTES = 5 * 1024 * 1024
-export const RUNNER_LOG_FILENAME = 'runner-log.jsonl'
+const RUNNER_LOG_FILENAME = 'runner-log.jsonl'
 
 export type SprintEngineRunnerLogTarget = {
   /** The run's run.yaml path (absolute, or workspace-relative with folderPath). */

@@ -29,16 +29,6 @@ import { isRecord } from '../records'
 
 export type DesignSystemTokenMode = 'light' | 'dark'
 
-/** A resolved leaf token: its dotted path and its value in one mode. */
-export interface ResolvedToken {
-  /** Dotted path without a tier prefix stripped, e.g. `sem.color.accent.primary`. */
-  path: string
-  /** DTCG `$type` as authored (`color`, `dimension`, `fontFamily`, …). */
-  type: string | null
-  /** The value with aliases resolved. Null when resolution failed. */
-  value: string | null
-}
-
 const VENDOR_KEY = 'com.multicode'
 /** A DTCG alias is a whole-value reference: `{ref.color.green-700}`. */
 const ALIAS_PATTERN = /^\{([^{}]+)\}$/

@@ -86,11 +86,6 @@ type ResolvedInstallPlan = {
   trust: ModuleTrust
 }
 
-export function createMarketplacePluginInstaller(services: MarketplacePluginInstallerServices) {
-  return (input: MarketplacePluginInstallInput): Promise<MarketplacePluginInstallResult> =>
-    installMarketplacePlugin(input, services)
-}
-
 export async function installMarketplacePlugin(
   input: MarketplacePluginInstallInput,
   services: MarketplacePluginInstallerServices

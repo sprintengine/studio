@@ -77,10 +77,8 @@ import {
 // advertised nowhere, so nothing can quietly depend on a half version.
 
 export {
-  TAILNET_ROUTE_PREFIX,
   TAILNET_HEALTH_PATH,
   TAILNET_PAIR_PATH,
-  TAILNET_PAIR_REQUEST_PATH,
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_WS_TICKET_PATH,
@@ -157,7 +155,7 @@ export type TailnetGatewayServerOptions = {
   changePushIntervalMs?: number
 }
 
-export type TailnetGatewayPeer = { peerNode: string | null; peerAddress: string }
+type TailnetGatewayPeer = { peerNode: string | null; peerAddress: string }
 
 export type TailnetGatewayActivity =
   | ({ kind: 'stream'; device: TailnetDevice; open: true } & TailnetGatewayPeer)
@@ -205,7 +203,7 @@ type ChangeKind = 'terminals' | 'workspaces'
  * coalesces to a frame; a second is what stops a busy hook stream turning
  * into a re-read per frame on every paired machine.
  */
-export const TAILNET_CHANGE_PUSH_INTERVAL_MS = 1_000
+const TAILNET_CHANGE_PUSH_INTERVAL_MS = 1_000
 
 export function createTailnetGatewayServer(options: TailnetGatewayServerOptions): TailnetGatewayServer {
   const now = options.now ?? (() => Date.now())

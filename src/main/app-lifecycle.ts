@@ -6,7 +6,6 @@ import { runBootDiscovery } from './boot-discovery'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { markStartup } from './startup-timeline'
-import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
 import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
@@ -306,7 +305,6 @@ export function registerAppLifecycle({
       await terminalRuntime.shutdown()
       await conversationRuntime?.shutdown()
       await workspaceSyncService?.flush()
-      await releaseAllWorkspaceRunnerLocks()
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars (e.g. the
       // Sprint Engine MCP hub) in reverse registration order.

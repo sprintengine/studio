@@ -67,7 +67,7 @@ export const PR_MERGE_POLL_BACKOFF: ExponentialBackoffOptions = {
 }
 
 /** Each delay is multiplied by 1 ± this, so simultaneously-armed runs desynchronize. */
-export const PR_MERGE_POLL_JITTER_RATIO = 0.2
+const PR_MERGE_POLL_JITTER_RATIO = 0.2
 
 /** How stale a run may be and still be picked up by the startup scan (30 days). */
 export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -80,7 +80,7 @@ export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  * about once per run. Well under the base delay, so a newly-opened pull request
  * still arms long before its first probe would have fired.
  */
-export const PR_MERGE_POLL_CHANGE_COALESCE_MS = 30_000
+const PR_MERGE_POLL_CHANGE_COALESCE_MS = 30_000
 
 export type SprintPullRequestMergePollerDeps = {
   /**
@@ -108,7 +108,7 @@ export type SprintPullRequestMergePollerDeps = {
 }
 
 /** What the startup scan decided, so the caller can log it and tests can assert it. */
-export type SprintPullRequestMergePollReport = {
+type SprintPullRequestMergePollReport = {
   roots: string[]
   /** Runs found under those roots. */
   discovered: number

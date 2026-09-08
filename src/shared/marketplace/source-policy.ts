@@ -12,7 +12,7 @@
 // github.com, the Contents API on api.github.com, and per-file download_url
 // values on raw.githubusercontent.com. All three must be allowlisted or the
 // download stalls mid-tree.
-export const MARKETPLACE_ALLOWED_SOURCE_HOSTS: readonly string[] = [
+const MARKETPLACE_ALLOWED_SOURCE_HOSTS: readonly string[] = [
   'github.com',
   'api.github.com',
   'raw.githubusercontent.com',

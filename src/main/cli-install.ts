@@ -18,7 +18,7 @@ const CLI_TOOLS: CliTool[] = [
   { name: 'souls' },
 ]
 
-export function getMulticodeCliBinDir(): string {
+function getMulticodeCliBinDir(): string {
   const configured = process.env['MULTICODE_CLI_BIN']
   if (configured && configured.trim()) return resolve(configured)
   if (process.platform === 'win32') {

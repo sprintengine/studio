@@ -23,7 +23,7 @@ import { withDerivedTotals, type ModelTokenUsage } from './types'
 // are skipped, never fatal — an old or damaged ledger degrades to unmeasured
 // coverage, not a broken run summary.
 
-export type SprintTokenLedgerSessionRecord = {
+type SprintTokenLedgerSessionRecord = {
   kind: 'session'
   agentId: string
   role?: string
@@ -32,7 +32,7 @@ export type SprintTokenLedgerSessionRecord = {
   at: string
 }
 
-export type SprintTokenLedgerSampleRecord = {
+type SprintTokenLedgerSampleRecord = {
   kind: 'sample'
   agentId: string
   cli: string

@@ -25,7 +25,7 @@ export type AgentStreamWatcherInput = {
   rollingBufferSize?: number
 }
 
-export type AgentStreamWatcherIngestResult = {
+type AgentStreamWatcherIngestResult = {
   readyMatched: boolean
   completionMatched: boolean
 }

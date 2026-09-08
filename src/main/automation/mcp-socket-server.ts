@@ -12,7 +12,6 @@ import {
   JSONRPC_INVALID_PARAMS,
   JSONRPC_INVALID_REQUEST,
   JSONRPC_PARSE_ERROR,
-  TOOLS_LIST_TTL_MS,
   type JsonRpcId,
 } from './mcp-dispatch'
 import type {
@@ -44,7 +43,6 @@ const MAX_LINE_BYTES = 1024 * 1024
 // (MC-1855) so the module host and SDK can share them; re-exported here for
 // the automation-surface importers.
 export type { McpConnectionContext, McpConnectionMetadata, McpToolRegistration, McpToolResult }
-export { TOOLS_LIST_TTL_MS }
 
 export type McpSocketServerOptions = {
   socketPath: string

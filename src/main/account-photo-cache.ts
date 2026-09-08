@@ -31,9 +31,9 @@ export type AccountPhotoCacheOptions = {
   log?: (event: string, detail: Record<string, unknown>) => void
 }
 
-export const ACCOUNT_PHOTO_MAX_BYTES = 512 * 1024
-export const ACCOUNT_PHOTO_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
-export const ACCOUNT_PHOTO_FETCH_TIMEOUT_MS = 5000
+const ACCOUNT_PHOTO_MAX_BYTES = 512 * 1024
+const ACCOUNT_PHOTO_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const ACCOUNT_PHOTO_FETCH_TIMEOUT_MS = 5000
 
 export class AccountPhotoCache {
   private readonly fetchImpl: typeof fetch

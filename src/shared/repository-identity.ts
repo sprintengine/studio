@@ -57,7 +57,7 @@ export function canonicalRepositoryKey(remoteUrl: string): string {
 }
 
 /** The repository's short name off its key: the last path segment. */
-export function repositoryNameFromKey(canonicalKey: string): string {
+function repositoryNameFromKey(canonicalKey: string): string {
   const segments = canonicalKey.split('/').filter((segment) => segment.length > 0)
   return segments[segments.length - 1] ?? canonicalKey
 }

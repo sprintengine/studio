@@ -38,7 +38,7 @@ type SpawnMobileAgentTerminalResult =
   | { ok: true; sessionId: string }
   | { ok: false; message: string }
 
-export type SetSprintEngineAutomationModeInput = {
+type SetSprintEngineAutomationModeInput = {
   sprintEngineId: string
   statePath: string
   workspaceRoot: string
@@ -47,7 +47,7 @@ export type SetSprintEngineAutomationModeInput = {
   deviceId?: string
 }
 
-export type SetSprintEngineAutomationModeResult =
+type SetSprintEngineAutomationModeResult =
   | { ok: true }
   | { ok: false; retryable: boolean; message: string }
 

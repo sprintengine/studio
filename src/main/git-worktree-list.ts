@@ -29,7 +29,7 @@ function createEmptyWorktree(pathValue: string): GitWorktreeEntry {
   }
 }
 
-export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
+function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
   const lines = output
     .split('\0')
     .flatMap((record) => record.split(/\r?\n/))

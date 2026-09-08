@@ -815,8 +815,6 @@ function pkceChallenge(codeVerifier: string): string {
   return createHash('sha256').update(codeVerifier).digest('base64url')
 }
 
-export { parseAccountProfile }
-
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {
   const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg) || /^http:\/\/127\.0\.0\.1:43110\/callback/i.test(arg))
   if (!callbackUrl) return

@@ -31,7 +31,7 @@ export type TerminalOutputSink = {
   onDropped?(): void
 }
 
-export const TERMINAL_RENDERER_SINK_ID = 'renderer'
+const TERMINAL_RENDERER_SINK_ID = 'renderer'
 
 type TerminalOutputBufferOptions = {
   getSession(sessionId: string): TerminalSession | undefined
@@ -50,7 +50,7 @@ const TERMINAL_INTERACTIVE_DATA_BATCH_MS = 0
 const TERMINAL_DATA_BATCH_MS = 16
 const TERMINAL_RECENT_INPUT_WINDOW_MS = 250
 const TERMINAL_INTERACTIVE_DATA_LIMIT = 4096
-export const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
+const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
 
 const TERMINAL_THROTTLE_NOTICE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 

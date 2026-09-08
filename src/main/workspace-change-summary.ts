@@ -122,21 +122,21 @@ export type CheckoutSummaryShare = {
  * sixty-second sweep fresh, and folds every other reader in between into the
  * read that already happened.
  */
-export const CHECKOUT_SUMMARY_HOLD_MS = 45_000
+const CHECKOUT_SUMMARY_HOLD_MS = 45_000
 /**
  * How many checkouts are read at once, across every caller of the share. The
  * sidebar queued its own reads four wide; the network path fanned out to every
  * distinct checkout at once, which on a sixteen-checkout registry was sixteen
  * git chains spawning in parallel on the event loop. One queue for both.
  */
-export const CHECKOUT_SUMMARY_CONCURRENCY = 4
+const CHECKOUT_SUMMARY_CONCURRENCY = 4
 /**
  * How long an in-flight read is shared before a newcomer starts its own. A
  * `git diff` hung on a spun-down volume must not pin every row of that checkout,
  * in every window, for the life of main — this keeps that worst case per read
  * rather than per checkout.
  */
-export const CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
+const CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
 
 export function createCheckoutSummaryShare(
   read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>,

@@ -24,7 +24,7 @@ export type PluginIpcHandlers = {
   launchPreview(input: AgentLaunchPreviewInput | undefined): AgentLaunchPreviewResult
 }
 
-export function createPluginIpcHandlers(): PluginIpcHandlers {
+function createPluginIpcHandlers(): PluginIpcHandlers {
   return {
     list(): PluginRegistryListResult {
       try {

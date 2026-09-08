@@ -12,8 +12,8 @@ import type { CliAvailability, CliUpdateCommand, CliVersionAdvisory, CliVersionA
 import type { PluginManifest } from '../shared/plugin-manifest'
 import { compareSemver } from '../shared/semver'
 
-export const NPM_LATEST_CACHE_TTL_MS = 60 * 60 * 1_000
-export const NPM_LATEST_TIMEOUT_MS = 4_000
+const NPM_LATEST_CACHE_TTL_MS = 60 * 60 * 1_000
+const NPM_LATEST_TIMEOUT_MS = 4_000
 
 export type NpmLatestFetch = (url: string, init: RequestInit) => Promise<Response>
 

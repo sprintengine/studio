@@ -10,7 +10,7 @@ import type { IpcMain } from 'electron'
 import type { StudioPluginStatus } from '../../shared/electron-api'
 import type { StudioPluginService } from '../studio-plugin-service'
 
-export const STUDIO_PLUGIN_STATUS_CHANNEL = 'studio-plugin:status'
+const STUDIO_PLUGIN_STATUS_CHANNEL = 'studio-plugin:status'
 
 export function registerStudioPluginIpc(ipcMain: IpcMain, service: StudioPluginService): void {
   ipcMain.handle(

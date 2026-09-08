@@ -7,7 +7,7 @@
 
 export type ReviewProgressState = 'draft' | 'in-progress' | 'posted'
 
-export type ReviewStateTone = 'neutral' | 'accent' | 'good'
+type ReviewStateTone = 'neutral' | 'accent' | 'good'
 
 export interface ReviewStatePresentation {
   tone: ReviewStateTone

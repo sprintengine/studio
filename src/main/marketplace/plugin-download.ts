@@ -35,15 +35,15 @@ import {
 import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
 import { verifyBundledSkillFolder } from './skill-content'
 
-export const DEFAULT_MARKETPLACE_PLUGIN_STAGING_DIR = 'marketplace-plugin-staging'
-export const DEFAULT_MARKETPLACE_PLUGIN_DOWNLOAD_TIMEOUT_MS = 30_000
-export const DEFAULT_MARKETPLACE_PLUGIN_MAX_FILES = 500
-export const DEFAULT_MARKETPLACE_PLUGIN_MAX_FILE_BYTES = 5 * 1024 * 1024
-export const DEFAULT_MARKETPLACE_PLUGIN_MAX_TOTAL_BYTES = 25 * 1024 * 1024
+const DEFAULT_MARKETPLACE_PLUGIN_STAGING_DIR = 'marketplace-plugin-staging'
+const DEFAULT_MARKETPLACE_PLUGIN_DOWNLOAD_TIMEOUT_MS = 30_000
+const DEFAULT_MARKETPLACE_PLUGIN_MAX_FILES = 500
+const DEFAULT_MARKETPLACE_PLUGIN_MAX_FILE_BYTES = 5 * 1024 * 1024
+const DEFAULT_MARKETPLACE_PLUGIN_MAX_TOTAL_BYTES = 25 * 1024 * 1024
 
 export type MarketplacePluginDownloadFetch = (url: string, init: RequestInit) => Promise<Response>
 
-export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
+type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
 
 export type MarketplacePluginDownloadOptions = {
   entry: MarketplacePluginEntry

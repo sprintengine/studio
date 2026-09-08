@@ -34,10 +34,6 @@ let timeline: StartupTimeline | null = enabled
 // than at whatever the first instrumented call site happened to be.
 timeline?.record('main.process-start', ORIGIN_EPOCH_MS)
 
-export function startupTimelineEnabled(): boolean {
-  return enabled
-}
-
 // Records a main-process phase now. Also emits a real `performance.mark`, so a
 // Node inspector session sees the same phases without this module's read-out.
 export function markStartup(id: StartupMarkId): void {

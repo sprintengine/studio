@@ -69,7 +69,7 @@ const CAPTURE_TIMEOUT_MS = 5_000
 // How long a controller claim (agent or human) outlives its last input.
 const CONTROLLER_LINGER_MS = 1_500
 
-export type TerminalRootInfo = {
+type TerminalRootInfo = {
   sessionId: string
   rootPid: number
   workspaceId: string | null
@@ -293,7 +293,7 @@ export function guestPreloadPath(): string | null {
   return existsSync(candidate) ? candidate : null
 }
 
-export function guestPreloadUrl(): string | null {
+function guestPreloadUrl(): string | null {
   const path = guestPreloadPath()
   return path ? pathToFileURL(path).toString() : null
 }

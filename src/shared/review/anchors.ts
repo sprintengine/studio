@@ -7,7 +7,7 @@
 
 import { checkEnum, isPositiveInt, describeValue } from './guards'
 
-export const ANCHOR_SIDES = ['new', 'old'] as const
+const ANCHOR_SIDES = ['new', 'old'] as const
 export type AnchorSide = (typeof ANCHOR_SIDES)[number]
 
 export interface ReviewAnchor {

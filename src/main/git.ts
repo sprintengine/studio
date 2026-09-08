@@ -19,11 +19,10 @@ import {
   validateBaseRef,
   validateBranchName,
 } from './git-worktree-validation'
-import { getGitStatus } from './git-status'
 
-export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list'
-export { getGitOperationInProgress, getGitRowSummary, getGitStatus, type GitRowSummary } from './git-status'
-export { getGitBranches, getGitHistory, getGitCommitGraph } from './git-read-models'
+export { listGitWorktrees } from './git-worktree-list'
+export { getGitRowSummary, getGitStatus } from './git-status'
+export { getGitBranches, getGitCommitGraph } from './git-read-models'
 export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash'
 export {
   discardUnstagedGitChanges,
@@ -38,7 +37,6 @@ export {
   cherryPickGitCommit,
   commitGitChanges,
   continueGitOperation,
-  createGitBranchFromCommit,
   createGitTagFromCommit,
   deleteGitBranch,
   fetchGitRemotes,
@@ -104,7 +102,7 @@ export type GitFileStageResult =
   | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
   | { ok: false; message: string }
 
-export type GitBranch = {
+type GitBranch = {
   name: string
   current: boolean
   upstream: string | null
@@ -117,7 +115,7 @@ export type GitBranchSnapshot = {
   behind: number
 }
 
-export type GitCommit = {
+type GitCommit = {
   hash: string
   shortHash: string
   author: string
@@ -127,12 +125,6 @@ export type GitCommit = {
   commitWebUrl: string | null
 }
 
-export type GitHistorySnapshot = {
-  commits: GitCommit[]
-  refs: GitRef[]
-  totalCount: number
-  updatedAt: number
-}
 
 export type GitGraphCommit = GitCommit & {
   parents: string[]
@@ -186,7 +178,7 @@ export type GitWorktreeListSnapshot = {
   updatedAt: number
 }
 
-export type GitWorktreeCopyIncludedResult = {
+type GitWorktreeCopyIncludedResult = {
   copied: string[]
   skipped: { path: string; reason: string }[]
 }
@@ -210,26 +202,9 @@ export type GitWorktreeRemoveInput = {
   force?: boolean
 }
 
-export type GitWorktreeRepairInput = {
-  repoRoot: string
-  path?: string
-}
-
-export type GitWorktreeCopyIncludedInput = {
+type GitWorktreeCopyIncludedInput = {
   repoRoot: string
   worktreePath: string
-}
-
-export type GitConflictFile = {
-  path: string
-  relativePath: string
-  status: string
-}
-
-export type GitConflictSnapshot = {
-  repoRoot: string
-  files: GitConflictFile[]
-  updatedAt: number
 }
 
 export type GitConflictFileContent = {
@@ -250,7 +225,7 @@ export async function getGitRepoRoot(folderPath: string): Promise<string | null>
   }
 }
 
-export async function copyGitWorktreeIncludedFiles(
+async function copyGitWorktreeIncludedFiles(
   input: GitWorktreeCopyIncludedInput
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
   const root = await resolveRepoRoot(input.repoRoot)
@@ -507,22 +482,6 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
   return toWorktreeResult(result, result)
 }
 
-export async function repairGitWorktrees(
-  input: GitWorktreeRepairInput
-): Promise<GitWorktreeOperationResult<GitCommandResult>> {
-  const root = await resolveRepoRoot(input.repoRoot)
-  if (!root.ok) return root
-
-  const worktreePath = input.path?.trim() ? resolve(input.path) : null
-  const result = await runGitCommand(root.data, [
-    'worktree',
-    'repair',
-    ...(worktreePath ? [worktreePath] : []),
-  ])
-
-  return toWorktreeResult(result, result)
-}
-
 export async function getGitFileBase(repoRoot: string, filePath: string): Promise<GitFileBaseResult> {
   const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath)
   if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {
@@ -592,24 +551,6 @@ function normalizeConflictFilePath(repoRoot: string, filePath: string): { absolu
   }
 }
 
-export async function getGitConflicts(repoRoot: string): Promise<GitConflictSnapshot> {
-  const snapshot = await getGitStatus(repoRoot)
-  const files = Object.values(snapshot.files)
-    .filter((entry) => entry.status === 'conflicted')
-    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-    .map((entry) => ({
-      path: entry.path,
-      relativePath: entry.relativePath,
-      status: 'conflicted',
-    }))
-
-  return {
-    repoRoot: snapshot.repoRoot,
-    files,
-    updatedAt: Date.now(),
-  }
-}
-
 async function getGitConflictStage(repoRoot: string, stage: 1 | 2 | 3, relativePath: string): Promise<string | null> {
   const result = await runGitCommand(repoRoot, ['show', `:${stage}:${relativePath}`])
   return result.ok ? result.stdout : null
@@ -671,7 +612,7 @@ export const MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES = ['.mcp.json', '.codex/config.
  * entry: an already-present line is not duplicated. Throws if git or the write
  * fails.
  */
-export async function appendWorktreeGitExcludes(
+async function appendWorktreeGitExcludes(
   worktreePath: string,
   entries: readonly string[]
 ): Promise<void> {

@@ -7,12 +7,12 @@ export type TerminalHistoryActivity = {
 }
 
 export const TERMINAL_RECENT_HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000
-export const TERMINAL_STANDARD_SCROLLBACK_LINES = 5_000
+const TERMINAL_STANDARD_SCROLLBACK_LINES = 5_000
 export const TERMINAL_RECENT_SCROLLBACK_LINES = TERMINAL_STANDARD_SCROLLBACK_LINES * 5
 export const TERMINAL_STANDARD_REPLAY_BYTES = 512 * 1024
 export const TERMINAL_RECENT_REPLAY_BYTES = TERMINAL_STANDARD_REPLAY_BYTES * 5
 
-export function getTerminalLastActivityAt(activity: TerminalHistoryActivity): number | null {
+function getTerminalLastActivityAt(activity: TerminalHistoryActivity): number | null {
   const candidates = [
     activity.startedAt,
     activity.lastOutputAt,
@@ -33,10 +33,4 @@ export function getTerminalReplayLimitBytes(activity: TerminalHistoryActivity, n
   return getTerminalHistoryTier(activity, now) === 'recent'
     ? TERMINAL_RECENT_REPLAY_BYTES
     : TERMINAL_STANDARD_REPLAY_BYTES
-}
-
-export function getTerminalScrollbackLines(activity: TerminalHistoryActivity, now = Date.now()): number {
-  return getTerminalHistoryTier(activity, now) === 'recent'
-    ? TERMINAL_RECENT_SCROLLBACK_LINES
-    : TERMINAL_STANDARD_SCROLLBACK_LINES
 }

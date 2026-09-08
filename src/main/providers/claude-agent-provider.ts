@@ -49,7 +49,7 @@ export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
 // CLI's own vocabulary rather than a remote catalog. Tier aliases float to
 // whatever that tier currently resolves to; a full model id pins one release.
 // Keep in sync with resources/plugins/claude-agent/plugin.json `models`.
-export const CLAUDE_AGENT_MODELS = ['claude-opus-5', 'sonnet', 'opus', 'haiku'] as const
+const CLAUDE_AGENT_MODELS = ['claude-opus-5', 'sonnet', 'opus', 'haiku'] as const
 
 // Env marker so process-tree diagnostics can attribute the headless child to
 // its conversation session (the SDK exposes no child PID).
@@ -1039,7 +1039,7 @@ function turnFailure(input: MockAdapterTurnInput, reason: string, message: strin
 // the chat's work timeline can render `+N −N` chips without re-reading files.
 // Write reports additions only (the file's previous content is not visible
 // here); unknown tools return null and ship no counts.
-export function computeEditDiffCounts(
+function computeEditDiffCounts(
   tool: string,
   input: Record<string, unknown>
 ): { addedLines: number; removedLines?: number } | null {

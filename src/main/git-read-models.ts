@@ -3,7 +3,6 @@ import type {
   GitGraphCommit,
   GitGraphOptions,
   GitGraphSnapshot,
-  GitHistorySnapshot,
   GitRef,
 } from './git'
 import { getGitHubRepoWebUrl } from './git-github'
@@ -76,47 +75,6 @@ function groupRefsByHash(refs: GitRef[]): Map<string, string[]> {
     refsByHash.set(ref.hash, names)
   })
   return refsByHash
-}
-
-export async function getGitHistory(repoRoot: string, limit = 12): Promise<GitHistorySnapshot> {
-  try {
-    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50)
-    const githubRepoWebUrl = await getGitHubRepoWebUrl(repoRoot)
-    const totalCountOutput = await runGit(repoRoot, ['rev-list', '--count', 'HEAD'])
-    const headHash = (await runGit(repoRoot, ['rev-parse', 'HEAD'])).trim()
-    const refs = await collectGitRefs(repoRoot, headHash)
-    const stdout = await runGit(repoRoot, [
-      'log',
-      `--max-count=${safeLimit}`,
-      '--date=format:%Y-%m-%d %H:%M',
-      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e',
-    ])
-    const totalCount = Number.parseInt(totalCountOutput.trim(), 10) || 0
-    const refsByHash = groupRefsByHash(refs)
-
-    const commits = stdout
-      .split('\x1e')
-      .map((record) => record.trim())
-      .filter(Boolean)
-      .map((record) => {
-        const [hash = '', shortHash = '', author = '', date = '', refsText = '', subject = ''] = record.split('\x1f')
-        const decoratedRefs = refsText.split(',').map((ref) => ref.trim()).filter(Boolean)
-        const exactRefs = refsByHash.get(hash) ?? []
-        return {
-          hash,
-          shortHash,
-          author,
-          date,
-          refs: [...new Set([...decoratedRefs, ...exactRefs])],
-          subject,
-          commitWebUrl: githubRepoWebUrl ? `${githubRepoWebUrl}/commit/${hash}` : null,
-        }
-      })
-
-    return { commits, refs, totalCount, updatedAt: Date.now() }
-  } catch {
-    return { commits: [], refs: [], totalCount: 0, updatedAt: Date.now() }
-  }
 }
 
 /**

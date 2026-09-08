@@ -39,7 +39,7 @@ export function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice):
   return [...capabilities]
 }
 
-export function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platform']): MobileControlDevice['platform'] {
+function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platform']): MobileControlDevice['platform'] {
   if (platform === 'ios' || platform === 'android' || platform === 'web') return platform
   return 'web'
 }

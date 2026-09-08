@@ -170,7 +170,7 @@ export type WorkspaceSyncEventType =
 // actually routed to the fallback window. The source renderer already knows the
 // closing window's membership, but receiving renderers do not necessarily have
 // the closing window's full record, so the moved ids travel with the event.
-export type WorkspaceWindowClosedEventPayload = Extract<
+type WorkspaceWindowClosedEventPayload = Extract<
   WorkspaceSyncCommand,
   { type: 'workspace_window.close' }
 >['payload'] & { movedWorkspaceIds: WorkspaceId[] }
@@ -180,7 +180,7 @@ export type WorkspaceWindowClosedEventPayload = Extract<
 // authoritative manifest source). The applier stores these instead of
 // re-deriving resume behavior from `cli`, so a new CLI resumes purely by
 // declaring its manifest capabilities. See agent-cli-resume.ts.
-export type AgentTerminalSessionAssignedEventPayload = Extract<
+type AgentTerminalSessionAssignedEventPayload = Extract<
   WorkspaceSyncCommand,
   { type: 'agent_terminal.assign_session' }
 >['payload'] & { cliResumeAvailable: boolean; cliUsesStableSessionId: boolean }
@@ -199,7 +199,7 @@ export type WorkspaceSyncEvent =
   | WorkspaceSyncBaseEvent<'workspace.agents_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']>
   | WorkspaceSyncBaseEvent<'workspace.removed', { workspaceId: WorkspaceId; removedAt: number }>
 
-export type WorkspaceSyncBaseEvent<
+type WorkspaceSyncBaseEvent<
   Type extends WorkspaceSyncEventType,
   Payload,
 > = {
@@ -222,32 +222,6 @@ export type WorkspaceSyncState = {
 export type WorkspaceSyncSnapshot = {
   sequence: number
   state: Omit<WorkspaceSyncState, 'lastAppliedWorkspaceSyncSequence'>
-}
-
-export type WorkspaceSyncRoutingSnapshot = {
-  sequence: number
-  workspaceWindows: WorkspaceWindowState[]
-  primaryWorkspaceWindowId: WorkspaceWindowId
-  // Display names by workspace id, captured at persist time. The routing
-  // snapshot otherwise only knows window->workspaceId routing, so a workspace
-  // restored from it but never re-hydrated by the renderer this session would
-  // surface its raw id (e.g. in the diagnostics Workspaces panel). Optional and
-  // best-effort: a missing entry falls back to the id.
-  workspaceNames?: Record<string, string>
-  // Folder paths by workspace id, captured at persist time. Without this, a
-  // workspace restored from the routing snapshot but not yet re-hydrated by the
-  // renderer this session comes back folder-less in main's snapshot, so
-  // folder-gated features (e.g. the Automations trust check,
-  // projectFoldersFromWorkspaceSyncSnapshot) can't match it. Optional and
-  // best-effort, mirroring workspaceNames; a missing entry restores folder-less.
-  workspaceFolderPaths?: Record<string, string>
-  // Non-standard workspace modes by workspace id, captured at persist time.
-  // Without this, every workspace restored from the routing snapshot rehydrates
-  // as a 'standard' placeholder, so mode-gated resolution (the automation
-  // executor's per-project 'automations-host' lookup) can never match a restored
-  // workspace and mints a duplicate host after each app restart. Optional and
-  // best-effort, mirroring workspaceNames; a missing entry restores 'standard'.
-  workspaceModes?: Record<string, Workspace['mode']>
 }
 
 export type WorkspaceSyncCommandResult =

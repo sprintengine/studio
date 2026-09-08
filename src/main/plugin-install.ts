@@ -10,14 +10,14 @@ import { validateManifestSource } from './plugin-registry'
 // still happens at registry load time. A user plugin whose id matches a bundled
 // CLI intentionally overrides the bundled one (see mergeBundledAndUser).
 
-export type InstallPluginOk = {
+type InstallPluginOk = {
   ok: true
   id: string
   kind: 'cli' | 'provider'
   displayName: string
 }
 
-export type InstallPluginError = {
+type InstallPluginError = {
   ok: false
   message: string
   issues?: PluginManifestValidationIssue[]

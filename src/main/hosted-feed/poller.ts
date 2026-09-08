@@ -10,9 +10,9 @@
 export const POLLER_FIRST_TICK_MS = 15_000
 export const POLLER_UPDATE_INTERVAL_MS = 4 * 60_000
 export const POLLER_FEED_INTERVAL_MS = 60 * 60_000
-export const POLLER_FEED_JITTER_MS = 5 * 60_000
+const POLLER_FEED_JITTER_MS = 5 * 60_000
 
-export type PollerLeg = 'updates' | 'feed' | 'versions'
+type PollerLeg = 'updates' | 'feed' | 'versions'
 
 export type HostedFeedPollerDeps = {
   checkUpdates: () => Promise<unknown>

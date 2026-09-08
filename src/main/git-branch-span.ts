@@ -20,7 +20,7 @@ import { pathExists, runGitCommand } from './git-utils'
  * rather than throwing into main.
  */
 
-export type BranchFileStat = {
+type BranchFileStat = {
   path: string
   additions: number
   deletions: number
@@ -95,7 +95,7 @@ export function scopeOfSpan(span: BranchSpan | null): 'worktree' | 'branch' | 'f
  * callers, and one that sorted `files` in place would corrupt every later
  * failure result for the life of the process.
  */
-export function emptyBranchSpanStat(): BranchSpanStat {
+function emptyBranchSpanStat(): BranchSpanStat {
   return { additions: 0, deletions: 0, changedFiles: 0, files: [] }
 }
 
@@ -390,7 +390,7 @@ export function scopeOfFacts(facts: BranchFacts | null): 'worktree' | 'branch' |
  * has no line counts to report. The changed-files surface lists them
  * separately; a row that summarises edits does not.
  */
-export async function diffWorkingTreeFrom(
+async function diffWorkingTreeFrom(
   cwd: string,
   fromRev: string
 ): Promise<BranchSpanStat | null> {

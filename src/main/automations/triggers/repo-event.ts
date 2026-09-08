@@ -19,7 +19,6 @@ import {
 // Canonical definitions now live in contracts.ts; re-export so existing importers
 // of this module (provider registry, tests) keep their import paths.
 export { REPO_EVENT_TRIGGER_KIND }
-export type { RepoEventTriggerConfig }
 
 type RepoEventTriggerValidationResult =
   | { ok: true; value: RepoEventTriggerConfig }
@@ -109,7 +108,7 @@ function readAllRepoTasksForPoll(
     : readAll()
 }
 
-export function validateRepoEventTriggerConfig(config: unknown): RepoEventTriggerValidationResult {
+function validateRepoEventTriggerConfig(config: unknown): RepoEventTriggerValidationResult {
   if (!isRecord(config)) return invalid('Repo-event trigger config must be an object.')
   if (config.kind !== REPO_EVENT_TRIGGER_KIND) return invalid('Repo-event trigger kind must be "repo-event".')
 

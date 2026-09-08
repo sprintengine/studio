@@ -5,25 +5,25 @@ import type { AgentPhase, AgentSessionSystem } from './electron-api'
 // agent sessions (sprintengine, automations, …). System-specific
 // modules layer their own behavior on top via the runtime's generic seams.
 
-export type AgentInjectionMode =
+type AgentInjectionMode =
   | 'positional-arg'
   | 'stdin-pipe'
   | 'send-after-ready'
 
-export type AgentReadinessSignal = {
+type AgentReadinessSignal = {
   type: 'output-match'
   pattern: string
   timeoutMs: number
 }
 
-export type AgentInjectionSpec = {
+type AgentInjectionSpec = {
   mode: AgentInjectionMode
   readiness?: AgentReadinessSignal
 }
 
-export type AgentCompletionMode = 'process-exit' | 'output-sentinel'
+type AgentCompletionMode = 'process-exit' | 'output-sentinel'
 
-export type AgentCompletionSpec = {
+type AgentCompletionSpec = {
   mode: AgentCompletionMode
   sentinel?: string
 }

@@ -95,7 +95,7 @@ function toRepoSummary(record: unknown): GitHubRepoSummary | null {
 // The next-page URL comes from a response header; the Authorization header
 // rides every fetch, so only an https api.github.com continuation may be
 // followed — anything else in the Link header is dropped, never paged into.
-export function nextGitHubPageUrl(linkHeader: string | null): string | null {
+function nextGitHubPageUrl(linkHeader: string | null): string | null {
   if (!linkHeader) return null
   for (const part of linkHeader.split(',')) {
     const match = part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/)

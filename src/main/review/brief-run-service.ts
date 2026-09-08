@@ -31,7 +31,7 @@ const BRIEF_FILE = 'brief.json'
 // generating turn is opaque, so these are coarse milestones, never inferred
 // sub-steps. Owned by the guide-run registry so the live event stream and the
 // polled run status speak one vocabulary.
-export type BriefRunPhase = GuideRunPhase
+type BriefRunPhase = GuideRunPhase
 
 export interface BriefRunEvent {
   workspaceId: string

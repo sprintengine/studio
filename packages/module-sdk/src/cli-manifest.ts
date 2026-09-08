@@ -115,12 +115,12 @@ export type CliModelSelectionSpec = {
 // (e.g. Codex: ["-c", "model_reasoning_effort=\"{{reasoning}}\""]). Args render
 // only when a level is selected and differs from `default`, so an unset or
 // default level passes no flag. `levels` is the closed set the CLI accepts.
-export type CliReasoningOption = {
+type CliReasoningOption = {
   id: string
   label?: string
 }
 
-export type CliReasoningSelectionSpec = {
+type CliReasoningSelectionSpec = {
   args: string[]
   levels: CliReasoningOption[]
   default?: string
@@ -137,7 +137,7 @@ export type CliReasoningSelectionSpec = {
 // (e.g. Codex's syntect theme names: ["-c", "tui.theme=\"{{themeName}}\""] with
 // { light: "catppuccin-latte", dark: "catppuccin-mocha" }). A scheme absent
 // from the map renders no theme args, so the CLI keeps its own detection.
-export type CliThemeSelectionSpec = {
+type CliThemeSelectionSpec = {
   args: string[]
   schemes?: { light: string; dark: string }
 }
@@ -217,7 +217,7 @@ export type CliSoulsSpec = {
  * phase vocabulary. A manifest without this spec declares that the CLI cannot
  * report authoritative agent state. Mirrors the app's `PluginAgentStateSpec`.
  */
-export type CliAgentStatePhase =
+type CliAgentStatePhase =
   | 'starting'
   | 'thinking'
   | 'tool_use'
@@ -226,9 +226,9 @@ export type CliAgentStatePhase =
   | 'exited'
 
 /** Payload fields the reporter forwards for discriminators to consult. */
-export type CliAgentStateDiscriminatorField = 'notificationType' | 'status'
+type CliAgentStateDiscriminatorField = 'notificationType' | 'status'
 
-export type CliAgentStateEventSpec = {
+type CliAgentStateEventSpec = {
   /** Native event name exactly as the CLI's hook payload names it. */
   event: string
   /** Registration matcher (Claude-style `matcher` key), when the CLI wants one. */
@@ -260,9 +260,9 @@ export type CliAgentStateEventSpec = {
 }
 
 /** Where `path` resolves from: the workspace root (default) or the user's home. */
-export type CliAgentStateRegistrationScope = 'workspace' | 'user'
+type CliAgentStateRegistrationScope = 'workspace' | 'user'
 
-export type CliAgentStateRegistrationSpec = (
+type CliAgentStateRegistrationSpec = (
   | { kind: 'settings-json'; path: string }
   | { kind: 'flat-hooks-json'; path: string }
   | { kind: 'toml-block'; path: string }
@@ -271,7 +271,7 @@ export type CliAgentStateRegistrationSpec = (
   | { kind: 'plugin-file'; path: string; template: string }
 ) & { scope?: CliAgentStateRegistrationScope }
 
-export type CliAgentStateSpec = {
+type CliAgentStateSpec = {
   registration: CliAgentStateRegistrationSpec
   events: CliAgentStateEventSpec[]
 }

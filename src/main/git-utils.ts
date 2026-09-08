@@ -62,7 +62,7 @@ export function toPosixPath(pathValue: string): string {
   return pathValue.replace(/\\/g, '/')
 }
 
-export function toWindowsPath(pathValue: string): string {
+function toWindowsPath(pathValue: string): string {
   const normalized = toPosixPath(pathValue)
   const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
   if (!wslMatch) return pathValue

@@ -46,13 +46,13 @@ export type ParsedDefinitionPatch = Partial<Pick<
  * host stamps onto the record it creates. `payload` stays `unknown` — the parse
  * below is the authoritative one; the bundle manifest's structural check is not.
  */
-export type CatalogueDefinitionInstallInput = {
+type CatalogueDefinitionInstallInput = {
   payload: unknown
   sourceCatalogueId: string
   sourcePublisher?: string
 }
 
-export type CatalogueDefinitionInstall = {
+type CatalogueDefinitionInstall = {
   definition: AutomationDefinition
   /** True when the project already had this catalogue entry: nothing was written. */
   alreadyAdded: boolean
@@ -83,7 +83,7 @@ export type DefinitionWriteDeps = {
   onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
 }
 
-export type PostWriteFailure = { code: string; message: string }
+type PostWriteFailure = { code: string; message: string }
 
 export type DefinitionWriteResult<T> =
   | { ok: true; value: T; postWriteFailure?: PostWriteFailure }
@@ -293,7 +293,7 @@ function normalizeWorkspaceRoot(workspaceRoot: string): string {
   return resolve(workspaceRoot).replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
-export function buildDefinitionForCreate(
+function buildDefinitionForCreate(
   draft: AutomationDefinitionDraft,
   timestamp: string,
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
@@ -579,7 +579,7 @@ export function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDe
   return ok(patch)
 }
 
-export function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kind: string; config: unknown }> {
+function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kind: string; config: unknown }> {
   if (!isRecord(input) || typeof input.kind !== 'string' || input.kind.trim() === '' || !Object.hasOwn(input, 'config')) {
     return fail('invalid_input', `Automation ${label} must include kind and config.`)
   }

@@ -126,7 +126,7 @@ const spotlightCache = new Map<string, { at: number; path: string | null }>()
  * an install at all. Any failure — Spotlight off, the volume unindexed, a slow
  * index — is "not found", never an error: the menu simply omits the editor.
  */
-export function locateAppByBundleIdHere(bundleIds: readonly string[]): string | null {
+function locateAppByBundleIdHere(bundleIds: readonly string[]): string | null {
   if (process.platform !== 'darwin' || bundleIds.length === 0) return null
   const key = bundleIds.join('|')
   const cached = spotlightCache.get(key)

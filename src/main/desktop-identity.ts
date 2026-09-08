@@ -19,12 +19,12 @@ export const CLERK_IDENTITY_PROVIDER = 'clerk' as const
 
 export type IdentityProviderKind = typeof MULTIAUTH_IDENTITY_PROVIDER | typeof CLERK_IDENTITY_PROVIDER
 
-export const IDENTITY_PROVIDER_KINDS: readonly IdentityProviderKind[] = [
+const IDENTITY_PROVIDER_KINDS: readonly IdentityProviderKind[] = [
   MULTIAUTH_IDENTITY_PROVIDER,
   CLERK_IDENTITY_PROVIDER,
 ]
 
-export type MultiauthIdentityConfig = {
+type MultiauthIdentityConfig = {
   provider: typeof MULTIAUTH_IDENTITY_PROVIDER
 }
 
@@ -55,8 +55,8 @@ export const CLERK_DESKTOP_SCOPES: readonly string[] = ['openid', 'profile', 'em
 // authorization-server metadata Clerk publishes at
 // `/.well-known/oauth-authorization-server`. Used to derive endpoints when an
 // environment override names only the issuer.
-export const CLERK_AUTHORIZE_PATH = '/oauth/authorize'
-export const CLERK_TOKEN_PATH = '/oauth/token'
+const CLERK_AUTHORIZE_PATH = '/oauth/authorize'
+const CLERK_TOKEN_PATH = '/oauth/token'
 
 // One safeStorage file per provider. Never the same name: a rollback inside the
 // dual-accept window needs the other provider's refresh token still on disk.
@@ -69,17 +69,6 @@ export const REFRESH_TOKEN_FILE_NAMES: Readonly<Record<IdentityProviderKind, str
 // so `initialize()` tries that store first. A preference, not an authority:
 // the other store is still tried when this one has nothing usable.
 export const IDENTITY_MARKER_FILE_NAME = 'desktop-identity.json'
-
-export type IdentityDiscoveryDocument =
-  | { provider: typeof MULTIAUTH_IDENTITY_PROVIDER }
-  | {
-      provider: typeof CLERK_IDENTITY_PROVIDER
-      issuer: string
-      authorizationEndpoint: string
-      tokenEndpoint: string
-      clientIds: Record<string, string>
-      scopes?: readonly string[]
-    }
 
 export class IdentityDiscoveryError extends Error {
   override readonly name = 'IdentityDiscoveryError'

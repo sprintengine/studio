@@ -229,7 +229,7 @@ export type CardActionVerb = CardAction['verb']
  * an array rather than a single constant. GitHub owners are case-insensitive,
  * so the comparison is too.
  */
-export const CARD_CLONE_OWNERS: readonly string[] = ['sprintengine']
+const CARD_CLONE_OWNERS: readonly string[] = ['sprintengine']
 
 export type HostedCard = {
   // Stable for the life of the card: the directory name in the cards repo, and

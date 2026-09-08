@@ -33,7 +33,7 @@ let registry: PluginRegistry | null = null
 let lastReport: PluginRegistryLoadReport | null = null
 let configuredUserRoot: string | null = null
 
-export function resolveBundledPluginRoot(): string {
+function resolveBundledPluginRoot(): string {
   const electron = loadElectron()
   if (electron.app.isPackaged) {
     const packaged = join(process.resourcesPath, 'plugins')
@@ -112,11 +112,6 @@ export function getConversationProviderById(id: string): LoadedConversationProvi
   return ensureRegistry().getConversationProvider(id)
 }
 
-export function getLastPluginRegistryReport(): PluginRegistryLoadReport | null {
-  ensureRegistry()
-  return lastReport
-}
-
 export function getPluginRegistryUserRoot(): string {
   ensureRegistry()
   return configuredUserRoot ?? defaultUserPluginRoot()
@@ -149,4 +144,3 @@ export function __resetPluginRegistryForTest(): void {
   lastReport = null
   configuredUserRoot = null
 }
-

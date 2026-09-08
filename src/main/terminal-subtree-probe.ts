@@ -27,7 +27,7 @@ import { execFile } from 'node:child_process'
 
 // A subtree process above this CPU share counts as "doing work" → keep alive.
 // High enough to ignore idle MCP/helper jitter, low enough to catch a build.
-export const SUBTREE_BUSY_CPU_PERCENT = 15
+const SUBTREE_BUSY_CPU_PERCENT = 15
 
 // Every shell the Claude Code Bash tool runs — foreground or backgrounded —
 // sources its snapshot from this directory, making it a precise marker for

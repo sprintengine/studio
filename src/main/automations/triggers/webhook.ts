@@ -60,7 +60,7 @@ export function createWebhookTriggerProvider(): AutomationTriggerProvider {
   }
 }
 
-export function validateWebhookTriggerConfig(config: unknown): WebhookTriggerValidationResult {
+function validateWebhookTriggerConfig(config: unknown): WebhookTriggerValidationResult {
   if (!isRecord(config)) return invalid('Webhook trigger config must be an object.')
   if (config.kind !== WEBHOOK_TRIGGER_KIND) return invalid('Webhook trigger kind must be "webhook".')
 

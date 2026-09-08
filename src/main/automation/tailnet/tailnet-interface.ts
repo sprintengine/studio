@@ -14,10 +14,8 @@ import { networkInterfaces, type NetworkInterfaceInfo } from 'os'
 // taught, which for a listener carrying ~60 mutating tools is the only safe
 // direction (see the epic's cross-cutting "never bind 0.0.0.0" rule).
 
-/** Tailscale's IPv4 pool: 100.64.0.0/10, i.e. 100.64.x.x – 100.127.x.x. */
-export const TAILNET_IPV4_RANGE = '100.64.0.0/10'
 /** Tailscale's IPv6 pool. */
-export const TAILNET_IPV6_PREFIX = 'fd7a:115c:a1e0:'
+const TAILNET_IPV6_PREFIX = 'fd7a:115c:a1e0:'
 
 export type TailnetInterface = {
   address: string
@@ -37,7 +35,7 @@ export function isTailnetAddress(address: string): boolean {
   return value.startsWith(TAILNET_IPV6_PREFIX)
 }
 
-export function isLoopbackAddress(address: string): boolean {
+function isLoopbackAddress(address: string): boolean {
   const value = normalize(address)
   return value === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value)
 }

@@ -146,7 +146,7 @@ export type BrowserHostKey = {
   shift: boolean
 }
 
-export const BROWSER_MAX_URL_LENGTH = 2048
+const BROWSER_MAX_URL_LENGTH = 2048
 export const BROWSER_MAX_RECENT_URLS = 8
 
 /**

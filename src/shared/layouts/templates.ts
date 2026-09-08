@@ -272,7 +272,7 @@ export const REVIEWS_HOST_TEMPLATE: LayoutTemplate = {
 }
 
 /** The template a workspace of this mode is minted from when none is named. */
-export function defaultTemplateForWorkspaceMode(mode: WorkspaceMode | undefined): LayoutTemplate | null {
+function defaultTemplateForWorkspaceMode(mode: WorkspaceMode | undefined): LayoutTemplate | null {
   switch (mode) {
     case AUTOMATIONS_HOST_WORKSPACE_MODE:
       return AUTOMATIONS_HOST_TEMPLATE
@@ -310,4 +310,4 @@ export function resolveHeadlessLayoutTemplate(input: {
 }
 
 /** The template a workspace created with no explicit choice lands on. */
-export const DEFAULT_LAYOUT_TEMPLATE: LayoutTemplate = LAYOUT_TEMPLATES[0]
+const DEFAULT_LAYOUT_TEMPLATE: LayoutTemplate = LAYOUT_TEMPLATES[0]

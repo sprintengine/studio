@@ -24,14 +24,14 @@
 
 import { isRecord } from '../records'
 
-export type RoleDirectiveEntry = { skill: string }
+type RoleDirectiveEntry = { skill: string }
 
 // Shipped post-implementation phase vocabulary. Keyed maps, so a future phase
 // slots in without a schema change.
-export const DIRECTIVE_PHASES = ['review'] as const
-export type RoleDirectivePhase = (typeof DIRECTIVE_PHASES)[number]
+const DIRECTIVE_PHASES = ['review'] as const
+type RoleDirectivePhase = (typeof DIRECTIVE_PHASES)[number]
 
-export type RoleDirectives = { implement: RoleDirectiveEntry[] } & Partial<
+type RoleDirectives = { implement: RoleDirectiveEntry[] } & Partial<
   Record<RoleDirectivePhase, RoleDirectiveEntry[]>
 >
 
@@ -58,7 +58,7 @@ export type AuthoredRoleInput = {
   aliases?: string[]
 }
 
-export type RoleManifestValidationIssue = { path: string; message: string }
+type RoleManifestValidationIssue = { path: string; message: string }
 
 export type RoleManifestValidationResult =
   | { ok: true; manifest: RoleManifest }

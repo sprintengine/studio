@@ -152,8 +152,6 @@ export type SprintCreateServiceDeps = {
   logDiagnostic?: (input: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
-export type SprintCreateService = ReturnType<typeof createSprintCreateService>
-
 export function createSprintCreateService(deps: SprintCreateServiceDeps) {
   // -------------------------------------------------------------------------
   // Roster + runtime resolution

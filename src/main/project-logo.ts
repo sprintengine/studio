@@ -14,7 +14,7 @@ import { imageMimeType } from './filesystem-image'
 
 // Ranked candidate filenames, first hit wins. Matched case-insensitively
 // against the repo's top-level entries — no recursive walk.
-export const PROJECT_LOGO_CANDIDATES = [
+const PROJECT_LOGO_CANDIDATES = [
   'logo.svg',
   'logo.png',
   'icon.svg',
@@ -36,7 +36,7 @@ export const PROJECT_LOGO_RASTER_MAX_PX = 32
 
 const SVG_MIME_TYPE = 'image/svg+xml'
 
-export type ProjectLogoStat = {
+type ProjectLogoStat = {
   isFile: boolean
   size: number
   mtimeMs: number

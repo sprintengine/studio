@@ -294,7 +294,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
 // the existing window rather than spawning a duplicate.
 const auxWindows = new Map<string, BrowserWindow>()
 
-export type AuxWindowKind = 'diff' | 'file'
+type AuxWindowKind = 'diff' | 'file'
 
 type CreateAuxWindowOptions = {
   kind: AuxWindowKind

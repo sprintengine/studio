@@ -56,7 +56,7 @@ export function createWorkspaceSkillsService(): WorkspaceSkillsService {
 // ---------------------------------------------------------------------------
 
 /** One skill directory as it exists on disk, before it is attributed to a CLI. */
-export type RawSkill = {
+type RawSkill = {
   id: string
   name: string
   description: string

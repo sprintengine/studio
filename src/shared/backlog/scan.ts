@@ -27,7 +27,6 @@ import {
 
 export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
-export type BacklogScanState = 'missing-folder' | 'empty-folder' | 'ready' | 'partial' | 'error'
 
 // Lightweight triage metadata, owned by the backlog object store (items.json),
 // never required from markdown frontmatter. All fields are optional: a rough
@@ -462,7 +461,7 @@ export function inferBacklogKind(relativePath: string, content: string): Backlog
   return inferSourcePlanKind(relativePath, content)
 }
 
-export function inferBacklogTitle(relativePath: string, content: string): string {
+function inferBacklogTitle(relativePath: string, content: string): string {
   const mdTitle = markdownTitle(content)
   if (mdTitle) return mdTitle
 
@@ -515,11 +514,11 @@ export function backlogPreviewMarkdown(sourceContent: string): string {
   return lines.slice(start).join('\n').trimEnd()
 }
 
-export function isBacklogSourceFile(pathValue: string): boolean {
+function isBacklogSourceFile(pathValue: string): boolean {
   return SOURCE_EXTENSION_RE.test(pathValue)
 }
 
-export function isBacklogRelativePath(pathValue: string): boolean {
+function isBacklogRelativePath(pathValue: string): boolean {
   const normalized = normalizeRelativePath(pathValue)
   return normalized === 'backlog' || normalized.startsWith('backlog/')
 }

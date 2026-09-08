@@ -29,17 +29,17 @@ export const REPO_TASK_IMPORT_AUTHOR_ID = 'repo-import'
 /** The trackers a repo task can be imported from. */
 export type RepoTaskProvider = RepoEventTrackerProvider
 
-export type RepoTaskAuthorType = 'user' | 'agent' | 'system'
+type RepoTaskAuthorType = 'user' | 'agent' | 'system'
 
-export type RepoTaskAuthor = {
+type RepoTaskAuthor = {
   type: RepoTaskAuthorType
   id?: string | null
   name?: string | null
 }
 
-export type RepoTaskCommentKind = 'comment' | 'status_change' | 'claim' | 'evidence' | 'import' | 'triage'
+type RepoTaskCommentKind = 'comment' | 'status_change' | 'claim' | 'evidence' | 'import' | 'triage'
 
-export type RepoTaskComment = {
+type RepoTaskComment = {
   id: string
   author: RepoTaskAuthor
   kind: RepoTaskCommentKind
@@ -52,7 +52,7 @@ export type RepoTaskComment = {
  * produce repo events, and every other origin is ignored rather than enumerated
  * here, so a source can add its own kinds without touching this contract.
  */
-export type RepoTaskSource = {
+type RepoTaskSource = {
   type: string
   externalId?: string | null
   externalKey?: string | null
@@ -60,7 +60,7 @@ export type RepoTaskSource = {
   externalUpdatedAt?: string | null
 }
 
-export type RepoTask = {
+type RepoTask = {
   id: string
   identifier: string
   title: string

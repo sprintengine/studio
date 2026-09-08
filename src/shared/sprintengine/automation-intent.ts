@@ -19,7 +19,7 @@ export const SPRINT_ENGINE_AUTOMATION_INTENT_SCHEMA_VERSION = 1
 
 export type SprintEngineAutomationIntentActor = 'ui' | 'mobile' | 'system' | 'automation'
 
-export type SprintEngineAutomationIntentWrite = {
+type SprintEngineAutomationIntentWrite = {
   actor: SprintEngineAutomationIntentActor
   deviceId: string | null
   at: string
@@ -88,7 +88,7 @@ export function isSprintEngineCliPermissionPreset(
     || legacyCliPermissionPresets.has(input)
 }
 
-export function isSprintEngineAutomationIntentActor(
+function isSprintEngineAutomationIntentActor(
   input: unknown,
 ): input is SprintEngineAutomationIntentActor {
   return typeof input === 'string' && intentActors.has(input as SprintEngineAutomationIntentActor)
@@ -134,7 +134,7 @@ export function parseSprintEngineAutomationIntentRecord(
   }
 }
 
-export function normalizeRuntimeResidue(raw: unknown): SprintEngineAutomationRuntimeResidue {
+function normalizeRuntimeResidue(raw: unknown): SprintEngineAutomationRuntimeResidue {
   const record = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? raw as Record<string, unknown>
     : {}

@@ -54,8 +54,6 @@ export type AgentStateServiceOptions = {
   now?: () => number
 }
 
-export type AgentStateService = ReturnType<typeof createAgentStateService>
-
 export function createAgentStateService(options: AgentStateServiceOptions) {
   const now = options.now ?? (() => Date.now())
   let server: Server | null = null

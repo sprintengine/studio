@@ -30,7 +30,7 @@ export function createMarketplacePluginVerifier(services: MarketplacePluginVerif
   }
 }
 
-export async function verifyMarketplacePlugin(
+async function verifyMarketplacePlugin(
   entry: MarketplacePluginEntry,
   services: MarketplacePluginVerifierServices
 ): Promise<MarketplacePluginVerifyResult> {

@@ -2,12 +2,12 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 
-export type SprintEngineToolInvocation = {
+type SprintEngineToolInvocation = {
   args: string[]
   cwd: string
 }
 
-export type SprintEngineToolExecutionResult = {
+type SprintEngineToolExecutionResult = {
   exitCode: number | null
   stdout: string
   stderr: string

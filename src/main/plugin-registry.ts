@@ -10,7 +10,6 @@ import type {
   ConversationProviderManifest,
   LoadedConversationProvider,
   LoadedPlugin,
-  PluginManifest,
   PluginManifestValidationIssue,
   PluginManifestValidationResult,
   PluginRegistryListEntry,
@@ -499,7 +498,7 @@ function formatError(err: unknown): string {
   return String(err)
 }
 
-export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
+function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
   const modelSelection = plugin.manifest.modelSelection
   const reasoningSelection = plugin.manifest.reasoningSelection
   const skillIntegration = plugin.manifest.skillIntegration
@@ -579,20 +578,3 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
       : {}),
   }
 }
-
-export function providerManifestToListEntry(
-  provider: LoadedConversationProvider
-): ConversationProviderListEntry {
-  return {
-    id: provider.manifest.id,
-    displayName: provider.manifest.displayName,
-    source: provider.source,
-    version: provider.manifest.version,
-    providerType: provider.manifest.providerType,
-    models: provider.manifest.models,
-    supportsDynamicModels: Boolean(provider.manifest.openaiCompatible?.modelsPath),
-    adapter: provider.adapter,
-  }
-}
-
-export type { PluginManifest, LoadedPlugin, LoadedConversationProvider }

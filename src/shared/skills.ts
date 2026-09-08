@@ -16,7 +16,7 @@
 // went the same way in the frozen-snapshots retirement (2026-09-06): it was a
 // folder scan of a snapshot of `anthropics/claude-plugins-official`, which is
 // now an always-present source read live.
-export type SkillSourceKind = 'github' | 'local'
+type SkillSourceKind = 'github' | 'local'
 
 /**
  * An agent CLI that reads workspace skills. Which directory each one reads is
@@ -877,7 +877,7 @@ export type AgentMcpServer = {
  * real-world one for a config file. `watch_unavailable` is not a read failure
  * at all — the answer is correct as of the read and may go stale.
  */
-export type CapabilityDiagnosticReason = 'unreadable' | 'malformed' | 'watch_unavailable'
+type CapabilityDiagnosticReason = 'unreadable' | 'malformed' | 'watch_unavailable'
 
 /**
  * Which half of the answer a fault belongs to, or `freshness` for one that
@@ -885,7 +885,7 @@ export type CapabilityDiagnosticReason = 'unreadable' | 'malformed' | 'watch_una
  * readable but possibly stale, which a surface must say differently from a
  * half that failed to read.
  */
-export type CapabilityKind = 'skills' | 'servers' | 'freshness'
+type CapabilityKind = 'skills' | 'servers' | 'freshness'
 
 export type CapabilityDiagnostic = {
   /**
@@ -972,7 +972,7 @@ export type SkillFrontmatter = {
 }
 
 /** Every field blank — what an unreadable or frontmatter-less entry yields. */
-export function emptySkillFrontmatter(): SkillFrontmatter {
+function emptySkillFrontmatter(): SkillFrontmatter {
   return { name: '', description: '', allowedTools: [], license: '', compatibility: '', metadata: {} }
 }
 

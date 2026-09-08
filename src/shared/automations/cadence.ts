@@ -15,7 +15,7 @@ export function formatAtDatetime(datetime: string): string {
   return datetime.replace('T', ' ')
 }
 
-export function scheduleCadenceSummary(config: ScheduleTriggerConfig): string {
+function scheduleCadenceSummary(config: ScheduleTriggerConfig): string {
   const cadence = config.cadence
   switch (cadence.type) {
     case 'interval': {

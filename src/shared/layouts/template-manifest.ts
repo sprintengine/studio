@@ -14,7 +14,7 @@
 
 import { isRecord } from '../records'
 
-export type LayoutTemplatePreviewSlot = {
+type LayoutTemplatePreviewSlot = {
   x: number
   y: number
   w: number
@@ -33,7 +33,7 @@ export type LayoutTemplateManifest = {
   layout: unknown
 }
 
-export type LayoutTemplateValidationIssue = { path: string; message: string }
+type LayoutTemplateValidationIssue = { path: string; message: string }
 
 export type LayoutTemplateValidationResult =
   | { ok: true; manifest: LayoutTemplateManifest }

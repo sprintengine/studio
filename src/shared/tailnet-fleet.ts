@@ -99,7 +99,7 @@ export type FleetCheckoutRequest =
   | { mode: 'worktree'; name?: string; baseRef?: string }
 
 /** What a create actually landed on, reported back so the row can say so. */
-export type FleetCreatedCheckout = {
+type FleetCreatedCheckout = {
   mode: 'current' | 'worktree'
   branch: string | null
   /** The worktree's absolute path on the remote; null on the current checkout. */

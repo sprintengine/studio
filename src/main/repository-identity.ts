@@ -83,9 +83,3 @@ export async function readRepositoryIdentity(
     inFlight.delete(key)
   }
 }
-
-/** Test seam: forget every held identity. */
-export function resetRepositoryIdentityCacheForTests(): void {
-  held.clear()
-  inFlight.clear()
-}

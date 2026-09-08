@@ -54,7 +54,6 @@ import type {
   BacklogTriageInput,
   BacklogTypeInput,
   BacklogMoveSourceInput,
-  BacklogWorkspaceKeyResult,
 } from '../shared/electron-api'
 import { isPathInsideOrEqual } from './path-containment'
 
@@ -179,18 +178,6 @@ async function persistBacklogWorkspaceKey(workspace: ValidWorkspace, key: string
   }
 }
 
-// Read the workspace display key for the panel to render `KEY-n`. Initializes
-// (and persists) the derived default on first call when no config exists.
-export async function readBacklogWorkspaceKey(workspaceRoot: string): Promise<BacklogWorkspaceKeyResult> {
-  try {
-    const workspace = await validateWorkspaceRoot(workspaceRoot)
-    const key = await resolveBacklogWorkspaceKey(workspace)
-    return { ok: true, key }
-  } catch (error) {
-    return { ok: false, message: errorMessage(error) }
-  }
-}
-
 // Scan-time id backfill for legacy or hand-authored files. Main-owned creation
 // allocates before writing; this remains the tolerant migration path for files
 // that arrive without an id. It shares the same per-project mutation lane as
@@ -247,7 +234,7 @@ export async function ensureBacklogItemIds(input: BacklogEnsureIdsInput): Promis
 
 const MIGRATABLE_FRONTMATTER_FIELDS = ['status', 'type', 'difficulty', 'criticality', 'risk'] as const
 
-export type BacklogRecordFrontmatterMigration = {
+type BacklogRecordFrontmatterMigration = {
   relativePath: string
   updates: Record<string, string>
 }
@@ -483,7 +470,7 @@ export function readBacklogFrontmatterFields(content: string): BacklogFrontmatte
 // metadata source. Unlike the mobile snapshot read this NEVER writes — no
 // object-store registration, no workspace-key persistence — because an
 // external read tool must not mutate app state as a side effect.
-export type BacklogListedItem = {
+type BacklogListedItem = {
   relativePath: string
   title: string
   /** Frontmatter numeric id when assigned (display id = `<key>-<id>`). */
