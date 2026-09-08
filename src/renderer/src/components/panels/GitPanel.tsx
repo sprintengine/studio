@@ -352,7 +352,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // the picker never appears.
   const workspaceWorktrees = useMemo(
     () => (workspace ? resolveWorkspaceWorktrees(workspace) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace?.folderPath, workspace?.worktree, workspace?.sprintEngineState?.vcs],
   )
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null)

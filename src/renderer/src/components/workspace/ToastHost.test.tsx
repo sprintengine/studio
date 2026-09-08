@@ -57,7 +57,7 @@ const bridge = {
   },
 }
 
-/* eslint-disable import/first -- jsdom globals must exist before React mounts */
+// jsdom globals must exist before React mounts
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 

@@ -180,5 +180,4 @@ function artifact(
   )
 }
 
-// eslint-disable-next-line no-console
 console.log('SprintEngineStatusVocabulary.test.ts: ok')

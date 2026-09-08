@@ -370,7 +370,6 @@ function assertUniqueLearningIds(): void {
   const seen = new Set<string>()
   for (const item of LEARNING_ITEMS) {
     if (seen.has(item.id)) {
-      // eslint-disable-next-line no-console
       console.warn(`[learning] duplicate id: ${item.id}`)
     }
     seen.add(item.id)

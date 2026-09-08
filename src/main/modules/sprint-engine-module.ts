@@ -78,7 +78,6 @@ export const sprintEngineModule: CapabilityModule = {
     )
 
     registerSprintEngineIpc(host.ipcMain, {
-      openArtifact: artifacts.openArtifact,
       reviewArtifact: artifacts.reviewArtifact,
       initializeSprintEngineState: artifacts.initializeSprintEngineState,
       updateTask: artifacts.updateTask,
@@ -115,7 +114,6 @@ export const sprintEngineModule: CapabilityModule = {
       enableRole: artifacts.enableRole,
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
-      readRegistryRole: artifacts.readRegistryRole,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
       listRuns: ({ roots }) => listSprintRuns(roots),

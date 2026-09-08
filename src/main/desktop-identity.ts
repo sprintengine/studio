@@ -12,6 +12,8 @@
 // against the credential that provider issued (the dual-accept window,
 // MC-2185).
 
+import { isRecord } from '../shared/records'
+
 export const MULTIAUTH_IDENTITY_PROVIDER = 'multiauth' as const
 export const CLERK_IDENTITY_PROVIDER = 'clerk' as const
 
@@ -81,10 +83,6 @@ export type IdentityDiscoveryDocument =
 
 export class IdentityDiscoveryError extends Error {
   override readonly name = 'IdentityDiscoveryError'
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function readHttpsUrl(value: unknown, field: string): string {

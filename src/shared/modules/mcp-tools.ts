@@ -3,6 +3,11 @@
 // module host's contribution point (MainHost.registerMcpTools), and the SDK
 // mirror in packages/module-sdk — src/shared cannot import src/main (TS6307).
 
+import { isRecord } from '../records'
+
+/** Re-exported: this module was the entry point importers already had. */
+export { isRecord }
+
 export type McpToolResult = {
   // Text, or an image part (a browser snapshot, base64 PNG/JPEG) the client
   // renders inline — the MCP `image` content shape.
@@ -62,10 +67,6 @@ export function toolError(code: string, message: string): McpToolResult {
     structuredContent: { ok: false, error: { code, message } },
     isError: true,
   }
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 export function isMcpToolResult(value: unknown): value is McpToolResult {

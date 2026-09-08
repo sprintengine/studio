@@ -1,4 +1,5 @@
 import type { AutomationTriggerProvider, ScheduleTriggerConfig } from '../../shared/automations/contracts'
+import { isRecord } from '../../shared/records'
 
 export const MIN_INTERVAL_MINUTES = 5
 
@@ -359,10 +360,6 @@ export function isValidTimeZone(timeZone: string): boolean {
 
 function isValidLocalTime(value: unknown): value is string {
   return typeof value === 'string' && TIME_LOCAL_PATTERN.test(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function invalid(error: string): ScheduleValidationResult {

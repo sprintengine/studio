@@ -254,9 +254,12 @@ export function registerAppLifecycle({
     void sweepRetiredCheckpoints(app.getPath('userData'))
       .then((result) => {
         if (result.refsDeleted > 0 || result.indexRemoved) {
-          console.log(
-            `[checkpoint-sweep] removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`
-          )
+          void writeDiagnosticLog({
+            level: 'info',
+            source: 'workspace',
+            title: 'Retired checkpoint refs swept',
+            message: `Removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`,
+          }).catch(() => undefined)
         }
       })
       .catch(() => {

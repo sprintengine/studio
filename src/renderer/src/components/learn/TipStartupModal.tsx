@@ -31,7 +31,6 @@ export function TipStartupModal({
     () =>
       pickStartupTip(context, learning?.seenTipIds ?? [], learning?.lastShownTipId ?? null),
     // Stable rotation while the modal is open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [open]
   )
 

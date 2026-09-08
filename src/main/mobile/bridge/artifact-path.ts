@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve, sep } from 'path'
+import { isAbsolute, resolve } from 'path'
+import { isPathInsideOrEqual } from '../../path-containment'
 
 export function resolveArtifactPathForRead(teamDirectory: string, workspacePath: string, artifactPathInput: string): string {
   const artifactPath = artifactPathInput.trim()
@@ -21,10 +22,3 @@ export function resolveArtifactPathForRead(teamDirectory: string, workspacePath:
   return fullPath
 }
 
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
-}

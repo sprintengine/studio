@@ -7,6 +7,7 @@ import type {
   PluginManifestValidationResult,
 } from '../shared/plugin-manifest'
 import { validateCliPluginManifest } from '../../packages/module-sdk/src/cli-manifest'
+import { isRecord } from '../shared/records'
 
 const VARIABLE_TYPES = ['string', 'enum', 'boolean', 'number'] as const
 const PROVIDER_TYPES: ConversationProviderType[] = ['model-provider', 'agent-harness']
@@ -29,7 +30,7 @@ const CLI_ONLY_FIELDS = [
 
 export function validateManifestStructure(value: unknown): PluginManifestValidationResult {
   const issues: PluginManifestValidationIssue[] = []
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return { ok: false, issues: [{ path: '', message: 'Manifest must be an object.' }] }
   }
 
@@ -102,7 +103,7 @@ function validateProviderManifestStructure(
 }
 
 function validateProviderAdapter(value: unknown, issues: PluginManifestValidationIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'adapter', message: 'adapter must be an object when present.' })
     return
   }
@@ -137,7 +138,7 @@ function validateProviderAdapter(value: unknown, issues: PluginManifestValidatio
 }
 
 function validateOpenAiCompatible(value: unknown, issues: PluginManifestValidationIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'openaiCompatible', message: 'openaiCompatible must be an object when present.' })
     return
   }
@@ -180,7 +181,7 @@ function validateOpenAiCompatible(value: unknown, issues: PluginManifestValidati
 }
 
 function validateSignature(value: unknown, issues: PluginManifestValidationIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'signature', message: 'signature must be an object when present.' })
     return
   }
@@ -206,7 +207,7 @@ function validateProviderModels(value: unknown, issues: PluginManifestValidation
   }
   for (const [index, model] of value.entries()) {
     const path = `models[${index}]`
-    if (!isObject(model)) {
+    if (!isRecord(model)) {
       issues.push({ path, message: 'Provider model must be an object.' })
       continue
     }
@@ -218,7 +219,7 @@ function validateProviderModels(value: unknown, issues: PluginManifestValidation
 }
 
 function validateProviderAuth(value: unknown, issues: PluginManifestValidationIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'auth', message: 'auth must be an object when present.' })
     return
   }
@@ -238,13 +239,13 @@ function validateProviderAuth(value: unknown, issues: PluginManifestValidationIs
 }
 
 function validateVariables(value: unknown, issues: PluginManifestValidationIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'variables', message: 'variables must be an object.' })
     return
   }
   for (const [name, decl] of Object.entries(value)) {
     const path = `variables.${name}`
-    if (!isObject(decl)) {
+    if (!isRecord(decl)) {
       issues.push({ path, message: 'Variable declaration must be an object.' })
       continue
     }
@@ -304,10 +305,6 @@ function requireNumber(
   if (typeof v !== 'number') {
     issues.push({ path: key, message: `${key} is required and must be a number.` })
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isSafeRelativePath(value: unknown): value is string {

@@ -115,5 +115,4 @@ function integration(invocation: Record<string, unknown>, support = 'native') {
   }
 }
 
-// eslint-disable-next-line no-console
 console.log('skill-invocation.test.ts: ok')

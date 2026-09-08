@@ -1,3 +1,4 @@
+import { isRecord } from '../../../shared/records'
 import {
   REPO_EVENT_TRIGGER_KIND,
   type AutomationTriggerPollContext,
@@ -270,10 +271,6 @@ function normalizedString(value: string | null | undefined): string | undefined 
 
 function trimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function invalid(error: string): RepoEventTriggerValidationResult {

@@ -39,7 +39,6 @@ function buildMutatedExample(mutate?: (root: string) => void): BuildResult & { c
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mutateTokens(root: string, mutate: (tokens: any) => void): void {
   const tokensPath = join(root, 'foundations', 'tokens.tokens.json')
   const tokens = JSON.parse(readFileSync(tokensPath, 'utf8'))

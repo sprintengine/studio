@@ -337,7 +337,6 @@ async function main(): Promise<void> {
       mcpResolver: createMcpServerResolver(),
       freshness: capabilityWatcher,
     }),
-    capabilityWatcher,
     agentSkillInstaller: createAgentSkillInstaller({ listPlugins: () => [] }),
   })
   domWindow.api = withInertPreloadFallback({ platform: 'darwin', ...skillsApi, ...workspaceSkillsApi })

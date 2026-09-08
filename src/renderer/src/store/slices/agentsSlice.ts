@@ -6,6 +6,11 @@ import {
   setEditorBuffer,
 } from '../../utils/editorBuffers'
 import { pickRandomAgentName } from '../../utils/agentNames'
+// One containment check for the whole app (src/shared/paths.ts); re-exported
+// because the store surfaces it and existing importers name this module.
+import { isPathOrChild } from '../../utils/paths'
+
+export { isPathOrChild }
 // Record construction moved to shared with MC-2160 (main composes sprint
 // workspaces headlessly and mints the same agent records). Re-exported so
 // existing renderer import sites are unchanged.
@@ -114,12 +119,6 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
 
 export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
   return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
-}
-
-export function isPathOrChild(path: string, parentPath: string): boolean {
-  if (path === parentPath) return true
-  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
-  return path.startsWith(`${parentPath}${separator}`)
 }
 
 export interface AgentsSliceState {}

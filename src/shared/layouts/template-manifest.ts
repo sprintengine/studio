@@ -12,6 +12,8 @@
 // Hand-rolled validator (the repo ships no JSON-schema runtime); the
 // human/marketplace schema lives at docs/plugin-authors/layout-template.schema.json.
 
+import { isRecord } from '../records'
+
 export type LayoutTemplatePreviewSlot = {
   x: number
   y: number
@@ -41,12 +43,8 @@ export type LayoutTemplateValidationResult =
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
 const PREVIEW_TYPES = new Set(['agent', 'editor', 'explorer'])
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function validatePreviewSlot(slot: unknown, index: number, issues: LayoutTemplateValidationIssue[]): void {
-  if (!isObject(slot)) {
+  if (!isRecord(slot)) {
     issues.push({ path: `previewSlots[${index}]`, message: 'preview slot must be an object.' })
     return
   }
@@ -68,7 +66,7 @@ function validatePreviewSlot(slot: unknown, index: number, issues: LayoutTemplat
 
 export function validateLayoutTemplateManifest(value: unknown): LayoutTemplateValidationResult {
   const issues: LayoutTemplateValidationIssue[] = []
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return { ok: false, issues: [{ path: '', message: 'Layout template must be a JSON object.' }] }
   }
 
@@ -84,11 +82,11 @@ export function validateLayoutTemplateManifest(value: unknown): LayoutTemplateVa
 
   // FlexLayout root contract: { layout: { type: 'row', children: [...] } }. This
   // is the minimum that keeps Model.fromJson from throwing at workspace creation.
-  if (!isObject(value.layout)) {
+  if (!isRecord(value.layout)) {
     issues.push({ path: 'layout', message: 'layout must be a FlexLayout model object.' })
   } else {
     const root = (value.layout as Record<string, unknown>).layout
-    if (!isObject(root) || root.type !== 'row') {
+    if (!isRecord(root) || root.type !== 'row') {
       issues.push({ path: 'layout.layout', message: "layout.layout must be a FlexLayout row node (type: 'row')." })
     } else if (!Array.isArray(root.children)) {
       issues.push({ path: 'layout.layout.children', message: 'layout.layout.children must be an array.' })

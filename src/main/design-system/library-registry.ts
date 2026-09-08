@@ -19,6 +19,7 @@ import {
   type DesignSystemRegistryFile,
   type DesignSystemSourceState,
 } from '../../shared/design-system/library'
+import { isRecord } from '../../shared/records'
 
 // The user-global design-system library: a REGISTRY OF PATHS the user pointed
 // at, read live from wherever they live. See library.ts for why it stopped being
@@ -36,10 +37,6 @@ export function defaultDesignSystemRegistryPath(): string {
 /** Where release-era copies live. Read for adoption; never written, never removed. */
 export function defaultDesignSystemLibraryRoot(): string {
   return join(homedir(), '.multicode', 'design-systems')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function text(value: unknown): string | null {

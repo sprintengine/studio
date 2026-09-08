@@ -375,7 +375,6 @@ async function main(): Promise<void> {
   await testSpawnTerminalSessionConvertsThrownErrorToFailure()
   await testRecordSpawnFailureResetsStoreAndPublishesDiagnostic()
   await testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic()
-  // eslint-disable-next-line no-console
   console.log('sprintengineAutoRunExecutor tests passed')
 }
 

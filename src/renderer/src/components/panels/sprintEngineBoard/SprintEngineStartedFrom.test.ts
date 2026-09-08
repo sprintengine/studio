@@ -412,5 +412,4 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   assert.equal(sprintEngineSharedCaptureLabel([]), null, 'no rows, no label')
 }
 
-// eslint-disable-next-line no-console
 console.log('SprintEngineStartedFrom.test.ts: ok')

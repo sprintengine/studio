@@ -43,6 +43,7 @@ import {
   readRemoteIdentity,
   type RemoteTerminalSocket,
 } from './tailnet-remote-client'
+import { asRecord } from '../../../shared/records'
 
 // The Fleet: this Studio driving other machines (MC-2167).
 //
@@ -1540,10 +1541,6 @@ function defaultDeviceName(): string {
   } catch {
     return ''
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 function isPositiveInteger(value: unknown): value is number {

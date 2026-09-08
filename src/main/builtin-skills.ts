@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { createHash } from 'crypto'
 import { homedir } from 'os'
-import { isAbsolute, join, relative, resolve } from 'path'
+import { join, relative, resolve } from 'path'
 
 import type { LoadedPlugin, PluginSkillInstallTarget, PluginSkillSupport } from '../shared/plugin-manifest'
 import type {
@@ -14,6 +14,7 @@ import type {
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
+import { isPathInsideOrEqual } from './path-containment'
 
 // The marker a managed copy carries. Exported because the attach path
 // (src/main/agent-skill-installer.ts) reads and writes the same file, and two
@@ -149,11 +150,6 @@ type SkillTargetDescriptor = {
   restartRequired?: boolean
 }
 
-function isInside(parent: string, child: string): boolean {
-  const rel = relative(parent, child)
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel))
-}
-
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path)
@@ -252,7 +248,7 @@ function skillHarnesses(skill: BuiltinSkill): readonly SkillHarness[] {
 function skillDestination(workspaceRoot: string, skillId: string, harness: SkillHarness): string {
   const workspace = resolve(workspaceRoot)
   const destination = resolve(workspace, SKILL_HARNESS_DIR[harness], 'skills', skillId)
-  if (!isInside(workspace, destination)) {
+  if (!isPathInsideOrEqual(workspace, destination)) {
     throw new Error('Skill destination must stay inside the workspace.')
   }
   return destination
@@ -522,6 +518,6 @@ function renderSkillInstallTargetPath(input: {
     .replace(/\{\{\s*skillId\s*\}\}/g, input.skillId)
   const destination = resolve(input.target.scope === 'workspace' ? workspace : home, rendered)
   const root = input.target.scope === 'workspace' ? workspace : home
-  if (!isInside(root, destination)) return null
+  if (!isPathInsideOrEqual(root, destination)) return null
   return destination
 }

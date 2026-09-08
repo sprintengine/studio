@@ -32,7 +32,6 @@ export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024
  */
 export function sanitizeUploadName(raw: string): string {
   const leaf = raw
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/gu, '')
     .split(/[\\/]/u)
     .pop()

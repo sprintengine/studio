@@ -71,7 +71,6 @@ function normalizeMarketplaceRelativePath(relativePath: string): string | null {
 
 function loadElectron(): ElectronLike | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('electron') as ElectronLike
   } catch {
     return null

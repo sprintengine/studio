@@ -23,6 +23,7 @@ import {
   WEBHOOK_TRIGGER_KIND,
   type WebhookTriggerConfig,
 } from './triggers/webhook'
+import { isRecord } from '../../shared/records'
 
 export type AutomationWebhookReceiverOptions = {
   getProjectFolders: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
@@ -518,6 +519,3 @@ function defaultDeliveryProblemLogger(problem: AutomationsEngineProblem): void {
   )
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}

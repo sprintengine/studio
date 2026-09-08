@@ -27,6 +27,7 @@ import {
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_NORMAL,
 } from './websocket-frames'
+import { asRecord } from '../../../shared/records'
 
 // The outbound client for tailnet remote control (MC-2167): the half that DIALS
 // another machine's listener. Everything else under `tailnet/` answers calls;
@@ -720,10 +721,6 @@ function describeUnreachable(endpoint: TailnetEndpoint, error: unknown): string 
 
 function readScopes(value: unknown): TailnetScope[] {
   return Array.isArray(value) ? value.filter(isTailnetScope) : []
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 function isPort(value: number): boolean {

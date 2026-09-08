@@ -192,7 +192,6 @@ async function run(projectRoot: string): Promise<void> {
       if (!configuredRoles.includes(payload.role)) configuredRoles = [...configuredRoles, payload.role]
       return { ok: true } as never
     },
-    openArtifact: refuse,
     reviewArtifact: refuse,
     initializeSprintEngineState: refuse,
     updateTask: refuse,
@@ -206,7 +205,6 @@ async function run(projectRoot: string): Promise<void> {
     mergePullRequest: refuse,
     refreshPullRequestStatus: refuse,
     setRoleRuntime: refuse,
-    readRegistryRole: refuse,
     summarizeFeedback: refuse,
     readTokenUsage: refuse,
   } as unknown as Parameters<typeof registerSprintEngineIpc>[1])

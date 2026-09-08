@@ -4,6 +4,7 @@ import { promisify } from 'node:util'
 
 import type { SprintCreateRequest, SprintCreateResult } from '../../../shared/sprint-create'
 import type { AutomationActionProvider, AutomationRun } from '../../../shared/automations/contracts'
+import { isRecord } from '../../../shared/records'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
@@ -307,6 +308,3 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}

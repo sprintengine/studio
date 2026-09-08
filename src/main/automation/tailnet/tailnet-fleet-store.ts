@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 
 import { normalizeTailnetScopes, type TailnetScope } from '../../../shared/tailnet'
 import type { FleetConnection } from '../../../shared/tailnet-fleet'
+import { isRecord } from '../../../shared/records'
 
 // The tokens THIS machine holds for OTHER machines (MC-2167).
 //
@@ -204,10 +205,6 @@ const PAIRED_VIA: ReadonlySet<string> = new Set(['link', 'request', 'reverse', '
 
 function readPairedVia(value: unknown): FleetConnection['pairedVia'] {
   return typeof value === 'string' && PAIRED_VIA.has(value) ? (value as FleetConnection['pairedVia']) : 'unknown'
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function message(error: unknown): string {

@@ -1,3 +1,5 @@
+import { isPathOrChild } from './paths'
+
 type EditorBufferListener = () => void
 
 const buffers = new Map<string, string>()
@@ -9,12 +11,6 @@ function bufferKey(workspaceId: string, path: string): string {
 
 function emit(workspaceId: string, path: string): void {
   listeners.get(bufferKey(workspaceId, path))?.forEach((listener) => listener())
-}
-
-function isPathOrChild(path: string, parentPath: string): boolean {
-  if (path === parentPath) return true
-  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
-  return path.startsWith(`${parentPath}${separator}`)
 }
 
 export function getEditorBuffer(workspaceId: string, path: string, fallback = ''): string {

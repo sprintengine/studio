@@ -29,6 +29,7 @@ import {
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
 import type { MarketplaceResourceResolver } from './resources'
+import { isRecord } from '../../shared/records'
 
 export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
 const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli', 'automation'])
@@ -1323,10 +1324,6 @@ function isSafeIdentifier(value: unknown): value is string {
     !value.includes('\\') &&
     value !== '.' &&
     value !== '..'
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isMissingFileError(error: unknown): boolean {

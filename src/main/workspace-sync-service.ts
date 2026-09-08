@@ -14,6 +14,7 @@ import type {
 } from './workspace-registry-service'
 import type { WorkspaceRegistryActor } from '../shared/workspace-registry'
 import type { AgentState, Workspace, WorkspaceId } from '../renderer/src/types/workspace'
+import { isRecord } from '../shared/records'
 
 const MAX_REPLAY_EVENTS = 500
 
@@ -857,10 +858,6 @@ function normalizeId(value: unknown): string {
 function normalizeOptionalString(value: unknown): string | null {
   if (value === null || value === undefined) return null
   return typeof value === 'string' ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isFiniteNumber(value: unknown): value is number {

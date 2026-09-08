@@ -6,6 +6,7 @@ import type { TailnetPeer, TailnetPeerScan, TailnetPeerStudio } from '../../../s
 import { TAILNET_HEALTH_PATH } from './tailnet-gateway-server'
 import { isTailnetAddress } from './tailnet-interface'
 import { runTailscale } from './tailscale-cli'
+import { isRecord } from '../../../shared/records'
 
 // Which machines are on this tailnet, and which of them answer as a Studio.
 //
@@ -284,10 +285,6 @@ async function mapWithLimit<In, Out>(
   })
   await Promise.all(runners)
   return results
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function message(error: unknown): string {

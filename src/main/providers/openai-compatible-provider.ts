@@ -4,6 +4,7 @@ import type {
   ConversationProviderTestState,
 } from '../../shared/conversation-runtime'
 import type { ConversationProviderModel, LoadedConversationProvider } from '../../shared/plugin-manifest'
+import { isRecord } from '../../shared/records'
 import type {
   ConversationProviderAdapter,
   MockAdapterSessionInput,
@@ -182,18 +183,18 @@ async function* streamTurn(
         sawDone = true
         break
       }
-      let payload: any
+      let payload: unknown
       try {
         payload = JSON.parse(chunk)
       } catch {
         yield failure(input, 'malformed_stream', 'Provider returned malformed streaming data.')
         return
       }
-      const content = payload?.choices?.[0]?.delta?.content
-      if (typeof content === 'string' && content.length > 0) {
+      const content = readStreamContentDelta(payload)
+      if (content) {
         yield event(input, 'content_delta', { turnId: input.turnId, text: content })
       }
-      const usage = extractUsage(payload?.usage)
+      const usage = extractUsage(isRecord(payload) ? payload.usage : undefined)
       if (usage) {
         yield event(input, 'usage_updated', {
           turnId: input.turnId,
@@ -394,8 +395,22 @@ async function readProviderErrorDetail(response: Response): Promise<string | und
   }
 }
 
+/**
+ * `choices[0].delta.content` from one OpenAI-compatible stream chunk, or null
+ * when the chunk carries no text (tool-call deltas, role-only openers, and
+ * anything the provider shapes differently).
+ */
+function readStreamContentDelta(payload: unknown): string | null {
+  if (!isRecord(payload)) return null
+  const choices = payload.choices
+  if (!Array.isArray(choices)) return null
+  const delta = isRecord(choices[0]) ? choices[0].delta : undefined
+  if (!isRecord(delta)) return null
+  return typeof delta.content === 'string' && delta.content.length > 0 ? delta.content : null
+}
+
 function extractUsage(value: unknown): { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null {
-  if (!isObject(value)) return null
+  if (!isRecord(value)) return null
   const inputTokens = numberOrUndefined(value.prompt_tokens)
   const outputTokens = numberOrUndefined(value.completion_tokens)
   const totalTokens = numberOrUndefined(value.total_tokens)
@@ -404,11 +419,11 @@ function extractUsage(value: unknown): { inputTokens?: number; outputTokens?: nu
 }
 
 function isChatCompletionResponse(value: unknown): value is { choices: unknown[]; usage?: unknown } {
-  if (!isObject(value) || !Array.isArray(value.choices) || value.choices.length === 0) return false
+  if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length === 0) return false
   return value.choices.some((choice) => {
-    if (!isObject(choice)) return false
+    if (!isRecord(choice)) return false
     const message = choice.message
-    if (!isObject(message)) return false
+    if (!isRecord(message)) return false
     return typeof message.content === 'string' || Array.isArray(message.content)
   })
 }
@@ -447,6 +462,3 @@ function event(
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

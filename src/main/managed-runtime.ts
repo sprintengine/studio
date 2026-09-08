@@ -202,7 +202,6 @@ export function currentRuntimeEnv(overrides: Partial<RuntimeEnv> = {}): RuntimeE
   let isPackaged = false
   try {
     // Lazy require keeps this module importable from node-only test bundles.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const electron = require('electron') as typeof import('electron')
     isPackaged = Boolean(electron.app?.isPackaged)
   } catch {

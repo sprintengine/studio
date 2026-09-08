@@ -449,7 +449,6 @@ async function testEnabledModuleRegistersStartupSidecarAndIpc(): Promise<void> {
       'automations:create',
       'automations:delete',
       'automations:engine-status',
-      'automations:get',
       'automations:install-builtin',
       'automations:instance:list',
       'automations:list',

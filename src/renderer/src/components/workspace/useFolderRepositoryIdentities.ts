@@ -59,7 +59,6 @@ export function useFolderRepositoryIdentities(folderPaths: ReadonlyArray<string 
     }
     // `identities` is read for the missing set only; re-running on its change
     // would loop on the write it just made.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedKey])
   return identities
 }

@@ -22,6 +22,8 @@
 // resources/sprintengine/role-manifest.schema.json is the human/marketplace-facing
 // schema kept in sync with these types.
 
+import { isRecord } from '../records'
+
 export type RoleDirectiveEntry = { skill: string }
 
 // Shipped post-implementation phase vocabulary. Keyed maps, so a future phase
@@ -81,10 +83,6 @@ const REMOVED_MANIFEST_KEYS: Record<string, string> = {
 // (RENAMED_MANIFEST_KEYS in role_registry.py); re-saving a role through the
 // authoring form drops it and writes a `description`.
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 // A directive list: non-empty array of exactly-{ skill } objects. Pushes issues
 // under `directives.<key>` so a malformed pack points at the offending entry.
 function validateDirectiveEntries(
@@ -100,8 +98,8 @@ function validateDirectiveEntries(
     return
   }
   value.forEach((entry, index) => {
-    const keys = isObject(entry) ? Object.keys(entry) : []
-    if (!isObject(entry) || keys.length !== 1 || typeof entry.skill !== 'string' || !ID_PATTERN.test(entry.skill)) {
+    const keys = isRecord(entry) ? Object.keys(entry) : []
+    if (!isRecord(entry) || keys.length !== 1 || typeof entry.skill !== 'string' || !ID_PATTERN.test(entry.skill)) {
       issues.push({
         path: `directives.${key}[${index}].skill`,
         message: 'each directive entry must be { "skill": "<snake_case id>" }.',
@@ -111,7 +109,7 @@ function validateDirectiveEntries(
 }
 
 function validateDirectives(value: unknown, issues: RoleManifestValidationIssue[]): void {
-  if (!isObject(value) || Object.keys(value).length === 0) {
+  if (!isRecord(value) || Object.keys(value).length === 0) {
     issues.push({
       path: 'directives',
       message: 'directives must be an object with a non-empty "implement" list.',
@@ -135,7 +133,7 @@ function validateDirectives(value: unknown, issues: RoleManifestValidationIssue[
 
 export function validateRoleManifest(value: unknown): RoleManifestValidationResult {
   const issues: RoleManifestValidationIssue[] = []
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return { ok: false, issues: [{ path: '', message: 'Role manifest must be a JSON object.' }] }
   }
 

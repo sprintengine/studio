@@ -1,4 +1,5 @@
 import { runTailscale } from './tailscale-cli'
+import { isRecord } from '../../../shared/records'
 
 // Who, on the tailnet, is on the other end of a connection.
 //
@@ -89,10 +90,6 @@ export function peerNameFromWhois(raw: string): string | null {
   const user = isRecord(parsed.UserProfile) ? parsed.UserProfile : undefined
   const login = typeof user?.LoginName === 'string' ? user.LoginName : undefined
   return login ? login.slice(0, 256) : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function message(error: unknown): string {

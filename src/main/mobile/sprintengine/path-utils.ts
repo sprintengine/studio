@@ -1,12 +1,9 @@
-import { isAbsolute, relative, resolve, sep } from 'path'
+import { resolve } from 'path'
 
-export function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
-}
+import { isPathInsideOrEqual } from '../../path-containment'
+
+/** Re-exported: this module was the entry point its importers already had. */
+export { isPathInsideOrEqual }
 
 export function uniqueResolved(paths: string[]): string[] {
   return [...new Set(paths.map((path) => resolve(path)))]

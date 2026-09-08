@@ -1040,7 +1040,6 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     },
   }
   registerSprintEngineIpc(ipcMain as never, {
-    openArtifact: async () => ({ ok: true, data: {} }),
     reviewArtifact: async () => ({ ok: true, data: {} }),
     ensureTaskWorktree: async () => ({ ok: true, isolated: false, worktreePath: null }),
     initializeSprintEngineState: async () => ({ ok: true, data: {} }),
@@ -1061,19 +1060,14 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
       calls.push('roles')
       return { ok: true, data: null }
     },
-    readRegistryRole: async () => {
-      calls.push('role')
-      return { ok: true, data: null }
-    },
     summarizeFeedback: async () => ({ ok: true, data: null }),
     readTokenUsage: async () => ({} as never),
     listRuns: async () => [],
   })
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
-  await handlers.get('sprintengine:registry:role:read')?.(null, { workspaceRoot: '/tmp/workspace', roleId: 'developer' })
 
-  assert.deepEqual(calls, ['roles', 'role'])
+  assert.deepEqual(calls, ['roles'])
 }
 
 void main().catch((error) => {

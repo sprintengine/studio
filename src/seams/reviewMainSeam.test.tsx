@@ -98,7 +98,6 @@ async function testProjectionWriteReachesTheDoorWithNoRuntimeOp(): Promise<void>
     })
     registerSprintEngineIpc(ipcMain, {
       listRuns: async (payload: { roots: string[] }) => listSprintRuns(payload.roots),
-      openArtifact: refuse,
       reviewArtifact: refuse,
       initializeSprintEngineState: refuse,
       updateTask: refuse,
@@ -115,7 +114,6 @@ async function testProjectionWriteReachesTheDoorWithNoRuntimeOp(): Promise<void>
       enableRole: refuse,
       readProjection: refuse,
       readRegistryRoles: refuse,
-      readRegistryRole: refuse,
       summarizeFeedback: refuse,
       readTokenUsage: refuse,
     } as unknown as Parameters<typeof registerSprintEngineIpc>[1])

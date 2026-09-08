@@ -15,6 +15,7 @@ import {
   type DefinitionWriteDeps,
   type DefinitionWriteResult,
 } from './definition-write'
+import { isRecord } from '../../shared/records'
 
 // The module-scoped Automations service: the app-side registry behind the
 // SDK's `getAutomationsService(host)` helper (token
@@ -99,10 +100,6 @@ function refuse<T>(code: ModuleAutomationsError, message: string): ModuleAutomat
 
 function refuseFrom<T>(failure: { code: string; message: string }): ModuleAutomationsResult<T> {
   return refuse(moduleErrorCode(failure.code), failure.message)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 export function createModuleAutomationsRegistry(

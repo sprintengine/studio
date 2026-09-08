@@ -341,7 +341,6 @@ export function useDesignerSession({
       const current = activeSession
       if (current) current.dispose()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
   // Build the real design-artifact index from disk and keep it fresh. The HTML

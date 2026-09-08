@@ -25,6 +25,8 @@
 // resources/design-system/templates/USAGE.md.
 
 /** The two modes the bundle format fixes (`manifest.modes`). */
+import { isRecord } from '../records'
+
 export type DesignSystemTokenMode = 'light' | 'dark'
 
 /** A resolved leaf token: its dotted path and its value in one mode. */
@@ -40,10 +42,6 @@ export interface ResolvedToken {
 const VENDOR_KEY = 'com.multicode'
 /** A DTCG alias is a whole-value reference: `{ref.color.green-700}`. */
 const ALIAS_PATTERN = /^\{([^{}]+)\}$/
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /** A DTCG leaf is any node carrying `$value`; groups are everything else. */
 function isLeaf(node: Record<string, unknown>): boolean {

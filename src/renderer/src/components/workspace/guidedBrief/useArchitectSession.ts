@@ -197,7 +197,6 @@ export function useArchitectSession({
       const current = activeSession
       if (current) current.dispose()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
   useEffect(() => {

@@ -13,6 +13,7 @@ import {
   type TailnetPairRequestOutcome,
   type TailnetScope,
 } from '../../../shared/tailnet'
+import { isRecord } from '../../../shared/records'
 
 // Possession-based device pairing for the tailnet listener (epic Decision 3).
 //
@@ -678,10 +679,6 @@ function secretsMatch(left: string, right: string): boolean {
   const a = Buffer.from(left, 'utf8')
   const b = Buffer.from(right, 'utf8')
   return a.length === b.length && timingSafeEqual(a, b)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function message(error: unknown): string {

@@ -37,6 +37,7 @@ import {
 import type { ReviewCommentPostOutcome, ReviewPostReviewResult } from '../../../shared/electron-api'
 import { parsePatch } from '../patch-parse'
 import { createDefaultGhRunner, defaultResolveToken, type GhRunner } from './github-pr-provider'
+import { isRecord } from '../../../shared/records'
 
 const JSON_ACCEPT = 'application/vnd.github+json'
 const DIFF_ACCEPT = 'application/vnd.github.v3.diff'
@@ -570,10 +571,6 @@ function readReviewId(json: unknown): number | undefined {
 function readString(json: unknown, key: string): string | undefined {
   if (isRecord(json) && typeof json[key] === 'string' && (json[key] as string).length > 0) return json[key] as string
   return undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function safeJson(text: string): unknown {

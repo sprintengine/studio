@@ -13,7 +13,7 @@
 
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import {
@@ -24,6 +24,7 @@ import {
   type SkillHarness,
 } from '../../shared/skills'
 import { listLocalTree } from './local-source'
+import { isPathStrictlyInside } from '../path-containment'
 
 /** Reads one file's bytes from whichever source the skill came from. */
 export type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
@@ -132,7 +133,7 @@ export function planSkillInstall(
   const targets: SkillInstallTarget[] = []
   for (const harness of harnesses) {
     const path = resolve(root, SKILL_HARNESS_DIR[harness], 'skills', dirName)
-    if (!isInside(root, path)) {
+    if (!isPathStrictlyInside(root, path)) {
       return { ok: false, message: `Skill "${skill.id}" resolves outside the workspace.` }
     }
     targets.push({ harness, path })
@@ -167,16 +168,11 @@ export function resolveSkillFilePath(targetDir: string, relativePath: string): s
   const segments = relativePath.split('/')
   if (segments.some((segment) => !isSafeSegment(segment))) return null
   const destination = resolve(targetDir, relativePath)
-  return isInside(targetDir, destination) ? destination : null
+  return isPathStrictlyInside(targetDir, destination) ? destination : null
 }
 
 function isSafeSegment(segment: string): boolean {
   return segment.length > 0 && segment !== '.' && segment !== '..' && !segment.includes('\\')
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = relative(parent, child)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 export type InstallSkillOptions = {
@@ -345,7 +341,7 @@ export async function uninstallSkill(options: {
   const removedPaths: string[] = []
   for (const harness of options.harnesses) {
     const path = resolve(root, SKILL_HARNESS_DIR[harness], 'skills', dirName)
-    if (!isInside(root, path)) continue
+    if (!isPathStrictlyInside(root, path)) continue
     try {
       // Not `force`: a harness that never held this skill must not be reported
       // as one this call cleaned up.

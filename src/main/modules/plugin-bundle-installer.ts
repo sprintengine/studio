@@ -37,6 +37,7 @@ import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } 
 import { installSkillDirectory } from '../skills/install'
 import { classifyModuleTrust, isLoadEligible, type ModuleTrust, type ModuleTrustContext } from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
+import { isRecord } from '../../shared/records'
 
 const DEFAULT_MCP_CLIENTS: McpClientTarget[] = ['codex', 'claude-code']
 const DEFAULT_SKILL_HARNESSES: SkillHarness[] = ['agents']
@@ -722,10 +723,6 @@ function componentFailure(
 function isInsideOrEqual(parent: string, child: string): boolean {
   const rel = relative(parent, child)
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function installedMcpComponent(servers: McpServerConfig[]): MarketplacePluginInstalledComponent {

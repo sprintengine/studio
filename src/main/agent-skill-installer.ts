@@ -25,7 +25,7 @@
 
 import { existsSync } from 'fs'
 import { readFile, rm, stat, writeFile } from 'fs/promises'
-import { isAbsolute, join, relative, resolve } from 'path'
+import { join, resolve } from 'path'
 
 import type {
   AgentCliAvailabilityMap,
@@ -47,6 +47,7 @@ import {
 } from './builtin-skills'
 import { detectAgentCliAvailability } from './cli-availability'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
+import { isPathStrictlyInside } from './path-containment'
 
 /**
  * Marker source for a copy this installer made of a skill that carried no
@@ -296,7 +297,7 @@ function harnessTargets(
     // with no workspace install target declares nowhere to put them.
     if (binding.support !== 'native' || !binding.skillsDir) continue
     const absoluteDir = resolve(workspaceRoot, ...binding.skillsDir.split('/'), skillId)
-    if (!isInside(workspaceRoot, absoluteDir)) continue
+    if (!isPathStrictlyInside(workspaceRoot, absoluteDir)) continue
     targets.push({
       harnessId: binding.harnessId,
       pluginIds: [...binding.pluginIds],
@@ -427,11 +428,6 @@ async function isManagedCopy(dir: string): Promise<boolean> {
     || marker.source === ATTACHED_MARKER_SOURCE
     || (typeof marker.sourceId === 'string' && marker.sourceId !== '')
   )
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = relative(parent, child)
-  return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 function formatError(error: unknown): string {

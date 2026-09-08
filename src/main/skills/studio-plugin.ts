@@ -44,6 +44,7 @@ import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { mergeAgentStateHooks } from '../agent-state'
 import { installSkillDirectory } from './install'
 import { CLAUDE_SETTINGS_RELATIVE_PATH } from './install-plugin'
+import { isRecord } from '../../shared/records'
 
 // The plugin's id — the directory it lives in, and the name in its manifest.
 // Declared in shared/ because the catalogues need it too (they must not offer
@@ -616,10 +617,6 @@ async function writeJsonObject(
   } catch (error) {
     return { ok: false, message: `${path} could not be written: ${describe(error)}` }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function describe(error: unknown): string {

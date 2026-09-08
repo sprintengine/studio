@@ -12,6 +12,8 @@
 // `schemaVersion` is not one this build knows is rejected whole, and the
 // client keeps its last good copy.
 
+import { isRecord } from './records'
+
 export const HOSTED_MODEL_FEED_SCHEMA_VERSION = 1 as const
 
 export const HOSTED_MODEL_FEED_URL =
@@ -69,7 +71,7 @@ export function parseHostedModelFeed(source: unknown): HostedModelFeedParseResul
       return { ok: false, message: `Model feed is not valid JSON. ${formatError(error)}` }
     }
   }
-  if (!isObject(value)) return { ok: false, message: 'Model feed must be a JSON object.' }
+  if (!isRecord(value)) return { ok: false, message: 'Model feed must be a JSON object.' }
   if (value.schemaVersion !== HOSTED_MODEL_FEED_SCHEMA_VERSION) {
     return {
       ok: false,
@@ -79,13 +81,13 @@ export function parseHostedModelFeed(source: unknown): HostedModelFeedParseResul
   if (typeof value.updatedAt !== 'string' || Number.isNaN(Date.parse(value.updatedAt))) {
     return { ok: false, message: 'Model feed updatedAt must be an ISO date-time.' }
   }
-  if (!isObject(value.clis)) return { ok: false, message: 'Model feed clis must be an object keyed by plugin id.' }
+  if (!isRecord(value.clis)) return { ok: false, message: 'Model feed clis must be an object keyed by plugin id.' }
 
   const clis: HostedModelFeed['clis'] = {}
   for (const [cli, entry] of Object.entries(value.clis)) {
     const id = cli.trim()
     if (!id) continue
-    if (!isObject(entry) || !Array.isArray(entry.models)) {
+    if (!isRecord(entry) || !Array.isArray(entry.models)) {
       return { ok: false, message: `Model feed ${cli}.models must be an array.` }
     }
     const seen = new Set<string>()
@@ -105,7 +107,7 @@ export function parseHostedModelFeed(source: unknown): HostedModelFeedParseResul
 }
 
 function parseModel(raw: unknown): { ok: true; model: HostedModel } | { ok: false; message: string } {
-  if (!isObject(raw)) return { ok: false, message: 'row must be an object.' }
+  if (!isRecord(raw)) return { ok: false, message: 'row must be an object.' }
   const id = typeof raw.id === 'string' ? raw.id.trim() : ''
   if (!id) return { ok: false, message: 'id must be a non-empty string.' }
   const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : id
@@ -167,10 +169,6 @@ export function hostedModelAdditions(
     if (added.length > 0) out[cli] = added
   }
   return out
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function formatError(error: unknown): string {

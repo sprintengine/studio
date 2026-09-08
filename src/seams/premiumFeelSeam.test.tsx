@@ -126,7 +126,7 @@ function evaluateLength(expression: string, what: string): number {
     /^[-+*/(). \d]+$/,
     `${what} must resolve to arithmetic over lengths, got ${expression}`,
   )
-  // eslint-disable-next-line no-new-func -- the string is asserted to be arithmetic above.
+  // The string is asserted to be arithmetic above.
   const value = Number(new Function(`return (${numeric})`)())
   assert.ok(Number.isFinite(value), `${what} did not evaluate to a number: ${expression}`)
   return value

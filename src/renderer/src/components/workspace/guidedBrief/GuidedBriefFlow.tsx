@@ -230,7 +230,6 @@ export function GuidedBriefFlow({
         prev.stage === 'strategist-working' ? { ...prev, stage: 'strategist-ready' } : prev,
       )
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, strategist.readiness.isReady])
 
   useEffect(() => {
@@ -239,7 +238,6 @@ export function GuidedBriefFlow({
         prev.stage === 'architect-working' ? { ...prev, stage: 'architect-ready' } : prev,
       )
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, architect.readiness.isReady])
 
   // Designer working → ready as soon as real mockup files exist (or marker +
@@ -248,7 +246,6 @@ export function GuidedBriefFlow({
     if (stage === 'designer-working' && designer.readiness.isReady) {
       updateRuntimeState((prev) => nextDesignerStageForReadiness(prev, true))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, designer.readiness.isReady])
 
   // Track the active mockup in runtime state once mockups appear, so the
@@ -262,7 +259,6 @@ export function GuidedBriefFlow({
         ? prev
         : { ...prev, activeMockupPath: firstMockupPath },
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.mockups])
 
   // The designer studio should open on a useful artifact as soon as files
@@ -282,7 +278,6 @@ export function GuidedBriefFlow({
       const nextEntry = entries.find((entry) => entry.kind === 'page') ?? entries[0]
       return applyDesignArtifactSelection(prev, nextEntry)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.designArtifacts])
 
   // Persist resolved interview decisions per role so the build handoff can
@@ -290,15 +285,12 @@ export function GuidedBriefFlow({
   // unchanged when nothing new arrived.
   useEffect(() => {
     updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'product', strategist.interview.decisions))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategist.interview.decisions])
   useEffect(() => {
     updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'architect', architect.interview.decisions))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [architect.interview.decisions])
   useEffect(() => {
     updateRuntimeState((prev) => mergeGuidedBriefDecisions(prev, 'frontend', designer.interview.decisions))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designer.interview.decisions])
 
   // Stops a specialist session through the transport its persisted id belongs
@@ -1440,7 +1432,6 @@ function useScreenTitles(index: DesignArtifactIndex): Map<string, string> {
       cancelled = true
     }
     // requestKey captures the current key set; titlesByKey re-runs the guard after a set.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestKey, titlesByKey])
 
   return useMemo(() => {

@@ -4,6 +4,7 @@ import type {
   PremiumAccessDecision,
   PremiumAccessRequest,
 } from '../shared/electron-api'
+import { isRecord } from '../shared/records'
 
 // The desktop's one entitlement seam (MC-2169). Everything above it — the auth
 // IPC handlers, capability modules, any future feature gate — asks THIS whether
@@ -281,10 +282,6 @@ export function isEntitlementSnapshot(
     && isRecord(snapshot.limits)
     && typeof snapshot.issuedAt === 'string'
     && typeof snapshot.expiresAt === 'string'
-}
-
-function isRecord(input: unknown): boolean {
-  return typeof input === 'object' && input !== null && !Array.isArray(input)
 }
 
 // Not exported: reading a value out of a snapshot is the seam's own job. An

@@ -1,5 +1,6 @@
 import type { AutomationActionProvider } from '../../../shared/automations/contracts'
 import { parseSpawnAgentConfig, runSpawnAgentAction, type SpawnAgentRuntime } from './spawn-agent'
+import { isRecord } from '../../../shared/records'
 
 export type RunSkillLoopConfig = {
   folderPath?: string
@@ -67,6 +68,3 @@ function parseRunSkillLoopConfig(config: unknown): RunSkillLoopConfig {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}

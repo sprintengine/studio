@@ -123,7 +123,6 @@ export function ReviewDiffEditor({
   useEffect(() => {
     if (orphans.length > 0) {
       for (const orphan of orphans) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[review] annotation "${orphan.id}" anchor ${orphan.anchor.side} ${orphan.anchor.startLine}-${orphan.anchor.endLine} is outside ${file.path}; rendering in the side panel without a zone.`,
         )

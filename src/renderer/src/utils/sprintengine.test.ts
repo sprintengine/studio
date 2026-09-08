@@ -2716,5 +2716,4 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
   )
 }
 
-// eslint-disable-next-line no-console
 console.log('sprintengine.test.ts: ok')

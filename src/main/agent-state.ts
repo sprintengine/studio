@@ -5,6 +5,7 @@ import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
+import { isRecord } from '../shared/records'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -355,10 +356,6 @@ const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
   'failed',
   'stalled',
 ])
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null

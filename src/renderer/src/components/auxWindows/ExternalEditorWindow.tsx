@@ -73,7 +73,6 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
       setTabs((prev) => [...prev, tab])
       loadBuffer(tab)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce])
 
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null

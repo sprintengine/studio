@@ -355,7 +355,6 @@ async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Pro
   const fullBytes = relaySummaryByteLength(summarizeCommandResult(full))
   assert.equal(unchangedBytes < 512, true)
   assert.equal(fullBytes > unchangedBytes * 8, true)
-  // eslint-disable-next-line no-console
   console.log(`[1599] unchanged result ${unchangedBytes} B vs full snapshot ${fullBytes} B (${(fullBytes / unchangedBytes).toFixed(1)}x)`)
 }
 

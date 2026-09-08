@@ -6,6 +6,7 @@ import {
   type AutomationTriggerProvider,
   type WebhookTriggerConfig,
 } from '../../../shared/automations/contracts'
+import { isRecord } from '../../../shared/records'
 
 // Canonical kind + config now live in contracts.ts; re-export so existing
 // importers of this module (webhook-receiver, automations-ipc, tests) keep their
@@ -206,10 +207,6 @@ function normalizeSecret(value: unknown): { ok: true; value?: string } | { ok: f
 
 function trimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function invalid(error: string): WebhookTriggerValidationResult {

@@ -34,6 +34,24 @@ export function pathSeparatorFor(pathValue: string): '/' | '\\' {
   return pathValue.includes('\\') && !pathValue.includes('/') ? '\\' : '/'
 }
 
+/**
+ * True when `pathValue` IS `parentPath`, or sits under it.
+ *
+ * The one containment check for user-visible paths: separator inferred from
+ * the parent (so a Windows path compares on `\\` and a posix one on `/`), and
+ * case-SENSITIVE — these are paths the app was handed, compared against paths
+ * the app was handed, not paths it resolved. Four byte-identical copies of it
+ * lived in `modelRegistry`, `editorBuffers`, `FileExplorer` and `agentsSlice`.
+ *
+ * Not the same predicate as the main process's `isPathInsideOrEqual`, which
+ * resolves both sides through Node's `path` first; this one never touches the
+ * filesystem or the cwd.
+ */
+export function isPathOrChild(pathValue: string, parentPath: string): boolean {
+  if (pathValue === parentPath) return true
+  return pathValue.startsWith(`${parentPath}${pathSeparatorFor(parentPath)}`)
+}
+
 export function pathJoin(basePath: string, ...segments: string[]): string {
   const separator = pathSeparatorFor(basePath)
   return [trimPath(basePath), ...segments.map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, ''))]

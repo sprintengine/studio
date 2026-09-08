@@ -22,6 +22,7 @@ import {
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
 } from '../../../packages/module-sdk/src/plugin-manifest'
+import { isRecord } from '../records'
 
 export {
   canonicalManifestPayload,
@@ -154,10 +155,6 @@ export type MarketplaceIndexResult =
 
 const COMPONENT_KIND_SET = new Set<string>(MARKETPLACE_COMPONENT_KINDS)
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
 }
@@ -202,7 +199,7 @@ function validateSkillFiles(
   let ok = true
   value.forEach((file, index) => {
     if (
-      !isObject(file) ||
+      !isRecord(file) ||
       !isSafeSkillFilePath(file.path) ||
       typeof file.sha256 !== 'string' ||
       !SHA256_HEX_PATTERN.test(file.sha256) ||
@@ -240,7 +237,7 @@ function validateSkills(
   }
   const skills: MarketplacePluginSkill[] = []
   value.forEach((skill, index) => {
-    if (!isObject(skill) || !isNonEmptyString(skill.name) || typeof skill.description !== 'string') {
+    if (!isRecord(skill) || !isNonEmptyString(skill.name) || typeof skill.description !== 'string') {
       issues.push({
         path: `${path}[${index}]`,
         message: 'each skill must be an object with a non-empty name and a string description.',
@@ -299,7 +296,7 @@ function validateSkills(
 }
 
 function validatePublisher(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplacePublisher | undefined {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: 'publisher must be an object.' })
     return undefined
   }
@@ -350,7 +347,7 @@ function validateStringArray(value: unknown, path: string, field: string, issues
 }
 
 function validateInlineMcp(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineMcp | undefined {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: 'mcp must be an object.' })
     return undefined
   }
@@ -381,7 +378,7 @@ function validateInlineMcp(value: unknown, path: string, issues: MarketplaceMani
 const INLINE_CLI_PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
 
 function validateInlineCli(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineCli | undefined {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: 'cli must be an object.' })
     return undefined
   }
@@ -394,7 +391,7 @@ function validateInlineCli(value: unknown, path: string, issues: MarketplaceMani
 
 function validateMarketplaceEntry(value: unknown, index: number, issues: MarketplaceManifestIssue[]): MarketplacePluginEntry | undefined {
   const path = `plugins[${index}]`
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: 'marketplace plugin entry must be an object.' })
     return undefined
   }
@@ -506,7 +503,7 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
 
 export function validateMarketplaceIndex(value: unknown): MarketplaceIndexResult {
   const issues: MarketplaceManifestIssue[] = []
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return { ok: false, issues: [{ path: '', message: 'Marketplace index must be a JSON object.' }] }
   }
   if (value.schemaVersion !== 1) {

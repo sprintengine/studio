@@ -50,7 +50,6 @@ export function useAutomationRunHistory(
       setError(err instanceof Error ? err.message : 'The automations service did not respond.')
     }
     // lastRunId in the dep list: a run-now bumps it, so the history reloads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceRoot, automationId, lastRunId])
 
   useEffect(() => { void reload() }, [reload])

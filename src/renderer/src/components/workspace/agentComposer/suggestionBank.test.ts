@@ -88,5 +88,4 @@ import {
   }
 }
 
-// eslint-disable-next-line no-console
 console.log('suggestionBank.test.ts: ok')

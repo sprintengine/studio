@@ -271,7 +271,6 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       })
     }
     requestRenderRef.current?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestEvent, eventNonce])
 
   // Search match changes don't trigger any other render path, so wake the

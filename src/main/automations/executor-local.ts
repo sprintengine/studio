@@ -10,7 +10,7 @@ import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
-import { runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
+import { runSpawnAgentAction, type SpawnAgentResolvedTarget, type SpawnAgentRuntime } from './actions/spawn-agent'
 import {
   allowAutomationProvider,
   createBuiltInAutomationProviderRegistry,
@@ -145,7 +145,7 @@ export async function runLocalAutomationAction(
   })
 
   try {
-    const runtime = {
+    const runtime: SpawnAgentRuntime = {
       definition: input.definition,
       runId: input.run.id,
       workspaceRoot: input.workspaceRoot,

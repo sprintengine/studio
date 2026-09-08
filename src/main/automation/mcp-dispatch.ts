@@ -1,3 +1,7 @@
+import { isRecord } from '../../shared/records'
+
+/** Re-exported: this module was the entry point importers already had. */
+export { isRecord }
 import {
   isSupportedMcpProtocolVersion,
   negotiateMcpProtocolVersion,
@@ -244,8 +248,4 @@ export function jsonRpcErrorResponse(id: JsonRpcId, code: number, errorMessage: 
 export function jsonRpcIdOf(value: unknown): JsonRpcId {
   if (!isRecord(value)) return null
   return typeof value.id === 'string' || typeof value.id === 'number' ? value.id : null
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

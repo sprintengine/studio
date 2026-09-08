@@ -18,6 +18,7 @@
 // Consumer today: the `module.*` gateway tools (src/main/automation).
 
 import type { CapabilityManifest, ModuleResolutionErrorCode, ModuleSource } from './manifest'
+import { isRecord } from '../records'
 
 /** Renderer → main push of the current module registry. */
 export const MODULE_REGISTRY_SNAPSHOT_CHANNEL = 'modules:set-registry-snapshot'
@@ -167,6 +168,3 @@ function normalizeSurfaces(value: unknown): ModuleContributedSurfaces {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

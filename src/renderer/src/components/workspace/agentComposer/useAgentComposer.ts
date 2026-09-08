@@ -38,6 +38,26 @@ export type AgentComposerSelection =
   | { kind: 'conversation' }
   | { kind: 'specialist'; specialistId: SpecialistActionId }
 
+/**
+ * The CLI an engine pick leaves as the app's default, or null when the pick
+ * belongs to one agent alone.
+ *
+ * `appSettings.lastSelectedCli` is what every surface without a remembered CLI
+ * of its own falls back to: the Sprint Engine board's role terminals, an
+ * automation whose runtime is unset, the review guide, a module asking for the
+ * default CLI, and an `agent_launch` over MCP that names none. Nothing wrote it
+ * until this seam existed, so that fallback sat on its factory value on every
+ * machine — including machines where that CLI is not installed.
+ *
+ * A specialist's pick stays that specialist's: it writes its own key and moves
+ * nothing else (MC-2222 — one role's engine never moves another's). General is
+ * the New chat engine and the app's own agent, so its pick is the one that
+ * answers "which CLI does this person use".
+ */
+export function globalCliFromEnginePick(target: AgentComposerSelection, cli: AgentCli): AgentCli | null {
+  return target.kind === 'specialist' ? null : cli
+}
+
 export type AgentComposerConfirm = (
   | { kind: 'terminal' }
   | { kind: 'general'; cli: AgentCli; model?: string | null }
@@ -221,6 +241,7 @@ export function useAgentComposer({
     (s) => s.appSettings.specialistCliDefaults ?? EMPTY_SPECIALIST_CLI_DEFAULTS,
   )
   const setSpecialistCliDefault = useWorkspaceStore((s) => s.setSpecialistCliDefault)
+  const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
   const specialistModelDefaults = useWorkspaceStore(
     (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS,
   )
@@ -417,14 +438,18 @@ export function useAgentComposer({
   const setEngineCli = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli) => {
       if (target.kind === 'specialist') setSpecialistCliDefault(target.specialistId, cli)
-      // General writes its own key in the specialist map — never the shared
-      // lastSelectedCli, so choosing General's CLI never moves any specialist.
+      // General writes its own key in the specialist map, so choosing General's
+      // CLI never moves any specialist that remembers one of its own.
       else {
         setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
         setOpeningEngine(null)
       }
+      // …and, for General only, the app-wide default every surface without a
+      // CLI of its own falls back to. See globalCliFromEnginePick.
+      const globalCli = globalCliFromEnginePick(target, cli)
+      if (globalCli) setLastSelectedCli(globalCli)
     },
-    [setSpecialistCliDefault],
+    [setSpecialistCliDefault, setLastSelectedCli],
   )
   const setEngineModel = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli, model: string | null) => {
@@ -440,8 +465,12 @@ export function useAgentComposer({
         setSpecialistModelDefault(GENERAL_AGENT_ENGINE_KEY, selection)
         setOpeningEngine(null)
       }
+      // Picking a model picks its CLI, so it moves the app-wide default on the
+      // same terms the CLI picker does.
+      const globalCli = globalCliFromEnginePick(target, cli)
+      if (globalCli) setLastSelectedCli(globalCli)
     },
-    [setSpecialistCliDefault, setSpecialistModelDefault],
+    [setSpecialistCliDefault, setSpecialistModelDefault, setLastSelectedCli],
   )
   // `null` clears the level back to the CLI's own default effort. The setter
   // keeps the model already chosen for that CLI, so clearing effort never

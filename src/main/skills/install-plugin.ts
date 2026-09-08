@@ -53,6 +53,7 @@ import {
   uninstallPluginDirectory,
   type PluginDirectoryFile,
 } from './plugin-directory'
+import { isRecord } from '../../shared/records'
 
 // The mapping is shared with the renderer's own "Add this server" row, so both
 // stamp the same provenance; re-exported here because this module was where it
@@ -561,10 +562,6 @@ function claudeOnlyComponents(plugin: ScannedPlugin): string {
   if (c.hooks.length > 0) parts.push('hooks')
   if (c.lspServers.length > 0) parts.push('LSP servers')
   return parts.join(', ')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function describe(error: unknown): string {

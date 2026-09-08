@@ -1,3 +1,5 @@
+import { isRecord } from '../records'
+
 export const DESIGN_SYSTEM_MANIFEST_FILENAME = 'design-system.json'
 export const DESIGN_SYSTEM_SCHEMA_VERSION = 1
 
@@ -37,10 +39,6 @@ export const DESIGN_SYSTEM_VERSION_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
 const NAME_PATTERN = DESIGN_SYSTEM_NAME_PATTERN
 const SEMVER_PATTERN = DESIGN_SYSTEM_VERSION_PATTERN
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string')

@@ -23,7 +23,6 @@ import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
-import { registerLayoutTemplateRegistryIpc } from './ipc/layout-template-registry-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
 import { registerMemoryIpc } from './ipc/memory-ipc'
@@ -100,7 +99,6 @@ export function registerCoreIpc(
   registerWorkspaceSkillsIpc(ipcMain, {
     workspaceSkills: services.workspaceSkillsService,
     agentCapabilities: services.agentCapabilityService,
-    capabilityWatcher: services.capabilityWatcher,
     agentSkillInstaller: services.agentSkillInstaller,
   })
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
@@ -158,7 +156,6 @@ export function registerCoreIpc(
   registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
-  registerLayoutTemplateRegistryIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)
 }

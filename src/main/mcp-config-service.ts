@@ -4,7 +4,6 @@ import { dirname, join } from 'path'
 
 // Lazy electron so the module is importable from node-only test bundles.
 function loadElectron(): typeof import('electron') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('electron')
 }
 import type {

@@ -29,6 +29,7 @@ import {
 } from '../changeset-service'
 import { parsePatch } from '../patch-parse'
 import { runGitCommand } from '../../git-utils'
+import { isRecord } from '../../../shared/records'
 
 const execFileAsync = promisify(execFile)
 
@@ -366,10 +367,6 @@ function timeoutSignal(ms: number): AbortSignal | undefined {
   } catch {
     return undefined
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function requireString(value: unknown): string {

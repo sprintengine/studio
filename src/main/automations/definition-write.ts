@@ -24,6 +24,7 @@ import {
   validateScheduleTriggerConfig,
 } from './schedule'
 import { AutomationsStore, type AutomationStoreProblem } from './store'
+import { isRecord } from '../../shared/records'
 
 // The one write path for automation definitions. Both front doors — the
 // user-facing IPC handlers (automations-ipc.ts) and the module-scoped service
@@ -605,10 +606,6 @@ function trimmedString(value: unknown): string | undefined {
 
 function isAutomationStatus(value: unknown): value is AutomationDefinition['status'] {
   return typeof value === 'string' && AUTOMATION_STATUSES.has(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function ok<T>(value: T): AutomationsResult<T> {

@@ -13,6 +13,7 @@
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
 import { spawn } from 'child_process'
+import { asRecord } from '../../shared/records'
 
 import type {
   Options,
@@ -1100,10 +1101,6 @@ function describeSpawnFailure(error: unknown, stderrTail: string): string {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 function numberOr(value: unknown, fallback: number): number {

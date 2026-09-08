@@ -79,7 +79,6 @@ function useFileContents(requests: Array<{ key: string; absolutePath: string }>)
       cancelled = true
     }
     // requestKey captures the set of keys; contents re-runs the guard after a set.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestKey, contents])
 
   return contents

@@ -53,7 +53,7 @@ let fleetListener: ((event: unknown) => void) | null = null
   },
 }
 
-/* eslint-disable import/first -- jsdom globals must exist before React mounts */
+// jsdom globals must exist before React mounts
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 

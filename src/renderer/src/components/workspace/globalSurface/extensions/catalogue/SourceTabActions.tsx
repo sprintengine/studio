@@ -22,6 +22,22 @@ import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { OutlineButton, OverflowMenu } from '../../../../ui'
 import { skillSourceCommitsUrl } from '../skills/skillsSurfaceModel'
 
+/**
+ * Whether the overflow offers "Remove source" for this source.
+ *
+ * Every source is a folder or a repository (`SkillSourceKind` is
+ * `'github' | 'local'`), so every one of them re-reads on demand — but since
+ * the official-plugins ruling (2026-09-06) two of them ship with the app and
+ * the store refuses to remove them. Offering Remove there would be an action
+ * that can only report a failure the person could not have avoided.
+ *
+ * Exported so the rule has a test: `OverflowMenu` builds its items only once a
+ * person opens it, which puts this decision out of a render assertion's reach.
+ */
+export function sourceOffersRemove(source: Pick<SkillSource, 'id'>): boolean {
+  return !isBundledSkillSource(source.id)
+}
+
 export type SourceSyncResult = {
   added: number
   removed: number
@@ -50,19 +66,13 @@ export function SourceTabActions({
   onSynced: (source: SkillSource, result: SourceSyncResult) => void
   onSyncFailed: (source: SkillSource, message: string) => void
   onRemoved: (sourceId: string) => void
-}): JSX.Element | null {
+}): JSX.Element {
   const [syncing, setSyncing] = useState(false)
-  // The two bundled sources ship with the app and refresh with it; a folder or
-  // a repository is the person's, and can be re-read and removed.
-  const canSync = source.kind === 'github' || source.kind === 'local'
-  // …with one exception since the official-plugins ruling (2026-09-06): the
-  // official marketplace IS a repository, so it syncs like one, but it is
-  // always present and the store refuses to remove it. Offering Remove there
-  // would be an action that can only report a failure the person could not
-  // have avoided.
-  const canRemove = (source.kind === 'github' || source.kind === 'local') && !isBundledSkillSource(source.id)
+  // Sync is offered on every source: each one is a folder or a repository, and
+  // the two the app ships with are repositories too. Remove is not — see
+  // `sourceOffersRemove`.
+  const canRemove = sourceOffersRemove(source)
   const commitsUrl = skillSourceCommitsUrl(source)
-  if (!canSync && !canRemove && !commitsUrl) return null
 
   const sync = async (): Promise<void> => {
     if (typeof window.api.skillsSyncSource !== 'function' || syncing) return
@@ -122,11 +132,9 @@ export function SourceTabActions({
 
   return (
     <>
-      {canSync ? (
-        <OutlineButton size="sm" onClick={() => void sync()} disabled={syncing}>
-          {syncing ? 'Syncing…' : sourceHasUpdate(source) ? 'Sync — update available' : 'Sync'}
-        </OutlineButton>
-      ) : null}
+      <OutlineButton size="sm" onClick={() => void sync()} disabled={syncing}>
+        {syncing ? 'Syncing…' : sourceHasUpdate(source) ? 'Sync — update available' : 'Sync'}
+      </OutlineButton>
       <OverflowMenu
         ariaLabel={`More actions for ${source.repo || source.name}`}
         triggerTooltip="More actions"

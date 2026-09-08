@@ -12,6 +12,8 @@
  * Node-free so the renderer and the main process share one shape.
  */
 
+import { isRecord } from './records'
+
 export type ObservedCheckout = {
   /** The cwd exactly as the hook payload reported it (verbatim, untrusted-but-shape-checked). */
   cwd: string
@@ -58,10 +60,6 @@ export function isAbsoluteObservedPath(value: string): boolean {
   if (/^[A-Za-z]:[\\/]/.test(value)) return true
   if (/^\\\\[^\\]/.test(value)) return true
   return false
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function optionalPath(value: unknown): string | null {

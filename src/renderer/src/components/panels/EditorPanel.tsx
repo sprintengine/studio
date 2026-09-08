@@ -6,7 +6,7 @@ import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'
 import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
 import { isImageFile } from '../../utils/files'
-import { basename, pathSeparatorFor, trimPath } from '../../utils/paths'
+import { basename, isPathOrChild, trimPath } from '../../utils/paths'
 import {
   getEditorBuffer,
   hasEditorBuffer,
@@ -62,12 +62,6 @@ function editorModifier(): string {
   return typeof window !== 'undefined' && window.api?.platform === 'darwin' ? '⌘' : 'Ctrl+'
 }
 
-function isPathOrChild(path: string, parentPath: string): boolean {
-  const trimmedParent = trimPath(parentPath)
-  if (path === trimmedParent) return true
-  return path.startsWith(`${trimmedParent}${pathSeparatorFor(trimmedParent)}`)
-}
-
 function readCssVar(name: string): string {
   if (typeof document === 'undefined') return ''
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -120,7 +114,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     filePath
     && !activeFile
     && folderPath
-    && isPathOrChild(filePath, folderPath)
+    && isPathOrChild(filePath, trimPath(folderPath))
   )
   const activeGitEntry = useMemo(
     () => getGitEntry(gitStatus, activeFilePath),
@@ -155,7 +149,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   }, [filePath, setActiveFile, workspaceId])
 
   useEffect(() => {
-    if (!filePath || activeFile || !folderPath || !isPathOrChild(filePath, folderPath)) {
+    if (!filePath || activeFile || !folderPath || !isPathOrChild(filePath, trimPath(folderPath))) {
       setRestoringFilePath((path) => path === filePath ? null : path)
       return
     }

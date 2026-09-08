@@ -216,7 +216,6 @@ export class ProviderSecretStore {
 }
 
 function loadElectron(): typeof import('electron') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('electron')
 }
 

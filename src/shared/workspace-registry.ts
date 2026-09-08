@@ -20,6 +20,7 @@
  * statement of what survives a restart today — it is not invented here.
  */
 import { isDefaultWorkspaceName } from './workspace-title'
+import { isRecord } from './records'
 import type {
   AgentState,
   Workspace,
@@ -551,10 +552,6 @@ export function isDangerousEmptyClassification(
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function normalizeId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''

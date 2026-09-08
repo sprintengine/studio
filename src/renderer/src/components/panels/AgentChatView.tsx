@@ -136,12 +136,15 @@ export type TranscriptEntry =
 
 export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
 
+/** Token counts the session has reported so far; null until the first report. */
+export type ConversationUsage = { inputTokens: number; outputTokens: number }
+
 export type ConversationProjection = {
   sessionStatus: ConversationSessionStatus | 'idle'
   activeTurn: boolean
   awaitingApproval: boolean
   entries: TranscriptEntry[]
-  usage: { inputTokens: number; outputTokens: number } | null
+  usage: ConversationUsage | null
   lastError: string | null
   // Credential source the CLI child reported on init ('none' = subscription
   // login, the guaranteed path). Anything else means the session is billing
@@ -293,7 +296,7 @@ export function projectConversation(
   // call that spawned them — lookups must not be scoped to one turn.
   const toolsById = new Map<string, ToolAccumulator>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
-  let usage: { inputTokens: number; outputTokens: number } | null = null
+  let usage: ConversationUsage | null = null
   let lastError: string | null = null
   let apiKeySource: string | null = null
 
@@ -450,10 +453,12 @@ export function projectConversation(
         break
       }
       case 'usage_updated': {
-        const previousUsage = usage
+        // An event reports whichever counter moved, so a field it leaves out
+        // keeps the count already accumulated rather than resetting it to zero.
+        const previous: ConversationUsage = usage ?? { inputTokens: 0, outputTokens: 0 }
         usage = {
-          inputTokens: readNumber(event.payload, 'inputTokens') ?? previousUsage?.inputTokens ?? 0,
-          outputTokens: readNumber(event.payload, 'outputTokens') ?? previousUsage?.outputTokens ?? 0,
+          inputTokens: readNumber(event.payload, 'inputTokens') ?? previous.inputTokens,
+          outputTokens: readNumber(event.payload, 'outputTokens') ?? previous.outputTokens,
         }
         break
       }
@@ -2815,7 +2820,6 @@ function ModelPickerPill({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
     // jumpRows is derived per render; re-subscribe only when the rows change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, onSelect, jumpRowsKey])
   // Focus lands in the search field when there is one, else on the checked
   // row — the surface is portaled, so Tab from the trigger never reaches it.

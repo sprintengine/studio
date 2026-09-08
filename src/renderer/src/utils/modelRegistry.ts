@@ -1,5 +1,5 @@
 import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
-import { basename, pathSeparatorFor } from './paths'
+import { basename, isPathOrChild, pathSeparatorFor } from './paths'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 const AGENT_TAB_SPAWN_FLASH_PANEL_CLASS = 'agent-tab-spawn-flash-panel'
@@ -939,12 +939,6 @@ function getFileTabPath(node: TabNode): string | null {
   if (node.getComponent() !== 'file-editor') return null
   const config = node.getConfig() as { filePath?: string } | undefined
   return typeof config?.filePath === 'string' ? config.filePath : null
-}
-
-function isPathOrChild(path: string, parentPath: string): boolean {
-  if (path === parentPath) return true
-  const separator = pathSeparatorFor(parentPath)
-  return path.startsWith(`${parentPath}${separator}`)
 }
 
 function remapPath(path: string, fromPath: string, toPath: string): string {

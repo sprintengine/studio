@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'fs'
 import { mkdir, readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineMcpReadResult,
@@ -45,6 +45,9 @@ import {
   SPRINT_ENGINE_RUN_SCHEMA_VERSION,
   describeUnsupportedSprintEngineStore,
 } from '../shared/sprintengine/store-schema'
+import { asRecord } from '../shared/records'
+import { isPathInsideOrEqual } from './path-containment'
+
 export { SPRINT_ENGINE_RUN_SCHEMA_VERSION, describeUnsupportedSprintEngineStore }
 
 type SprintEngineArtifactDependencies = {
@@ -204,14 +207,6 @@ function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePa
   return { statePath, teamDirectory, workspaceRoot }
 }
 
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
-}
-
 function resolveArtifactFilePath(state: ValidSprintEngineStatePath, artifactPathInput: unknown): string {
   if (typeof artifactPathInput !== 'string' || !artifactPathInput.trim()) {
     throw new Error('Artifact path is required.')
@@ -319,12 +314,6 @@ function resolveArray(input: unknown, field: string): unknown[] {
   if (input === undefined || input === null) return []
   if (!Array.isArray(input)) throw new Error(`${field} must be a list.`)
   return input
-}
-
-function asRecord(input: unknown): Record<string, unknown> | null {
-  return input && typeof input === 'object' && !Array.isArray(input)
-    ? input as Record<string, unknown>
-    : null
 }
 
 function eventMetadataFromUnknown(input: unknown): SprintEngineEventMetadata | null {

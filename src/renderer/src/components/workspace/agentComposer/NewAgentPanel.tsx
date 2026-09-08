@@ -621,7 +621,6 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (remoteMachineName) composer.setWorktreeName(null)
     // composer is a stable hook result; keyed on the machine alone.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteMachineName])
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
@@ -855,7 +854,6 @@ export default function NewAgentPanel({
       cancelled = true
     }
     // previewKey is previewInput's identity; the object would re-run every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewKey])
 
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])

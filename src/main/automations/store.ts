@@ -9,6 +9,7 @@ import type {
   AutomationStatus,
 } from '../../shared/automations/contracts'
 import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared/automations/contracts'
+import { isRecord } from '../../shared/records'
 
 export const AUTOMATIONS_STORE_DIRECTORY = '.multi-code/automations'
 export const AUTOMATION_RUN_HISTORY_LIMIT = 50
@@ -648,10 +649,6 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isOptionalStringArray(value: unknown): value is string[] | undefined {
   return value === undefined || (Array.isArray(value) && value.every((entry) => typeof entry === 'string'))
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function compareRunsNewestFirst(left: AutomationRun, right: AutomationRun): number {

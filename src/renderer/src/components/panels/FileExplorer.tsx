@@ -17,6 +17,7 @@ import { useIgnoredPaths } from '../../hooks/useIgnoredPaths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
+import { isPathOrChild } from '../../utils/paths'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
@@ -335,12 +336,6 @@ function remapPath(path: string, fromPath: string, toPath: string): string {
   const separator = fromPath.includes('\\') && !fromPath.includes('/') ? '\\' : '/'
   const prefix = `${fromPath}${separator}`
   return path.startsWith(prefix) ? `${toPath}${path.slice(fromPath.length)}` : path
-}
-
-function isPathOrChild(path: string, parentPath: string): boolean {
-  if (path === parentPath) return true
-  const separator = parentPath.includes('\\') && !parentPath.includes('/') ? '\\' : '/'
-  return path.startsWith(`${parentPath}${separator}`)
 }
 
 function topLevelEntries(entries: Entry[]): Entry[] {

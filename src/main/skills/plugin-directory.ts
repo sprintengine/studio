@@ -40,13 +40,14 @@
 
 import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, isAbsolute, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import {
   DEFAULT_SKILL_INSTALL_MAX_FILES,
   DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES,
   resolveSkillFilePath,
 } from './install'
+import { isPathStrictlyInside } from '../path-containment'
 
 /** Where a source's plugins land inside a workspace. */
 export const PLUGIN_WORKSPACE_DIR = join('.multicode', 'claude-plugins')
@@ -95,7 +96,7 @@ export function pluginDirectoryPath(workspaceRoot: string, pluginId: string): st
   if (name === '') return ''
   const root = resolve(workspaceRoot)
   const path = resolve(root, PLUGIN_WORKSPACE_DIR, name)
-  return isInside(root, path) ? path : ''
+  return isPathStrictlyInside(root, path) ? path : ''
 }
 
 /** What put this directory here, or null when nothing this app wrote did. */
@@ -278,7 +279,3 @@ async function exists(path: string): Promise<boolean> {
   )
 }
 
-function isInside(parent: string, child: string): boolean {
-  const rel = relative(parent, child)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
-}

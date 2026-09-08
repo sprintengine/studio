@@ -5,6 +5,7 @@ import {
   type MobileControlRoleSource,
 } from '../../../shared/mobile-control/protocol'
 import { readSprintEngineRegistryRoles } from '../../sprintengine-artifacts'
+import { isRecord } from '../../../shared/records'
 
 // Publishes the workspace's Sprint Engine role registry to the phone (MC-1543).
 //
@@ -190,6 +191,3 @@ function humanizeRoleId(roleId: string): string {
     .join(' ')
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

@@ -30,6 +30,8 @@
 // keeps its last good copy — but a single malformed card is dropped and
 // counted, because one bad row must never blank the home page.
 
+import { isRecord } from './records'
+
 export const HOSTED_CARD_FEED_SCHEMA_VERSION = 1 as const
 
 export const HOSTED_CARD_FEED_URL =
@@ -283,7 +285,7 @@ export function parseHostedCardFeed(source: unknown): HostedCardFeedParseResult 
       return { ok: false, message: `Card feed is not valid JSON. ${formatError(error)}` }
     }
   }
-  if (!isObject(value)) return { ok: false, message: 'Card feed must be a JSON object.' }
+  if (!isRecord(value)) return { ok: false, message: 'Card feed must be a JSON object.' }
   if (value.schemaVersion !== HOSTED_CARD_FEED_SCHEMA_VERSION) {
     return {
       ok: false,
@@ -326,7 +328,7 @@ export function parseHostedCardFeed(source: unknown): HostedCardFeedParseResult 
 // shares no object or array with the body it was parsed from, so a caller that
 // mutates a card cannot reach back into the cache or the response.
 function parseCard(raw: unknown): { ok: true; card: HostedCard } | { ok: false; message: string } {
-  if (!isObject(raw)) return { ok: false, message: 'row must be an object.' }
+  if (!isRecord(raw)) return { ok: false, message: 'row must be an object.' }
   const slug = text(raw.slug)
   if (!slug) return { ok: false, message: 'slug must be a non-empty string.' }
   const kind = text(raw.kind)
@@ -381,7 +383,7 @@ function parseCard(raw: unknown): { ok: true; card: HostedCard } | { ok: false; 
  * a second hand-written check on the main side would be the thing that drifts.
  */
 export function parseCardAction(raw: unknown): { ok: true; action: CardAction } | { ok: false; message: string } {
-  if (!isObject(raw)) return { ok: false, message: 'action must be an object.' }
+  if (!isRecord(raw)) return { ok: false, message: 'action must be an object.' }
   const verb = text(raw.verb)
   switch (verb) {
     case 'require.cli': {
@@ -552,10 +554,6 @@ function stringList(value: unknown): string[] | null {
     if (item) out.push(item)
   }
   return out.length > 0 ? out : null
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function formatError(error: unknown): string {

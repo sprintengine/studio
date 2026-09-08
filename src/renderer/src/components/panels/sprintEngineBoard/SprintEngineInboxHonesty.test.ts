@@ -176,5 +176,4 @@ function artifact(
   )
 }
 
-// eslint-disable-next-line no-console
 console.log('SprintEngineInboxHonesty.test.ts: ok')

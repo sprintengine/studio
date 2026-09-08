@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { join, resolve } from 'path'
 
 import type {
   ConversationProviderListEntry,
@@ -16,12 +16,12 @@ import {
   type PluginRegistryLoadReport,
 } from './plugin-registry'
 import { readTrustedModulesSync } from './modules/trust-store'
+import { isPathInsideOrEqual } from './path-containment'
 
 // Lazy require so this module can be imported in node-only test bundles
 // that never reach the `ensureRegistry()` call. The electron `app` module
 // throws on import in plain node.
 function loadElectron(): typeof import('electron') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('electron')
 }
 
@@ -150,10 +150,3 @@ export function __resetPluginRegistryForTest(): void {
   configuredUserRoot = null
 }
 
-function isPathInsideOrEqual(parentPath: string, targetPath: string): boolean {
-  const relativePath = relative(resolve(parentPath), resolve(targetPath))
-  return (
-    relativePath === ''
-    || (!relativePath.startsWith('..') && !isAbsolute(relativePath) && !relativePath.split(sep).includes('..'))
-  )
-}

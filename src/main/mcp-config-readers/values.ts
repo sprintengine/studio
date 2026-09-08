@@ -3,11 +3,10 @@
 // nothing when it is not — a value is never invented, and a shape a CLI's own
 // config does not have is never reported as one it does.
 
-export function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-}
+import { asRecord } from '../../shared/records'
+
+/** Re-exported: this module was the entry point importers already had. */
+export { asRecord }
 
 export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined

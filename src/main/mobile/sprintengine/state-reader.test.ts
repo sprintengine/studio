@@ -252,5 +252,4 @@ async function assertIdleAgentResolvedViaProjectionWorkersWithoutRunYamlPayload(
   await assertKnownActiveSprintEngineAgent(validated, 'developer-idle')
 }
 
-// eslint-disable-next-line no-console
 console.log('state-reader.test.ts: ok')

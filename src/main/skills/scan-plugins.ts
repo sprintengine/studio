@@ -42,6 +42,7 @@ import {
   type SourceShape,
 } from '../../shared/skills'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
+import { isRecord } from '../../shared/records'
 
 export const CLAUDE_PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json'
 export const CLAUDE_MARKETPLACE_MANIFEST_PATH = '.claude-plugin/marketplace.json'
@@ -826,9 +827,9 @@ function parsePluginManifest(raw: string | null): ParsedPluginManifest | null {
     version: stringOf(parsed.version),
     author: authorName(parsed.author),
     homepage: stringOf(parsed.homepage),
-    inlineHooks: isObject(parsed.hooks) ? parsed.hooks : null,
-    inlineMcpServers: isObject(parsed.mcpServers) ? parsed.mcpServers : null,
-    inlineLspServers: isObject(parsed.lspServers) ? parsed.lspServers : null,
+    inlineHooks: isRecord(parsed.hooks) ? parsed.hooks : null,
+    inlineMcpServers: isRecord(parsed.mcpServers) ? parsed.mcpServers : null,
+    inlineLspServers: isRecord(parsed.lspServers) ? parsed.lspServers : null,
   }
 }
 
@@ -843,10 +844,10 @@ function parsePluginManifest(raw: string | null): ParsedPluginManifest | null {
  * this app may one day launch, and `../` is not a name.
  */
 export function parseLspServers(value: unknown, declaredIn: string, declaredBy: string): ScannedLspServer[] {
-  if (!isObject(value)) return []
+  if (!isRecord(value)) return []
   const servers: ScannedLspServer[] = []
   for (const [id, raw] of Object.entries(value)) {
-    if (!isObject(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
+    if (!isRecord(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
     const command = stringOf(raw.command).trim()
     if (command === '') continue
     const timeout = typeof raw.startupTimeout === 'number' && Number.isFinite(raw.startupTimeout)
@@ -892,17 +893,17 @@ function readHooks(raw: string | null, inline: unknown): ScannedPluginHook[] {
  * prompt shows, and rewriting it would show something other than what runs.
  */
 export function parseHooks(value: unknown): ScannedPluginHook[] {
-  if (!isObject(value)) return []
-  const events = isObject(value.hooks) ? value.hooks : value
+  if (!isRecord(value)) return []
+  const events = isRecord(value.hooks) ? value.hooks : value
   const hooks: ScannedPluginHook[] = []
   for (const [event, groups] of Object.entries(events)) {
     if (!Array.isArray(groups)) continue
     for (const group of groups) {
-      if (!isObject(group)) continue
+      if (!isRecord(group)) continue
       const matcher = stringOf(group.matcher)
       const entries = Array.isArray(group.hooks) ? group.hooks : [group]
       for (const hook of entries) {
-        if (!isObject(hook)) continue
+        if (!isRecord(hook)) continue
         const command = stringOf(hook.command)
         if (command === '') continue
         hooks.push({ event, matcher, command })
@@ -933,11 +934,11 @@ function readMcpServers(
  * ships. An entry naming neither a command nor a URL is not a server.
  */
 export function parseMcpServers(value: unknown, declaredIn: string, declaredBy: string): ScannedMcpServer[] {
-  if (!isObject(value)) return []
-  const map = isObject(value.mcpServers) ? value.mcpServers : value
+  if (!isRecord(value)) return []
+  const map = isRecord(value.mcpServers) ? value.mcpServers : value
   const servers: ScannedMcpServer[] = []
   for (const [id, raw] of Object.entries(map)) {
-    if (!isObject(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
+    if (!isRecord(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
     const type = stringOf(raw.type).trim()
     const url = stringOf(raw.url).trim()
     const command = stringOf(raw.command).trim()
@@ -972,14 +973,14 @@ export function parseMcpServers(value: unknown, declaredIn: string, declaredBy: 
  * a server; a package with no runtime hint is left out rather than guessed at.
  */
 export function parseMcpRegistryManifest(value: unknown, declaredIn: string): ScannedMcpServer[] {
-  if (!isObject(value)) return []
+  if (!isRecord(value)) return []
   const name = stringOf(value.name)
   const id = (name.split('/').pop() ?? name).replace(/[^A-Za-z0-9._-]/g, '-') || 'server'
   const description = stringOf(value.description)
   const servers: ScannedMcpServer[] = []
   const remotes = Array.isArray(value.remotes) ? value.remotes : []
   for (const remote of remotes) {
-    if (!isObject(remote)) continue
+    if (!isRecord(remote)) continue
     const url = stringOf(remote.url).trim()
     if (url === '') continue
     const type = stringOf(remote.type)
@@ -1003,7 +1004,7 @@ export function parseMcpRegistryManifest(value: unknown, declaredIn: string): Sc
   if (servers.length > 0) return servers
   const packages = Array.isArray(value.packages) ? value.packages : []
   for (const pkg of packages) {
-    if (!isObject(pkg)) continue
+    if (!isRecord(pkg)) continue
     const registry = stringOf(pkg.registryType ?? pkg.registry_type ?? pkg.registryName).toLowerCase()
     const identifier = stringOf(pkg.identifier ?? pkg.name).trim()
     if (identifier === '') continue
@@ -1013,7 +1014,7 @@ export function parseMcpRegistryManifest(value: unknown, declaredIn: string): Sc
     if (!launch) continue
     const envNames = Array.isArray(pkg.environmentVariables ?? pkg.environment_variables)
       ? ((pkg.environmentVariables ?? pkg.environment_variables) as unknown[])
-          .map((variable) => (isObject(variable) ? stringOf(variable.name) : ''))
+          .map((variable) => (isRecord(variable) ? stringOf(variable.name) : ''))
           .filter((variable) => variable !== '')
       : []
     servers.push({
@@ -1113,7 +1114,7 @@ export function parseMarketplaceManifest(raw: string | null): MarketplaceManifes
   const plugins: MarketplaceEntry[] = []
   const seen = new Set<string>()
   for (const item of parsed.plugins) {
-    if (!isObject(item)) continue
+    if (!isRecord(item)) continue
     const name = stringOf(item.name).trim()
     if (name === '' || seen.has(name)) continue
     const source = parseEntrySource(item.source)
@@ -1148,7 +1149,7 @@ export function parseMarketplaceManifest(raw: string | null): MarketplaceManifes
  * chase its own tail for nothing.
  */
 function parseRenames(value: unknown): Record<string, string> {
-  if (!isObject(value)) return {}
+  if (!isRecord(value)) return {}
   const renames: Record<string, string> = {}
   for (const [was, now] of Object.entries(value)) {
     const to = stringOf(now).trim()
@@ -1164,7 +1165,7 @@ function parseEntrySource(value: unknown): MarketplaceEntry['source'] | null {
     if (path.split('/').some((segment) => segment === '..')) return null
     return { kind: 'in-tree', path }
   }
-  if (!isObject(value)) return null
+  if (!isRecord(value)) return null
   const kind = stringOf(value.source)
   const path = normalizeRelative(stringOf(value.path))
   // The same check the in-tree branch makes. Today only `blobs.has()` against a
@@ -1230,14 +1231,10 @@ function parseJsonObject(raw: string | null): Record<string, unknown> | null {
   if (raw === null) return null
   try {
     const parsed: unknown = JSON.parse(raw)
-    return isObject(parsed) ? parsed : null
+    return isRecord(parsed) ? parsed : null
   } catch {
     return null
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function stringOf(value: unknown): string {
@@ -1246,7 +1243,7 @@ function stringOf(value: unknown): string {
 
 function authorName(value: unknown): string {
   if (typeof value === 'string') return value
-  return isObject(value) ? stringOf(value.name) : ''
+  return isRecord(value) ? stringOf(value.name) : ''
 }
 
 function stringList(value: unknown): string[] {
@@ -1254,7 +1251,7 @@ function stringList(value: unknown): string[] {
 }
 
 function stringRecord(value: unknown): Record<string, string> {
-  if (!isObject(value)) return {}
+  if (!isRecord(value)) return {}
   const record: Record<string, string> = {}
   for (const [key, entry] of Object.entries(value)) {
     if (typeof entry === 'string') record[key] = entry
@@ -1267,7 +1264,7 @@ function headerRecord(value: unknown): Record<string, string> {
   if (Array.isArray(value)) {
     const record: Record<string, string> = {}
     for (const header of value) {
-      if (!isObject(header)) continue
+      if (!isRecord(header)) continue
       const name = stringOf(header.name)
       if (name !== '') record[name] = stringOf(header.value)
     }

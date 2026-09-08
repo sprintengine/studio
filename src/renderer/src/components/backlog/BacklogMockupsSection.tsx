@@ -92,7 +92,6 @@ export function BacklogMockupsSection({
       cancelled = true
     }
     // pathsKey captures the entry set; folderPath the resolution root.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderPath, pathsKey])
 
   const removeAttached = (path: string): void => {
