@@ -74,8 +74,11 @@ const runs: SprintRunSummary[] = [
     taskCounts: { total: 0, done: 0, inProgress: 0, waiting: 0 },
     repoRollup: { declared: 0, merged: 0, open: 0 },
     needsInputCount: 0,
+    branchName: null,
+    worktreePath: null,
     startedAt: null,
     updatedAt: null,
+    finishedAt: null,
     sourceLabel: null,
     coordinatorSeat: { role: 'architect', agentId: 'architect' },
   },
@@ -212,5 +215,13 @@ assert.ok(
   goalField() === typing,
   'the rows going to zero under an open form leaves the very same form standing, goal and all',
 )
+
+// Unmount at the end, as every other test that mounts this rail does: the rail's
+// rows keep clocks (the shared relative-time tick, a live run's working clock,
+// the git poll), and a mounted clock is a live timer, which is a process that
+// never exits.
+act(() => {
+  root.unmount()
+})
 
 console.log('run-door new-row tests passed')

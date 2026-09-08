@@ -67,10 +67,29 @@ export type SprintRunSummary = {
   }
   /** Tasks awaiting the human operator (user-routed needs_input). */
   needsInputCount: number
+  /**
+   * The run branch, for the rail row's branch chip. Null when the run has no
+   * worktree yet, records an empty name, or its projection could not be read.
+   */
+  branchName: string | null
+  /**
+   * The PRIMARY repo's run worktree, project-root-RELATIVE exactly as the
+   * projection records it — this module stays node-free, so a caller that wants
+   * an absolute path joins it to {@link projectRoot} itself. Null when the run
+   * has no worktree, records an empty path, or could not be read.
+   */
+  worktreePath: string | null
   /** ISO run-creation instant, or null when the projection records none. */
   startedAt: string | null
   /** ISO last-update instant, or null when neither projection nor mtime supplies one. */
   updatedAt: string | null
+  /**
+   * ISO instant the run STOPPED, for the rail row's "since it finished" clock.
+   * Set only for a decided run — the last task to complete for a completed run,
+   * the last update for a canceled one — and null for every run still in play
+   * (running, needs_input, idle) or unreadable.
+   */
+  finishedAt: string | null
   /** Short "Started from" descriptor (Epic / Backlog item / Product plan …), or null. */
   sourceLabel: string | null
   /**
@@ -176,6 +195,51 @@ function deriveRepoRollup(state: SprintEngineState): SprintRunSummary['repoRollu
   return { declared: rollup.total, merged: rollup.merged, open: rollup.unmerged }
 }
 
+// The run branch as the projection records it, trimmed. Null for a run with no
+// vcs block (never provisioned a worktree) or an empty name.
+function deriveBranchName(state: SprintEngineState): string | null {
+  const branchName = state.vcs?.branchName
+  return typeof branchName === 'string' && branchName.trim() ? branchName.trim() : null
+}
+
+// The PRIMARY repo's run worktree, kept project-root-RELATIVE exactly as the
+// projection stores it — joining it to a root is a node concern and this module
+// is node-free. Null for a run with no vcs block or an empty path.
+function deriveWorktreePath(state: SprintEngineState): string | null {
+  const worktreePath = state.vcs?.worktreePath
+  return typeof worktreePath === 'string' && worktreePath.trim() ? worktreePath.trim() : null
+}
+
+/**
+ * When a decided run stopped. A completed run finished when its LAST task did,
+ * so this takes the newest parseable `task.completedAt` and falls back to the
+ * run's `updatedAt` when no task carries one. A canceled run has no cancellation
+ * instant to read — `SprintEngineState.canceled` is a bare boolean flag (see
+ * run-types.ts), and the projection records no `canceledAt` — so its last update
+ * IS when it stopped. Every undecided state (running, needs_input, idle) is still
+ * in play and reports null rather than a clock that would tick against nothing.
+ */
+function deriveFinishedAt(
+  state: SprintEngineState,
+  runtimeState: SprintRunRuntimeState,
+  updatedAt: string | null,
+): string | null {
+  if (runtimeState === 'canceled') return updatedAt
+  if (runtimeState !== 'completed') return null
+  let latest: string | null = null
+  let latestMs = Number.NEGATIVE_INFINITY
+  for (const task of state.tasks) {
+    const completedAt = task.completedAt
+    if (typeof completedAt !== 'string' || !completedAt.trim()) continue
+    const ms = Date.parse(completedAt)
+    // An unparseable stamp is skipped rather than allowed to win by string order.
+    if (Number.isNaN(ms) || ms <= latestMs) continue
+    latestMs = ms
+    latest = completedAt
+  }
+  return latest ?? updatedAt
+}
+
 /**
  * Build one {@link SprintRunSummary} from a normalized projection (or an
  * `unknownReason` when the projection could not be read). Pure: identity fields
@@ -207,8 +271,11 @@ export function deriveSprintRunSummary(input: {
       taskCounts: { total: 0, done: 0, inProgress: 0, waiting: 0 },
       repoRollup: { declared: 0, merged: 0, open: 0 },
       needsInputCount: 0,
+      branchName: null,
+      worktreePath: null,
       startedAt: null,
       updatedAt: input.updatedAtFallback ?? null,
+      finishedAt: null,
       sourceLabel: null,
       // An unreadable projection has no `configuredRoles` to resolve a seat from,
       // and `sprintEngineCoordinatorSeat` answers "architect" for a state it
@@ -220,19 +287,25 @@ export function deriveSprintRunSummary(input: {
     }
   }
 
+  const runtimeState = deriveRuntimeState(state)
+  const updatedAt = state.updatedAt ?? state.creation?.updatedAt ?? input.updatedAtFallback ?? null
+
   return {
     statePath,
     teamSlug,
     teamName: state.name?.trim() || teamSlug,
     projectRoot,
     projectName,
-    runtimeState: deriveRuntimeState(state),
+    runtimeState,
     taskCounts: deriveTaskCounts(state),
     repoRollup: deriveRepoRollup(state),
     needsInputCount: sprintEngineHumanInputTasks(state).length,
+    branchName: deriveBranchName(state),
+    worktreePath: deriveWorktreePath(state),
     coordinatorSeat: sprintEngineCoordinatorSeat(state),
     startedAt: state.creation?.createdAt ?? state.source?.capturedAt ?? null,
-    updatedAt: state.updatedAt ?? state.creation?.updatedAt ?? input.updatedAtFallback ?? null,
+    updatedAt,
+    finishedAt: deriveFinishedAt(state, runtimeState, updatedAt),
     sourceLabel: deriveSourceLabel(state),
   }
 }

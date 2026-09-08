@@ -20,7 +20,9 @@ export type RunDoorDefinition = {
   id: RunDoorId
   /** The door's name — the rail's section label and the surface bar's title. */
   label: string
-  /** What one of this door's runs is called, in lower case and in the plural. */
+  /** What one of this door's runs is called, in lower case. */
+  noun: string
+  /** The same, in the plural. */
   nounPlural: string
   /** The one sentence that says how this door differs. Stated once. */
   tagline: string
@@ -50,6 +52,7 @@ export type RunDoorDefinition = {
 export const WORKFLOWS_DOOR: RunDoorDefinition = {
   id: 'workflows',
   label: 'Workflows',
+  noun: 'workflow',
   nounPlural: 'workflows',
   tagline: 'You have a goal. An architect works out what the work is, then a roster does it.',
   newLabel: 'New workflow',
@@ -75,6 +78,7 @@ export const WORKFLOWS_DOOR: RunDoorDefinition = {
 export const SPRINTS_DOOR: RunDoorDefinition = {
   id: 'sprints',
   label: 'Sprints',
+  noun: 'sprint',
   nounPlural: 'sprints',
   tagline: 'The work is already written down. Agents take what is ready until the graph is empty.',
   newLabel: 'New sprint',

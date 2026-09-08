@@ -37,6 +37,7 @@ import { StatusDot } from '../../ui/StatusDot'
 import { FOCUS_RING_CLASS, type StatusTone } from '../../ui/tokens'
 import { Tooltip } from '../../ui/Tooltip'
 import { TruncatedText } from '../../ui/TruncatedText'
+import { SELECTION_EDGE_CLASS, attentionRowSurfaceClass, doneRowSurfaceClass } from '../rowStatusParts'
 
 // ── SurfaceCanvasState ───────────────────────────────────────────────────────
 // The three shared canvas states. Same anatomy on every door; only the copy
@@ -226,6 +227,39 @@ export interface SurfaceRailRow {
   /** Right-click anywhere on the row. The same menu the `actions` trigger opens,
    *  so the affordance is discoverable both ways. */
   onContextMenu?: (position: { x: number; y: number }) => void
+
+  // ── The rich row ────────────────────────────────────────────────────────
+  // A row in the app sidebar's own shape (door-rails-premium): a line above the
+  // title saying where the thing lives with a clock at its trailing edge, the
+  // title, and a line under it of marks and chips. The run doors wear it so a
+  // sprint reads exactly like a chat in the column next to it — same clock in
+  // the same corner, same branch chip, same gold-when-it-wants-you wash. A row
+  // that sets neither `context` nor `detail` is the plain two-line row it
+  // always was, so the other doors are untouched.
+
+  /** The line ABOVE the title: a small mark, the name of the place the row
+   *  belongs to (its project), and a trailing seat that holds the row's clock
+   *  — the working dots and how long, or how long since it rested. The one
+   *  line that is the same shape on every row, which is what lets the eye
+   *  find the clock without reading the row. */
+  context?: { icon?: React.ReactNode; label: string; seat?: React.ReactNode }
+  /** The line UNDER the title, replacing the plain `stateLine` text: the
+   *  lifecycle mark, a branch chip, ±lines, the state in words. `stateLine`
+   *  stays required — it is the row's one-sentence accessible summary and the
+   *  text any search or test can read — and renders sr-only when this is set. */
+  detail?: React.ReactNode
+  /** The row's surface: it wants a person (the gold wash), or it finished
+   *  while nobody was looking (the faint green wash, until it is opened).
+   *  Nothing for the ordinary row. */
+  surface?: 'attention' | 'done'
+  /** How loudly the title reads: `active` is bold, `quiet` sits a step back in
+   *  subtle ink and brightens on hover — the sidebar's emphasis tiers, so an
+   *  hour-old run recedes the way an hour-old chat does. Ignored on a plain row. */
+  emphasis?: 'active' | 'quiet'
+  /** Pointer-inert siblings layered over the row (the one-shot state-change
+   *  flash). Rendered inside the row's `li`, absolutely positioned, never
+   *  inside the button — so replaying one never remounts the button. */
+  overlay?: React.ReactNode
 }
 
 /** The rail's optional search field — the same idiom as the Backlog toolbar. */
@@ -370,6 +404,84 @@ export function SurfaceRailHeader({
   )
 }
 
+/**
+ * The rich row's surface, in the app sidebar's precedence: wanting a person
+ * outranks having finished, which outranks being the selected row — a selected
+ * row that wants you keeps its gold and gains the selection edge, never the
+ * neutral fill that would say the ask has been dealt with.
+ */
+function richRowSurfaceClass(row: SurfaceRailRow, selected: boolean): string {
+  if (row.surface === 'attention') return attentionRowSurfaceClass(selected)
+  if (row.surface === 'done') return doneRowSurfaceClass(selected)
+  if (selected) return `bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ${SELECTION_EDGE_CLASS}`
+  return 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+}
+
+/**
+ * The rich row's button: context line, title, detail line — the app sidebar's
+ * flat-stream row, in the door column. Its classes are that row's classes: the
+ * 30px minimum, the 20px meta lines, the 44px seat the clock sits in, the
+ * `text-heading` title whose weight is the emphasis tier and whose ink is the
+ * surface's. Kept as a function of the row rather than a component so the
+ * rail's roving `ref` lands on the button exactly as it does on a plain row.
+ */
+function renderRichRowButton(
+  row: SurfaceRailRow,
+  selected: boolean,
+  ref: (node: HTMLButtonElement | null) => void,
+  onSelect: (id: string) => void,
+): JSX.Element {
+  const quiet = row.emphasis === 'quiet' && !selected
+  const lineInk = quiet ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+  const titleInk = quiet ? 'text-[color:var(--text-subtle)] group-hover/rich-row:text-[color:var(--text-default)]' : ''
+  const titleWeight = row.emphasis === 'active' || selected ? 'font-semibold' : ''
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-current={selected ? 'true' : undefined}
+      onClick={() => onSelect(row.id)}
+      onContextMenu={
+        row.onContextMenu
+          ? (event) => {
+              event.preventDefault()
+              row.onContextMenu?.({ x: event.clientX, y: event.clientY })
+            }
+          : undefined
+      }
+      data-rail-row="rich"
+      className={`interactive group/rich-row relative flex min-h-control-sm w-full cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md py-1 pl-3 pr-1.5 text-left text-heading ${FOCUS_RING_CLASS} ${richRowSurfaceClass(
+        row,
+        selected,
+      )}`}
+    >
+      {row.context ? (
+        <span className={`flex h-5 min-w-0 items-center gap-1.5 text-meta ${lineInk}`}>
+          {row.context.icon ?? null}
+          <span className="min-w-0 truncate">{row.context.label}</span>
+          {row.context.seat ? (
+            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end gap-1 pl-2 tabular-nums">
+              {row.context.seat}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${titleWeight} ${titleInk}`} />
+      </span>
+      {row.detail ? (
+        <span className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${lineInk}`}>
+          {row.detail}
+          <span className="sr-only">{row.stateLine}</span>
+        </span>
+      ) : (
+        <TruncatedText as="span" text={row.stateLine} className={`text-meta ${lineInk}`} />
+      )}
+      {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
+    </button>
+  )
+}
+
 export function SurfaceRail({
   label,
   intro,
@@ -506,12 +618,17 @@ export function SurfaceRail({
 
   const renderRow = (row: SurfaceRailRow): JSX.Element => {
     const selected = row.id === selectedId
+    const rich = row.context !== undefined || row.detail !== undefined
     // Never a native `title=`: the OS tooltip beside the product `Tooltip` one
     // column over was two tooltip dialects on one door, and a native one cannot
     // be reached from the keyboard. The row button is the focusable trigger for
     // the door's whole-row tooltip; a clipped title or state line reveals its
     // own full text through `TruncatedText`.
-    const rowButton = (
+    const rowButton = rich ? (
+      renderRichRowButton(row, selected, (node) => {
+        rowRefs.current.set(row.id, node)
+      }, onSelect)
+    ) : (
       <button
         ref={(node) => {
           rowRefs.current.set(row.id, node)
@@ -559,7 +676,13 @@ export function SurfaceRail({
     )
     return (
       <li key={row.id} className="group/rail-row relative flex min-w-0">
-        {row.tooltip ? (
+        {/* The flash is a sibling of the button, under it in the tree and over
+            it on screen — replaying it never remounts the row under the pointer. */}
+        {row.overlay ?? null}
+        {/* A rich row carries its own tooltips (the mark, the chip, the clock),
+            so no whole-row tooltip wraps it — one dialect per row, and a chip's
+            tooltip inside a row's tooltip was two surfaces fighting for one hover. */}
+        {row.tooltip && !rich ? (
           <Tooltip content={row.tooltip} wrapperClassName="flex min-w-0 flex-1">
             {rowButton}
           </Tooltip>

@@ -25,8 +25,11 @@ function run(statePath: string, runtimeState: SprintRunSummary['runtimeState']):
     taskCounts: { total: 0, done: 0, inProgress: 0, waiting: 0 },
     repoRollup: { declared: 0, merged: 0, open: 0 },
     needsInputCount: 0,
+    branchName: null,
+    worktreePath: null,
     startedAt: null,
     updatedAt: null,
+    finishedAt: null,
     sourceLabel: null,
     ...(runtimeState === 'unknown' ? { unknownReason: 'Run projection has not been written yet.' } : {}),
   }

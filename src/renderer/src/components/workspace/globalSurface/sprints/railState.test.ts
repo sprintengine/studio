@@ -37,8 +37,11 @@ function summary(overrides: Partial<SprintRunSummary> & { teamSlug: string }): S
     taskCounts: { total: 0, done: 0, inProgress: 0, waiting: 0 },
     repoRollup: { declared: 0, merged: 0, open: 0 },
     needsInputCount: 0,
+    branchName: null,
+    worktreePath: null,
     startedAt: null,
     updatedAt: null,
+    finishedAt: null,
     sourceLabel: null,
     ...overrides,
   }

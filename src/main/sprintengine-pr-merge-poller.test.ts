@@ -47,8 +47,11 @@ function runSummary(statePath: string, updatedAt: string | null = '2026-08-06T00
     taskCounts: { total: 1, done: 1, inProgress: 0, waiting: 0 },
     repoRollup: { declared: 1, merged: 0, open: 1 },
     needsInputCount: 0,
+    branchName: null,
+    worktreePath: null,
     startedAt: null,
     updatedAt,
+    finishedAt: null,
     sourceLabel: null,
   }
 }

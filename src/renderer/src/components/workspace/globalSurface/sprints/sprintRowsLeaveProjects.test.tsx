@@ -66,8 +66,11 @@ const runSummary = {
   taskCounts: { total: 4, done: 1, inProgress: 1, waiting: 2 },
   repoRollup: { declared: 1, merged: 0, open: 1 },
   needsInputCount: 0,
+  branchName: null,
+  worktreePath: null,
   startedAt: '2026-07-22T09:00:00Z',
   updatedAt: '2026-07-22T10:00:00Z',
+  finishedAt: null,
   sourceLabel: null,
 }
 

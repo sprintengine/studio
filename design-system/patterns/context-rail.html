@@ -513,6 +513,17 @@
       inside the scrollport under the head at the row inset. As a sibling of a
       <code>flex: 1</code> rail it is pushed to the bottom of the column when the
       list is empty — furthest from the search field that emptied it.</li>
+    <li><strong>The rich row (door-rails-premium, 2026-09-08).</strong> A rail
+      whose rows carry a context line (where the thing lives, with a clock at
+      the trailing edge), a title, and a line of marks and chips under it is
+      wearing the <em>app sidebar's</em> row, not this pattern's two-line row —
+      the run doors do, so a sprint reads like the chat beside it. Its title
+      lands on the sidebar's flat-stream edge (16px: 4px scrollport + 12px row
+      padding) at <code>font.size.heading</code>, with no leading icon slot;
+      the lifecycle mark moves down onto the detail line. That is the one
+      sanctioned departure from the 36px column above, and it exists so that
+      drilling from the sidebar into a run door re-flows nothing: the row you
+      left and the row you arrive at are the same row.</li>
   </ul>
   <p class="pat-caption">
     Measured, not assumed: the app sidebar's own comment claimed a 36px text

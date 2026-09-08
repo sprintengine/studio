@@ -26,6 +26,9 @@ export type SprintRailRow = {
    *  rows use (merged branch, ready-for-review branch, completed disc,
    *  needs-input, running spinner) — never a bare tone dot. */
   glyph: { state: LifecycleState; live: boolean; label: string }
+  /** The summary the row was built from, so the rail can compose the rich
+   *  row's parts (clock, branch, ±lines) without a second lookup. */
+  summary: SprintRunSummary
 }
 
 // One vocabulary with the Backlog's run glyphs (deriveSprintEngineRunGlyph):
@@ -307,6 +310,7 @@ export function buildSprintRailRows(
     tone: sprintRunTone(summary.runtimeState),
     pulse: summary.runtimeState === 'running',
     glyph: sprintRunLifecycleGlyph(summary),
+    summary,
   }))
 }
 
@@ -363,3 +367,126 @@ export function sprintDoorAttention(
 // failed read never reads as "no sprints").
 export const RUN_INDEX_ERROR_TITLE = 'Couldn’t load your sprints.'
 export const RUN_INDEX_ERROR_HINT = 'Your runs are still on disk — this is usually temporary.'
+
+// ── The rich row (door-rails-premium) ────────────────────────────────────────
+// The run doors' rows wear the app sidebar's shape — a project line with a
+// clock in its corner, the title, a line of marks and chips under it — so a
+// sprint reads like the chat beside it. What follows is the read model for
+// those parts: which clock a run wears and from when, what its detail line
+// says in words, how loudly its title reads, and which runs finished while
+// nobody was looking. All pure over the index summaries, like the rest of this
+// file, so the rail composes marks and the rules stay unit-testable.
+
+/**
+ * The clock in a run row's corner, in the sidebar's three shapes: work in
+ * flight counts UP from when it started (the dots and "14m"); a run waiting
+ * on a person says how long it has waited; a run at rest says how long since
+ * it rested, and what "rested" means — finished, canceled, or merely last
+ * touched. Null when the run carries no usable stamp for its state — the row
+ * then shows its mark alone rather than a clock that would count from nothing.
+ */
+export type SprintRunClock =
+  | { kind: 'working'; since: number }
+  | { kind: 'waiting'; since: number }
+  | { kind: 'rested'; at: number; verb: 'Finished' | 'Canceled' | 'Updated' }
+
+export function sprintRunClock(summary: SprintRunSummary): SprintRunClock | null {
+  switch (summary.runtimeState) {
+    case 'running': {
+      const since = stampOf(summary.startedAt)
+      return Number.isFinite(since) ? { kind: 'working', since } : null
+    }
+    case 'needs_input': {
+      const since = stampOf(summary.updatedAt ?? summary.startedAt)
+      return Number.isFinite(since) ? { kind: 'waiting', since } : null
+    }
+    case 'completed':
+    case 'canceled': {
+      const at = stampOf(summary.finishedAt ?? summary.updatedAt)
+      return Number.isFinite(at)
+        ? { kind: 'rested', at, verb: summary.runtimeState === 'completed' ? 'Finished' : 'Canceled' }
+        : null
+    }
+    case 'idle':
+    case 'unknown':
+    default: {
+      const at = stampOf(summary.updatedAt ?? summary.startedAt)
+      return Number.isFinite(at) ? { kind: 'rested', at, verb: 'Updated' } : null
+    }
+  }
+}
+
+/**
+ * The words on a run row's detail line, beside its lifecycle mark and branch
+ * chip. Shorter than `sprintRunStateLine` on purpose: the project is already
+ * the line above, the clock is already in the corner, and the mark (and the
+ * group header) already say running / waiting — so what is left to say is the
+ * progress, or the leg that remains. Never a status enum.
+ */
+export function sprintRunDetailWords(summary: SprintRunSummary): string {
+  const { done, total } = summary.taskCounts
+  const progress = total > 0 ? `${done} of ${total} tasks` : null
+  switch (summary.runtimeState) {
+    case 'running':
+      return progress ?? 'running'
+    case 'needs_input':
+      return progress ?? 'needs your input'
+    case 'completed': {
+      const { open, merged } = summary.repoRollup
+      if (open > 0) return `${open} merge${open === 1 ? '' : 's'} left`
+      if (merged > 0) return 'merged'
+      return 'complete'
+    }
+    case 'canceled':
+      return progress ? `canceled · ${progress}` : 'canceled'
+    case 'idle':
+      return progress ?? 'not started yet'
+    case 'unknown':
+    default:
+      return 'details unavailable'
+  }
+}
+
+/** How long a resting run keeps the foreground before it recedes — the sidebar's hour. */
+export const SPRINT_RUN_QUIET_AFTER_MS = 60 * 60 * 1000
+
+/**
+ * How loudly a run row's title reads (the sidebar's emphasis tiers, restated
+ * for runs): the row you are in, a run at work, and a run that wants you are
+ * `active`; so is anything that rested within the hour. Older than that it is
+ * `quiet` — a step back in ink, so the rail's foreground is what is happening
+ * now and the landed runs of last week sit behind it. A run with no clock at
+ * all has no claim on the foreground.
+ */
+export function sprintRunEmphasis(
+  summary: SprintRunSummary,
+  selected: boolean,
+  now: number,
+): 'active' | 'quiet' {
+  if (selected) return 'active'
+  const clock = sprintRunClock(summary)
+  if (!clock) return 'quiet'
+  if (clock.kind !== 'rested') return 'active'
+  return now - clock.at >= SPRINT_RUN_QUIET_AFTER_MS ? 'quiet' : 'active'
+}
+
+/**
+ * The runs that have just finished, unseen: those this window watched go from
+ * anything else to `completed`. A run that was already complete when the rail
+ * first saw it has nothing to announce — the wash is for a turn end you missed,
+ * not for history. Returns the ids to add; the caller keeps the set and clears
+ * an id the moment its row is opened.
+ */
+export function deriveSprintRunCompletions(
+  previous: ReadonlyMap<string, SprintRunRuntimeState>,
+  runs: ReadonlyArray<SprintRunSummary>,
+): string[] {
+  const completed: string[] = []
+  for (const summary of runs) {
+    const before = previous.get(summary.statePath)
+    if (before !== undefined && before !== 'completed' && summary.runtimeState === 'completed') {
+      completed.push(summary.statePath)
+    }
+  }
+  return completed
+}

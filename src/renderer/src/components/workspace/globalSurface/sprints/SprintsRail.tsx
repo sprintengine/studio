@@ -1,11 +1,28 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
-import { LifecycleGlyph } from '../../../ui'
-import { basename } from '../../../../utils/paths'
+import { useRelativeNow } from '../../../../hooks/useRelativeNow'
+import { basename, pathJoin } from '../../../../utils/paths'
+import { FolderTypeIcon } from '../../../AppIcons'
+import { AgentWorkingDots, LifecycleGlyph, Tooltip } from '../../../ui'
+import {
+  AttentionPulse,
+  BranchChip,
+  DiffChip,
+  RestingClock,
+  WorkingElapsed,
+} from '../../rowStatusParts'
+import { useSidebarGitSummaries, type SummaryEntry } from '../../useSidebarGitSummaries'
 import { SurfaceRail, type SurfaceRailRow, type SurfaceRailScope } from '../surfaceSubstrate'
 import {
   buildSprintRailGroups,
   deriveSprintProjectChips,
+  deriveSprintRunCompletions,
+  sprintRunClock,
+  sprintRunDetailWords,
+  sprintRunEmphasis,
   sprintRunMatchesSearch,
+  sprintRunProjectPhrase,
   SPRINT_SORT_ITEMS,
   type SprintRailRow,
   type SprintSort,
@@ -32,18 +49,69 @@ import { SPRINTS_DOOR, type RunDoorDefinition } from './runDoorCopy'
 // door's one sentence sits at the top, under its name, and the `+` sits at the
 // END of the list where the mockup puts it — the rail's New-at-top affordance
 // stays where it has always been, so the Sprints door keeps everything it had.
+//
+// The rows are the app sidebar's rows (door-rails-premium): a project line with
+// the run's clock in its corner — the working dots and how long a live run has
+// been at it, or how long since a finished one landed — the run's name, and a
+// line under it of the lifecycle mark, the run branch, what the branch has
+// changed, and the leg that remains. A run that wants a person wears the gold
+// wash and flashes once as it starts waiting; a run that finishes while this
+// window is open wears the faint green wash until it is opened. Every part is
+// the sidebar's own (`rowStatusParts`), so the two columns cannot drift.
 
 const ALL_PROJECTS = ' all'
 
 /**
- * The whole-row tooltip: the run, the lifecycle word its glyph draws, and the
- * state line — so Merged / Ready for review is readable on hover and focus even
- * where the glyph alone carries it. It rides the substrate's product `Tooltip`
- * on the row button (never a native `title`), which is why it is a pure
- * function the rail test can assert on rather than markup it can grep for.
+ * The whole-row summary: the run, the lifecycle word its glyph draws, and the
+ * state line — the one sentence a screen reader and the rail tests read off a
+ * row, and what the row's lifecycle mark says on hover. A pure function so the
+ * rail test can assert on it rather than markup it can grep for.
  */
 export function sprintRowTooltip(row: SprintRailRow): string {
   return `${row.title} — ${row.glyph.label} · ${row.stateLine}`
+}
+
+/**
+ * The runs whose completion this window has watched, and so may announce with
+ * the green wash: a run goes in when it moves to `completed` under our eyes and
+ * comes out the moment it is opened. Never persisted — reopening the app has
+ * nothing to announce, the same rule the sidebar's unseen-done set follows.
+ */
+function useUnseenRunCompletions(
+  runs: ReadonlyArray<SprintRunSummary>,
+  selectedStatePath: string | null,
+): ReadonlySet<string> {
+  const previous = useRef<Map<string, SprintRunSummary['runtimeState']>>(new Map())
+  const [unseen, setUnseen] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    const justCompleted = deriveSprintRunCompletions(previous.current, runs)
+    previous.current = new Map(runs.map((summary) => [summary.statePath, summary.runtimeState]))
+    if (justCompleted.length === 0) return
+    setUnseen((current) => {
+      const next = new Set(current)
+      for (const statePath of justCompleted) if (statePath !== selectedStatePath) next.add(statePath)
+      return next
+    })
+  }, [runs, selectedStatePath])
+  useEffect(() => {
+    if (selectedStatePath === null || !unseen.has(selectedStatePath)) return
+    setUnseen((current) => {
+      const next = new Set(current)
+      next.delete(selectedStatePath)
+      return next
+    })
+  }, [selectedStatePath, unseen])
+  return unseen
+}
+
+/** The checkout a run's ±lines are read from: its run worktree, under its project root. */
+function runCheckoutPath(summary: SprintRunSummary): string | null {
+  return summary.worktreePath ? pathJoin(summary.projectRoot, summary.worktreePath) : null
+}
+
+/** A run whose branch is still being worked — the only ones worth asking git about. */
+function isLiveRun(summary: SprintRunSummary): boolean {
+  return summary.runtimeState === 'running' || summary.runtimeState === 'needs_input'
 }
 
 export function SprintsRail({
@@ -58,6 +126,7 @@ export function SprintsRail({
   onSearch,
   onSort,
   onCreate,
+  now: nowOverride,
 }: {
   /** Which door this rail is. Defaults to Sprints, the door that predates the
    *  split — so a caller that never heard of the other one still gets its copy. */
@@ -75,30 +144,86 @@ export function SprintsRail({
   onSearch: (query: string) => void
   onSort: (sort: SprintSort) => void
   onCreate: () => void
+  /** The clock the resting rows read. Tests pin it; the app leaves it to the
+   *  shared 30-second tick. */
+  now?: number
 }): JSX.Element {
+  const tick = useRelativeNow()
+  const now = nowOverride ?? tick
   const chips = deriveSprintProjectChips(runs)
-  // Rows carry the app's lifecycle iconography — the SAME marks the Backlog
-  // rows use (Merged purple branch, Ready for review, Complete disc, Needs
-  // input, running spinner) — never a bare tone dot. The tooltip names the
-  // glyph's state, so Merged/Ready-for-review is readable on hover too.
-  const withGlyphIcons = (rows: readonly SprintRailRow[]): SurfaceRailRow[] =>
-    rows.map((row) => ({
+  const unseenDone = useUnseenRunCompletions(runs, selectedStatePath)
+
+  // What the run branch has changed, for the live runs only (owner ruling on
+  // the sidebar, 2026-09-04, decision 9, applied here): a finished run's
+  // worktree is often gone, and a parked one's ±lines would be the checkout's
+  // present state rather than anything the run did. The poll is keyed by
+  // checkout, so two runs on one tree share one read.
+  const gitEntries = useMemo<SummaryEntry[]>(
+    () =>
+      runs
+        .filter(isLiveRun)
+        .map((summary) => ({ id: summary.statePath, checkoutPath: runCheckoutPath(summary) })),
+    [runs],
+  )
+  const gitSummaries = useSidebarGitSummaries(gitEntries)
+
+  const toRichRow = (row: SprintRailRow): SurfaceRailRow => {
+    const { summary } = row
+    const selected = row.id === selectedStatePath
+    const clock = sprintRunClock(summary)
+    const wantsYou = summary.runtimeState === 'needs_input'
+    const finishedUnseen = !wantsYou && unseenDone.has(row.id)
+    const emphasis = finishedUnseen ? 'active' : sprintRunEmphasis(summary, selected, now)
+    const quiet = emphasis === 'quiet' && !selected
+    const git = gitSummaries[row.id]
+    const checkout = runCheckoutPath(summary)
+    return {
       id: row.id,
       title: row.title,
       stateLine: row.stateLine,
-      tooltip: sprintRowTooltip(row),
-      icon: (
-        <LifecycleGlyph
-          state={row.glyph.state}
-          live={row.glyph.live}
-          label={row.glyph.label}
-          className="shrink-0"
-        />
+      emphasis,
+      surface: wantsYou ? 'attention' : finishedUnseen ? 'done' : undefined,
+      overlay: (
+        <>
+          <AttentionPulse active={wantsYou} resetKey={row.id} />
+          <AttentionPulse active={finishedUnseen} resetKey={row.id} tone="good" />
+        </>
       ),
-    }))
+      context: {
+        icon: <FolderTypeIcon className="icon-xs shrink-0" />,
+        label: sprintRunProjectPhrase(summary),
+        seat: <RunClockSeat clock={clock} now={now} wantsYou={wantsYou} />,
+      },
+      detail: (
+        <>
+          <Tooltip content={sprintRowTooltip(row)} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+            <LifecycleGlyph
+              state={row.glyph.state}
+              live={row.glyph.live}
+              label={row.glyph.label}
+              className={`shrink-0 ${quiet ? 'opacity-70' : ''}`}
+            />
+          </Tooltip>
+          {summary.branchName ? (
+            <BranchChip branch={summary.branchName} worktree={checkout !== null} cwd={checkout} dim={quiet} />
+          ) : null}
+          {git ? (
+            <DiffChip
+              additions={git.additions}
+              deletions={git.deletions}
+              tooltip={`Changed on ${summary.branchName ?? 'the run branch'} by this ${door.noun}`}
+              srText={`${git.additions} added, ${git.deletions} removed by this ${door.noun}`}
+            />
+          ) : null}
+          <span className="min-w-0 truncate">{sprintRunDetailWords(summary)}</span>
+        </>
+      ),
+    }
+  }
+
   const searched = runs.filter((summary) => sprintRunMatchesSearch(summary, search))
   const rawGroups = buildSprintRailGroups(searched, projectFilter, sort)
-  const groups = rawGroups.map((group) => ({ ...group, rows: withGlyphIcons(group.rows) }))
+  const groups = rawGroups.map((group) => ({ ...group, rows: group.rows.map(toRichRow) }))
   const rows = groups.flatMap((group) => group.rows)
   // A lens narrowed to a project whose last run has since been deleted: the
   // chips are derived from the runs, so that project is no longer among them.
@@ -184,4 +309,44 @@ export function SprintsRail({
       afterRows={<RunDoorNewRow door={door} projectFilter={projectFilter} />}
     />
   )
+}
+
+/**
+ * The clock in a run row's corner. Work in flight: the working dots and how
+ * long, counting up from the run's start (the sidebar's "••• 14m"). Waiting on
+ * a person: how long it has waited — no dot beside it, because the gold surface
+ * is the mark and a dot beside it would say the same thing twice. At rest: how
+ * long since it finished, was canceled, or was last touched, with the sentence
+ * and the date on hover.
+ */
+function RunClockSeat({
+  clock,
+  now,
+  wantsYou,
+}: {
+  clock: ReturnType<typeof sprintRunClock>
+  now: number
+  wantsYou: boolean
+}): JSX.Element | null {
+  if (!clock) return null
+  if (clock.kind === 'working') {
+    return (
+      <>
+        <AgentWorkingDots label="Agents working" />
+        <WorkingElapsed since={clock.since} label="Running" />
+      </>
+    )
+  }
+  if (clock.kind === 'waiting') {
+    return (
+      <RestingClock
+        at={clock.since}
+        now={now}
+        verb="Waiting on you"
+        measure="for"
+        className={`text-meta tabular-nums ${wantsYou ? 'text-[color:var(--tone-warn-on-tint)]' : ''}`}
+      />
+    )
+  }
+  return <RestingClock at={clock.at} now={now} verb={clock.verb} className="text-meta tabular-nums" />
 }

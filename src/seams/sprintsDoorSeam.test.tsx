@@ -158,8 +158,11 @@ async function run(projectRoot: string): Promise<void> {
       taskCounts: { total: 1, done: 0, inProgress: 1, waiting: 0 },
       repoRollup: { declared: 1, merged: 0, open: 0 },
       needsInputCount: 0,
+      branchName: null,
+      worktreePath: null,
       startedAt: null,
       updatedAt: null,
+      finishedAt: null,
       sourceLabel: null,
     },
   ]
