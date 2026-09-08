@@ -511,6 +511,20 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const textarea = term.textarea
     textarea?.addEventListener('focus', reclaimPtySize)
 
+    // The roots a relative path in this pane resolves against. Both are null
+    // exactly when the workspace has no configured folder — the launch effect
+    // deliberately runs for that case (see the `savedFolderPath` guard above) —
+    // and every relative match is then dropped, which is what `onDrop` below
+    // makes countable.
+    //
+    // Known and deliberate gap: the last argument is `null`, so a non-worktree
+    // agent in a worktree-backed workspace resolves links against the parent
+    // checkout while its process actually runs in the worktree. The launch path
+    // below resolves the real cwd, but only after an async `pathExists` that
+    // this synchronous registration cannot wait on. Reading the agent's cwd off
+    // the wire is [[terminal-osc7-cwd]]'s job; until then both trees hold the
+    // same relative paths, so the link opens the same file in the wrong copy
+    // rather than failing.
     const linkExecutionRoot = resolveAgentExecutionRoot(
       currentContext().agent?.execution,
       currentContext().storedExecutionWorktreePath,
@@ -544,6 +558,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         })
       },
       onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
+      // A matched path that never became a link leaves no trace on screen, so
+      // count it. Both roots are null for a workspace with no configured folder
+      // — the case this effect deliberately runs for — and every relative path
+      // in the pane is then dropped for `no-root`, which is the one shape of
+      // "the terminal linkifies nothing" a user can actually report.
+      onDrop: terminalDiagnostics.recordFileLinkDrop,
     }))
 
     const webLinksAddon = new WebLinksAddon((event, uri) => {

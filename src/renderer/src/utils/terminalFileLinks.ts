@@ -30,6 +30,33 @@ type TerminalFileLinkActivateInput = {
  *  is reported as missing, which routes to `onOpenError` rather than a menu. */
 type TerminalFileLinkPathInfo = { exists: boolean; isDirectory: boolean }
 
+/**
+ * Why a path the pattern DID match never became a link.
+ *
+ * Both are invisible by construction — the text just stays un-underlined — so
+ * they are reported to the host, which counts them in terminal diagnostics.
+ * That is the only way a pane that quietly linkifies nothing can be told apart
+ * from a pane whose output happens to contain no paths.
+ *
+ * - `no-root`: a relative path arrived with neither an execution root nor a
+ *   workspace root to resolve it against. This is the one that actually
+ *   happens, and the one the counter exists for.
+ * - `no-range`: the reference resolved but its offsets did not land inside the
+ *   buffer segments the logical line was read from. Through
+ *   `createTerminalFileLinkProvider` this should be UNREACHABLE — the
+ *   references are matched against the very text those segments tile, so every
+ *   offset maps — which is exactly why it is worth counting: a non-zero
+ *   `no-range` means the segment tiling and the match offsets have come apart,
+ *   and every link on that line is silently gone.
+ */
+export type TerminalFileLinkDropReason = 'no-root' | 'no-range'
+
+export type TerminalFileLinkDrop = {
+  reason: TerminalFileLinkDropReason
+  /** The matched text, for a diagnostic log line — never shown to the user. */
+  text: string
+}
+
 export type TerminalFileLinkProviderOptions = {
   terminal: Terminal
   workspaceRoot?: string | null
@@ -41,6 +68,8 @@ export type TerminalFileLinkProviderOptions = {
   /** Reports a failed open, anchored to the click that triggered it so the UI
    *  can surface the error next to the pointer. */
   onOpenError?: (message: string, anchor: { x: number; y: number }) => void
+  /** Reports a match that was discarded before it could become a link. */
+  onDrop?: (drop: TerminalFileLinkDrop) => void
 }
 
 const FILE_REFERENCE_PATTERN =
@@ -107,6 +136,23 @@ function normalizePath(pathValue: string): string {
   return `${root}${segments.join(separator)}` || root || '.'
 }
 
+/**
+ * Decision of record (2026-09-08, item `terminal-relative-links-dropped`):
+ * with neither root known we leave a relative path UNLINKED rather than guess
+ * a base for it. A guessed root produces links that open the wrong file — or,
+ * worse, a same-named file in an unrelated tree — and a terminal pane is the
+ * one place where "that is not the file I clicked" is unrecoverable.
+ *
+ * The roots are both null exactly when the workspace has no configured folder:
+ * `TerminalView` derives them from `folderReadyPath`/`savedFolderPath`, and its
+ * terminal effect deliberately runs for a folder-less workspace. Such an agent
+ * runs in the app's default path, which only main knows — the renderer has
+ * nothing to resolve against. Reading the agent's real cwd off the wire is
+ * [[terminal-osc7-cwd]]'s job, not a guess this function should make.
+ *
+ * Until then the drop is at least COUNTED: callers pass `onDrop` and the count
+ * reaches terminal diagnostics.
+ */
 export function resolveTerminalFileReferencePath(
   filePath: string,
   roots: { executionRoot?: string | null; workspaceRoot?: string | null }
@@ -121,7 +167,8 @@ export function resolveTerminalFileReferencePath(
 
 export function findTerminalFileReferences(
   lineText: string,
-  roots: { executionRoot?: string | null; workspaceRoot?: string | null }
+  roots: { executionRoot?: string | null; workspaceRoot?: string | null },
+  onDrop?: (drop: TerminalFileLinkDrop) => void
 ): TerminalFileReference[] {
   const references: TerminalFileReference[] = []
 
@@ -134,8 +181,20 @@ export function findTerminalFileReferences(
     if (!text || isRemoteOrShellReference(text)) continue
 
     const parsed = parseLineSuffix(text)
+    // A URL or a `~/…` path is a deliberate NON-match, not a drop: counting it
+    // would fire the diagnostic on every `https://…` an agent prints. Screened
+    // on `text` above and re-screened here on the suffix-stripped path, so the
+    // reason recorded below stays a fact about this branch rather than an
+    // argument about which prefixes `parseLineSuffix` can and cannot remove.
+    if (isRemoteOrShellReference(parsed.path)) continue
+
     const resolvedPath = resolveTerminalFileReferencePath(parsed.path, roots)
-    if (!resolvedPath) continue
+    if (!resolvedPath) {
+      // Only one way left to get here: a relative path with no root to hang it
+      // on. See the decision of record on `resolveTerminalFileReferencePath`.
+      onDrop?.({ reason: 'no-root', text })
+      continue
+    }
 
     references.push({
       text,
@@ -288,6 +347,7 @@ export function createTerminalFileLinkProvider({
   inspectPath,
   onActivate,
   onOpenError,
+  onDrop,
 }: TerminalFileLinkProviderOptions): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
@@ -297,7 +357,11 @@ export function createTerminalFileLinkProvider({
         return
       }
 
-      const references = findTerminalFileReferences(logicalLine.text, { executionRoot, workspaceRoot })
+      const references = findTerminalFileReferences(
+        logicalLine.text,
+        { executionRoot, workspaceRoot },
+        onDrop
+      )
       if (references.length === 0) {
         callback(undefined)
         return
@@ -305,7 +369,15 @@ export function createTerminalFileLinkProvider({
 
       const links: ILink[] = references.flatMap((reference) => {
         const range = rangeForTerminalFileReference(reference, logicalLine.segments)
-        if (!range) return []
+        if (!range) {
+          // Invariant tripwire, not an expected branch: `reference` was matched
+          // against `logicalLine.text`, which `logicalLine.segments` tile
+          // exactly, so every offset must map to a cell. Counted rather than
+          // ignored because the failure mode is a line that silently stops
+          // linkifying.
+          onDrop?.({ reason: 'no-range', text: reference.text })
+          return []
+        }
 
         return [{
           text: reference.text,
