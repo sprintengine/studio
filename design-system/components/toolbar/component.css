@@ -1,0 +1,93 @@
+/* Toolbar — a band of icon controls that acts on the region directly beneath
+ * it, and belongs to that region rather than to the pane around it.
+ *
+ * The Git panel's glyph band is what it was drawn for (mockup 2522): refresh,
+ * discard, move to changelist, stash, write commit message, show diff, group
+ * by, expand all, collapse all — the list's own header, sitting between the
+ * pane's tabs and the list's first row.
+ *
+ * It composes rather than restyles: every item is `button --icon` (26px square,
+ * borderless, 16px glyph, the shared focus ring). What this component owns is
+ * the BAND — its height, its rhythm, its hairline, and the divider that groups
+ * the items inside it.
+ *
+ * The count ceiling this band sits against is ruled in
+ * foundations/principles.md → "Quantified restraint" (amended 2026-09-09).
+ * Read that before adding a tenth item. */
+
+.ds-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding-inline: var(--sem-space-xs);
+  /* ONE hairline, at the bottom, and it is the band's whole separation: no
+   * fill, no shadow, no second rule above. A toolbar that painted its own
+   * ground would read as a second surface stacked on the pane. */
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+  background: transparent;
+}
+
+/* For a band that already sits under a hairline — directly beneath a tab strip
+ * or a panel header, which draw their own. Two rules 30px apart is a ladder,
+ * not a structure. */
+.ds-toolbar--borderless {
+  border-bottom: 0;
+}
+
+/* Pushes everything after it to the trailing end. A band with a leading and a
+ * trailing cluster uses this rather than `justify-content: space-between`,
+ * which would spread three clusters instead of two. */
+.ds-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────
+ * The system's first VERTICAL divider, and it earns being one: a band of
+ * identical 26px squares has no other way to say "these four are about the
+ * files, these three are about the view". A gap cannot — the items are already
+ * separated by one, and doubling it reads as a rendering accident.
+ *
+ * 16px, not the band's full 30px: a full-height rule would meet the hairline
+ * below and draw a corner, which is a table cell. It is a mark inside the band,
+ * not a wall across it.
+ *
+ * `border.default`, not `border.subtle`: this is the one thing in the band that
+ * has to be SEEN, and subtle is the tone of a structure a reader is meant to
+ * read past. Decorative — `aria-hidden`, never `<hr>` — because it separates
+ * nothing structurally; the groups it marks are one flat toolbar to a screen
+ * reader, which walks the items in order regardless. */
+.ds-toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: var(--sem-icon-size-sm);
+  margin-inline: var(--sem-space-2xs);
+  background: var(--sem-color-border-default);
+}
+
+/* ── Menu items ──────────────────────────────────────────────────────────
+ * An item that opens a menu rather than acting, marked the way IDEs mark
+ * it: a small filled corner in the bottom-right of the glyph's box. Not a
+ * chevron beside the glyph — that is a second mark on a 26px square, and it
+ * pushes the glyph off centre.
+ *
+ * The mark is drawn from two borders of a zero-size box, which is the one
+ * spelling of a triangle that needs no asset and no path.
+ *
+ * The mark is decoration; `aria-haspopup="menu"` on the button is what says
+ * so. */
+.ds-toolbar-item--menu {
+  position: relative;
+}
+
+.ds-toolbar-item--menu::after {
+  content: '';
+  position: absolute;
+  right: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  border: 2px solid transparent;
+  border-right-color: currentColor;
+  border-bottom-color: currentColor;
+  pointer-events: none;
+}

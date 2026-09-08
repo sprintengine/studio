@@ -653,6 +653,8 @@ code {
 #ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
 #ds-view-component-toast:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-toast:checked ~ .ds-catalog #component-toast { display: block; }
+#ds-view-component-toolbar:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-toolbar:checked ~ .ds-catalog #component-toolbar { display: block; }
 #ds-view-component-tooltip:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-tooltip:checked ~ .ds-catalog #component-tooltip { display: block; }
 #ds-view-component-trigger-button:checked ~ .ds-catalog #components { display: block; }
@@ -755,6 +757,8 @@ code {
 #ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-toast:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-toast"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-toast:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-toast"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-toolbar:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-toolbar"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-toolbar:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-toolbar"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-tooltip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-trigger-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-trigger-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -6987,6 +6991,101 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-status-danger);
 }
 
+/* components/toolbar/component.css */
+/* Toolbar — a band of icon controls that acts on the region directly beneath
+ * it, and belongs to that region rather than to the pane around it.
+ *
+ * The Git panel's glyph band is what it was drawn for (mockup 2522): refresh,
+ * discard, move to changelist, stash, write commit message, show diff, group
+ * by, expand all, collapse all — the list's own header, sitting between the
+ * pane's tabs and the list's first row.
+ *
+ * It composes rather than restyles: every item is `button --icon` (26px square,
+ * borderless, 16px glyph, the shared focus ring). What this component owns is
+ * the BAND — its height, its rhythm, its hairline, and the divider that groups
+ * the items inside it.
+ *
+ * The count ceiling this band sits against is ruled in
+ * foundations/principles.md → "Quantified restraint" (amended 2026-09-09).
+ * Read that before adding a tenth item. */
+
+.ds-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding-inline: var(--sem-space-xs);
+  /* ONE hairline, at the bottom, and it is the band's whole separation: no
+   * fill, no shadow, no second rule above. A toolbar that painted its own
+   * ground would read as a second surface stacked on the pane. */
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+  background: transparent;
+}
+
+/* For a band that already sits under a hairline — directly beneath a tab strip
+ * or a panel header, which draw their own. Two rules 30px apart is a ladder,
+ * not a structure. */
+.ds-toolbar--borderless {
+  border-bottom: 0;
+}
+
+/* Pushes everything after it to the trailing end. A band with a leading and a
+ * trailing cluster uses this rather than `justify-content: space-between`,
+ * which would spread three clusters instead of two. */
+.ds-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────
+ * The system's first VERTICAL divider, and it earns being one: a band of
+ * identical 26px squares has no other way to say "these four are about the
+ * files, these three are about the view". A gap cannot — the items are already
+ * separated by one, and doubling it reads as a rendering accident.
+ *
+ * 16px, not the band's full 30px: a full-height rule would meet the hairline
+ * below and draw a corner, which is a table cell. It is a mark inside the band,
+ * not a wall across it.
+ *
+ * `border.default`, not `border.subtle`: this is the one thing in the band that
+ * has to be SEEN, and subtle is the tone of a structure a reader is meant to
+ * read past. Decorative — `aria-hidden`, never `<hr>` — because it separates
+ * nothing structurally; the groups it marks are one flat toolbar to a screen
+ * reader, which walks the items in order regardless. */
+.ds-toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: var(--sem-icon-size-sm);
+  margin-inline: var(--sem-space-2xs);
+  background: var(--sem-color-border-default);
+}
+
+/* ── Menu items ──────────────────────────────────────────────────────────
+ * An item that opens a menu rather than acting, marked the way IDEs mark
+ * it: a small filled corner in the bottom-right of the glyph's box. Not a
+ * chevron beside the glyph — that is a second mark on a 26px square, and it
+ * pushes the glyph off centre.
+ *
+ * The mark is drawn from two borders of a zero-size box, which is the one
+ * spelling of a triangle that needs no asset and no path.
+ *
+ * The mark is decoration; `aria-haspopup="menu"` on the button is what says
+ * so. */
+.ds-toolbar-item--menu {
+  position: relative;
+}
+
+.ds-toolbar-item--menu::after {
+  content: '';
+  position: absolute;
+  right: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  border: 2px solid transparent;
+  border-right-color: currentColor;
+  border-bottom-color: currentColor;
+  pointer-events: none;
+}
+
 /* components/tooltip/component.css */
 /* Tooltip — the trigger-anchored description for a value the surface itself
  * cannot show: a title truncated to one line, an icon-only control's name, a
@@ -9143,6 +9242,36 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     position: static;
     pointer-events: auto;
   }
+.ds-embed-component-toolbar {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-toolbar .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-toolbar .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-toolbar .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-toolbar .demo-pane {
+    max-width: 380px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+.ds-embed-component-toolbar .demo-row {
+    margin: 0;
+    padding: var(--sem-space-3xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
 .ds-embed-component-tooltip {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -9998,6 +10127,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tabs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toast" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toolbar" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-trigger-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-truncated-text" />
@@ -10069,6 +10199,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-tabs">Tabs</label>
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
 <label class="catalog-nav-item" for="ds-view-component-toast">Toast</label>
+<label class="catalog-nav-item" for="ds-view-component-toolbar">Toolbar</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-item" for="ds-view-component-trigger-button">Trigger button</label>
 <label class="catalog-nav-item" for="ds-view-component-truncated-text">Truncated text</label>
@@ -10361,7 +10492,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Selection is neutral.</strong> A selected row uses <code>bg.selected</code> — a neutral fill — and lifts its title to <code>text.primary</code>. It does not use the accent, and it does not carry a left bar, a border box, or a glow. A row that is merely *chosen* must never outrank the one action worth taking. The Backlog rows' epic-colour left bar was retired on 2026-09-02 under this rule: the <code>EpicColorDot</code> carries epic identity, and the skeleton no longer reserves the bar.</p>
 <h4>Quantified restraint</h4>
 <p>Ceilings, not guidelines. Exceeding one signals missing hierarchy; when a view exceeds one, model the domain again rather than adding chrome.</p>
-<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 | | Visual elements per repeated row at rest | 4 | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 — but see the amendment below | | Visual elements per repeated row at rest | 4 | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<p><strong>The five-controls ceiling counts PANE CHROME, not a region's own header</strong> (amended 2026-09-09, owner's ruling, mockup 2522). The Git panel's glyph band carries nine: refresh, discard, move to changelist, stash, write commit message, show diff | group by, expand all, collapse all. The owner accepted this arrangement because the band belongs to one region rather than the pane.</p>
+<p>The ceiling exists because chrome stacked above a region pushes the content down and makes a person read a row of unrelated affordances before reaching what they came for. That is a statement about <strong>pane</strong> chrome — a strip that belongs to the window, sits above everything in it, and would be there whatever the pane were showing. A band that belongs to ONE region, acts only on that region, and would disappear with it is that region's own header, and it counts against the region rather than against the pane. The nine here are nine verbs about the changes list and nothing else: hide the list and every one of them is meaningless.</p>
+<p>Two conditions, and both are load-bearing:</p>
+<p>1. <strong>Every control acts on the region beneath it.</strong> One item that opens a pane-level or app-level surface makes the band pane chrome again, and the ceiling of five applies to the whole thing. 2. <strong>The band is grouped, not enumerated.</strong> Nine identical squares in a row is a search problem; the divider (<code>components/toolbar</code>) is what turns it into &quot;six about the files, three about the view&quot;, and a band that needs a third group probably needs an overflow menu instead.</p>
+<p>What is unchanged: <strong>two stacked bands of chrome above one region is still a reject on sight.</strong> The Git panel draws the pane's tabs and then this band, and the ruling is that the second of the two is not chrome — not that a pane may have two chrome strips. The conformant fallback, if that argument is ever rejected, is five glyphs plus one overflow kebab.</p>
 <h4>Selection and focus</h4>
 <p>Selection answers &quot;what did I pick?&quot;. Focus answers &quot;where am I typing?&quot;. A <strong>cursor</strong> answers a third question — &quot;which row would Enter act on?&quot; — in a list that is one tab stop and walks with <code>aria-activedescendant</code> rather than moving DOM focus. Three questions, three treatments, never shared.</p>
 <ul><li><strong>Focused selection</strong> — <code>bg.selected</code>, title at <code>text.primary</code>. The list the user is driving right now.</li><li><strong>Resting selection</strong> — <code>bg.selected-resting</code>, title at <code>text.default</code>. Every other pane's selection: it remembers the choice without competing.</li><li><strong>A multi-pane surface has exactly one focused selection.</strong> In a rail → list → detail layout, two of the three panes are always resting. Three panes rendering a full-strength selection at once is the defect this rule exists to prevent.</li><li><strong>Focus</strong> is <code>focus.ring</code> — a 2px <code>border.focus</code> <strong>outline at <code>focus.ring-offset</code></strong> — on <code>:focus-visible</code>, and it is the product's only focus indicator. Never on <code>:focus</code>: a mouse click must not draw it. Never suppressed, and never at a zero offset. The offset exists because <code>border.focus</code> and <code>accent.primary</code> are the same value: drawn tight against an accent-filled control the indicator has nothing to contrast with, and focused renders identically to unfocused. An <strong>outline</strong>, not an offset ring — the gap is transparent and shows whatever surface is actually behind, where <code>ring-offset-color</code> has to be told that background and gets it wrong the moment the control changes surface. A control that clips its own overflow (the halves of a split button) uses a negative <code>focus.ring-offset</code> rather than a second treatment.</li><li><strong>Hover</strong> is a background change to <code>bg.hover</code>. No shadow, no scale, no glow, no border appearing on hover and shifting the layout.</li><li><strong>The cursor</strong> is a 2px mark in the row's leading gutter, <code>text.primary</code>, inset from the row's top and bottom edges. It is deliberately neither a fill nor an outline: it has to compose on top of a selected row, a hovered row and a plain one, and both of those channels are already spoken for. It is not the accent either — <code>border.focus</code> and <code>accent.primary</code> are the same value in all but one theme, so an accent bar in the gutter reads as focus. Added 2026-09-02, when a conformance sweep replaced two lists' cursors with <code>bg.hover</code> and made them invisible on the rows a person had already picked. A list that moves real DOM focus with its cursor does not need this: there the focus ring is the mark, and one idiom is better than two.</li></ul>
@@ -31904,6 +32040,421 @@ for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')
   button.addEventListener('click', () =&gt; button.closest('.ds-toast').remove())
 }
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-toolbar" class="catalog-view catalog-component">
+<h3>Toolbar</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-toolbar">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the Git panel band as the owner accepted it (mockup 2522): six controls on the files, a divider, three on the view. The sixth opens a menu, and says so with the corner mark.</p>
+  <div class="demo-pane">
+    <div class="ds-toolbar" role="toolbar" aria-label="Changed files">
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Refresh">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.6V5.4h-2.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Discard changes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7M3 2.6V5.4h2.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Move to another changelist">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.4 4.2h4l1.2 1.4h6v6.2h-11.2z" stroke-width="1.2" stroke-linejoin="round" /><path d="M6.6 8.6h4.2M9.2 7l1.8 1.6-1.8 1.6" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Stash changes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.4 9.2h11.2v3.4H2.4z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4 6.6h8M5.4 4h5.2" stroke-width="1.2" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Write commit message">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.4h10.8v7.2H7.4L4.6 13v-2.4H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M5 6.2h6M5 8.2h4" stroke-width="1.2" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="Show diff" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-divider" aria-hidden="true"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="Group by" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 4.2h10M5 8h8M7 11.8h6" stroke-width="1.3" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Expand all">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Collapse all">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+    </div>
+    <p class="demo-row">app-services.ts</p>
+    <p class="demo-row">arrivals.ts</p>
+    <p class="demo-row">component.css</p>
+  </div>
+
+  <p class="demo-label demo-label--second">--borderless, with a trailing cluster: a band already sitting under a header's own hairline.</p>
+  <div class="demo-pane">
+    <div class="ds-toolbar ds-toolbar--borderless" role="toolbar" aria-label="Diff">
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Previous difference">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Next difference">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-divider" aria-hidden="true"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Open in editor">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-spacer"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="View options" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 4.2h10M5 8h8M7 11.8h6" stroke-width="1.3" stroke-linecap="round" /></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same band from the same tokens.</p>
+  <div class="demo-pane">
+    <div class="ds-toolbar" role="toolbar" aria-label="Changed files">
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Refresh">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.6V5.4h-2.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Discard changes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7M3 2.6V5.4h2.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Move to another changelist">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.4 4.2h4l1.2 1.4h6v6.2h-11.2z" stroke-width="1.2" stroke-linejoin="round" /><path d="M6.6 8.6h4.2M9.2 7l1.8 1.6-1.8 1.6" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Stash changes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.4 9.2h11.2v3.4H2.4z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4 6.6h8M5.4 4h5.2" stroke-width="1.2" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Write commit message">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.4h10.8v7.2H7.4L4.6 13v-2.4H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M5 6.2h6M5 8.2h4" stroke-width="1.2" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="Show diff" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-divider" aria-hidden="true"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="Group by" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 4.2h10M5 8h8M7 11.8h6" stroke-width="1.3" stroke-linecap="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Expand all">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Collapse all">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+    </div>
+    <p class="demo-row">app-services.ts</p>
+    <p class="demo-row">arrivals.ts</p>
+    <p class="demo-row">component.css</p>
+  </div>
+
+  <p class="demo-label demo-label--second">--borderless, with a trailing cluster: a band already sitting under a header's own hairline.</p>
+  <div class="demo-pane">
+    <div class="ds-toolbar ds-toolbar--borderless" role="toolbar" aria-label="Diff">
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Previous difference">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Next difference">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-divider" aria-hidden="true"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item" aria-label="Open in editor">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg>
+      </button>
+      <span class="ds-toolbar-spacer"></span>
+      <button type="button" class="ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu" aria-label="View options" aria-haspopup="menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 4.2h10M5 8h8M7 11.8h6" stroke-width="1.3" stroke-linecap="round" /></svg>
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>A band of icon controls that acts on the region directly beneath it, and belongs to that region rather than to the pane around it.</p>
+<p>The Git panel's glyph band is what it was drawn for (mockup 2522): refresh, discard, move to changelist, stash, write commit message, show diff | group by, expand all, collapse all — sitting between the pane's tabs and the changes list's first row.</p>
+<p>It <strong>composes rather than restyles</strong>. Every item is [button](../button/component.md) <code>--icon</code>: a 26px square, borderless, a 16px glyph, the shared focus ring, an accessible name. What this component owns is the *band* — its height, its rhythm, its one hairline, and the divider that groups the items inside it.</p>
+<h4>The ruling this entry carries</h4>
+<p><code>principles.md</code> caps <strong>controls above the first content row of a panel at five</strong>, and this band has nine. That is not an exception this component grants itself; it is an amendment to the ceiling, dated 2026-09-09 and recorded beside the ceiling itself, and it is worth reading before adding a tenth item.</p>
+<p><strong>The ceiling counts pane chrome, not a region's own header.</strong> It exists because chrome stacked above a region pushes the content down and makes a person read a row of unrelated affordances before reaching what they came for — which is a statement about a strip that belongs to the *window* and would be there whatever the pane were showing. A band that belongs to <strong>one</strong> region, acts only on that region, and would disappear with it is that region's own header. The nine here are nine verbs about the changes list and nothing else: hide the list and every one of them is meaningless.</p>
+<p>Two conditions, both load-bearing:</p>
+<p>1. <strong>Every control acts on the region beneath it.</strong> One item that opens a pane-level or app-level surface makes the band pane chrome again, and the ceiling of five applies to the whole thing. 2. <strong>The band is grouped, not enumerated.</strong> Nine identical squares in a row is a search problem; the divider is what turns it into &quot;six about the files, three about the view&quot;. A band that needs a *third* group probably needs an overflow menu instead.</p>
+<p>Unchanged: two stacked bands of chrome above one region is still a reject on sight. The ruling is that this band is not chrome — not that a pane may have two chrome strips.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Band | <code>.ds-toolbar</code> | yes — <code>role=&quot;toolbar&quot;</code> with an <code>aria-label</code> naming what it acts on | | Item | <code>.ds-button.ds-button--icon</code> | yes — the button component's icon variant, unchanged | | Menu item | <code>.ds-toolbar-item--menu</code> | no — an item that opens a menu rather than acting | | Divider | <code>.ds-toolbar-divider</code> | no — the system's first vertical divider, <code>aria-hidden</code> | | Spacer | <code>.ds-toolbar-spacer</code> | no — pushes what follows to the trailing end |</p>
+<p>Geometry: <code>size.control.sm</code> (30px) tall, <code>space.3xs</code> between items, <code>space.xs</code> of inline padding, and one <code>border.subtle</code> hairline along the bottom.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — the bottom hairline. The band's whole separation: no fill, no shadow, no second rule above it. A toolbar that painted its own ground would read as a second surface stacked on the pane.</li><li><strong><code>--borderless</code></strong> — for a band that already sits under a hairline (directly beneath a tab strip or a <code>panel-header</code>, which draw their own). Two rules 30px apart is a ladder, not a structure.</li></ul>
+<h4>The vertical divider</h4>
+<p>The system's <strong>first</strong> vertical divider, and it earns being one: a band of identical 26px squares has no other way to say &quot;these six are about the files, these three are about the view&quot;. A gap cannot — the items are already separated by one, and doubling it reads as a rendering accident rather than a boundary.</p>
+<p>Three decisions in it:</p>
+<ul><li><strong>16px, not the band's full 30px.</strong> A full-height rule meets the hairline below it and draws a corner, which is a table cell. This is a mark *inside* the band, not a wall across it.</li><li><strong><code>border.default</code>, not <code>border.subtle</code>.</strong> It is the one thing in the band that has to be seen; <code>subtle</code> is the tone of a structure a reader is meant to read past.</li><li><strong>Decorative.</strong> A <code>&lt;span aria-hidden=&quot;true&quot;&gt;</code>, never an <code>&lt;hr&gt;</code> or a <code>role=&quot;separator&quot;</code>. It separates nothing structurally: to a screen reader the band is one flat toolbar walked in order, and announcing a separator between item six and item seven describes a picture rather than a structure.</li></ul>
+<p>Do not use it as a general-purpose vertical rule elsewhere. Everywhere else in the system, separation is space or a horizontal hairline.</p>
+<h4>Menu items</h4>
+<p>An item that opens a menu rather than acting carries <strong>a small filled corner in the bottom-right of the glyph's box</strong>. Not a chevron beside the glyph — that is a second mark on a 26px square, and it pushes the glyph off centre.</p>
+<p>The mark is decoration. <code>aria-haspopup=&quot;menu&quot;</code> on the button is what says the item opens something, and <code>aria-expanded</code> says whether it is open.</p>
+<h4>States</h4>
+<p>Every state is the button component's, unchanged: <code>bg.hover</code> and an ink lift on hover, the shared focus ring on <code>:focus-visible</code>, <code>opacity</code> and <code>not-allowed</code> when disabled. This entry adds none of its own, deliberately — a toolbar item that hovered differently from a button would be a second button.</p>
+<p><strong>A disabled item stays in the band.</strong> Which actions *exist* is information even when one is unavailable, and removing it reflows the band under the pointer that is reaching for its neighbour.</p>
+<h4>Usage</h4>
+<ul><li><strong>The band's <code>aria-label</code> names the region, not the band</strong>: &quot;Changed files&quot;, not &quot;Toolbar&quot;. A window with three toolbars must not present three landmarks called Toolbar.</li><li><strong>Every item carries an <code>aria-label</code>.</strong> An icon-only control with no name is a blank button — the one thing this shape can get wrong.</li><li><strong>Tooltips, not native <code>title</code>.</strong> Attach the <code>tooltip</code> component; a native <code>title</code> on a control is slow, ungoverned and unreachable by keyboard.</li><li><strong>Order is leading cluster, divider, trailing cluster.</strong> Where a band has a leading and a trailing group with space between, use <code>.ds-toolbar-spacer</code> rather than <code>justify-content: space-between</code>, which spreads three clusters when there are three.</li><li>Do not put a labelled button, an input, or a select in this band. A control with words in it is a different height, a different rhythm, and the start of a form.</li></ul>
+<h4>Accessibility</h4>
+<ul><li><code>role=&quot;toolbar&quot;</code> on the band with a required <code>aria-label</code>.</li><li><strong>The band is ONE tab stop, and arrow keys walk it.</strong> That is what <code>role=&quot;toolbar&quot;</code> promises: Left/Right (Home/End to the ends) move focus between items, exactly one item carries <code>tabindex=&quot;0&quot;</code>, and Tab leaves the band. Nine separate tab stops between the tabs and the first file is the cost this role exists to remove.</li><li>Disabled items keep their place in the walk when they carry <code>aria-disabled</code>; use the <code>disabled</code> attribute only where the reason needs no explanation.</li><li>The divider is <code>aria-hidden</code>, and the corner menu mark is drawn in CSS, so neither is announced.</li><li>Glyphs inside items are <code>aria-hidden</code>; the button's <code>aria-label</code> is the name.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/Toolbar.tsx</code>, exporting <code>Toolbar</code>, <code>ToolbarButton</code>, <code>ToolbarDivider</code> and <code>ToolbarSpacer</code>.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/toolbar/component.css</summary><pre><code>/* Toolbar — a band of icon controls that acts on the region directly beneath
+ * it, and belongs to that region rather than to the pane around it.
+ *
+ * The Git panel's glyph band is what it was drawn for (mockup 2522): refresh,
+ * discard, move to changelist, stash, write commit message, show diff, group
+ * by, expand all, collapse all — the list's own header, sitting between the
+ * pane's tabs and the list's first row.
+ *
+ * It composes rather than restyles: every item is `button --icon` (26px square,
+ * borderless, 16px glyph, the shared focus ring). What this component owns is
+ * the BAND — its height, its rhythm, its hairline, and the divider that groups
+ * the items inside it.
+ *
+ * The count ceiling this band sits against is ruled in
+ * foundations/principles.md → &quot;Quantified restraint&quot; (amended 2026-09-09).
+ * Read that before adding a tenth item. */
+
+.ds-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding-inline: var(--sem-space-xs);
+  /* ONE hairline, at the bottom, and it is the band's whole separation: no
+   * fill, no shadow, no second rule above. A toolbar that painted its own
+   * ground would read as a second surface stacked on the pane. */
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+  background: transparent;
+}
+
+/* For a band that already sits under a hairline — directly beneath a tab strip
+ * or a panel header, which draw their own. Two rules 30px apart is a ladder,
+ * not a structure. */
+.ds-toolbar--borderless {
+  border-bottom: 0;
+}
+
+/* Pushes everything after it to the trailing end. A band with a leading and a
+ * trailing cluster uses this rather than `justify-content: space-between`,
+ * which would spread three clusters instead of two. */
+.ds-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────
+ * The system's first VERTICAL divider, and it earns being one: a band of
+ * identical 26px squares has no other way to say &quot;these four are about the
+ * files, these three are about the view&quot;. A gap cannot — the items are already
+ * separated by one, and doubling it reads as a rendering accident.
+ *
+ * 16px, not the band's full 30px: a full-height rule would meet the hairline
+ * below and draw a corner, which is a table cell. It is a mark inside the band,
+ * not a wall across it.
+ *
+ * `border.default`, not `border.subtle`: this is the one thing in the band that
+ * has to be SEEN, and subtle is the tone of a structure a reader is meant to
+ * read past. Decorative — `aria-hidden`, never `&lt;hr&gt;` — because it separates
+ * nothing structurally; the groups it marks are one flat toolbar to a screen
+ * reader, which walks the items in order regardless. */
+.ds-toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: var(--sem-icon-size-sm);
+  margin-inline: var(--sem-space-2xs);
+  background: var(--sem-color-border-default);
+}
+
+/* ── Menu items ──────────────────────────────────────────────────────────
+ * An item that opens a menu rather than acting, marked the way IDEs mark
+ * it: a small filled corner in the bottom-right of the glyph's box. Not a
+ * chevron beside the glyph — that is a second mark on a 26px square, and it
+ * pushes the glyph off centre.
+ *
+ * The mark is drawn from two borders of a zero-size box, which is the one
+ * spelling of a triangle that needs no asset and no path.
+ *
+ * The mark is decoration; `aria-haspopup=&quot;menu&quot;` on the button is what says
+ * so. */
+.ds-toolbar-item--menu {
+  position: relative;
+}
+
+.ds-toolbar-item--menu::after {
+  content: '';
+  position: absolute;
+  right: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  border: 2px solid transparent;
+  border-right-color: currentColor;
+  border-bottom-color: currentColor;
+  pointer-events: none;
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/toolbar/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Toolbar&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-pane {
+    max-width: 380px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  /* Stand-in rows, so the band has a region to be the header of. */
+  .demo-row {
+    margin: 0;
+    padding: var(--sem-space-3xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the Git panel band as the owner accepted it (mockup 2522): six controls on the files, a divider, three on the view. The sixth opens a menu, and says so with the corner mark.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;ds-toolbar&quot; role=&quot;toolbar&quot; aria-label=&quot;Changed files&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Refresh&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M13 8a5 5 0 1 1-1.6-3.7M13 2.6V5.4h-2.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Discard changes&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8a5 5 0 1 0 1.6-3.7M3 2.6V5.4h2.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Move to another changelist&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.4 4.2h4l1.2 1.4h6v6.2h-11.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M6.6 8.6h4.2M9.2 7l1.8 1.6-1.8 1.6&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Stash changes&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.4 9.2h11.2v3.4H2.4z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M4 6.6h8M5.4 4h5.2&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Write commit message&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.4h10.8v7.2H7.4L4.6 13v-2.4H2.6z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M5 6.2h6M5 8.2h4&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;Show diff&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-divider&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;Group by&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 4.2h10M5 8h8M7 11.8h6&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Expand all&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Collapse all&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;app-services.ts&lt;/p&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;arrivals.ts&lt;/p&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;component.css&lt;/p&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;--borderless, with a trailing cluster: a band already sitting under a header's own hairline.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;ds-toolbar ds-toolbar--borderless&quot; role=&quot;toolbar&quot; aria-label=&quot;Diff&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Previous difference&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Next difference&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-divider&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Open in editor&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-spacer&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;View options&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 4.2h10M5 8h8M7 11.8h6&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same band from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;ds-toolbar&quot; role=&quot;toolbar&quot; aria-label=&quot;Changed files&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Refresh&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M13 8a5 5 0 1 1-1.6-3.7M13 2.6V5.4h-2.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Discard changes&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8a5 5 0 1 0 1.6-3.7M3 2.6V5.4h2.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Move to another changelist&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.4 4.2h4l1.2 1.4h6v6.2h-11.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M6.6 8.6h4.2M9.2 7l1.8 1.6-1.8 1.6&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Stash changes&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.4 9.2h11.2v3.4H2.4z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M4 6.6h8M5.4 4h5.2&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Write commit message&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 3.4h10.8v7.2H7.4L4.6 13v-2.4H2.6z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;path d=&quot;M5 6.2h6M5 8.2h4&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;Show diff&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-divider&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;Group by&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 4.2h10M5 8h8M7 11.8h6&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Expand all&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Collapse all&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;app-services.ts&lt;/p&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;arrivals.ts&lt;/p&gt;
+    &lt;p class=&quot;demo-row&quot;&gt;component.css&lt;/p&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;--borderless, with a trailing cluster: a band already sitting under a header's own hairline.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;ds-toolbar ds-toolbar--borderless&quot; role=&quot;toolbar&quot; aria-label=&quot;Diff&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Previous difference&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 3v10M4.4 6.2 8 2.8l3.6 3.4M4.4 9.8 8 13.2l3.6-3.4&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Next difference&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 8h10M6.2 4.4 8 6.2l1.8-1.8M6.2 11.6 8 9.8l1.8 1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-divider&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item&quot; aria-label=&quot;Open in editor&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.6 2.8h4.2v10.4H2.6zM9.2 2.8h4.2v10.4H9.2z&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+      &lt;span class=&quot;ds-toolbar-spacer&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-toolbar-item ds-toolbar-item--menu&quot; aria-label=&quot;View options&quot; aria-haspopup=&quot;menu&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3 4.2h10M5 8h8M7 11.8h6&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

@@ -136,10 +136,42 @@ exceeds one, model the domain again rather than adding chrome.
 | Font weights per view | 3 |
 | Font sizes per view | 3, repeating title / body / meta |
 | Border radii per view | 2 |
-| Controls above the first content row of a panel | 5 |
+| Controls above the first content row of a panel | 5 — but see the amendment below |
 | Visual elements per repeated row at rest | 4 |
 | Trailing actions a row may reveal on hover | 2 |
 | Motion treatments animating at any moment | 1 |
+
+**The five-controls ceiling counts PANE CHROME, not a region's own header**
+(amended 2026-09-09, owner's ruling, mockup 2522). The Git panel's glyph band
+carries nine: refresh, discard, move to changelist, stash, write commit
+message, show diff | group by, expand all, collapse all. The owner accepted
+this arrangement because the band belongs to one region rather than the pane.
+
+The ceiling exists because chrome stacked above a region pushes the content
+down and makes a person read a row of unrelated affordances before reaching
+what they came for. That is a statement about **pane** chrome — a strip that
+belongs to the window, sits above everything in it, and would be there whatever
+the pane were showing. A band that belongs to ONE region, acts only on that
+region, and would disappear with it is that region's own header, and it counts
+against the region rather than against the pane. The nine here are nine verbs
+about the changes list and nothing else: hide the list and every one of them is
+meaningless.
+
+Two conditions, and both are load-bearing:
+
+1. **Every control acts on the region beneath it.** One item that opens a
+   pane-level or app-level surface makes the band pane chrome again, and the
+   ceiling of five applies to the whole thing.
+2. **The band is grouped, not enumerated.** Nine identical squares in a row is
+   a search problem; the divider (`components/toolbar`) is what turns it into
+   "six about the files, three about the view", and a band that needs a third
+   group probably needs an overflow menu instead.
+
+What is unchanged: **two stacked bands of chrome above one region is still a
+reject on sight.** The Git panel draws the pane's tabs and then this band, and
+the ruling is that the second of the two is not chrome — not that a pane may
+have two chrome strips. The conformant fallback, if that argument is ever
+rejected, is five glyphs plus one overflow kebab.
 
 ## Selection and focus
 
